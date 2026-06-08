@@ -52,6 +52,10 @@ class SimulatedResource:
             return SIMULATED_IDN[self.resource_name]
         if command == "SYST:ERR?":
             return '0,"No error"'
+        if command == "MEAS:VOLT?":
+            return "1.000"
+        if command == "MEAS:CURR?":
+            return "0.050"
         raise VisaConnectionError(f"No simulated response for {command!r}")
 
     def close(self) -> None:

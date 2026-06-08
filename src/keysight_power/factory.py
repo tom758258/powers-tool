@@ -1,0 +1,58 @@
+"""Driver selection and construction."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from keysight_power.drivers.generic_scpi import ChannelStrategy, GenericScpiPowerSupply
+from keysight_power.models import IdnInfo, ModelInfo, lookup_model, parse_idn
+from keysight_power.safety import SafetyLimits
+from keysight_power.transport import SessionLike
+
+
+@dataclass(frozen=True)
+class DriverSelection:
+    """Result of selecting a driver for a parsed IDN response."""
+
+    idn: IdnInfo
+    model_info: ModelInfo | None
+    driver_class: type[GenericScpiPowerSupply]
+    reason: str
+
+
+def select_driver(idn: str | IdnInfo) -> DriverSelection:
+    """Select the safest available driver for an IDN response."""
+
+    parsed_idn = parse_idn(idn) if isinstance(idn, str) else idn
+    model_info = lookup_model(parsed_idn.model) if parsed_idn.parse_ok else None
+
+    if not parsed_idn.parse_ok:
+        reason = "malformed_idn_generic_fallback"
+    elif model_info is None:
+        reason = "unknown_model_generic_fallback"
+    else:
+        reason = "known_model_generic_fallback"
+
+    return DriverSelection(
+        idn=parsed_idn,
+        model_info=model_info,
+        driver_class=GenericScpiPowerSupply,
+        reason=reason,
+    )
+
+
+def create_power_supply(
+    session: SessionLike,
+    idn: str | IdnInfo,
+    *,
+    channel_strategy: ChannelStrategy | None = None,
+    safety_limits: SafetyLimits | None = None,
+) -> GenericScpiPowerSupply:
+    """Create a power-supply driver around an already-opened session."""
+
+    selection = select_driver(idn)
+    return selection.driver_class(
+        session,
+        channel_strategy=channel_strategy,
+        safety_limits=safety_limits,
+    )

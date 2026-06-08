@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Protocol
 
 from keysight_power.drivers.base import Channel
+from keysight_power.safety import SafetyLimits, validate_setpoint
 from keysight_power.transport import SessionLike
 
 
@@ -65,9 +65,11 @@ class GenericScpiPowerSupply:
         session: SessionLike,
         *,
         channel_strategy: ChannelStrategy | None = None,
+        safety_limits: SafetyLimits | None = None,
     ) -> None:
         self._session = session
         self._channel_strategy = channel_strategy or NoChannelStrategy()
+        self._safety_limits = safety_limits
 
     def __enter__(self) -> "GenericScpiPowerSupply":
         return self
@@ -76,11 +78,11 @@ class GenericScpiPowerSupply:
         self.close()
 
     def set_voltage(self, *, channel: Channel = None, voltage: float) -> None:
-        _validate_non_negative_finite("voltage", voltage)
+        validate_setpoint(channel=channel, voltage=voltage, limits=self._safety_limits)
         self._write(f"VOLT {_format_number(voltage)}", channel=channel)
 
     def set_current_limit(self, *, channel: Channel = None, current: float) -> None:
-        _validate_non_negative_finite("current", current)
+        validate_setpoint(channel=channel, current=current, limits=self._safety_limits)
         self._write(f"CURR {_format_number(current)}", channel=channel)
 
     def output_on(self, *, channel: Channel = None) -> None:
@@ -137,13 +139,6 @@ def _required_channel_name(channel: Channel) -> str:
 
 def _command_has_parameter(command: str) -> bool:
     return " " in command.strip()
-
-
-def _validate_non_negative_finite(name: str, value: float) -> None:
-    if not math.isfinite(value):
-        raise ValueError(f"{name} must be finite")
-    if value < 0:
-        raise ValueError(f"{name} must be non-negative")
 
 
 def _format_number(value: float) -> str:

@@ -7,6 +7,7 @@ from keysight_power.drivers.generic_scpi import (
     GenericScpiPowerSupply,
     PreselectChannelStrategy,
 )
+from keysight_power.safety import SafetyLimits, SafetyValidationError
 
 
 class FakeSession:
@@ -139,12 +140,37 @@ def test_channel_strategies_require_valid_channels() -> None:
 
 
 def test_programmed_values_must_be_non_negative_and_finite() -> None:
-    power_supply = GenericScpiPowerSupply(FakeSession())
+    session = FakeSession()
+    power_supply = GenericScpiPowerSupply(session)
 
     with pytest.raises(ValueError, match="voltage must be non-negative"):
         power_supply.set_voltage(voltage=-1.0)
     with pytest.raises(ValueError, match="current must be finite"):
         power_supply.set_current_limit(current=math.inf)
+
+    assert session.commands == []
+
+
+def test_safety_limits_block_programming_before_scpi_command() -> None:
+    session = FakeSession()
+    power_supply = GenericScpiPowerSupply(
+        session,
+        channel_strategy=ChannelListStrategy(),
+        safety_limits=SafetyLimits(
+            max_voltage=5.0,
+            max_current=0.5,
+            allowed_channels=(1,),
+        ),
+    )
+
+    with pytest.raises(SafetyValidationError, match="channel 2 is not allowed"):
+        power_supply.set_voltage(channel=2, voltage=1.0)
+    with pytest.raises(SafetyValidationError, match="voltage 6 exceeds maximum 5"):
+        power_supply.set_voltage(channel=1, voltage=6.0)
+    with pytest.raises(SafetyValidationError, match="current 0.6 exceeds maximum 0.5"):
+        power_supply.set_current_limit(channel=1, current=0.6)
+
+    assert session.commands == []
 
 
 def test_measurement_parse_failures_are_explicit() -> None:

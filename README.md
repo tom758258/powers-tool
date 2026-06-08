@@ -52,9 +52,73 @@ Add `--log-scpi` to print the SCPI command log for manual hardware checks:
 .\.venv\Scripts\python.exe -m keysight_power.cli verify --resource "USB0::...::INSTR" --log-scpi
 ```
 
+Clear instrument status and the error queue with `*CLS`:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli clear --resource "USB0::...::INSTR" --log-scpi
+```
+
+Use `--dry-run` to preview the `*CLS` command without opening VISA:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli clear --dry-run --json --resource "USB0::SIM::E36103B::INSTR"
+```
+
+Read the instrument error queue without changing output state:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli error --resource "USB0::...::INSTR" --max-reads 20 --log-scpi
+```
+
+Measure voltage and current for the generic no-channel driver path. Only
+`--channel 1` is accepted until model-specific channel SCPI is validated:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli measure --resource "USB0::...::INSTR" --channel 1 --log-scpi
+```
+
 Add `--json` to supported CLI commands for the stable machine-readable v1
 contract. The contract is documented in `docs/cli-json-contract.md`; diagnostic
 logs such as `--log-scpi` remain on stderr so JSON stdout stays parseable.
+
+Preview output-affecting commands with no hardware writes:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli set --dry-run --json --resource "USB0::SIM::E36103B::INSTR" --channel 1 --voltage 1 --current 0.05
+```
+
+Add an explicit safety config to apply local global limits to output plans:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli set --dry-run --json --safety-config examples\safety-config.toml --resource "USB0::SIM::E36103B::INSTR" --channel 1 --voltage 1 --current 0.05
+```
+
+The config is never auto-discovered from the current directory. It is used only
+when `--safety-config PATH` is passed to `set`, `output-on`, `output-off`, or
+`safe-off`. `--resource-alias ALIAS` is mutually exclusive with `--resource`
+and requires the explicit safety config path.
+
+```toml
+[safety]
+max_voltage = 5.0
+max_current = 0.5
+allowed_channels = [1, 2, 3]
+
+[[resources]]
+alias = "sim-e36103b"
+resource = "USB0::SIM::E36103B::INSTR"
+max_voltage = 3.3
+max_current = 0.1
+allowed_channels = [1]
+```
+
+Resource-specific fields override global `[safety]` fields one by one. A raw
+`--resource` that matches a `[[resources]].resource` entry also receives that
+entry's resource-specific limits; otherwise the global `[safety]` limits apply.
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli set --dry-run --json --safety-config examples\safety-config.toml --resource-alias sim-e36103b --channel 1 --voltage 1 --current 0.05
+```
 
 The early standalone examples provide the same passive discovery and identity
 query behavior:
@@ -70,6 +134,12 @@ query behavior:
 ## Safety Defaults
 
 - Output-affecting behavior must be explicit.
+- Real output execution is still disabled; use `--dry-run` or `--simulate` for
+  output-affecting CLI commands.
+- Real `clear`, `error`, and `measure` are safe I/O commands: `clear` sends
+  `*CLS` and clears status/error state, while `error` and `measure` only query.
+- `--safety-config` is explicit only and applies local plan validation limits;
+  it does not enable real hardware output.
 - Real VISA resources must not be hard-coded in committed files.
 - Hardware tests must require a user-provided resource.
 - Examples that enable output must set current limit before voltage and turn
