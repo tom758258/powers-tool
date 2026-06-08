@@ -372,7 +372,12 @@ def test_list_resources_simulate_does_not_create_real_resource_manager(monkeypat
     assert cli.main(["list-resources", "--simulate"]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == "USB0::SIM::E36103B::INSTR\nTCPIP0::SIM::E36232A::INSTR\n"
+    assert captured.out == (
+        "USB0::SIM::E36103B::INSTR\n"
+        "TCPIP0::SIM::E36232A::INSTR\n"
+        "USB0::SIM::E36312A::INSTR\n"
+        "USB0::SIM::EDU36311A::INSTR\n"
+    )
     assert captured.err == ""
 
 
@@ -414,13 +419,26 @@ def test_list_resources_simulate_live_only_json_logs_scpi_to_stderr(monkeypatch,
             reachable=True,
             idn="KEYSIGHT,E36232A,SIM000002,1.0",
         ),
+        expected_resource(
+            "USB0::SIM::E36312A::INSTR",
+            simulated=True,
+            reachable=True,
+            idn="KEYSIGHT,E36312A,SIM000003,1.0",
+        ),
+        expected_resource(
+            "USB0::SIM::EDU36311A::INSTR",
+            simulated=True,
+            reachable=True,
+            idn="KEYSIGHT,EDU36311A,SIM000004,1.0",
+        ),
     ]
-    assert payload["data"]["count"] == 2
+    assert payload["data"]["count"] == 4
     assert payload["warnings"] == []
     assert payload["error"] is None
     assert payload["metadata"] == {}
     assert "SCPI >> *IDN?" in captured.err
     assert "KEYSIGHT,E36103B,SIM000001,1.0" in captured.err
+    assert "KEYSIGHT,E36312A,SIM000003,1.0" in captured.err
 
 
 def test_verify_simulate_json_does_not_create_real_resource_manager(monkeypatch, capsys) -> None:
@@ -643,6 +661,149 @@ def test_measure_simulate_json_does_not_create_real_resource_manager(monkeypatch
     }
     assert payload["data"]["channel"] == 1
     assert payload["data"]["measurements"] == {"voltage": 1.0, "current": 0.05}
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize(
+    ("resource", "channel", "expected_measurements"),
+    [
+        (
+            "USB0::SIM::E36312A::INSTR",
+            "1",
+            {"voltage": 1.1, "current": 0.11},
+        ),
+        (
+            "USB0::SIM::E36312A::INSTR",
+            "2",
+            {"voltage": 2.2, "current": 0.22},
+        ),
+        (
+            "USB0::SIM::E36312A::INSTR",
+            "3",
+            {"voltage": 3.3, "current": 0.33},
+        ),
+        (
+            "USB0::SIM::EDU36311A::INSTR",
+            "1",
+            {"voltage": 1.01, "current": 0.101},
+        ),
+        (
+            "USB0::SIM::EDU36311A::INSTR",
+            "2",
+            {"voltage": 2.02, "current": 0.202},
+        ),
+        (
+            "USB0::SIM::EDU36311A::INSTR",
+            "3",
+            {"voltage": 3.03, "current": 0.303},
+        ),
+    ],
+)
+def test_measure_simulate_uses_model_driver_for_first_target_channels(
+    monkeypatch,
+    capsys,
+    resource,
+    channel,
+    expected_measurements,
+) -> None:
+    def fail_real_manager(backend=None):
+        raise AssertionError("real VISA manager should not be created")
+
+    monkeypatch.setattr(connection, "create_resource_manager", fail_real_manager)
+
+    assert (
+        cli.main(
+            [
+                "measure",
+                "--simulate",
+                "--json",
+                "--resource",
+                resource,
+                "--channel",
+                channel,
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["execution"] == {
+        "mode": "simulate",
+        "dry_run": False,
+        "hardware_touched": False,
+    }
+    assert payload["request"]["resource"] == resource
+    assert payload["request"]["channel"] == int(channel)
+    assert payload["data"]["channel"] == int(channel)
+    assert payload["data"]["measurements"] == expected_measurements
+    assert captured.err == ""
+
+
+def test_measure_simulate_model_driver_logs_channel_list_scpi_to_stderr(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fail_real_manager(backend=None):
+        raise AssertionError("real VISA manager should not be created")
+
+    monkeypatch.setattr(connection, "create_resource_manager", fail_real_manager)
+
+    assert (
+        cli.main(
+            [
+                "measure",
+                "--simulate",
+                "--json",
+                "--log-scpi",
+                "--resource",
+                "USB0::SIM::E36312A::INSTR",
+                "--channel",
+                "2",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["data"]["measurements"] == {"voltage": 2.2, "current": 0.22}
+    assert "USB0::SIM::E36312A::INSTR SCPI >> *IDN?" in captured.err
+    assert "USB0::SIM::E36312A::INSTR SCPI >> MEAS:VOLT? (@2)" in captured.err
+    assert "USB0::SIM::E36312A::INSTR SCPI >> MEAS:CURR? (@2)" in captured.err
+
+
+def test_measure_simulate_generic_channel_two_is_rejected_without_real_visa(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fail_real_manager(backend=None):
+        raise AssertionError("real VISA manager should not be created")
+
+    monkeypatch.setattr(connection, "create_resource_manager", fail_real_manager)
+
+    assert (
+        cli.main(
+            [
+                "measure",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::E36103B::INSTR",
+                "--channel",
+                "2",
+            ]
+        )
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["execution"]["hardware_touched"] is False
+    assert payload["error"]["type"] == "validation"
+    assert payload["error"]["code"] == "argument_error"
+    assert "GenericScpiPowerSupply" in payload["error"]["message"]
+    assert "channel 1 only" in payload["error"]["message"]
     assert captured.err == ""
 
 

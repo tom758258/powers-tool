@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from keysight_power.drivers.base import DriverCapabilities
 from keysight_power.drivers.e36312a import E36312APowerSupply
 from keysight_power.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power.drivers.generic_scpi import ChannelStrategy, GenericScpiPowerSupply
@@ -25,6 +26,12 @@ class DriverSelection:
     model_info: ModelInfo | None
     driver_class: type[GenericScpiPowerSupply]
     reason: str
+
+    @property
+    def capabilities(self) -> DriverCapabilities:
+        """Return the selected driver's conservative capability metadata."""
+
+        return self.driver_class.capabilities
 
 
 def select_driver(idn: str | IdnInfo) -> DriverSelection:

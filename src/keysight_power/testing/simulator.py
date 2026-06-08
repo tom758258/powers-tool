@@ -7,11 +7,34 @@ from keysight_power.errors import VisaConnectionError
 SIMULATED_RESOURCES = (
     "USB0::SIM::E36103B::INSTR",
     "TCPIP0::SIM::E36232A::INSTR",
+    "USB0::SIM::E36312A::INSTR",
+    "USB0::SIM::EDU36311A::INSTR",
 )
 
 SIMULATED_IDN = {
     "USB0::SIM::E36103B::INSTR": "KEYSIGHT,E36103B,SIM000001,1.0",
     "TCPIP0::SIM::E36232A::INSTR": "KEYSIGHT,E36232A,SIM000002,1.0",
+    "USB0::SIM::E36312A::INSTR": "KEYSIGHT,E36312A,SIM000003,1.0",
+    "USB0::SIM::EDU36311A::INSTR": "KEYSIGHT,EDU36311A,SIM000004,1.0",
+}
+
+SIMULATED_MEASUREMENTS = {
+    "USB0::SIM::E36103B::INSTR": {
+        1: {"voltage": "1.000", "current": "0.050"},
+    },
+    "TCPIP0::SIM::E36232A::INSTR": {
+        1: {"voltage": "1.000", "current": "0.050"},
+    },
+    "USB0::SIM::E36312A::INSTR": {
+        1: {"voltage": "1.100", "current": "0.110"},
+        2: {"voltage": "2.200", "current": "0.220"},
+        3: {"voltage": "3.300", "current": "0.330"},
+    },
+    "USB0::SIM::EDU36311A::INSTR": {
+        1: {"voltage": "1.010", "current": "0.101"},
+        2: {"voltage": "2.020", "current": "0.202"},
+        3: {"voltage": "3.030", "current": "0.303"},
+    },
 }
 
 
@@ -52,10 +75,13 @@ class SimulatedResource:
             return SIMULATED_IDN[self.resource_name]
         if command == "SYST:ERR?":
             return '0,"No error"'
-        if command == "MEAS:VOLT?":
-            return "1.000"
-        if command == "MEAS:CURR?":
-            return "0.050"
+        measurement = _simulated_measurement(command)
+        if measurement is not None:
+            measurement_name, channel = measurement
+            try:
+                return SIMULATED_MEASUREMENTS[self.resource_name][channel][measurement_name]
+            except KeyError as exc:
+                raise VisaConnectionError(f"No simulated response for {command!r}") from exc
         raise VisaConnectionError(f"No simulated response for {command!r}")
 
     def close(self) -> None:
@@ -64,3 +90,26 @@ class SimulatedResource:
     def _ensure_open(self) -> None:
         if self.closed:
             raise VisaConnectionError("Simulated resource is closed")
+
+
+def _simulated_measurement(command: str) -> tuple[str, int] | None:
+    if command == "MEAS:VOLT?":
+        return ("voltage", 1)
+    if command == "MEAS:CURR?":
+        return ("current", 1)
+    if command.startswith("MEAS:VOLT? (@") and command.endswith(")"):
+        return ("voltage", _parse_channel_list(command, "MEAS:VOLT? (@"))
+    if command.startswith("MEAS:CURR? (@") and command.endswith(")"):
+        return ("current", _parse_channel_list(command, "MEAS:CURR? (@"))
+    return None
+
+
+def _parse_channel_list(command: str, prefix: str) -> int:
+    channel_text = command.removeprefix(prefix).removesuffix(")").strip()
+    try:
+        channel = int(channel_text)
+    except ValueError as exc:
+        raise VisaConnectionError(f"Unsupported simulated channel list in {command!r}") from exc
+    if channel < 1:
+        raise VisaConnectionError(f"Unsupported simulated channel list in {command!r}")
+    return channel

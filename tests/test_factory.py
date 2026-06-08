@@ -1,3 +1,4 @@
+from keysight_power.drivers.base import DriverCapabilities
 from keysight_power.drivers.e36312a import E36312APowerSupply
 from keysight_power.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power.drivers.generic_scpi import GenericScpiPowerSupply
@@ -33,6 +34,31 @@ def test_first_target_models_are_recognized() -> None:
     assert edu36311a.model_info.first_hardware_target is True
     assert edu36311a.driver_class is EDU36311APowerSupply
     assert edu36311a.reason == "model_specific_driver"
+
+
+def test_first_target_drivers_expose_conservative_capabilities() -> None:
+    expected = DriverCapabilities(
+        channels=(1, 2, 3),
+        simulated_measure_channels=(1, 2, 3),
+        real_measure_channels=(1,),
+    )
+
+    e36312a = select_driver("KEYSIGHT,E36312A,MY00000001,1.0")
+    edu36311a = select_driver("KEYSIGHT,EDU36311A,MY00000002,1.0")
+
+    assert e36312a.capabilities == expected
+    assert edu36311a.capabilities == expected
+
+
+def test_generic_fallback_exposes_channel_one_measure_capability() -> None:
+    selection = select_driver("KEYSIGHT,E36103B,MY00000000,1.0")
+
+    assert selection.driver_class is GenericScpiPowerSupply
+    assert selection.capabilities == DriverCapabilities(
+        channels=(1,),
+        simulated_measure_channels=(1,),
+        real_measure_channels=(1,),
+    )
 
 
 def test_near_term_and_later_models_are_recognized() -> None:

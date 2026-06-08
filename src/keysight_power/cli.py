@@ -10,7 +10,9 @@ from typing import Any
 
 from keysight_power.cli_io import emit_json_error, emit_json_success
 from keysight_power.connection import DEFAULT_TIMEOUT_MS, list_resources, open_resource
+from keysight_power.drivers.generic_scpi import GenericScpiPowerSupply
 from keysight_power.errors import VisaConnectionError
+from keysight_power.factory import create_power_supply
 from keysight_power.models import parse_idn, resource_interface
 from keysight_power.safety import (
     SafetyConfigError,
@@ -63,6 +65,31 @@ class JsonCliArgumentParser(argparse.ArgumentParser):
             raise SystemExit(2)
 
         super().error(message)
+
+
+class _MeasureChannelUnsupported(ValueError):
+    """Raised when a measure channel is outside conservative driver capability."""
+
+
+class _ScpiLoggingSession:
+    """Session proxy that logs SCPI traffic while preserving driver behavior."""
+
+    def __init__(self, resource: str, session: Any) -> None:
+        self._resource = resource
+        self._session = session
+
+    def write(self, command: str) -> Any:
+        _log_scpi(self._resource, ">>", command)
+        return self._session.write(command)
+
+    def query(self, command: str) -> str:
+        _log_scpi(self._resource, ">>", command)
+        response = self._session.query(command)
+        _log_scpi(self._resource, "<<", response)
+        return response
+
+    def close(self) -> None:
+        self._session.close()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -160,7 +187,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--channel",
         required=True,
         type=_positive_channel,
-        help="Positive integer output channel. Only channel 1 is supported now.",
+        help=(
+            "Positive integer output channel. Real mode allows channel 1; "
+            "simulate mode allows model-specific measured channels."
+        ),
     )
     _add_json_argument(measure_parser)
     _add_simulate_argument(measure_parser)
@@ -558,13 +588,18 @@ def _run_error(args: argparse.Namespace) -> int:
 
 def _run_measure(args: argparse.Namespace) -> int:
     request = _request_for_args(args)
-    if args.channel != 1:
+    if not args.simulate and args.channel not in GenericScpiPowerSupply.capabilities.real_measure_channels:
         return _emit_cli_error(
             args,
             request=request,
             error_type="validation",
             code="argument_error",
-            message="measure currently supports channel 1 only",
+            message=_unsupported_measure_channel_message(
+                channel=args.channel,
+                mode="real",
+                driver_name=GenericScpiPowerSupply.__name__,
+                allowed_channels=GenericScpiPowerSupply.capabilities.real_measure_channels,
+            ),
             retryable=False,
         )
 
@@ -577,6 +612,17 @@ def _run_measure(args: argparse.Namespace) -> int:
             backend=args.backend,
             timeout_ms=args.timeout_ms,
             log_scpi=args.log_scpi,
+            channel=args.channel,
+            simulate=args.simulate,
+        )
+    except _MeasureChannelUnsupported as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
         )
     except (VisaConnectionError, ValueError) as exc:
         return _emit_safe_io_error(
@@ -710,6 +756,8 @@ def _measure_voltage_current(
     backend: str | None,
     timeout_ms: int,
     log_scpi: bool,
+    channel: int,
+    simulate: bool,
 ) -> dict[str, float]:
     with _open_resource(
         resource,
@@ -717,6 +765,14 @@ def _measure_voltage_current(
         backend=backend,
         timeout_ms=timeout_ms,
     ) as instrument:
+        if simulate:
+            return _measure_voltage_current_with_driver(
+                resource,
+                instrument,
+                channel=channel,
+                log_scpi=log_scpi,
+            )
+
         if log_scpi:
             _log_scpi(resource, ">>", MEASURE_VOLTAGE_QUERY)
         voltage_response = instrument.query(MEASURE_VOLTAGE_QUERY)
@@ -730,6 +786,33 @@ def _measure_voltage_current(
     return {
         "voltage": _parse_measurement(voltage_response, "voltage"),
         "current": _parse_measurement(current_response, "current"),
+    }
+
+
+def _measure_voltage_current_with_driver(
+    resource: str,
+    instrument: Any,
+    *,
+    channel: int,
+    log_scpi: bool,
+) -> dict[str, float]:
+    session = _ScpiLoggingSession(resource, instrument) if log_scpi else instrument
+    idn = session.query(IDN_QUERY)
+    power_supply = create_power_supply(session, idn)
+    capabilities = power_supply.capabilities
+    if channel not in capabilities.simulated_measure_channels:
+        raise _MeasureChannelUnsupported(
+            _unsupported_measure_channel_message(
+                channel=channel,
+                mode="simulate",
+                driver_name=type(power_supply).__name__,
+                allowed_channels=capabilities.simulated_measure_channels,
+            )
+        )
+
+    return {
+        "voltage": power_supply.measure_voltage(channel=channel),
+        "current": power_supply.measure_current(channel=channel),
     }
 
 
@@ -1212,6 +1295,25 @@ def _parse_measurement(response: str, measurement: str) -> float:
 def _is_no_error_response(response: str) -> bool:
     normalized = response.strip().lstrip("+")
     return normalized == "0" or normalized.startswith("0,")
+
+
+def _unsupported_measure_channel_message(
+    *,
+    channel: int,
+    mode: str,
+    driver_name: str,
+    allowed_channels: tuple[int, ...],
+) -> str:
+    return (
+        f"measure channel {channel} is not enabled in {mode} mode for "
+        f"{driver_name}; supported: {_format_channel_set(allowed_channels)}"
+    )
+
+
+def _format_channel_set(channels: tuple[int, ...]) -> str:
+    if channels == (1,):
+        return "channel 1 only"
+    return "channels " + ", ".join(str(channel) for channel in channels)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from keysight_power.drivers.base import Channel
+from keysight_power.drivers.base import Channel, DriverCapabilities
 from keysight_power.safety import SafetyLimits, validate_setpoint
 from keysight_power.transport import SessionLike
 
@@ -59,6 +59,12 @@ class PreselectChannelStrategy:
 
 class GenericScpiPowerSupply:
     """Small generic driver for common SCPI DC-supply operations."""
+
+    capabilities = DriverCapabilities(
+        channels=(1,),
+        simulated_measure_channels=(1,),
+        real_measure_channels=(1,),
+    )
 
     def __init__(
         self,

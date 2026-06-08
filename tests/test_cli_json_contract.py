@@ -6,6 +6,7 @@ import keysight_power.cli as cli
 
 
 SIM_RESOURCE = "USB0::SIM::E36103B::INSTR"
+SIM_E36312A_RESOURCE = "USB0::SIM::E36312A::INSTR"
 ENVELOPE_KEYS = {
     "schema_version",
     "ok",
@@ -80,6 +81,18 @@ def assert_contract_envelope(payload: dict[str, object], *, command: str, ok: bo
                 "1",
             ],
         ),
+        (
+            "measure",
+            [
+                "measure",
+                "--simulate",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+                "--channel",
+                "2",
+            ],
+        ),
     ],
 )
 def test_safe_cli_json_commands_keep_contract(command, args, capsys) -> None:
@@ -88,6 +101,30 @@ def test_safe_cli_json_commands_keep_contract(command, args, capsys) -> None:
     assert exit_code == 0
     assert_contract_envelope(payload, command=command, ok=True)
     assert payload["execution"]["hardware_touched"] is False
+
+
+def test_measure_simulate_json_keeps_stdout_parseable_with_scpi_logs(capsys) -> None:
+    exit_code = cli.main(
+        [
+            "measure",
+            "--simulate",
+            "--json",
+            "--log-scpi",
+            "--resource",
+            SIM_E36312A_RESOURCE,
+            "--channel",
+            "2",
+        ]
+    )
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert_contract_envelope(payload, command="measure", ok=True)
+    assert payload["execution"]["hardware_touched"] is False
+    assert payload["data"]["measurements"] == {"voltage": 2.2, "current": 0.22}
+    assert "SCPI >> *IDN?" in captured.err
+    assert "SCPI >> MEAS:VOLT? (@2)" in captured.err
 
 
 def test_output_dry_run_json_keeps_contract(capsys) -> None:

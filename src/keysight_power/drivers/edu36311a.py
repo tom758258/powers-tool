@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from keysight_power.drivers.base import DriverCapabilities
 from keysight_power.drivers.generic_scpi import (
     ChannelListStrategy,
     ChannelStrategy,
@@ -13,6 +14,12 @@ from keysight_power.transport import SessionLike
 
 class EDU36311APowerSupply(GenericScpiPowerSupply):
     """EDU36311A SCPI driver using channel-list syntax for output channels."""
+
+    capabilities = DriverCapabilities(
+        channels=(1, 2, 3),
+        simulated_measure_channels=(1, 2, 3),
+        real_measure_channels=(1,),
+    )
 
     def __init__(
         self,

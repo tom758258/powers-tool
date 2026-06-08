@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 Channel = int | str | None
 
 
+@dataclass(frozen=True)
+class DriverCapabilities:
+    """Driver behavior that is safe to expose before hardware validation."""
+
+    channels: tuple[int, ...]
+    simulated_measure_channels: tuple[int, ...]
+    real_measure_channels: tuple[int, ...]
+
+
 class PowerSupply(Protocol):
     """Common API expected from power-supply drivers."""
+
+    capabilities: DriverCapabilities
 
     def set_voltage(self, *, channel: Channel = None, voltage: float) -> None:
         """Set the programmed output voltage without enabling output."""
