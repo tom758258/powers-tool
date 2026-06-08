@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 from keysight_power.errors import VisaConnectionError
+from keysight_power.transport import ResourceManagerLike
 
 DEFAULT_TIMEOUT_MS = 5000
 DEFAULT_READ_TERMINATION = "\n"
 DEFAULT_WRITE_TERMINATION = "\n"
-
-
-@runtime_checkable
-class ResourceManagerLike(Protocol):
-    def list_resources(self) -> tuple[str, ...]:
-        """Return available VISA resources."""
-
-    def open_resource(self, resource_name: str) -> Any:
-        """Open a VISA resource."""
 
 
 class InstrumentSession:

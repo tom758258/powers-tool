@@ -52,6 +52,10 @@ Add `--log-scpi` to print the SCPI command log for manual hardware checks:
 .\.venv\Scripts\python.exe -m keysight_power.cli verify --resource "USB0::...::INSTR" --log-scpi
 ```
 
+Add `--json` to supported CLI commands for the stable machine-readable v1
+contract. The contract is documented in `docs/cli-json-contract.md`; diagnostic
+logs such as `--log-scpi` remain on stderr so JSON stdout stays parseable.
+
 The early standalone examples provide the same passive discovery and identity
 query behavior:
 
