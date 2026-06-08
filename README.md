@@ -15,15 +15,30 @@ and 3 behavior is validated on real instruments.
 
 ## Development
 
-Create or reuse the local virtual environment, then run the default tests:
+From PowerShell, change into the project directory, create or reuse the local
+virtual environment, install the package with development dependencies, then
+run the default tests:
+
+```powershell
+cd path\to\Keysight_Power
+```
+
+```powershell
+uv venv .venv
+```
 
 ```powershell
 uv pip install -e ".[dev]"
 ```
 
+Use the Python executable inside `.venv` for project commands:
+
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests -q -p no:cacheprovider
 ```
+
+On Windows, run the test command from an Administrator PowerShell if the normal
+shell reports a permission or login-session error while launching Python.
 
 GitHub Actions runs the same pytest suite on Windows with Python 3.10 and 3.12.
 
