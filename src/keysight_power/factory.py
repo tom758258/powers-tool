@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from keysight_power.drivers.e36312a import E36312APowerSupply
+from keysight_power.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power.drivers.generic_scpi import ChannelStrategy, GenericScpiPowerSupply
 from keysight_power.models import IdnInfo, ModelInfo, lookup_model, parse_idn
 from keysight_power.safety import SafetyLimits
 from keysight_power.transport import SessionLike
+
+MODEL_DRIVERS: dict[str, type[GenericScpiPowerSupply]] = {
+    "E36312A": E36312APowerSupply,
+    "EDU36311A": EDU36311APowerSupply,
+}
 
 
 @dataclass(frozen=True)
@@ -28,15 +35,21 @@ def select_driver(idn: str | IdnInfo) -> DriverSelection:
 
     if not parsed_idn.parse_ok:
         reason = "malformed_idn_generic_fallback"
+        driver_class = GenericScpiPowerSupply
     elif model_info is None:
         reason = "unknown_model_generic_fallback"
+        driver_class = GenericScpiPowerSupply
+    elif model_info.model in MODEL_DRIVERS:
+        reason = "model_specific_driver"
+        driver_class = MODEL_DRIVERS[model_info.model]
     else:
         reason = "known_model_generic_fallback"
+        driver_class = GenericScpiPowerSupply
 
     return DriverSelection(
         idn=parsed_idn,
         model_info=model_info,
-        driver_class=GenericScpiPowerSupply,
+        driver_class=driver_class,
         reason=reason,
     )
 

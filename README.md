@@ -7,6 +7,11 @@ The project is in early implementation phase. Default tests must run without
 hardware, and any command or test that can affect a real instrument output must
 remain explicit and opt-in.
 
+E36312A and EDU36311A now have model-specific driver foundations selected from
+valid `*IDN?` responses. Their channel-list SCPI is covered by no-hardware
+tests, but CLI measurement remains limited to `--channel 1` until channel 2 and
+3 behavior is validated on real instruments.
+
 ## Development
 
 Create or reuse the local virtual environment, then run the default tests:
@@ -18,6 +23,8 @@ uv pip install -e ".[dev]"
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests -q -p no:cacheprovider
 ```
+
+GitHub Actions runs the same pytest suite on Windows with Python 3.10 and 3.12.
 
 ## Examples
 

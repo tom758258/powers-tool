@@ -1,3 +1,5 @@
+from keysight_power.drivers.e36312a import E36312APowerSupply
+from keysight_power.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power.drivers.generic_scpi import GenericScpiPowerSupply
 from keysight_power.factory import create_power_supply, select_driver
 from keysight_power.models import parse_idn
@@ -25,12 +27,12 @@ def test_first_target_models_are_recognized() -> None:
 
     assert e36312a.model_info is not None
     assert e36312a.model_info.first_hardware_target is True
-    assert e36312a.driver_class is GenericScpiPowerSupply
-    assert e36312a.reason == "known_model_generic_fallback"
+    assert e36312a.driver_class is E36312APowerSupply
+    assert e36312a.reason == "model_specific_driver"
     assert edu36311a.model_info is not None
     assert edu36311a.model_info.first_hardware_target is True
-    assert edu36311a.driver_class is GenericScpiPowerSupply
-    assert edu36311a.reason == "known_model_generic_fallback"
+    assert edu36311a.driver_class is EDU36311APowerSupply
+    assert edu36311a.reason == "model_specific_driver"
 
 
 def test_near_term_and_later_models_are_recognized() -> None:
@@ -86,5 +88,5 @@ def test_create_power_supply_wraps_session_without_commands() -> None:
         "KEYSIGHT,E36312A,MY00000001,1.0",
     )
 
-    assert isinstance(power_supply, GenericScpiPowerSupply)
+    assert isinstance(power_supply, E36312APowerSupply)
     assert session.commands == []

@@ -670,14 +670,19 @@ def test_measure_real_json_queries_voltage_then_current(monkeypatch, capsys) -> 
     assert captured.err == ""
 
 
-def test_measure_channel_two_is_rejected_before_visa(monkeypatch, capsys) -> None:
+@pytest.mark.parametrize("channel", ["2", "3"])
+def test_measure_channel_two_and_three_are_rejected_before_visa(
+    monkeypatch,
+    capsys,
+    channel,
+) -> None:
     def fail_open_resource(*args, **kwargs):
         raise AssertionError("real VISA resource should not be opened")
 
     monkeypatch.setattr(cli, "open_resource", fail_open_resource)
 
     assert (
-        cli.main(["measure", "--json", "--resource", OUTPUT_RESOURCE, "--channel", "2"])
+        cli.main(["measure", "--json", "--resource", OUTPUT_RESOURCE, "--channel", channel])
         == 2
     )
 
