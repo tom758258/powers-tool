@@ -21,13 +21,43 @@ uv pip install -e ".[dev]"
 
 ## Examples
 
-List visible VISA resources:
+List VISA resource strings reported by the selected backend:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli list-resources
+```
+
+This is passive discovery only: a resource string can appear here even when the
+instrument is not currently reachable.
+
+List only resources that can be opened and queried with `*IDN?`:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli list-resources --live-only
+```
+
+This opens each listed resource and sends `*IDN?`. Resources that cannot be
+opened or do not respond to `*IDN?` are omitted. Add `--log-scpi` to show the
+verification query and response for each live check.
+
+Verify that one resource can be opened and queried with `*IDN?`:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli verify --resource "USB0::...::INSTR"
+```
+
+Add `--log-scpi` to print the SCPI command log for manual hardware checks:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli verify --resource "USB0::...::INSTR" --log-scpi
+```
+
+The early standalone examples provide the same passive discovery and identity
+query behavior:
 
 ```powershell
 .\.venv\Scripts\python.exe examples\01_list_resources.py
 ```
-
-Query instrument identity. This does not enable output:
 
 ```powershell
 .\.venv\Scripts\python.exe examples\02_identify.py --resource "USB0::..."
