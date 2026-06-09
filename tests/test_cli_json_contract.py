@@ -93,6 +93,48 @@ def assert_contract_envelope(payload: dict[str, object], *, command: str, ok: bo
                 "2",
             ],
         ),
+        (
+            "output-state",
+            [
+                "output-state",
+                "--simulate",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+                "--channel",
+                "2",
+            ],
+        ),
+        (
+            "cycle-output",
+            [
+                "cycle-output",
+                "--dry-run",
+                "--json",
+                "--resource",
+                SIM_RESOURCE,
+                "--channel",
+                "1",
+                "--duration-ms",
+                "250",
+            ],
+        ),
+        (
+            "apply",
+            [
+                "apply",
+                "--dry-run",
+                "--json",
+                "--resource",
+                SIM_RESOURCE,
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ],
+        ),
     ],
 )
 def test_safe_cli_json_commands_keep_contract(command, args, capsys) -> None:
@@ -125,6 +167,69 @@ def test_measure_simulate_json_keeps_stdout_parseable_with_scpi_logs(capsys) -> 
     assert payload["data"]["measurements"] == {"voltage": 2.2, "current": 0.22}
     assert "SCPI >> *IDN?" in captured.err
     assert "SCPI >> MEAS:VOLT? (@2)" in captured.err
+
+
+def test_output_state_simulate_json_keeps_contract(capsys) -> None:
+    exit_code, payload = parse_json_result(
+        [
+            "output-state",
+            "--simulate",
+            "--json",
+            "--resource",
+            SIM_E36312A_RESOURCE,
+            "--channel",
+            "2",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert_contract_envelope(payload, command="output-state", ok=True)
+    assert payload["data"]["plan"]["operation"] == {"name": "output-state"}
+
+
+def test_cycle_output_dry_run_json_keeps_contract(capsys) -> None:
+    exit_code, payload = parse_json_result(
+        [
+            "cycle-output",
+            "--dry-run",
+            "--json",
+            "--resource",
+            SIM_RESOURCE,
+            "--channel",
+            "1",
+            "--duration-ms",
+            "250",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert_contract_envelope(payload, command="cycle-output", ok=True)
+    assert payload["data"]["plan"]["steps"][1]["action"] == "sleep"
+
+
+def test_apply_dry_run_json_keeps_contract(capsys) -> None:
+    exit_code, payload = parse_json_result(
+        [
+            "apply",
+            "--dry-run",
+            "--json",
+            "--resource",
+            SIM_RESOURCE,
+            "--channel",
+            "1",
+            "--voltage",
+            "1",
+            "--current",
+            "0.05",
+        ],
+        capsys,
+    )
+
+    assert exit_code == 0
+    assert_contract_envelope(payload, command="apply", ok=True)
+    assert payload["data"]["plan"]["steps"][-1]["action"] == "output_on"
 
 
 def test_output_dry_run_json_keeps_contract(capsys) -> None:

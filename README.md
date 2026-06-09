@@ -16,6 +16,11 @@ Real CLI `set` is supported only for E36312A channels 1, 2, and 3. It writes
 the current limit before voltage and does not enable output. Real CLI
 `output-on` is also supported only for E36312A channels 1, 2, and 3; after
 `*IDN?` it sends only `OUTP ON,(@N)` and does not set voltage or current.
+Real CLI `output-off` is supported only for E36312A channels 1, 2, and 3.
+Real CLI `output-state` reads back `OUTP? (@N)`. Real CLI `safe-off` now
+supports E36312A channel `1`, `2`, `3`, or `all` and expands `all` to
+channels `1`, `2`, and `3` in order. Real CLI `cycle-output` and `apply` are
+also supported for E36312A channels 1, 2, and 3.
 
 ## Development
 
@@ -145,6 +150,24 @@ Real `output-on` first confirms the selected resource is an E36312A with
 `*IDN?`, then sends only `OUTP ON,(@N)`. It does not query or change voltage or
 current setpoints.
 
+Read back the enabled state for one E36312A channel:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli output-state --json --resource "USB0::...::INSTR" --channel 1 --log-scpi
+```
+
+Cycle output briefly on then off:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli cycle-output --json --resource "USB0::...::INSTR" --channel 1 --duration-ms 500 --log-scpi
+```
+
+Apply low setpoints and enable output:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli apply --json --resource "USB0::...::INSTR" --channel 1 --voltage 1 --current 0.05 --log-scpi
+```
+
 Add an explicit safety config to apply local global limits to output plans:
 
 ```powershell
@@ -152,9 +175,9 @@ Add an explicit safety config to apply local global limits to output plans:
 ```
 
 The config is never auto-discovered from the current directory. It is used only
-when `--safety-config PATH` is passed to `set`, `output-on`, `output-off`, or
-`safe-off`. `--resource-alias ALIAS` is mutually exclusive with `--resource`
-and requires the explicit safety config path.
+when `--safety-config PATH` is passed to `set`, `apply`, `output-on`,
+`output-off`, or `safe-off`. `--resource-alias ALIAS` is mutually exclusive
+with `--resource` and requires the explicit safety config path.
 
 ```toml
 [safety]
@@ -192,11 +215,11 @@ query behavior:
 ## Safety Defaults
 
 - Output-affecting behavior must be explicit.
-- Real output execution is disabled except for E36312A `set`, `output-on`, and
-  `output-off` on explicit channels 1, 2, or 3. Real `set` does not enable
-  output. Real `output-on` does not set voltage or current.
-- `safe-off` remains disabled in real mode; use `--dry-run` or `--simulate`
-  for planning.
+- Real output execution is enabled for E36312A `set`, `apply`, `output-on`,
+  `output-off`, `output-state`, `cycle-output`, and `safe-off` on explicit
+  channels 1, 2, or 3. `safe-off --channel all` expands to channels 1, 2, and
+  3 in order. `set` does not enable output. `output-on` does not set voltage or
+  current.
 - Real `clear`, `error`, and `measure` are safe I/O commands: `clear` sends
   `*CLS` and clears status/error state, while `error` and `measure` only query.
 - `--safety-config` is explicit only and applies local plan validation limits;

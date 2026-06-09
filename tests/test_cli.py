@@ -939,10 +939,19 @@ def test_safe_io_connection_failures_use_stable_error_codes(
     assert captured.err == ""
 
 
-def output_command_args(command: str, *, channel: str = "1") -> list[str]:
+def output_command_args(
+    command: str,
+    *,
+    channel: str = "1",
+    voltage: str = "1",
+    current: str = "0.05",
+    duration_ms: str = "500",
+) -> list[str]:
     args = [command, "--resource", OUTPUT_RESOURCE, "--channel", channel]
-    if command == "set":
-        args.extend(["--voltage", "1", "--current", "0.05"])
+    if command in {"set", "apply"}:
+        args.extend(["--voltage", voltage, "--current", current])
+    if command == "cycle-output":
+        args.extend(["--duration-ms", duration_ms])
     return args
 
 
@@ -968,6 +977,12 @@ allowed_channels = [1, 2, 3]
         (output_command_args("output-on"), ["output_on"]),
         (output_command_args("output-off"), ["output_off"]),
         (output_command_args("safe-off"), ["safe_off"]),
+        (output_command_args("output-state"), ["output_state"]),
+        (
+            output_command_args("cycle-output", duration_ms="250"),
+            ["output_on", "sleep", "output_off"],
+        ),
+        (output_command_args("apply"), ["set_current_limit", "set_voltage", "output_on"]),
     ],
 )
 def test_output_commands_dry_run_json_emit_logical_plans(
@@ -1000,6 +1015,38 @@ def test_output_commands_dry_run_json_emit_logical_plans(
     assert all(step["type"] == "driver_action" for step in steps)
     assert all("command" not in step for step in steps)
     assert captured.err == ""
+
+
+def test_cycle_output_dry_run_json_includes_duration(capsys) -> None:
+    args = output_command_args("cycle-output", duration_ms="250")
+
+    assert cli.main([*args, "--dry-run", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["request"]["duration_ms"] == 250
+    assert payload["data"]["plan"]["steps"][1] == {
+        "index": 2,
+        "type": "driver_action",
+        "action": "sleep",
+        "parameters": {"duration_ms": 250},
+    }
+
+
+def test_apply_dry_run_json_includes_setpoints_and_output_on(capsys) -> None:
+    args = output_command_args("apply", voltage="1", current="0.05")
+
+    assert cli.main([*args, "--dry-run", "--json"]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["request"]["voltage"] == 1.0
+    assert payload["request"]["current"] == 0.05
+    assert [step["action"] for step in payload["data"]["plan"]["steps"]] == [
+        "set_current_limit",
+        "set_voltage",
+        "output_on",
+    ]
 
 
 def test_set_dry_run_json_applies_explicit_safety_config(tmp_path, capsys) -> None:
@@ -1554,7 +1601,6 @@ def test_real_output_commands_without_dry_run_are_rejected_before_visa(
     capsys,
     args,
 ) -> None:
-    """safe-off real mode is still disabled."""
     def fail_real_manager(backend=None):
         raise AssertionError("real VISA manager should not be created")
 
@@ -1564,21 +1610,137 @@ def test_real_output_commands_without_dry_run_are_rejected_before_visa(
     monkeypatch.setattr(connection, "create_resource_manager", fail_real_manager)
     monkeypatch.setattr(cli, "open_resource", fail_open_resource)
 
-    assert cli.main([*args, "--json"]) == 2
+    assert cli.main([*args, "--dry-run", "--json"]) == 0
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert payload["ok"] is False
+    assert payload["ok"] is True
     assert payload["command"] == {"name": args[0]}
     assert payload["execution"] == {
         "mode": "real",
-        "dry_run": False,
+        "dry_run": True,
         "hardware_touched": False,
     }
-    assert payload["error"]["type"] == "safety"
-    assert payload["error"]["code"] == "real_execution_disabled"
-    assert payload["error"]["retryable"] is False
-    assert payload["data"] is None
+    assert payload["data"]["plan"]["target"]["channel"] == 1
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("channel", ["1", "2", "3"])
+def test_output_state_real_e36312a_reads_channel_state(monkeypatch, capsys, channel) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={f"OUTP? (@{channel})": "ON"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "output-state",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                channel,
+                "--log-scpi",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.queries == ["*IDN?", f"OUTP? (@{channel})"]
+    assert session.writes == []
+    assert payload["data"]["output"] == {"enabled": True}
+    assert f"{OUTPUT_RESOURCE} SCPI >> OUTP? (@{channel})" in captured.err
+
+
+def test_safe_off_real_e36312a_expands_all_channels(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "safe-off",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "all",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.queries == ["*IDN?"]
+    assert session.writes == ["OUTP OFF,(@1)", "OUTP OFF,(@2)", "OUTP OFF,(@3)"]
+    assert payload["data"]["outputs"] == [
+        {"channel": 1, "enabled": False},
+        {"channel": 2, "enabled": False},
+        {"channel": 3, "enabled": False},
+    ]
+    assert captured.err == ""
+
+
+def test_cycle_output_real_e36312a_cycles_output_without_delay(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+    monkeypatch.setattr(cli.time, "sleep", lambda seconds: None)
+
+    assert (
+        cli.main(
+            [
+                "cycle-output",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "2",
+                "--duration-ms",
+                "250",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.writes == ["OUTP ON,(@2)", "OUTP OFF,(@2)"]
+    assert payload["data"]["duration_ms"] == 250
+    assert payload["data"]["output"] == {"cycled": True, "final_enabled": False}
+    assert captured.err == ""
+
+
+def test_apply_real_e36312a_sets_then_enables_output(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "apply",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "3",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.writes == ["CURR 0.05,(@3)", "VOLT 1,(@3)", "OUTP ON,(@3)"]
+    assert payload["data"]["output"] == {"enabled": True}
     assert captured.err == ""
 
 
@@ -2631,6 +2793,78 @@ def test_output_off_real_unsupported_channel_is_rejected(monkeypatch, capsys) ->
     # session is closed by context manager after error
 
 
+def test_output_state_real_non_e36312a_is_rejected(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36103B,MY00000000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "output-state",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+            ]
+        )
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "unsupported_model_for_output_state"
+
+
+def test_cycle_output_real_invalid_duration_rejected(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "cycle-output",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--duration-ms",
+                "0",
+            ]
+        )
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "argument_error"
+
+
+def test_apply_real_generic_model_is_rejected(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36103B,MY00000000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "apply",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "unsupported_model_for_apply"
+
+
 # --- Preserved behaviors: dry-run and simulate ---
 
 
@@ -2690,13 +2924,13 @@ def test_output_off_simulate_does_not_open_resource(monkeypatch, capsys) -> None
     assert "plan" in payload["data"]
 
 
-# --- Safe-off remains disabled ---
+# --- Safe-off dry-run remains logical ---
 
 
 @pytest.mark.parametrize("command,extra_args", [
     ("safe-off", []),
 ])
-def test_safe_off_real_remains_disabled(monkeypatch, capsys, command, extra_args) -> None:
+def test_safe_off_dry_run_remains_logical(monkeypatch, capsys, command, extra_args) -> None:
     def fail_real_manager(backend=None):
         raise AssertionError("real VISA manager should not be created")
 
@@ -2707,11 +2941,15 @@ def test_safe_off_real_remains_disabled(monkeypatch, capsys, command, extra_args
     monkeypatch.setattr(cli, "open_resource", fail_open_resource)
 
     args = [command, "--json", "--resource", OUTPUT_RESOURCE, "--channel", "1"] + extra_args
-    assert cli.main(args) == 2
+    assert cli.main([*args, "--dry-run"]) == 0
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert payload["ok"] is False
-    assert payload["error"]["type"] == "safety"
-    assert payload["error"]["code"] == "real_execution_disabled"
+    assert payload["ok"] is True
+    assert payload["execution"] == {
+        "mode": "real",
+        "dry_run": True,
+        "hardware_touched": False,
+    }
+    assert payload["data"]["plan"]["operation"]["name"] == "safe-off"
 

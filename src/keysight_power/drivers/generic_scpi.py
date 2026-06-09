@@ -97,6 +97,10 @@ class GenericScpiPowerSupply:
     def output_off(self, *, channel: Channel = None) -> None:
         self._write("OUTP OFF", channel=channel)
 
+    def output_state(self, *, channel: Channel = None) -> bool:
+        response = self._query("OUTP?", channel=channel)
+        return _parse_output_state(response)
+
     def measure_voltage(self, *, channel: Channel = None) -> float:
         return _parse_float(self._query("MEAS:VOLT?", channel=channel), "voltage")
 
@@ -156,6 +160,15 @@ def _parse_float(response: str, measurement: str) -> float:
         return float(response.strip())
     except ValueError as exc:
         raise ValueError(f"Could not parse {measurement} measurement: {response!r}") from exc
+
+
+def _parse_output_state(response: str) -> bool:
+    normalized = response.strip().upper()
+    if normalized in {"1", "ON", "TRUE"}:
+        return True
+    if normalized in {"0", "OFF", "FALSE"}:
+        return False
+    raise ValueError(f"Could not parse output state: {response!r}")
 
 
 def _is_no_error(response: str) -> bool:

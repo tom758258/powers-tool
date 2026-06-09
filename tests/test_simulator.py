@@ -58,6 +58,7 @@ def test_generic_simulator_supports_default_measurement_queries() -> None:
 
     assert session.query("MEAS:VOLT?") == "1.000"
     assert session.query("MEAS:CURR?") == "0.050"
+    assert session.query("OUTP?") == "OFF"
 
 
 def test_generic_simulator_rejects_unmodeled_channel_list() -> None:
@@ -65,3 +66,17 @@ def test_generic_simulator_rejects_unmodeled_channel_list() -> None:
 
     with pytest.raises(VisaConnectionError, match="No simulated response"):
         session.query("MEAS:VOLT? (@2)")
+
+
+@pytest.mark.parametrize(
+    ("resource", "channel"),
+    [
+        ("USB0::SIM::E36312A::INSTR", 1),
+        ("USB0::SIM::E36312A::INSTR", 2),
+        ("USB0::SIM::E36312A::INSTR", 3),
+    ],
+)
+def test_first_target_simulator_supports_output_state_queries(resource, channel) -> None:
+    session = SimulatedResourceManager().open_resource(resource)
+
+    assert session.query(f"OUTP? (@{channel})") == "OFF"

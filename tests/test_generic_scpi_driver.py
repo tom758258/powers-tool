@@ -37,6 +37,7 @@ def test_generic_scpi_no_channel_operations_use_expected_command_order() -> None
         {
             "MEAS:VOLT?": ["1.234"],
             "MEAS:CURR?": ["0.056"],
+            "OUTP?": ["ON"],
         }
     )
     power_supply = GenericScpiPowerSupply(session)
@@ -46,16 +47,19 @@ def test_generic_scpi_no_channel_operations_use_expected_command_order() -> None
     power_supply.output_on(channel=1)
     voltage = power_supply.measure_voltage(channel=1)
     current = power_supply.measure_current(channel=1)
+    output_enabled = power_supply.output_state(channel=1)
     power_supply.output_off(channel=1)
 
     assert voltage == 1.234
     assert current == 0.056
+    assert output_enabled is True
     assert session.commands == [
         "CURR 0.05",
         "VOLT 1",
         "OUTP ON",
         "MEAS:VOLT?",
         "MEAS:CURR?",
+        "OUTP?",
         "OUTP OFF",
     ]
 

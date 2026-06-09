@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+import time
 from collections.abc import Sequence
 from typing import Any
 
@@ -42,6 +43,9 @@ COMMAND_NAMES = frozenset(
         "output-on",
         "output-off",
         "safe-off",
+        "output-state",
+        "cycle-output",
+        "apply",
     }
 )
 
@@ -295,6 +299,85 @@ def build_parser() -> argparse.ArgumentParser:
     _add_safety_config_argument(safe_off_parser)
     safe_off_parser.set_defaults(func=_run_output_plan)
 
+    output_state_parser = subparsers.add_parser(
+        "output-state",
+        help="Read the enabled state of one output channel.",
+    )
+    _add_output_resource_arguments(output_state_parser)
+    output_state_parser.add_argument(
+        "--channel",
+        required=True,
+        type=_positive_channel,
+        help="Positive integer output channel.",
+    )
+    _add_json_argument(output_state_parser)
+    _add_simulate_argument(output_state_parser)
+    _add_dry_run_argument(output_state_parser)
+    _add_backend_argument(output_state_parser)
+    _add_timeout_argument(output_state_parser)
+    output_state_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    output_state_parser.set_defaults(func=_run_output_plan)
+
+    cycle_output_parser = subparsers.add_parser(
+        "cycle-output",
+        help="Enable output briefly, then disable it again.",
+    )
+    _add_output_resource_arguments(cycle_output_parser)
+    cycle_output_parser.add_argument(
+        "--channel",
+        required=True,
+        type=_positive_channel,
+        help="Positive integer output channel.",
+    )
+    cycle_output_parser.add_argument(
+        "--duration-ms",
+        type=_positive_duration_ms,
+        default=500,
+        help="Enable duration in milliseconds.",
+    )
+    _add_json_argument(cycle_output_parser)
+    _add_simulate_argument(cycle_output_parser)
+    _add_dry_run_argument(cycle_output_parser)
+    _add_safety_config_argument(cycle_output_parser)
+    _add_backend_argument(cycle_output_parser)
+    _add_timeout_argument(cycle_output_parser)
+    cycle_output_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    cycle_output_parser.set_defaults(func=_run_output_plan)
+
+    apply_parser = subparsers.add_parser(
+        "apply",
+        help="Set low output values and enable output.",
+    )
+    _add_output_resource_arguments(apply_parser)
+    apply_parser.add_argument(
+        "--channel",
+        required=True,
+        type=_positive_channel,
+        help="Positive integer output channel.",
+    )
+    apply_parser.add_argument("--voltage", required=True, type=float, help="Voltage setpoint.")
+    apply_parser.add_argument("--current", required=True, type=float, help="Current limit.")
+    _add_json_argument(apply_parser)
+    _add_simulate_argument(apply_parser)
+    _add_dry_run_argument(apply_parser)
+    _add_safety_config_argument(apply_parser)
+    _add_backend_argument(apply_parser)
+    _add_timeout_argument(apply_parser)
+    apply_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    apply_parser.set_defaults(func=_run_output_plan)
+
     return parser
 
 
@@ -344,6 +427,15 @@ def _add_dry_run_argument(parser: argparse.ArgumentParser) -> None:
         "--dry-run",
         action="store_true",
         help="Preview the logical operation without opening or writing to hardware.",
+    )
+
+
+def _add_duration_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--duration-ms",
+        type=_positive_duration_ms,
+        default=500,
+        help="Enable duration in milliseconds.",
     )
 
 
@@ -664,14 +756,19 @@ def _run_measure(args: argparse.Namespace) -> int:
 
 
 def _run_output_plan(args: argparse.Namespace) -> int:
-    if not args.simulate and not args.dry_run and args.command == "set":
-        return _run_set_real(args)
-
-    if not args.simulate and not args.dry_run and args.command == "output-on":
-        return _run_output_on_real(args)
-
-    if not args.simulate and not args.dry_run and args.command == "output-off":
-        return _run_output_off_real(args)
+    if not args.simulate and not args.dry_run:
+        real_handlers = {
+            "set": _run_set_real,
+            "output-on": _run_output_on_real,
+            "output-off": _run_output_off_real,
+            "safe-off": _run_safe_off_real,
+            "output-state": _run_output_state_real,
+            "cycle-output": _run_cycle_output_real,
+            "apply": _run_apply_real,
+        }
+        handler = real_handlers.get(args.command)
+        if handler is not None:
+            return handler(args)
 
     request = _request_for_args(args)
     try:
@@ -705,7 +802,7 @@ def _run_output_plan(args: argparse.Namespace) -> int:
     if args.json:
         emit_json_success(
             command=args.command,
-            execution=_execution_for_args(args, hardware_intent=True),
+            execution=_execution_for_args(args, hardware_intent=args.command != "safe-off"),
             request=request,
             data={"plan": plan},
         )
@@ -900,6 +997,38 @@ class _OutputOnChannelError(ValueError):
     """Raised when output-on channel is outside E36312A capability (1,2,3)."""
 
 
+class _SafeOffModelError(ValueError):
+    """Raised when safe-off is attempted on a non-E36312A model."""
+
+
+class _SafeOffChannelError(ValueError):
+    """Raised when safe-off channel is outside E36312A capability (1,2,3)."""
+
+
+class _OutputStateModelError(ValueError):
+    """Raised when output-state is attempted on a non-E36312A model."""
+
+
+class _OutputStateChannelError(ValueError):
+    """Raised when output-state channel is outside E36312A capability (1,2,3)."""
+
+
+class _CycleOutputModelError(ValueError):
+    """Raised when cycle-output is attempted on a non-E36312A model."""
+
+
+class _CycleOutputChannelError(ValueError):
+    """Raised when cycle-output channel is outside E36312A capability (1,2,3)."""
+
+
+class _ApplyModelError(ValueError):
+    """Raised when apply is attempted on a non-E36312A model."""
+
+
+class _ApplyChannelError(ValueError):
+    """Raised when apply channel is outside E36312A capability (1,2,3)."""
+
+
 class _SetModelError(ValueError):
     """Raised when set is attempted on a non-E36312A model."""
 
@@ -1005,6 +1134,300 @@ def _run_set_real(args: argparse.Namespace) -> int:
     print(f"Channel: {args.channel}")
     print(f"Current limit: {_format_text_value(args.current)} A")
     print(f"Voltage: {_format_text_value(args.voltage)} V")
+    return 0
+
+
+def _run_output_state_real(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    backend = getattr(args, "backend", None)
+    timeout_ms = getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS)
+
+    try:
+        safety_limits = _safety_limits_for_args(args)
+        request = _request_for_args(args)
+        _validate_output_request(args, safety_limits)
+    except (SafetyConfigError, SafetyValidationError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    try:
+        with _open_resource(
+            args.resource,
+            manager,
+            backend=backend,
+            timeout_ms=timeout_ms,
+        ) as instrument:
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _OutputStateModelError(
+                    "output-state real execution is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            capabilities = power_supply.capabilities
+            if args.channel not in capabilities.channels:
+                raise _OutputStateChannelError(
+                    f"channel {args.channel} is not supported for output-state; "
+                    f"supported: {capabilities.channels}"
+                )
+            output_enabled = power_supply.output_state(channel=args.channel)
+    except _OutputStateModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_output_state",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _OutputStateChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="connection_failed",
+            message=f"Could not open resource for output-state: {exc}",
+        )
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="output_state_failed",
+            message=f"output-state failed: {exc}",
+        )
+
+    resource_data = _output_state_resource_payload(args, idn, output_enabled)
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=execution,
+            request=request,
+            data=resource_data,
+        )
+        return 0
+
+    print(f"Resource: {args.resource}")
+    print(f"Channel: {args.channel}")
+    print(f"Output enabled: {str(output_enabled).lower()}")
+    return 0
+
+
+def _run_cycle_output_real(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    backend = getattr(args, "backend", None)
+    timeout_ms = getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS)
+
+    try:
+        safety_limits = _safety_limits_for_args(args)
+        request = _request_for_args(args)
+        _validate_output_request(args, safety_limits)
+    except (SafetyConfigError, SafetyValidationError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    try:
+        with _open_resource(
+            args.resource,
+            manager,
+            backend=backend,
+            timeout_ms=timeout_ms,
+        ) as instrument:
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _CycleOutputModelError(
+                    "cycle-output real execution is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            capabilities = power_supply.capabilities
+            if args.channel not in capabilities.channels:
+                raise _CycleOutputChannelError(
+                    f"channel {args.channel} is not supported for cycle-output; "
+                    f"supported: {capabilities.channels}"
+                )
+            power_supply.output_on(channel=args.channel)
+            time.sleep(args.duration_ms / 1000)
+            power_supply.output_off(channel=args.channel)
+    except _CycleOutputModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_cycle_output",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _CycleOutputChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="connection_failed",
+            message=f"Could not open resource for cycle-output: {exc}",
+        )
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="cycle_output_failed",
+            message=f"cycle-output failed: {exc}",
+        )
+
+    resource_data = _cycle_output_resource_payload(args, idn)
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=execution,
+            request=request,
+            data=resource_data,
+        )
+        return 0
+
+    print(f"Resource: {args.resource}")
+    print(f"Channel: {args.channel}")
+    print("Cycle complete: true")
+    return 0
+
+
+def _run_apply_real(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    backend = getattr(args, "backend", None)
+    timeout_ms = getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS)
+
+    try:
+        safety_limits = _safety_limits_for_args(args)
+        request = _request_for_args(args)
+        _validate_output_request(args, safety_limits)
+    except (SafetyConfigError, SafetyValidationError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    try:
+        with _open_resource(
+            args.resource,
+            manager,
+            backend=backend,
+            timeout_ms=timeout_ms,
+        ) as instrument:
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _ApplyModelError(
+                    "apply real execution is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            capabilities = power_supply.capabilities
+            if args.channel not in capabilities.channels:
+                raise _ApplyChannelError(
+                    f"channel {args.channel} is not supported for apply; "
+                    f"supported: {capabilities.channels}"
+                )
+            power_supply.set_current_limit(channel=args.channel, current=args.current)
+            power_supply.set_voltage(channel=args.channel, voltage=args.voltage)
+            power_supply.output_on(channel=args.channel)
+    except _ApplyModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_apply",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _ApplyChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="connection_failed",
+            message=f"Could not open resource for apply: {exc}",
+        )
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="apply_failed",
+            message=f"apply failed: {exc}",
+        )
+
+    resource_data = _apply_resource_payload(args, idn)
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=execution,
+            request=request,
+            data=resource_data,
+        )
+        return 0
+
+    print(f"Resource: {args.resource}")
+    print(f"Channel: {args.channel}")
+    print(f"Current limit: {_format_text_value(args.current)} A")
+    print(f"Voltage: {_format_text_value(args.voltage)} V")
+    print("Output enabled: True")
     return 0
 
 
@@ -1204,6 +1627,110 @@ def _run_output_off_real(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_safe_off_real(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    backend = getattr(args, "backend", None)
+    timeout_ms = getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS)
+    log_scpi = getattr(args, "log_scpi", False)
+
+    try:
+        safety_limits = _safety_limits_for_args(args)
+        request = _request_for_args(args)
+        _validate_output_request(args, safety_limits)
+    except (SafetyConfigError, SafetyValidationError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    try:
+        with _open_resource(
+            args.resource,
+            manager,
+            backend=backend,
+            timeout_ms=timeout_ms,
+        ) as instrument:
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _SafeOffModelError(
+                    "safe-off real execution is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            if args.channel == "all":
+                outputs = []
+                for channel in (1, 2, 3):
+                    power_supply.output_off(channel=channel)
+                    outputs.append({"channel": channel, "enabled": False})
+            else:
+                if args.channel not in power_supply.capabilities.channels:
+                    raise _SafeOffChannelError(
+                        f"channel {args.channel} is not supported for safe-off; "
+                        f"supported: {power_supply.capabilities.channels}"
+                    )
+                power_supply.output_off(channel=args.channel)
+                outputs = [{"channel": args.channel, "enabled": False}]
+    except _SafeOffModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_safe_off",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _SafeOffChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="connection_failed",
+            message=f"Could not open resource for safe-off: {exc}",
+        )
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="safe_off_failed",
+            message=f"safe-off failed: {exc}",
+        )
+
+    resource_data = _safe_off_resource_payload(args, idn, outputs)
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=execution,
+            request=request,
+            data=resource_data,
+        )
+        return 0
+
+    print(f"Resource: {args.resource}")
+    print(f"Channel: {args.channel}")
+    for output in outputs:
+        print(f"Channel {output['channel']}: Output enabled: False")
+    return 0
+
+
 def _set_resource_payload(
     args: argparse.Namespace,
     idn_raw: str,
@@ -1237,6 +1764,84 @@ def _output_off_resource_payload(
         "channel": args.channel,
         "output": {
             "enabled": False,
+        },
+    }
+
+
+def _safe_off_resource_payload(
+    args: argparse.Namespace,
+    idn_raw: str,
+    outputs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "resource": _resource_payload(
+            args.resource,
+            simulated=args.simulate,
+            reachable=True,
+            idn_raw=idn_raw,
+        ),
+        "channel": args.channel,
+        "outputs": outputs,
+    }
+
+
+def _output_state_resource_payload(
+    args: argparse.Namespace,
+    idn_raw: str,
+    enabled: bool,
+) -> dict[str, Any]:
+    return {
+        "resource": _resource_payload(
+            args.resource,
+            simulated=args.simulate,
+            reachable=True,
+            idn_raw=idn_raw,
+        ),
+        "channel": args.channel,
+        "output": {
+            "enabled": enabled,
+        },
+    }
+
+
+def _cycle_output_resource_payload(
+    args: argparse.Namespace,
+    idn_raw: str,
+) -> dict[str, Any]:
+    return {
+        "resource": _resource_payload(
+            args.resource,
+            simulated=args.simulate,
+            reachable=True,
+            idn_raw=idn_raw,
+        ),
+        "channel": args.channel,
+        "duration_ms": args.duration_ms,
+        "output": {
+            "cycled": True,
+            "final_enabled": False,
+        },
+    }
+
+
+def _apply_resource_payload(
+    args: argparse.Namespace,
+    idn_raw: str,
+) -> dict[str, Any]:
+    return {
+        "resource": _resource_payload(
+            args.resource,
+            simulated=args.simulate,
+            reachable=True,
+            idn_raw=idn_raw,
+        ),
+        "channel": args.channel,
+        "setpoints": {
+            "current": _json_safe_number(args.current),
+            "voltage": _json_safe_number(args.voltage),
+        },
+        "output": {
+            "enabled": True,
         },
     }
 
@@ -1317,71 +1922,101 @@ def _validation_execution_from_argv(argv: Sequence[str]) -> dict[str, Any]:
 def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "list-resources":
         return {
-            "backend": args.backend,
-            "timeout_ms": args.timeout_ms,
-            "live_only": args.live_only,
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            "live_only": getattr(args, "live_only", False),
         }
     if args.command == "verify":
         return {
             "resource": args.resource,
-            "backend": args.backend,
-            "timeout_ms": args.timeout_ms,
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     if args.command == "clear":
         return {
             "resource": args.resource,
-            "backend": args.backend,
-            "timeout_ms": args.timeout_ms,
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     if args.command == "error":
         return {
             "resource": args.resource,
-            "backend": args.backend,
-            "timeout_ms": args.timeout_ms,
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             "max_reads": args.max_reads,
         }
     if args.command == "measure":
         return {
             "resource": args.resource,
             "channel": args.channel,
-            "backend": args.backend,
-            "timeout_ms": args.timeout_ms,
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     if args.command == "set":
         return {
             "resource": args.resource,
-            "resource_alias": args.resource_alias,
+            "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
             "voltage": _json_safe_number(args.voltage),
             "current": _json_safe_number(args.current),
-            "safety_config": args.safety_config,
-            "backend": args.backend,
-            "timeout_ms": args.timeout_ms,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     if args.command == "output-off":
         return {
             "resource": args.resource,
-            "resource_alias": args.resource_alias,
+            "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
-            "safety_config": args.safety_config,
-            "backend": args.backend,
-            "timeout_ms": args.timeout_ms,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     if args.command == "output-on":
         return {
             "resource": args.resource,
-            "resource_alias": args.resource_alias,
+            "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
-            "safety_config": args.safety_config,
-            "backend": args.backend,
-            "timeout_ms": args.timeout_ms,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     if args.command == "safe-off":
         return {
             "resource": args.resource,
-            "resource_alias": args.resource_alias,
+            "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
-            "safety_config": args.safety_config,
+            "safety_config": getattr(args, "safety_config", None),
+        }
+    if args.command == "output-state":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": args.channel,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "cycle-output":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": args.channel,
+            "duration_ms": args.duration_ms,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "apply":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": args.channel,
+            "voltage": _json_safe_number(args.voltage),
+            "current": _json_safe_number(args.current),
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     return {}
 
@@ -1455,6 +2090,36 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "channel": _channel_from_argv(argv),
             "safety_config": _option_value(argv, "--safety-config"),
         }
+    if command == "output-state":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "channel": _channel_from_argv(argv),
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "cycle-output":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "channel": _channel_from_argv(argv),
+            "duration_ms": _duration_from_argv(argv),
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "apply":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "channel": _channel_from_argv(argv),
+            "voltage": _number_from_argv(argv, "--voltage"),
+            "current": _number_from_argv(argv, "--current"),
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
     return {}
 
 
@@ -1472,6 +2137,16 @@ def _max_reads_from_argv(argv: Sequence[str]) -> int | str:
     value = _option_value(argv, "--max-reads")
     if value is None:
         return 20
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
+
+def _duration_from_argv(argv: Sequence[str]) -> int | str:
+    value = _option_value(argv, "--duration-ms")
+    if value is None:
+        return 500
     try:
         return int(value)
     except ValueError:
@@ -1550,6 +2225,16 @@ def _positive_max_reads(value: str) -> int:
     return max_reads
 
 
+def _positive_duration_ms(value: str) -> int:
+    try:
+        duration_ms = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("duration-ms must be a positive integer") from exc
+    if duration_ms < 1:
+        raise argparse.ArgumentTypeError("duration-ms must be a positive integer")
+    return duration_ms
+
+
 def _safe_off_channel(value: str) -> int | str:
     if value.lower() == "all":
         return "all"
@@ -1576,7 +2261,7 @@ def _validate_output_request(
     args: argparse.Namespace,
     safety_limits: SafetyLimits | None,
 ) -> None:
-    if args.command == "set":
+    if args.command in {"set", "apply"}:
         validate_setpoint(
             channel=args.channel,
             voltage=args.voltage,
@@ -1584,7 +2269,7 @@ def _validate_output_request(
             limits=safety_limits,
         )
         return
-    if args.command in {"output-on", "output-off"}:
+    if args.command in {"output-on", "output-off", "output-state", "cycle-output"}:
         validate_channel(args.channel, safety_limits)
         return
     if args.command == "safe-off" and args.channel != "all":
@@ -1673,6 +2358,30 @@ def _output_plan_for_args(args: argparse.Namespace) -> dict[str, Any]:
         plan["steps"] = [_driver_step(1, "output_off", channel=channel)]
     elif args.command == "safe-off":
         plan["steps"] = [_driver_step(1, "safe_off", channel=channel)]
+    elif args.command == "output-state":
+        plan["steps"] = [_driver_step(1, "output_state", channel=channel)]
+    elif args.command == "cycle-output":
+        plan["steps"] = [
+            _driver_step(1, "output_on", channel=channel),
+            _driver_step(2, "sleep", duration_ms=args.duration_ms),
+            _driver_step(3, "output_off", channel=channel),
+        ]
+    elif args.command == "apply":
+        plan["steps"] = [
+            _driver_step(
+                1,
+                "set_current_limit",
+                channel=channel,
+                current=_json_safe_number(args.current),
+            ),
+            _driver_step(
+                2,
+                "set_voltage",
+                channel=channel,
+                voltage=_json_safe_number(args.voltage),
+            ),
+            _driver_step(3, "output_on", channel=channel),
+        ]
     else:  # pragma: no cover - parser dispatch keeps this unreachable
         raise ValueError(f"Unsupported output command {args.command!r}")
 
@@ -1694,6 +2403,9 @@ def _output_plan_description(command: str) -> str:
         "output-on": "Preview enabling the selected output channel.",
         "output-off": "Preview disabling the selected output channel.",
         "safe-off": "Preview a conservative output-off action without channel expansion.",
+        "output-state": "Preview reading the selected output channel state.",
+        "cycle-output": "Preview briefly enabling then disabling the selected output channel.",
+        "apply": "Preview setting current, voltage, then enabling output.",
     }
     return descriptions[command]
 

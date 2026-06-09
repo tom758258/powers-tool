@@ -37,6 +37,13 @@ SIMULATED_MEASUREMENTS = {
     },
 }
 
+SIMULATED_OUTPUT_STATES = {
+    "USB0::SIM::E36103B::INSTR": {1: False},
+    "TCPIP0::SIM::E36232A::INSTR": {1: False},
+    "USB0::SIM::E36312A::INSTR": {1: False, 2: False, 3: False},
+    "USB0::SIM::EDU36311A::INSTR": {1: False, 2: False, 3: False},
+}
+
 
 class SimulatedResourceManager:
     """Resource manager that never opens real VISA resources."""
@@ -75,6 +82,13 @@ class SimulatedResource:
             return SIMULATED_IDN[self.resource_name]
         if command == "SYST:ERR?":
             return '0,"No error"'
+        output_state = _simulated_output_state(command)
+        if output_state is not None:
+            channel = output_state
+            try:
+                return "ON" if SIMULATED_OUTPUT_STATES[self.resource_name][channel] else "OFF"
+            except KeyError as exc:
+                raise VisaConnectionError(f"No simulated response for {command!r}") from exc
         measurement = _simulated_measurement(command)
         if measurement is not None:
             measurement_name, channel = measurement
@@ -101,6 +115,14 @@ def _simulated_measurement(command: str) -> tuple[str, int] | None:
         return ("voltage", _parse_channel_list(command, "MEAS:VOLT? (@"))
     if command.startswith("MEAS:CURR? (@") and command.endswith(")"):
         return ("current", _parse_channel_list(command, "MEAS:CURR? (@"))
+    return None
+
+
+def _simulated_output_state(command: str) -> int | None:
+    if command == "OUTP?":
+        return 1
+    if command.startswith("OUTP? (@") and command.endswith(")"):
+        return _parse_channel_list(command, "OUTP? (@")
     return None
 
 

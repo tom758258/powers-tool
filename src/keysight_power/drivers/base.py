@@ -38,6 +38,10 @@ class PowerSupply(Protocol):
         """Disable output for the selected channel."""
         ...
 
+    def output_state(self, *, channel: Channel = None) -> bool:
+        """Return whether output is enabled for the selected channel."""
+        ...
+
     def measure_voltage(self, *, channel: Channel = None) -> float:
         """Measure output voltage for the selected channel."""
         ...
