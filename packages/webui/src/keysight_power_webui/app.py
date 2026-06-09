@@ -46,9 +46,9 @@ COMMAND_METADATA = {
     "measure": {"description": "Measure voltage/current", "requires_confirm": False, "category": "read-only"},
     "measure-all": {"description": "Measure all channels", "requires_confirm": False, "category": "read-only"},
     "read-status": {"description": "Get output status and errors", "requires_confirm": False, "category": "read-only"},
-    "readback": {"description": "Read programmed setpoints", "requires_confirm": False, "category": "read-only"},
+    "readback": {"description": "Read programmed setpoints", "requires_confirm": False, "category": "discovery"},
     "validate-readonly": {"description": "Validate read-only state", "requires_confirm": False, "category": "read-only"},
-    "identify": {"description": "Flash instrument display", "requires_confirm": False, "category": "read-only"},
+    "identify": {"description": "Read instrument identification information", "requires_confirm": False, "category": "discovery"},
     "protection-status": {"description": "Check protection status", "requires_confirm": False, "category": "read-only"},
     "log": {"description": "Log measurement data", "requires_confirm": False, "category": "read-only"},
     "set": {"description": "Set voltage and current limits", "requires_confirm": True, "category": "output"},
@@ -77,6 +77,11 @@ COMMAND_METADATA = {
 
 WEBUI_HIDDEN_COMMANDS = {
     "list-resources",
+    "measure",
+    "measure-all",
+    "read-status",
+    "protection-status",
+    "output-state",
 }
 
 
@@ -347,6 +352,7 @@ def _live_panel_sample_from_reading(reading: dict[str, Any], runtime: dict[str, 
                 "measured_current": _number_or_none(measured.get("current")),
                 "set_voltage": _number_or_none(setpoints.get("voltage")),
                 "set_current": _number_or_none(setpoints.get("current")),
+                **_protection_fields(live_channel),
             }
         )
     sample = {
@@ -420,6 +426,9 @@ def _blank_live_channels() -> list[dict[str, Any]]:
             "measured_current": None,
             "set_voltage": None,
             "set_current": None,
+            "over_voltage_tripped": None,
+            "over_current_tripped": None,
+            "protection_tripped": None,
         }
         for channel in (1, 2, 3)
     ]
@@ -438,6 +447,38 @@ def _records_by_channel(records: Any) -> dict[int, dict[str, Any]]:
             continue
         by_channel[channel] = record
     return by_channel
+
+
+def _protection_fields(record: dict[str, Any]) -> dict[str, bool | None]:
+    over_voltage = _bool_or_none(record.get("over_voltage_tripped"))
+    over_current = _bool_or_none(record.get("over_current_tripped"))
+    protection = _bool_or_none(record.get("protection_tripped"))
+    if protection is None:
+        if over_voltage is True or over_current is True:
+            protection = True
+        elif over_voltage is False and over_current is False:
+            protection = False
+    return {
+        "over_voltage_tripped": over_voltage,
+        "over_current_tripped": over_current,
+        "protection_tripped": protection,
+    }
+
+
+def _bool_or_none(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "on", "true", "yes"}:
+            return True
+        if normalized in {"0", "off", "false", "no"}:
+            return False
+    return None
 
 
 @app.post("/api/live/{job_id}/stop")

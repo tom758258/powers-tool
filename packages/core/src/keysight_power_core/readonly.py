@@ -173,6 +173,10 @@ def run_live_panel_read(
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
 
+            over_voltage_tripped = power_supply.over_voltage_protection_tripped()
+            over_current_tripped = power_supply.over_current_protection_tripped()
+            protection_tripped = over_voltage_tripped or over_current_tripped
+
             return {
                 "resource": request.runtime.resource,
                 "idn_raw": idn_raw,
@@ -180,6 +184,9 @@ def run_live_panel_read(
                     {
                         "channel": channel,
                         "output_enabled": power_supply.output_state(channel=channel),
+                        "over_voltage_tripped": over_voltage_tripped,
+                        "over_current_tripped": over_current_tripped,
+                        "protection_tripped": protection_tripped,
                         "setpoints": {
                             "voltage": power_supply.programmed_voltage(channel=channel),
                             "current": power_supply.programmed_current(channel=channel),
@@ -240,6 +247,8 @@ def live_panel_plan(request: OperationRequest) -> dict[str, object]:
             "CURR? (@1)",
             "MEAS:VOLT? (@1)",
             "MEAS:CURR? (@1)",
+            "VOLT:PROT:TRIP?",
+            "CURR:PROT:TRIP?",
             "OUTP? (@2)",
             "VOLT? (@2)",
             "CURR? (@2)",

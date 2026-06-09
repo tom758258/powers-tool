@@ -86,10 +86,20 @@ def test_live_panel_read_returns_only_panel_fields():
 
     assert set(res) == {"resource", "idn_raw", "channels"}
     assert len(res["channels"]) == 3
-    assert set(res["channels"][0]) == {"channel", "output_enabled", "setpoints", "measurements"}
+    assert set(res["channels"][0]) == {
+        "channel",
+        "output_enabled",
+        "over_voltage_tripped",
+        "over_current_tripped",
+        "protection_tripped",
+        "setpoints",
+        "measurements",
+    }
     assert set(res["channels"][0]["setpoints"]) == {"voltage", "current"}
     assert set(res["channels"][0]["measurements"]) == {"voltage", "current"}
-    assert "protection" not in res
+    assert res["channels"][0]["over_voltage_tripped"] is False
+    assert res["channels"][0]["over_current_tripped"] is False
+    assert res["channels"][0]["protection_tripped"] is False
     assert "protection_settings" not in res
     assert "errors" not in res
     assert "read_count" not in res

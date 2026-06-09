@@ -19,16 +19,12 @@ const PARAMS = {
   verify: [],
   clear: [],
   error: [{ name: "max_reads", type: "number", label: "Max reads", value: 20 }],
-  measure: [{ name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" }],
-  "measure-all": [],
-  "read-status": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
   readback: [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
   set: baseOutputParams(),
   apply: [...applyOutputParams(), { name: "no_output", type: "checkbox", label: "Do not enable output" }],
   "output-on": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
   "output-off": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
   "safe-off": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
-  "output-state": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
   "cycle-output": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }, { name: "duration_ms", type: "number", label: "Duration ms", value: 100 }],
   ramp: [
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
@@ -39,7 +35,6 @@ const PARAMS = {
     { name: "delay_ms", type: "number", label: "Delay ms", value: 0 }
   ],
   "smoke-output": smokeOutputParams(),
-  "protection-status": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
   "protection-set": [
     { name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" },
     { name: "ovp_voltage", type: "number", label: "OVP voltage", value: 5 },
@@ -122,11 +117,10 @@ function renderCommands() {
   const list = document.getElementById("command-list");
   list.innerHTML = "";
 
-  const CATEGORIES = ["output", "trigger", "read-only", "artifact", "discovery"];
+  const CATEGORIES = ["output", "trigger", "artifact", "discovery"];
   const CATEGORY_LABELS = {
     "output": "Output",
     "trigger": "Trigger",
-    "read-only": "Read-Only",
     "artifact": "Artifact",
     "discovery": "Advanced Diagnostics"
   };
@@ -622,7 +616,10 @@ function blankLiveChannels() {
     measured_voltage: null,
     measured_current: null,
     set_voltage: null,
-    set_current: null
+    set_current: null,
+    over_voltage_tripped: null,
+    over_current_tripped: null,
+    protection_tripped: null
   }));
 }
 
@@ -639,7 +636,16 @@ function mergeLiveChannels(channels, previousChannels = [], preservePreviousValu
 function mergeLiveChannel(previous, incoming, preservePreviousValues) {
   if (!preservePreviousValues || !previous) return { ...previous, ...incoming };
   const next = { ...previous, ...incoming };
-  ["output_enabled", "measured_voltage", "measured_current", "set_voltage", "set_current"].forEach((key) => {
+  [
+    "output_enabled",
+    "measured_voltage",
+    "measured_current",
+    "set_voltage",
+    "set_current",
+    "over_voltage_tripped",
+    "over_current_tripped",
+    "protection_tripped"
+  ].forEach((key) => {
     if (incoming[key] === null || incoming[key] === undefined) next[key] = previous[key];
   });
   return next;
@@ -650,11 +656,16 @@ function renderChannelCard(channel, sample) {
   if (!card) return;
   const outputClass = channel.output_enabled === true ? "on" : channel.output_enabled === false ? "off" : "unknown";
   const outputText = channel.output_enabled === true ? "ON" : channel.output_enabled === false ? "OFF" : "--";
-  card.className = `live-card ${sample.stale ? "stale" : ""} ${sample.status === "error" ? "error" : ""}`;
+  const protectionClass = channel.protection_tripped === true ? "protection-tripped" : "";
+  card.className = `live-card ${sample.stale ? "stale" : ""} ${sample.status === "error" ? "error" : ""} ${protectionClass}`;
   card.innerHTML = `
     <div class="live-card-head">
       <strong>CH${channel.channel}</strong>
       <span class="status-badge ${outputClass}">${outputText}</span>
+    </div>
+    <div class="protection-badges">
+      ${protectionBadge("OVP", channel.over_voltage_tripped)}
+      ${protectionBadge("OCP", channel.over_current_tripped)}
     </div>
     <div class="live-measured">
       <div><span>${formatNum(channel.measured_voltage)}</span><small>OUT V</small></div>
@@ -665,6 +676,12 @@ function renderChannelCard(channel, sample) {
       <div><span>${formatNum(channel.set_current)}</span><small>SET A</small></div>
     </div>
   `;
+}
+
+function protectionBadge(label, tripped) {
+  const stateClass = tripped === true ? "trip" : tripped === false ? "ok" : "unknown";
+  const stateText = tripped === true ? "TRIP" : tripped === false ? "OK" : "--";
+  return `<span class="protection-badge ${stateClass}">${label} ${stateText}</span>`;
 }
 
 function drawTrend() {

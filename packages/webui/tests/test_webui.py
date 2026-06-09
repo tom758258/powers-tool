@@ -15,8 +15,8 @@ from fastapi.testclient import TestClient
 
 WEBUI_COMMAND_NAMES = {
     "verify", "clear", "error", "capabilities", "safety inspect",
-    "measure", "measure-all", "read-status", "readback", "identify", "protection-status",
-    "set", "apply", "output-on", "output-off", "safe-off", "output-state", "cycle-output",
+    "readback", "identify",
+    "set", "apply", "output-on", "output-off", "safe-off", "cycle-output",
     "ramp", "smoke-output", "protection-set", "clear-protection", "trigger-pulse",
     "trigger-status", "trigger-step", "trigger-list", "trigger-fire", "trigger-abort",
     "sequence", "snapshot", "restore-from-snapshot",
@@ -24,6 +24,10 @@ WEBUI_COMMAND_NAMES = {
 
 WEBUI_HIDDEN_UNSUPPORTED_COMMANDS = {
     "doctor", "validate-readonly", "log", "snapshot-diff", "hardware-report",
+}
+
+WEBUI_HIDDEN_LIVE_DATA_COMMANDS = {
+    "measure", "measure-all", "read-status", "protection-status", "output-state",
 }
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "src" / "keysight_power_webui" / "static"
@@ -146,16 +150,32 @@ def test_static_live_data_uses_three_channel_panel_contract():
     assert 'mergeLiveChannels(data.channels, previous?.channels, Boolean(data.stale))' in app_js
     assert "if (incoming[key] === null || incoming[key] === undefined) next[key] = previous[key];" in app_js
     assert "function renderLivePanel(data)" in app_js
-    for field in ("output_enabled", "measured_voltage", "measured_current", "set_voltage", "set_current", "stale", "error"):
+    for field in (
+        "output_enabled",
+        "measured_voltage",
+        "measured_current",
+        "set_voltage",
+        "set_current",
+        "over_voltage_tripped",
+        "over_current_tripped",
+        "protection_tripped",
+        "stale",
+        "error",
+    ):
         assert field in app_js
     render_channel_card = app_js[app_js.index("function renderChannelCard(channel, sample)"):app_js.index("function drawTrend()")]
     assert "live-card-foot" not in render_channel_card
     assert "sample.timestamp" not in render_channel_card
+    assert "protectionBadge(\"OVP\", channel.over_voltage_tripped)" in render_channel_card
+    assert "protectionBadge(\"OCP\", channel.over_current_tripped)" in render_channel_card
+    assert "protection-tripped" in render_channel_card
     assert "last update" in app_js
 
     assert ".live-cards" in styles_css
     assert ".live-card-foot" not in styles_css
     assert ".status-badge.on" in styles_css
+    assert ".protection-badge.trip" in styles_css
+    assert ".live-card.protection-tripped" in styles_css
     assert ".live-card.stale" in styles_css
     assert ".live-state-field strong" in styles_css
 
@@ -211,7 +231,10 @@ def test_static_command_display_names_are_sorted_and_capitalized_without_renamin
     display_name = app_js[app_js.index("function commandDisplayName(name)"):app_js.index("function submitJob")]
     add_history = app_js[app_js.index("function addHistory"):app_js.index("function updateHistory")]
 
-    assert 'const CATEGORIES = ["output", "trigger", "read-only", "artifact", "discovery"]' in render_commands
+    assert 'const CATEGORIES = ["output", "trigger", "artifact", "discovery"]' in render_commands
+    assert "Read-Only" not in render_commands
+    assert "read-only" not in render_commands
+    assert "grid-template-columns: repeat(4, 1fr);" in (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
     assert '"discovery": "Advanced Diagnostics"' in render_commands
     assert '"discovery": "Discovery"' not in render_commands
     assert ".sort((a, b) => a[0].localeCompare(b[0]))" in render_commands
@@ -274,8 +297,11 @@ def test_static_channel_confirmation_and_job_detail_contracts():
     assert 'name: "duration_ms", type: "number", label: "Duration ms", value: 100' in smoke_output_params
     assert "settle_ms" not in smoke_output_params
     assert "verify_after_write" not in smoke_output_params
-    for command in ("output-on", "output-off", "output-state", "cycle-output"):
+    for command in ("output-on", "output-off", "cycle-output"):
         assert f'"{command}": [{{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }}' in app_js
+    params_block = app_js[app_js.index("const PARAMS = {"):app_js.index("function baseOutputParams()")]
+    for command in WEBUI_HIDDEN_LIVE_DATA_COMMANDS:
+        assert f'"{command}"' not in params_block
     assert '"smoke-output": [...baseOutputParams()' not in app_js
 
     assert 'param.name === "channel" ? normalizeChannelValue(input.value) : input.value' in app_js
@@ -356,11 +382,13 @@ def test_commands_metadata(client: TestClient):
     cmds = data["commands"]
     assert "set" in cmds
     assert cmds["set"]["requires_confirm"] is True
-    assert "read-status" in cmds
-    assert cmds["read-status"]["requires_confirm"] is False
+    assert not (WEBUI_HIDDEN_LIVE_DATA_COMMANDS & set(cmds))
     assert "list-resources" not in cmds
     assert cmds["smoke-output"]["category"] == "discovery"
     assert cmds["smoke-output"]["description"] == "Run guarded output diagnostic"
+    assert cmds["identify"]["category"] == "discovery"
+    assert cmds["identify"]["description"] == "Read instrument identification information"
+    assert cmds["readback"]["category"] == "discovery"
     
     # Check output-affecting commands are marked correctly
     assert cmds["output-on"]["requires_confirm"] is True
@@ -395,6 +423,7 @@ def test_command_coverage(client: TestClient):
 
     assert WEBUI_COMMAND_NAMES <= webui_commands
     assert "list-resources" not in webui_commands
+    assert not (WEBUI_HIDDEN_LIVE_DATA_COMMANDS & webui_commands)
     assert not (WEBUI_HIDDEN_UNSUPPORTED_COMMANDS & webui_commands)
     for model_support in data["command_support_by_model"].values():
         assert set(model_support) <= webui_commands
@@ -819,6 +848,9 @@ def test_live_data_live_panel_emits_three_channel_panel_sample(client: TestClien
     assert [channel["set_voltage"] for channel in sample["channels"]] == [1.0, 2.0, 3.0]
     assert [channel["set_current"] for channel in sample["channels"]] == [0.1, 0.2, 0.3]
     assert [channel["output_enabled"] for channel in sample["channels"]] == [True, False, True]
+    assert [channel["over_voltage_tripped"] for channel in sample["channels"]] == [False, False, False]
+    assert [channel["over_current_tripped"] for channel in sample["channels"]] == [True, True, True]
+    assert [channel["protection_tripped"] for channel in sample["channels"]] == [True, True, True]
     assert calls
     assert calls[0][0].simulate is False
     assert calls[0][1] == {}
@@ -855,6 +887,9 @@ def test_live_data_live_panel_unwraps_envelope(client: TestClient, monkeypatch: 
     assert sample["channels"][0]["measured_current"] == 0.000019
     assert sample["channels"][0]["set_voltage"] == 1.0
     assert sample["channels"][0]["set_current"] == 0.1
+    assert sample["channels"][0]["over_voltage_tripped"] is False
+    assert sample["channels"][0]["over_current_tripped"] is False
+    assert sample["channels"][0]["protection_tripped"] is False
     assert sample["channels"][1]["set_voltage"] == 0.0
     assert sample["channels"][2]["measured_current"] == 0.0
 
@@ -886,6 +921,7 @@ def test_live_data_live_panel_with_no_panel_records_is_stale_error(client: TestC
     assert sample["stale"] is True
     assert "did not include output, readback, or measurement records" in sample["message"]
     assert [channel["measured_voltage"] for channel in sample["channels"]] == [None, None, None]
+    assert [channel["protection_tripped"] for channel in sample["channels"]] == [None, None, None]
 
     assert client.post(f"/api/live/{job_id}/stop").status_code == 200
 
@@ -905,6 +941,19 @@ def test_live_data_panel_sample_normalizes_numeric_values():
                 {"channel": 1, "measurements": {"voltage": "1.000237", "current": "0.000019"}},
                 {"channel": 2, "measurements": {"voltage": "nan", "current": "inf"}},
             ],
+            "channels": [
+                {
+                    "channel": 1,
+                    "over_voltage_tripped": "0",
+                    "over_current_tripped": "1",
+                },
+                {
+                    "channel": 2,
+                    "over_voltage_tripped": None,
+                    "over_current_tripped": None,
+                    "protection_tripped": "false",
+                },
+            ],
         },
         {"resource": "USB0::FAKE::E36312A::INSTR"},
     )
@@ -919,6 +968,10 @@ def test_live_data_panel_sample_normalizes_numeric_values():
     assert sample["channels"][1]["measured_current"] is None
     assert sample["channels"][1]["set_voltage"] is None
     assert sample["channels"][1]["set_current"] is None
+    assert sample["channels"][0]["over_voltage_tripped"] is False
+    assert sample["channels"][0]["over_current_tripped"] is True
+    assert sample["channels"][0]["protection_tripped"] is True
+    assert sample["channels"][1]["protection_tripped"] is False
 
 
 def test_live_data_real_mode_reports_busy_without_live_panel_call(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -949,6 +1002,7 @@ def test_live_data_real_mode_reports_busy_without_live_panel_call(client: TestCl
     assert event["data"]["stale"] is True
     assert [channel["channel"] for channel in event["data"]["channels"]] == [1, 2, 3]
     assert [channel["measured_voltage"] for channel in event["data"]["channels"]] == [None, None, None]
+    assert [channel["protection_tripped"] for channel in event["data"]["channels"]] == [None, None, None]
 
     assert client.post(f"/api/live/{job_id}/stop").status_code == 200
     job_manager.active_job_id = None
@@ -1099,6 +1153,11 @@ def _fake_live_panel(resource: str) -> dict[str, Any]:
             {"channel": 2, "measurements": {"voltage": 2.2, "current": 0.22}},
             {"channel": 3, "measurements": {"voltage": 3.3, "current": 0.33}},
         ],
+        "channels": [
+            {"channel": 1, "over_voltage_tripped": False, "over_current_tripped": True},
+            {"channel": 2, "over_voltage_tripped": False, "over_current_tripped": True},
+            {"channel": 3, "over_voltage_tripped": False, "over_current_tripped": True},
+        ],
     }
 
 
@@ -1119,6 +1178,11 @@ def _fake_e36312a_live_panel(resource: str) -> dict[str, Any]:
             {"channel": 1, "measurements": {"voltage": "1.000237", "current": "0.000019"}},
             {"channel": 2, "measurements": {"voltage": "0.000108", "current": "0.000000"}},
             {"channel": 3, "measurements": {"voltage": "0.0", "current": "0.0"}},
+        ],
+        "channels": [
+            {"channel": 1, "over_voltage_tripped": False, "over_current_tripped": False},
+            {"channel": 2, "over_voltage_tripped": False, "over_current_tripped": False},
+            {"channel": 3, "over_voltage_tripped": False, "over_current_tripped": False},
         ],
     }
 
