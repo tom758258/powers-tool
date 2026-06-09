@@ -79,14 +79,14 @@ SIMULATED_PROTECTION_TRIPS = {
 
 SIMULATED_PROTECTION_SETTINGS = {
     "USB0::SIM::E36312A::INSTR": {
-        1: {"ovp_voltage": "6.000", "ocp_enabled": "ON"},
-        2: {"ovp_voltage": "6.000", "ocp_enabled": "ON"},
-        3: {"ovp_voltage": "6.000", "ocp_enabled": "ON"},
+        1: {"ovp_voltage": "6.000", "ocp_enabled": "ON", "ocp_delay": "0.08", "ocp_delay_trigger": "SCH"},
+        2: {"ovp_voltage": "6.000", "ocp_enabled": "ON", "ocp_delay": "0.08", "ocp_delay_trigger": "SCH"},
+        3: {"ovp_voltage": "6.000", "ocp_enabled": "ON", "ocp_delay": "0.08", "ocp_delay_trigger": "SCH"},
     },
     "USB0::SIM::EDU36311A::INSTR": {
-        1: {"ovp_voltage": "6.000", "ocp_enabled": "ON"},
-        2: {"ovp_voltage": "6.000", "ocp_enabled": "ON"},
-        3: {"ovp_voltage": "6.000", "ocp_enabled": "ON"},
+        1: {"ovp_voltage": "6.000", "ocp_enabled": "ON", "ocp_delay": "0.08", "ocp_delay_trigger": "SCH"},
+        2: {"ovp_voltage": "6.000", "ocp_enabled": "ON", "ocp_delay": "0.08", "ocp_delay_trigger": "SCH"},
+        3: {"ovp_voltage": "6.000", "ocp_enabled": "ON", "ocp_delay": "0.08", "ocp_delay_trigger": "SCH"},
     },
 }
 
@@ -442,6 +442,30 @@ def _simulated_protection_set(resource_name: str, command: str) -> int | None:
         except KeyError as exc:
             raise VisaConnectionError(f"No simulated response for {command!r}") from exc
         return channel
+    if command.startswith("CURR:PROT:DEL ") and ",(@" in command and command.endswith(")"):
+        value, channel_text = command.removeprefix("CURR:PROT:DEL ").split(",(@", maxsplit=1)
+        try:
+            delay = float(value)
+        except ValueError as exc:
+            raise VisaConnectionError(f"Unsupported simulated protection command {command!r}") from exc
+        if delay < 0:
+            raise VisaConnectionError(f"Unsupported simulated protection command {command!r}")
+        channel = _parse_channel_list(f"(@{channel_text}", "(@")
+        try:
+            SIMULATED_PROTECTION_SETTINGS[resource_name][channel]["ocp_delay"] = value
+        except KeyError as exc:
+            raise VisaConnectionError(f"No simulated response for {command!r}") from exc
+        return channel
+    if command.startswith("CURR:PROT:DEL:STAR ") and ",(@" in command and command.endswith(")"):
+        trigger, channel_text = command.removeprefix("CURR:PROT:DEL:STAR ").split(",(@", maxsplit=1)
+        if trigger not in {"SCH", "CCTR"}:
+            raise VisaConnectionError(f"Unsupported simulated protection command {command!r}")
+        channel = _parse_channel_list(f"(@{channel_text}", "(@")
+        try:
+            SIMULATED_PROTECTION_SETTINGS[resource_name][channel]["ocp_delay_trigger"] = trigger
+        except KeyError as exc:
+            raise VisaConnectionError(f"No simulated response for {command!r}") from exc
+        return channel
     return None
 
 
@@ -469,6 +493,10 @@ def _simulated_protection_setting(command: str) -> tuple[str, int] | None:
         return ("ovp_voltage", _parse_channel_list(command, "VOLT:PROT? (@"))
     if command.startswith("CURR:PROT:STAT? (@") and command.endswith(")"):
         return ("ocp_enabled", _parse_channel_list(command, "CURR:PROT:STAT? (@"))
+    if command.startswith("CURR:PROT:DEL? (@") and command.endswith(")"):
+        return ("ocp_delay", _parse_channel_list(command, "CURR:PROT:DEL? (@"))
+    if command.startswith("CURR:PROT:DEL:STAR? (@") and command.endswith(")"):
+        return ("ocp_delay_trigger", _parse_channel_list(command, "CURR:PROT:DEL:STAR? (@"))
     return None
 
 

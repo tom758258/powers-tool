@@ -38,7 +38,9 @@ const PARAMS = {
   "protection-set": [
     { name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" },
     { name: "ovp_voltage", type: "number", label: "OVP voltage", value: 5 },
-    { name: "ocp", type: "select", label: "OCP", options: ["", "on", "off"], value: "" }
+    { name: "ocp", type: "select", label: "OCP", options: ["", "on", "off"], value: "" },
+    { name: "ocp_delay", type: "number", label: "OCP delay", optional: true },
+    { name: "ocp_delay_trigger", type: "select", label: "OCP delay trigger", options: ["", "setting-change", "cc-transition"], value: "" }
   ],
   "clear-protection": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
   "trigger-pulse": [

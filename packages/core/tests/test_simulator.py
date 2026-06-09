@@ -124,8 +124,23 @@ def test_e36312a_simulator_accepts_protection_set_writes() -> None:
 
     session.write("VOLT:PROT 5,(@2)")
     session.write("CURR:PROT:STAT ON,(@2)")
+    session.write("CURR:PROT:DEL 0.5,(@2)")
+    session.write("CURR:PROT:DEL:STAR CCTR,(@2)")
 
-    assert session.commands == ["VOLT:PROT 5,(@2)", "CURR:PROT:STAT ON,(@2)"]
+    assert session.query("VOLT:PROT? (@2)") == "5"
+    assert session.query("CURR:PROT:STAT? (@2)") == "ON"
+    assert session.query("CURR:PROT:DEL? (@2)") == "0.5"
+    assert session.query("CURR:PROT:DEL:STAR? (@2)") == "CCTR"
+    assert session.commands == [
+        "VOLT:PROT 5,(@2)",
+        "CURR:PROT:STAT ON,(@2)",
+        "CURR:PROT:DEL 0.5,(@2)",
+        "CURR:PROT:DEL:STAR CCTR,(@2)",
+        "VOLT:PROT? (@2)",
+        "CURR:PROT:STAT? (@2)",
+        "CURR:PROT:DEL? (@2)",
+        "CURR:PROT:DEL:STAR? (@2)",
+    ]
 
 
 def test_e36312a_simulator_tracks_trigger_list_state() -> None:

@@ -353,6 +353,12 @@ def test_static_channel_confirmation_and_job_detail_contracts():
     for command in ("output-on", "output-off", "cycle-output"):
         assert f'"{command}": [{{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }}' in app_js
     params_block = app_js[app_js.index("const PARAMS = {"):app_js.index("function baseOutputParams()")]
+    assert '"protection-set"' in params_block
+    assert 'name: "ocp_delay", type: "number", label: "OCP delay", optional: true' in params_block
+    assert (
+        'name: "ocp_delay_trigger", type: "select", label: "OCP delay trigger", '
+        'options: ["", "setting-change", "cc-transition"], value: ""'
+    ) in params_block
     for command in WEBUI_HIDDEN_LIVE_DATA_COMMANDS:
         assert f'"{command}"' not in params_block
     assert '"smoke-output": [...baseOutputParams()' not in app_js

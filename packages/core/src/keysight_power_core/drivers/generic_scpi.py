@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -125,6 +126,12 @@ class GenericScpiPowerSupply:
     def over_current_protection_enabled(self, *, channel: Channel = None) -> bool:
         return _parse_bool(self._query("CURR:PROT:STAT?", channel=channel), "over-current protection state")
 
+    def over_current_protection_delay(self, *, channel: Channel = None) -> float:
+        return _parse_float(self._query("CURR:PROT:DEL?", channel=channel), "over-current protection delay")
+
+    def over_current_protection_delay_trigger(self, *, channel: Channel = None) -> str:
+        return _parse_ocp_delay_trigger(self._query("CURR:PROT:DEL:STAR?", channel=channel))
+
     def clear_output_protection(self, *, channel: Channel = None) -> None:
         self._write("OUTP:PROT:CLE", channel=channel)
 
@@ -139,6 +146,14 @@ class GenericScpiPowerSupply:
         enabled: bool,
     ) -> None:
         self._write(f"CURR:PROT:STAT {'ON' if enabled else 'OFF'}", channel=channel)
+
+    def set_over_current_protection_delay(self, *, channel: Channel = None, seconds: float) -> None:
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError("over-current protection delay must be a finite non-negative number")
+        self._write(f"CURR:PROT:DEL {_format_number(seconds)}", channel=channel)
+
+    def set_over_current_protection_delay_trigger(self, *, channel: Channel = None, trigger: str) -> None:
+        self._write(f"CURR:PROT:DEL:STAR {_ocp_delay_trigger_to_scpi(trigger)}", channel=channel)
 
     def clear_status(self) -> None:
         self._session.write("*CLS")
@@ -206,6 +221,23 @@ def _parse_bool(response: str, label: str) -> bool:
     if normalized in {"0", "OFF", "FALSE"}:
         return False
     raise ValueError(f"Could not parse {label}: {response!r}")
+
+
+def _parse_ocp_delay_trigger(response: str) -> str:
+    normalized = response.strip().upper()
+    if normalized in {"SCH", "SCHA", "SCHAN", "SCHANG", "SCHANGE"}:
+        return "setting-change"
+    if normalized in {"CCTR", "CCTRA", "CCTRAN", "CCTRANS"}:
+        return "cc-transition"
+    raise ValueError(f"Could not parse over-current protection delay trigger: {response!r}")
+
+
+def _ocp_delay_trigger_to_scpi(trigger: str) -> str:
+    if trigger == "setting-change":
+        return "SCH"
+    if trigger == "cc-transition":
+        return "CCTR"
+    raise ValueError(f"unsupported over-current protection delay trigger: {trigger!r}")
 
 
 def _is_no_error(response: str) -> bool:

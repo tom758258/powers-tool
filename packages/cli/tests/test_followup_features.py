@@ -50,7 +50,23 @@ def _payload(capsys):
     return json.loads(capsys.readouterr().out)
 
 
-def _write_snapshot(path, *, enabled=False, voltage=1.0, current=0.05, ovp=6.0, ocp=True, errors=None):
+def _write_snapshot(
+    path,
+    *,
+    enabled=False,
+    voltage=1.0,
+    current=0.05,
+    ovp=6.0,
+    ocp=True,
+    ocp_delay=None,
+    ocp_delay_trigger=None,
+    errors=None,
+):
+    protection = {"ovp_voltage": ovp, "ocp_enabled": ocp}
+    if ocp_delay is not None:
+        protection["ocp_delay"] = ocp_delay
+    if ocp_delay_trigger is not None:
+        protection["ocp_delay_trigger"] = ocp_delay_trigger
     path.write_text(
         json.dumps(
             {
@@ -70,7 +86,7 @@ def _write_snapshot(path, *, enabled=False, voltage=1.0, current=0.05, ovp=6.0, 
                     "readback": [{"channel": 1, "setpoints": {"voltage": voltage, "current": current}}],
                     "measurements": [{"channel": 1, "measurements": {"voltage": voltage + 0.1, "current": current + 0.01}}],
                     "protection": {"over_voltage_tripped": False, "over_current_tripped": False},
-                    "protection_settings": [{"channel": 1, "protection": {"ovp_voltage": ovp, "ocp_enabled": ocp}}],
+                    "protection_settings": [{"channel": 1, "protection": protection}],
                 },
             }
         ),
@@ -224,6 +240,41 @@ def test_restore_from_snapshot_dry_run_orders_safe_operations(tmp_path, capsys):
         "set_current_limit",
         "set_voltage",
     ]
+
+
+def test_restore_from_snapshot_dry_run_restores_ocp_delay_settings(tmp_path, capsys):
+    snapshot = tmp_path / "snapshot.json"
+    _write_snapshot(snapshot, ocp_delay=0.5, ocp_delay_trigger="cc-transition")
+
+    assert (
+        cli.main(
+            [
+                "restore-from-snapshot",
+                "--dry-run",
+                "--json",
+                "--snapshot",
+                str(snapshot),
+                "--resource",
+                "USB0::FAKE::E36312A::INSTR",
+                "--channel",
+                "1",
+            ]
+        )
+        == 0
+    )
+
+    steps = _payload(capsys)["data"]["plan"]["steps"]
+    assert [step["action"] for step in steps] == [
+        "output_off",
+        "set_over_voltage_protection",
+        "set_over_current_protection_enabled",
+        "set_over_current_protection_delay",
+        "set_over_current_protection_delay_trigger",
+        "set_current_limit",
+        "set_voltage",
+    ]
+    assert steps[3]["command"] == "CURR:PROT:DEL 0.5,(@1)"
+    assert steps[4]["command"] == "CURR:PROT:DEL:STAR CCTR,(@1)"
 
 
 def test_restore_from_snapshot_plan_json_requires_dry_run(monkeypatch, tmp_path, capsys):

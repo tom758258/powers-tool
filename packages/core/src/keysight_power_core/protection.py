@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Callable
 
 from keysight_power_core.connection import open_resource
@@ -26,6 +27,10 @@ from keysight_power_core.validation import ChannelSelectionError, expand_channel
 
 IDN_QUERY = "*IDN?"
 SUPPORTED_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
+OCP_DELAY_TRIGGERS = {"setting-change": "SCH", "cc-transition": "CCTR"}
+PROTECTION_SET_OPERATION_ERROR = (
+    "protection-set requires --ovp-voltage, --ocp, --ocp-delay, or --ocp-delay-trigger"
+)
 
 
 def run_protection(
@@ -105,8 +110,10 @@ def _run_clear(request: OperationRequest, *, opener: Callable[..., Any], scpi_lo
 
 def _run_set(request: OperationRequest, *, opener: Callable[..., Any], scpi_logger: Callable[[str, str, str], None] | None) -> dict[str, Any]:
     p = request.parameters
-    if p.get("ovp_voltage") is None and p.get("ocp") is None:
-        raise CoreValidationError("protection-set requires --ovp-voltage or --ocp")
+    if not _has_set_operation(p):
+        raise CoreValidationError(PROTECTION_SET_OPERATION_ERROR)
+    ocp_delay = _optional_ocp_delay(p.get("ocp_delay"))
+    ocp_delay_trigger = _optional_ocp_delay_trigger(p.get("ocp_delay_trigger"))
     channels = _channels(_selected_channel(request), E36312APowerSupply.capabilities.channels)
     limits = _safety_limits(request)
     try:
@@ -121,7 +128,7 @@ def _run_set(request: OperationRequest, *, opener: Callable[..., Any], scpi_logg
             "plan": dry_run_plan(
                 command=request.command,
                 resource=request.runtime.resource,
-                scpi=_protection_set_scpi(channels, p.get("ovp_voltage"), p.get("ocp")),
+                scpi=_protection_set_scpi(channels, p.get("ovp_voltage"), p.get("ocp"), ocp_delay, ocp_delay_trigger),
                 description="Preview setting output protection for selected channels.",
             )
         }
@@ -137,6 +144,10 @@ def _run_set(request: OperationRequest, *, opener: Callable[..., Any], scpi_logg
                 power_supply.set_over_voltage_protection(channel=channel, voltage=p["ovp_voltage"])
             if p.get("ocp") is not None:
                 power_supply.set_over_current_protection_enabled(channel=channel, enabled=p["ocp"] == "on")
+            if ocp_delay is not None:
+                power_supply.set_over_current_protection_delay(channel=channel, seconds=ocp_delay)
+            if ocp_delay_trigger is not None:
+                power_supply.set_over_current_protection_delay_trigger(channel=channel, trigger=ocp_delay_trigger)
         _raise_on_errors(power_supply, request.command)
     return {
         "resource": request.runtime.resource,
@@ -146,6 +157,8 @@ def _run_set(request: OperationRequest, *, opener: Callable[..., Any], scpi_logg
                 "protection": {
                     "ovp_voltage": _json_safe_number(p["ovp_voltage"]) if p.get("ovp_voltage") is not None else None,
                     "ocp_enabled": (p["ocp"] == "on" if p.get("ocp") is not None else None),
+                    "ocp_delay": _json_safe_number(ocp_delay) if ocp_delay is not None else None,
+                    "ocp_delay_trigger": ocp_delay_trigger,
                 },
             }
             for channel in channels
@@ -210,13 +223,52 @@ def _protection_payload(power_supply: Any) -> dict[str, bool]:
     }
 
 
-def _protection_set_scpi(channels: tuple[int, ...], ovp_voltage: float | None, ocp: str | None) -> tuple[str, ...]:
+def _has_set_operation(parameters: dict[str, Any]) -> bool:
+    return any(
+        parameters.get(key) is not None
+        for key in ("ovp_voltage", "ocp", "ocp_delay", "ocp_delay_trigger")
+    )
+
+
+def _optional_ocp_delay(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        delay = float(value)
+    except (TypeError, ValueError) as exc:
+        raise CoreValidationError("ocp_delay must be a finite non-negative number") from exc
+    if not math.isfinite(delay) or delay < 0:
+        raise CoreValidationError("ocp_delay must be a finite non-negative number")
+    return delay
+
+
+def _optional_ocp_delay_trigger(value: Any) -> str | None:
+    if value is None:
+        return None
+    if value not in OCP_DELAY_TRIGGERS:
+        raise CoreValidationError(
+            "ocp_delay_trigger must be one of: setting-change, cc-transition"
+        )
+    return str(value)
+
+
+def _protection_set_scpi(
+    channels: tuple[int, ...],
+    ovp_voltage: float | None,
+    ocp: str | None,
+    ocp_delay: float | None,
+    ocp_delay_trigger: str | None,
+) -> tuple[str, ...]:
     commands: list[str] = []
     for channel in channels:
         if ovp_voltage is not None:
             commands.append(f"VOLT:PROT {_json_safe_number(ovp_voltage)},(@{channel})")
         if ocp is not None:
             commands.append(f"CURR:PROT:STAT {ocp.upper()},(@{channel})")
+        if ocp_delay is not None:
+            commands.append(f"CURR:PROT:DEL {_json_safe_number(ocp_delay)},(@{channel})")
+        if ocp_delay_trigger is not None:
+            commands.append(f"CURR:PROT:DEL:STAR {OCP_DELAY_TRIGGERS[ocp_delay_trigger]},(@{channel})")
     return tuple(commands)
 
 

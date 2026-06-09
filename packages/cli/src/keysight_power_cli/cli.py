@@ -436,6 +436,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable or disable over-current protection.",
     )
     protection_set_parser.add_argument(
+        "--ocp-delay",
+        type=float,
+        help="Over-current protection delay in seconds.",
+    )
+    protection_set_parser.add_argument(
+        "--ocp-delay-trigger",
+        choices=("setting-change", "cc-transition"),
+        help="Event that starts the over-current protection delay timer.",
+    )
+    protection_set_parser.add_argument(
         "--confirm",
         action="store_true",
         help="Confirm real hardware protection setup.",
@@ -3280,13 +3290,18 @@ def _run_clear_protection(args: argparse.Namespace) -> int:
 def _run_protection_set(args: argparse.Namespace) -> int:
     request = _request_for_args(args)
     execution = _execution_for_args(args, hardware_intent=True)
-    if args.ovp_voltage is None and args.ocp is None:
+    if (
+        args.ovp_voltage is None
+        and args.ocp is None
+        and args.ocp_delay is None
+        and args.ocp_delay_trigger is None
+    ):
         return _emit_cli_error(
             args,
             request=request,
             error_type="validation",
             code="argument_error",
-            message="protection-set requires --ovp-voltage or --ocp",
+            message="protection-set requires --ovp-voltage, --ocp, --ocp-delay, or --ocp-delay-trigger",
             retryable=False,
         )
     try:
@@ -3329,7 +3344,9 @@ def _run_protection_set(args: argparse.Namespace) -> int:
         print(
             f"Channel {channel['channel']}: "
             f"OVP={_format_text_value(protection['ovp_voltage'])}, "
-            f"OCP={_format_text_value(protection['ocp_enabled'])}"
+            f"OCP={_format_text_value(protection['ocp_enabled'])}, "
+            f"OCP delay={_format_text_value(protection['ocp_delay'])}, "
+            f"OCP delay trigger={_format_text_value(protection['ocp_delay_trigger'])}"
         )
     return 0
 
@@ -5553,12 +5570,26 @@ def _protection_settings_payload(
             if not tolerate_errors:
                 raise
             ocp_enabled = None
+        try:
+            ocp_delay: float | None = power_supply.over_current_protection_delay(channel=channel)
+        except (VisaConnectionError, ValueError):
+            if not tolerate_errors:
+                raise
+            ocp_delay = None
+        try:
+            ocp_delay_trigger: str | None = power_supply.over_current_protection_delay_trigger(channel=channel)
+        except (VisaConnectionError, ValueError):
+            if not tolerate_errors:
+                raise
+            ocp_delay_trigger = None
         settings.append(
             {
                 "channel": channel,
                 "protection": {
                     "ovp_voltage": ovp_voltage,
                     "ocp_enabled": ocp_enabled,
+                    "ocp_delay": ocp_delay,
+                    "ocp_delay_trigger": ocp_delay_trigger,
                 },
             }
         )
@@ -5634,6 +5665,20 @@ def _diff_snapshots(before: dict[str, Any], after: dict[str, Any]) -> list[dict[
         differences,
         category="protection_setting",
         field_path=("protection", "ocp_enabled"),
+        before_records=before.get("protection_settings"),
+        after_records=after.get("protection_settings"),
+    )
+    _diff_channel_records(
+        differences,
+        category="protection_setting",
+        field_path=("protection", "ocp_delay"),
+        before_records=before.get("protection_settings"),
+        after_records=after.get("protection_settings"),
+    )
+    _diff_channel_records(
+        differences,
+        category="protection_setting",
+        field_path=("protection", "ocp_delay_trigger"),
         before_records=before.get("protection_settings"),
         after_records=after.get("protection_settings"),
     )
@@ -5845,6 +5890,27 @@ def _restore_plan(
                     enabled=bool(ocp_enabled),
                 )
             )
+        ocp_delay = protection_record.get("ocp_delay")
+        if ocp_delay is not None:
+            steps.append(
+                _restore_step(
+                    "set_over_current_protection_delay",
+                    f"CURR:PROT:DEL {_format_text_value(ocp_delay)},(@{channel})",
+                    channel=channel,
+                    seconds=ocp_delay,
+                )
+            )
+        ocp_delay_trigger = protection_record.get("ocp_delay_trigger")
+        if ocp_delay_trigger is not None:
+            trigger_command = _ocp_delay_trigger_scpi(ocp_delay_trigger)
+            steps.append(
+                _restore_step(
+                    "set_over_current_protection_delay_trigger",
+                    f"CURR:PROT:DEL:STAR {trigger_command},(@{channel})",
+                    channel=channel,
+                    trigger=ocp_delay_trigger,
+                )
+            )
         setpoints = readback.get(channel, {}).get("setpoints", {})
         if "current" not in setpoints or "voltage" not in setpoints:
             raise ValueError(f"snapshot does not contain voltage/current setpoints for channel {channel}")
@@ -5886,6 +5952,14 @@ def _restore_step(action: str, scpi: str, **parameters: Any) -> dict[str, Any]:
     return {"action": action, "command": scpi, "parameters": parameters}
 
 
+def _ocp_delay_trigger_scpi(trigger: Any) -> str:
+    if trigger == "setting-change":
+        return "SCH"
+    if trigger == "cc-transition":
+        return "CCTR"
+    raise ValueError("ocp_delay_trigger must be one of: setting-change, cc-transition")
+
+
 def _execute_restore_plan(power_supply: E36312APowerSupply, plan: dict[str, Any]) -> None:
     for step in plan["steps"]:
         action = step["action"]
@@ -5897,6 +5971,10 @@ def _execute_restore_plan(power_supply: E36312APowerSupply, plan: dict[str, Any]
             power_supply.set_over_voltage_protection(channel=channel, voltage=float(parameters["voltage"]))
         elif action == "set_over_current_protection_enabled":
             power_supply.set_over_current_protection_enabled(channel=channel, enabled=bool(parameters["enabled"]))
+        elif action == "set_over_current_protection_delay":
+            power_supply.set_over_current_protection_delay(channel=channel, seconds=float(parameters["seconds"]))
+        elif action == "set_over_current_protection_delay_trigger":
+            power_supply.set_over_current_protection_delay_trigger(channel=channel, trigger=str(parameters["trigger"]))
         elif action == "set_current_limit":
             power_supply.set_current_limit(channel=channel, current=float(parameters["current"]))
         elif action == "set_voltage":
@@ -8168,6 +8246,12 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
                 else None
             ),
             "ocp": args.ocp,
+            "ocp_delay": (
+                _json_safe_number(args.ocp_delay)
+                if args.ocp_delay is not None
+                else None
+            ),
+            "ocp_delay_trigger": args.ocp_delay_trigger,
             "confirm": getattr(args, "confirm", False),
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
@@ -8571,6 +8655,8 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "channel": channel,
             "ovp_voltage": _number_from_argv(argv, "--ovp-voltage"),
             "ocp": _option_value(argv, "--ocp"),
+            "ocp_delay": _number_from_argv(argv, "--ocp-delay"),
+            "ocp_delay_trigger": _option_value(argv, "--ocp-delay-trigger"),
             "confirm": "--confirm" in argv,
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
@@ -9206,6 +9292,8 @@ def _target_core_request_for_args(args: argparse.Namespace) -> OperationRequest:
         "max_errors": getattr(args, "max_errors", 20),
         "ovp_voltage": getattr(args, "ovp_voltage", None),
         "ocp": getattr(args, "ocp", None),
+        "ocp_delay": getattr(args, "ocp_delay", None),
+        "ocp_delay_trigger": getattr(args, "ocp_delay_trigger", None),
     }
     return OperationRequest(
         command=args.command,

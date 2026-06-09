@@ -72,6 +72,8 @@ def run_snapshot(
                     "protection": {
                         "ovp_voltage": _tolerate(lambda channel=channel: power_supply.over_voltage_protection_level(channel=channel)),
                         "ocp_enabled": _tolerate(lambda channel=channel: power_supply.over_current_protection_enabled(channel=channel)),
+                        "ocp_delay": _tolerate(lambda channel=channel: power_supply.over_current_protection_delay(channel=channel)),
+                        "ocp_delay_trigger": _tolerate(lambda channel=channel: power_supply.over_current_protection_delay_trigger(channel=channel)),
                     },
                 }
                 for channel in channels

@@ -92,6 +92,13 @@ def restore_plan(
         if ocp_enabled is not None:
             ocp_command = "ON" if bool(ocp_enabled) else "OFF"
             steps.append(_restore_step("set_over_current_protection_enabled", f"CURR:PROT:STAT {ocp_command},(@{channel})", channel=channel, enabled=bool(ocp_enabled)))
+        ocp_delay = protection_record.get("ocp_delay")
+        if ocp_delay is not None:
+            steps.append(_restore_step("set_over_current_protection_delay", f"CURR:PROT:DEL {_format_value(ocp_delay)},(@{channel})", channel=channel, seconds=ocp_delay))
+        ocp_delay_trigger = protection_record.get("ocp_delay_trigger")
+        if ocp_delay_trigger is not None:
+            trigger_command = _ocp_delay_trigger_scpi(ocp_delay_trigger)
+            steps.append(_restore_step("set_over_current_protection_delay_trigger", f"CURR:PROT:DEL:STAR {trigger_command},(@{channel})", channel=channel, trigger=ocp_delay_trigger))
         setpoints = readback.get(channel, {}).get("setpoints", {})
         if "current" not in setpoints or "voltage" not in setpoints:
             raise CoreValidationError(f"snapshot does not contain voltage/current setpoints for channel {channel}")
@@ -150,6 +157,14 @@ def _restore_step(action: str, scpi: str, **parameters: Any) -> dict[str, Any]:
     return {"action": action, "command": scpi, "parameters": parameters}
 
 
+def _ocp_delay_trigger_scpi(trigger: Any) -> str:
+    if trigger == "setting-change":
+        return "SCH"
+    if trigger == "cc-transition":
+        return "CCTR"
+    raise CoreValidationError("ocp_delay_trigger must be one of: setting-change, cc-transition")
+
+
 def _execute_restore_plan(power_supply: E36312APowerSupply, plan: dict[str, Any]) -> None:
     for step in plan["steps"]:
         action = step["action"]
@@ -161,6 +176,10 @@ def _execute_restore_plan(power_supply: E36312APowerSupply, plan: dict[str, Any]
             power_supply.set_over_voltage_protection(channel=channel, voltage=float(parameters["voltage"]))
         elif action == "set_over_current_protection_enabled":
             power_supply.set_over_current_protection_enabled(channel=channel, enabled=bool(parameters["enabled"]))
+        elif action == "set_over_current_protection_delay":
+            power_supply.set_over_current_protection_delay(channel=channel, seconds=float(parameters["seconds"]))
+        elif action == "set_over_current_protection_delay_trigger":
+            power_supply.set_over_current_protection_delay_trigger(channel=channel, trigger=str(parameters["trigger"]))
         elif action == "set_current_limit":
             power_supply.set_current_limit(channel=channel, current=float(parameters["current"]))
         elif action == "set_voltage":

@@ -340,6 +340,7 @@ Preview or confirm E36312A protection actions:
 uv run keysight-power clear-protection --dry-run --json --resource "USB0::...::INSTR" --all
 uv run keysight-power clear-protection --json --resource "USB0::...::INSTR" --all --confirm --log-scpi
 uv run keysight-power protection-set --dry-run --json --resource "USB0::...::INSTR" --channel all --ovp-voltage 5 --ocp on
+uv run keysight-power protection-set --dry-run --json --resource "USB0::...::INSTR" --channel 1 --ocp-delay 0.5 --ocp-delay-trigger setting-change
 uv run keysight-power protection-set --json --resource "USB0::...::INSTR" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
 ```
 

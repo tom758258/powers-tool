@@ -92,11 +92,33 @@ def test_e36312a_driver_sets_protection_with_channel_list_scpi() -> None:
 
     power_supply.set_over_voltage_protection(channel=2, voltage=5.0)
     power_supply.set_over_current_protection_enabled(channel=2, enabled=True)
+    power_supply.set_over_current_protection_delay(channel=2, seconds=0.5)
+    power_supply.set_over_current_protection_delay_trigger(channel=2, trigger="setting-change")
+    power_supply.set_over_current_protection_delay_trigger(channel=2, trigger="cc-transition")
 
     assert session.commands == [
         "VOLT:PROT 5,(@2)",
         "CURR:PROT:STAT ON,(@2)",
+        "CURR:PROT:DEL 0.5,(@2)",
+        "CURR:PROT:DEL:STAR SCH,(@2)",
+        "CURR:PROT:DEL:STAR CCTR,(@2)",
     ]
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        ("SCH", "setting-change"),
+        ("SCHange", "setting-change"),
+        ("CCTR", "cc-transition"),
+        ("CCTRans", "cc-transition"),
+    ],
+)
+def test_e36312a_driver_reads_ocp_delay_trigger(response, expected) -> None:
+    session = FakeSession({"CURR:PROT:DEL:STAR? (@2)": response})
+    power_supply = E36312APowerSupply(session)
+
+    assert power_supply.over_current_protection_delay_trigger(channel=2) == expected
 
 
 def test_e36312a_driver_configures_native_list_with_trigger_outputs() -> None:
