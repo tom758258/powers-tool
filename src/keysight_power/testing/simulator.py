@@ -44,7 +44,6 @@ SIMULATED_OUTPUT_STATES = {
     "USB0::SIM::EDU36311A::INSTR": {1: False, 2: False, 3: False},
 }
 
-
 class SimulatedResourceManager:
     """Resource manager that never opens real VISA resources."""
 
@@ -82,6 +81,14 @@ class SimulatedResource:
             return SIMULATED_IDN[self.resource_name]
         if command == "SYST:ERR?":
             return '0,"No error"'
+        if command == "*TRG":
+            return ""
+        if command.startswith("DIG:PIN") and ":POL " in command:
+            return ""
+        if command.startswith("DIG:PIN") and ":FUNC TOUT" in command:
+            return ""
+        if command.startswith("DIG:TOUT:BUS "):
+            return ""
         output_state = _simulated_output_state(command)
         if output_state is not None:
             channel = output_state

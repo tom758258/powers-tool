@@ -33,3 +33,31 @@ class E36312APowerSupply(GenericScpiPowerSupply):
             channel_strategy=channel_strategy or ChannelListStrategy(),
             safety_limits=safety_limits,
         )
+
+    def configure_trigger_output_pin(self, pin: int, polarity: str) -> None:
+        """Configure a rear digital pin as a trigger output."""
+
+        if pin not in (1, 2, 3):
+            raise ValueError("trigger output pin must be 1, 2, or 3")
+        polarity_command = _trigger_polarity_command(polarity)
+        self._session.write(f"DIG:PIN{pin}:FUNC TOUT")
+        self._session.write(f"DIG:PIN{pin}:POL {polarity_command}")
+
+    def enable_trigger_output_bus(self, enabled: bool = True) -> None:
+        """Enable or disable BUS-triggered trigger output pulses."""
+
+        self._session.write(f"DIG:TOUT:BUS {'ON' if enabled else 'OFF'}")
+
+    def trigger_pulse(self) -> None:
+        """Emit a BUS trigger pulse."""
+
+        self._session.write("*TRG")
+
+
+def _trigger_polarity_command(polarity: str) -> str:
+    normalized = polarity.strip().lower()
+    if normalized == "positive":
+        return "POS"
+    if normalized == "negative":
+        return "NEG"
+    raise ValueError("trigger polarity must be positive or negative")

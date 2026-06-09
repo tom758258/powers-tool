@@ -20,7 +20,9 @@ Real CLI `output-off` is supported only for E36312A channels 1, 2, and 3.
 Real CLI `output-state` reads back `OUTP? (@N)`. Real CLI `safe-off` now
 supports E36312A channel `1`, `2`, `3`, or `all` and expands `all` to
 channels `1`, `2`, and `3` in order. Real CLI `cycle-output` and `apply` are
-also supported for E36312A channels 1, 2, and 3.
+also supported for E36312A channels 1, 2, and 3. Real CLI `measure-all`,
+`status`, and `trigger-pulse` are E36312A-first commands for all-channel
+measurement, error/output status, and rear digital trigger output pulses.
 
 ## Development
 
@@ -119,6 +121,27 @@ Simulate first-target model measurement without hardware:
 ```powershell
 .\.venv\Scripts\python.exe -m keysight_power.cli measure --simulate --json --resource "USB0::SIM::E36312A::INSTR" --channel 2
 ```
+
+Measure all E36312A channels:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli measure-all --json --resource "USB0::...::INSTR" --log-scpi
+```
+
+Read E36312A error queue and output states:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli status --json --resource "USB0::...::INSTR" --log-scpi
+```
+
+Configure an E36312A rear digital pin as trigger output and emit `*TRG`:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli trigger-pulse --json --resource "USB0::...::INSTR" --pin 1 --polarity positive --log-scpi
+```
+
+Use `--dry-run` to preview trigger-pulse SCPI without opening VISA. The final
+`*TRG` may also trigger any already armed BUS-triggered instrument behavior.
 
 Add `--json` to supported CLI commands for the stable machine-readable v1
 contract. The contract is documented in `docs/cli-json-contract.md`; diagnostic
@@ -220,6 +243,9 @@ query behavior:
   channels 1, 2, or 3. `safe-off --channel all` expands to channels 1, 2, and
   3 in order. `set` does not enable output. `output-on` does not set voltage or
   current.
+- Real `measure-all`, `status`, and `trigger-pulse` are enabled only for
+  E36312A in this first implementation. `trigger-pulse` affects rear-panel
+  digital trigger output state and supports `--dry-run`.
 - Real `clear`, `error`, and `measure` are safe I/O commands: `clear` sends
   `*CLS` and clears status/error state, while `error` and `measure` only query.
 - `--safety-config` is explicit only and applies local plan validation limits;

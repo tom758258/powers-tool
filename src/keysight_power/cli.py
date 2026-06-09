@@ -39,6 +39,7 @@ COMMAND_NAMES = frozenset(
         "clear",
         "error",
         "measure",
+        "measure-all",
         "set",
         "output-on",
         "output-off",
@@ -46,6 +47,8 @@ COMMAND_NAMES = frozenset(
         "output-state",
         "cycle-output",
         "apply",
+        "trigger-pulse",
+        "status",
     }
 )
 
@@ -207,6 +210,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print SCPI commands and responses used for measurements.",
     )
     measure_parser.set_defaults(func=_run_measure)
+
+    measure_all_parser = subparsers.add_parser(
+        "measure-all",
+        help="Query measured voltage and current for all E36312A channels.",
+    )
+    _add_output_resource_arguments(measure_all_parser)
+    _add_json_argument(measure_all_parser)
+    _add_simulate_argument(measure_all_parser)
+    _add_safety_config_argument(measure_all_parser)
+    _add_backend_argument(measure_all_parser)
+    _add_timeout_argument(measure_all_parser)
+    measure_all_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses used for measurements.",
+    )
+    measure_all_parser.set_defaults(func=_run_measure_all)
 
     set_parser = subparsers.add_parser(
         "set",
@@ -377,6 +397,70 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print SCPI commands and responses to stderr.",
     )
     apply_parser.set_defaults(func=_run_output_plan)
+
+    trigger_pulse_parser = subparsers.add_parser(
+        "trigger-pulse",
+        help="Configure a trigger output pin and emit a BUS trigger pulse.",
+    )
+    _add_output_resource_arguments(trigger_pulse_parser)
+    trigger_pulse_parser.add_argument(
+        "--pin",
+        required=True,
+        type=_trigger_pin,
+        help="Rear digital trigger output pin 1, 2, or 3.",
+    )
+    trigger_pulse_parser.add_argument(
+        "--polarity",
+        choices=("positive", "negative"),
+        default="positive",
+        help="Trigger output polarity.",
+    )
+    _add_json_argument(trigger_pulse_parser)
+    _add_simulate_argument(trigger_pulse_parser)
+    _add_dry_run_argument(trigger_pulse_parser)
+    _add_safety_config_argument(trigger_pulse_parser)
+    _add_backend_argument(trigger_pulse_parser)
+    _add_timeout_argument(trigger_pulse_parser)
+    trigger_pulse_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    trigger_pulse_parser.set_defaults(func=_run_trigger_pulse)
+
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Read error queue and selected channel output state(s).",
+    )
+    _add_output_resource_arguments(status_parser)
+    status_parser.add_argument(
+        "--channel",
+        default="all",
+        type=_status_channel,
+        help="Positive integer output channel or 'all'.",
+    )
+    status_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Read all E36312A output channels.",
+    )
+    status_parser.add_argument(
+        "--max-errors",
+        type=_positive_max_errors,
+        default=20,
+        help="Maximum error queue reads before stopping.",
+    )
+    _add_json_argument(status_parser)
+    _add_simulate_argument(status_parser)
+    _add_safety_config_argument(status_parser)
+    _add_backend_argument(status_parser)
+    _add_timeout_argument(status_parser)
+    status_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    status_parser.set_defaults(func=_run_status)
 
     return parser
 
@@ -755,6 +839,339 @@ def _run_measure(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_measure_all(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+    except SafetyConfigError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    opened = False
+    try:
+        with _open_resource(
+            args.resource,
+            manager,
+            backend=args.backend,
+            timeout_ms=args.timeout_ms,
+        ) as instrument:
+            opened = True
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _MeasureAllModelError(
+                    "measure-all is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            channels = []
+            for channel in (1, 2, 3):
+                channels.append(
+                    {
+                        "channel": channel,
+                        "measurements": {
+                            "voltage": power_supply.measure_voltage(channel=channel),
+                            "current": power_supply.measure_current(channel=channel),
+                        },
+                    }
+                )
+    except _MeasureAllModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_measure_all",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        code = "measure_all_failed" if opened else "connection_failed"
+        message = (
+            f"measure-all failed: {exc}"
+            if opened
+            else f"Could not open resource for measure-all: {exc}"
+        )
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code=code,
+            message=message,
+        )
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="measure_all_failed",
+            message=f"measure-all failed: {exc}",
+        )
+
+    data = {
+        "resource": args.resource,
+        "channels": channels,
+    }
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=execution,
+            request=request,
+            data=data,
+        )
+        return 0
+
+    for channel in channels:
+        measurements = channel["measurements"]
+        print(
+            f"Channel {channel['channel']}: "
+            f"{_format_text_value(measurements['voltage'])} V, "
+            f"{_format_text_value(measurements['current'])} A"
+        )
+    return 0
+
+
+def _run_trigger_pulse(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+    except SafetyConfigError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    scpi = _trigger_pulse_scpi(args.pin, args.polarity)
+    if args.dry_run:
+        plan = dry_run_plan(
+            command=args.command,
+            resource=args.resource,
+            scpi=scpi,
+            description=(
+                "Preview configuring an E36312A rear digital trigger output pin "
+                "and issuing *TRG. *TRG may also trigger any already armed "
+                "BUS-triggered behavior on the instrument."
+            ),
+        )
+        if args.json:
+            emit_json_success(
+                command=args.command,
+                execution=execution,
+                request=request,
+                data={"plan": plan},
+            )
+            return 0
+        _print_scpi_plan(plan, mode=_mode_for_args(args), dry_run=True)
+        return 0
+
+    opened = False
+    try:
+        with _open_resource(
+            args.resource,
+            manager,
+            backend=args.backend,
+            timeout_ms=args.timeout_ms,
+        ) as instrument:
+            opened = True
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _TriggerPulseModelError(
+                    "trigger-pulse is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            power_supply.configure_trigger_output_pin(args.pin, args.polarity)
+            power_supply.enable_trigger_output_bus(True)
+            power_supply.trigger_pulse()
+    except _TriggerPulseModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_trigger_pulse",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        code = "trigger_pulse_failed" if opened else "connection_failed"
+        message = (
+            f"trigger-pulse failed: {exc}"
+            if opened
+            else f"Could not open resource for trigger-pulse: {exc}"
+        )
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code=code,
+            message=message,
+        )
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="trigger_pulse_failed",
+            message=f"trigger-pulse failed: {exc}",
+        )
+
+    data = {
+        "resource": args.resource,
+        "pin": args.pin,
+        "polarity": args.polarity,
+        "triggered": True,
+    }
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=execution,
+            request=request,
+            data=data,
+        )
+        return 0
+
+    print(f"Resource: {args.resource}")
+    print(f"Pin: {args.pin}")
+    print(f"Polarity: {args.polarity}")
+    print("Triggered: True")
+    return 0
+
+
+def _run_status(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+    except SafetyConfigError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    selected_channel = "all" if args.all else args.channel
+    opened = False
+    try:
+        with _open_resource(
+            args.resource,
+            manager,
+            backend=args.backend,
+            timeout_ms=args.timeout_ms,
+        ) as instrument:
+            opened = True
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _StatusModelError(
+                    "status is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            channels = power_supply.capabilities.channels if selected_channel == "all" else (selected_channel,)
+            if any(channel not in power_supply.capabilities.channels for channel in channels):
+                raise _StatusChannelError(
+                    f"channel {selected_channel} is not supported for status; "
+                    f"supported: {power_supply.capabilities.channels}"
+                )
+            errors, read_count = _read_error_queue_from_driver(power_supply, args.max_errors)
+            outputs = [
+                {"channel": channel, "enabled": power_supply.output_state(channel=channel)}
+                for channel in channels
+            ]
+    except _StatusModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_status",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _StatusChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        code = "status_failed" if opened else "connection_failed"
+        message = (
+            f"status failed: {exc}"
+            if opened
+            else f"Could not open resource for status: {exc}"
+        )
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code=code,
+            message=message,
+        )
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="status_failed",
+            message=f"status failed: {exc}",
+        )
+
+    data = {
+        "resource": args.resource,
+        "errors": errors,
+        "read_count": read_count,
+        "outputs": outputs,
+    }
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=execution,
+            request=request,
+            data=data,
+        )
+        return 0
+
+    if errors:
+        for error in errors:
+            print(f"Error: {error}")
+    else:
+        print("Errors: none")
+    for output in outputs:
+        print(f"Channel {output['channel']}: Output enabled: {str(output['enabled']).lower()}")
+    return 0
+
+
 def _run_output_plan(args: argparse.Namespace) -> int:
     if not args.simulate and not args.dry_run:
         real_handlers = {
@@ -950,6 +1367,40 @@ def _measure_voltage_current_with_driver(
     }
 
 
+def _resolve_optional_resource_alias(args: argparse.Namespace) -> None:
+    if getattr(args, "resource_alias", None) is None:
+        return
+    _safety_limits_for_args(args)
+
+
+def _trigger_pulse_scpi(pin: int, polarity: str) -> tuple[str, ...]:
+    polarity_command = "POS" if polarity == "positive" else "NEG"
+    return (
+        f"DIG:PIN{pin}:FUNC TOUT",
+        f"DIG:PIN{pin}:POL {polarity_command}",
+        "DIG:TOUT:BUS ON",
+        "*TRG",
+    )
+
+
+def _read_error_queue_from_driver(
+    power_supply: GenericScpiPowerSupply,
+    max_reads: int,
+) -> tuple[list[str], int]:
+    if max_reads < 1:
+        raise ValueError("max_errors must be at least 1")
+
+    errors: list[str] = []
+    read_count = 0
+    for _ in range(max_reads):
+        response = power_supply._session.query(ERROR_QUERY).strip()
+        read_count += 1
+        if _is_no_error_response(response):
+            break
+        errors.append(response)
+    return errors, read_count
+
+
 def _resource_payload(
     name: str,
     *,
@@ -1035,6 +1486,22 @@ class _SetModelError(ValueError):
 
 class _SetChannelError(ValueError):
     """Raised when set channel is outside E36312A capability (1,2,3)."""
+
+
+class _MeasureAllModelError(ValueError):
+    """Raised when measure-all is attempted on a non-E36312A model."""
+
+
+class _TriggerPulseModelError(ValueError):
+    """Raised when trigger-pulse is attempted on a non-E36312A model."""
+
+
+class _StatusModelError(ValueError):
+    """Raised when status is attempted on a non-E36312A model."""
+
+
+class _StatusChannelError(ValueError):
+    """Raised when status channel is outside E36312A capability (1,2,3)."""
 
 
 def _run_set_real(args: argparse.Namespace) -> int:
@@ -1952,6 +2419,14 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
+    if args.command == "measure-all":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
     if args.command == "set":
         return {
             "resource": args.resource,
@@ -2018,6 +2493,27 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
+    if args.command == "trigger-pulse":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "pin": args.pin,
+            "polarity": args.polarity,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "status":
+        channel = "all" if getattr(args, "all", False) else args.channel
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": channel,
+            "max_errors": args.max_errors,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
     return {}
 
 
@@ -2051,6 +2547,14 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
         return {
             "resource": _option_value(argv, "--resource"),
             "channel": _channel_from_argv(argv),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "measure-all":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
         }
@@ -2120,6 +2624,27 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
         }
+    if command == "trigger-pulse":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "pin": _pin_from_argv(argv),
+            "polarity": _option_value(argv, "--polarity") or "positive",
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "status":
+        channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "channel": channel,
+            "max_errors": _max_errors_from_argv(argv),
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
     return {}
 
 
@@ -2153,6 +2678,16 @@ def _duration_from_argv(argv: Sequence[str]) -> int | str:
         return value
 
 
+def _max_errors_from_argv(argv: Sequence[str]) -> int | str:
+    value = _option_value(argv, "--max-errors")
+    if value is None:
+        return 20
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
+
 def _option_value(argv: Sequence[str], option: str) -> str | None:
     prefix = f"{option}="
     for index, item in enumerate(argv):
@@ -2178,6 +2713,28 @@ def _number_from_argv(argv: Sequence[str], option: str) -> float | str | None:
 
 def _channel_from_argv(argv: Sequence[str]) -> int | str | None:
     value = _option_value(argv, "--channel")
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
+
+def _status_channel_from_argv(argv: Sequence[str]) -> int | str | None:
+    value = _option_value(argv, "--channel")
+    if value is None:
+        return None
+    if value.lower() == "all":
+        return "all"
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
+
+def _pin_from_argv(argv: Sequence[str]) -> int | str | None:
+    value = _option_value(argv, "--pin")
     if value is None:
         return None
     try:
@@ -2225,6 +2782,16 @@ def _positive_max_reads(value: str) -> int:
     return max_reads
 
 
+def _positive_max_errors(value: str) -> int:
+    try:
+        max_errors = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("max-errors must be a positive integer") from exc
+    if max_errors < 1:
+        raise argparse.ArgumentTypeError("max-errors must be a positive integer")
+    return max_errors
+
+
 def _positive_duration_ms(value: str) -> int:
     try:
         duration_ms = int(value)
@@ -2239,6 +2806,19 @@ def _safe_off_channel(value: str) -> int | str:
     if value.lower() == "all":
         return "all"
     return _positive_channel(value)
+
+
+def _status_channel(value: str) -> int | str:
+    if value.lower() == "all":
+        return "all"
+    return _positive_channel(value)
+
+
+def _trigger_pin(value: str) -> int:
+    pin = _positive_channel(value)
+    if pin not in (1, 2, 3):
+        raise argparse.ArgumentTypeError("pin must be 1, 2, or 3")
+    return pin
 
 
 def _safety_limits_for_args(args: argparse.Namespace) -> SafetyLimits | None:

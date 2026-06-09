@@ -2865,6 +2865,476 @@ def test_apply_real_generic_model_is_rejected(monkeypatch, capsys) -> None:
     assert payload["error"]["code"] == "unsupported_model_for_apply"
 
 
+def test_measure_all_real_e36312a_sends_expected_scpi(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={
+            "MEAS:VOLT? (@1)": "1.1",
+            "MEAS:CURR? (@1)": "0.11",
+            "MEAS:VOLT? (@2)": "2.2",
+            "MEAS:CURR? (@2)": "0.22",
+            "MEAS:VOLT? (@3)": "3.3",
+            "MEAS:CURR? (@3)": "0.33",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["measure-all", "--json", "--resource", OUTPUT_RESOURCE]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.queries == [
+        "*IDN?",
+        "MEAS:VOLT? (@1)",
+        "MEAS:CURR? (@1)",
+        "MEAS:VOLT? (@2)",
+        "MEAS:CURR? (@2)",
+        "MEAS:VOLT? (@3)",
+        "MEAS:CURR? (@3)",
+    ]
+    assert session.writes == []
+    assert session.closed is True
+    assert payload["data"] == {
+        "resource": OUTPUT_RESOURCE,
+        "channels": [
+            {"channel": 1, "measurements": {"voltage": 1.1, "current": 0.11}},
+            {"channel": 2, "measurements": {"voltage": 2.2, "current": 0.22}},
+            {"channel": 3, "measurements": {"voltage": 3.3, "current": 0.33}},
+        ],
+    }
+    assert captured.err == ""
+
+
+def test_measure_all_text_output(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={
+            "MEAS:VOLT? (@1)": "1.1",
+            "MEAS:CURR? (@1)": "0.11",
+            "MEAS:VOLT? (@2)": "2.2",
+            "MEAS:CURR? (@2)": "0.22",
+            "MEAS:VOLT? (@3)": "3.3",
+            "MEAS:CURR? (@3)": "0.33",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["measure-all", "--resource", OUTPUT_RESOURCE]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == (
+        "Channel 1: 1.1 V, 0.11 A\n"
+        "Channel 2: 2.2 V, 0.22 A\n"
+        "Channel 3: 3.3 V, 0.33 A\n"
+    )
+
+
+def test_status_real_reads_errors_then_outputs(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={
+            "SYST:ERR?": ['-100,"Command error"', '0,"No error"'],
+            "OUTP? (@1)": "ON",
+            "OUTP? (@2)": "OFF",
+            "OUTP? (@3)": "1",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["status", "--json", "--resource", OUTPUT_RESOURCE]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.queries == [
+        "*IDN?",
+        "SYST:ERR?",
+        "SYST:ERR?",
+        "OUTP? (@1)",
+        "OUTP? (@2)",
+        "OUTP? (@3)",
+    ]
+    assert session.closed is True
+    assert payload["data"] == {
+        "resource": OUTPUT_RESOURCE,
+        "errors": ['-100,"Command error"'],
+        "read_count": 2,
+        "outputs": [
+            {"channel": 1, "enabled": True},
+            {"channel": 2, "enabled": False},
+            {"channel": 3, "enabled": True},
+        ],
+    }
+
+
+def test_status_real_one_channel_text(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={
+            "SYST:ERR?": '0,"No error"',
+            "OUTP? (@2)": "OFF",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["status", "--resource", OUTPUT_RESOURCE, "--channel", "2"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == "Errors: none\nChannel 2: Output enabled: false\n"
+
+
+def test_trigger_pulse_real_sends_expected_scpi(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--pin",
+                "2",
+                "--polarity",
+                "negative",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.queries == ["*IDN?"]
+    assert session.writes == [
+        "DIG:PIN2:FUNC TOUT",
+        "DIG:PIN2:POL NEG",
+        "DIG:TOUT:BUS ON",
+        "*TRG",
+    ]
+    assert session.closed is True
+    assert payload["data"] == {
+        "resource": OUTPUT_RESOURCE,
+        "pin": 2,
+        "polarity": "negative",
+        "triggered": True,
+    }
+
+
+def test_trigger_pulse_dry_run_json_does_not_open_resource(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("real VISA resource should not be opened")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--pin",
+                "1",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["execution"]["hardware_touched"] is False
+    assert payload["data"]["plan"]["steps"] == [
+        {"index": 1, "type": "scpi", "command": "DIG:PIN1:FUNC TOUT"},
+        {"index": 2, "type": "scpi", "command": "DIG:PIN1:POL POS"},
+        {"index": 3, "type": "scpi", "command": "DIG:TOUT:BUS ON"},
+        {"index": 4, "type": "scpi", "command": "*TRG"},
+    ]
+
+
+def test_trigger_pulse_resource_alias_resolves_before_open(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    opened: list[tuple[str, str | None, int]] = []
+
+    def fake_open_resource(resource, *, backend=None, timeout_ms=5000):
+        opened.append((resource, backend, timeout_ms))
+        return session
+
+    monkeypatch.setattr(cli, "open_resource", fake_open_resource)
+    safety_config = write_safety_config(
+        tmp_path,
+        f"""
+[[resources]]
+alias = "e36312a"
+resource = "{OUTPUT_RESOURCE}"
+""".strip(),
+    )
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--json",
+                "--resource-alias",
+                "e36312a",
+                "--safety-config",
+                safety_config,
+                "--pin",
+                "1",
+                "--backend",
+                "@py",
+                "--timeout-ms",
+                "1234",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert opened == [(OUTPUT_RESOURCE, "@py", 1234)]
+    assert payload["request"] == {
+        "resource": OUTPUT_RESOURCE,
+        "resource_alias": "e36312a",
+        "pin": 1,
+        "polarity": "positive",
+        "safety_config": safety_config,
+        "backend": "@py",
+        "timeout_ms": 1234,
+    }
+
+
+def test_new_commands_simulate_without_real_visa(monkeypatch, capsys) -> None:
+    def fail_real_manager(backend=None):
+        raise AssertionError("real VISA manager should not be created")
+
+    monkeypatch.setattr(connection, "create_resource_manager", fail_real_manager)
+
+    assert (
+        cli.main(
+            [
+                "measure-all",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::E36312A::INSTR",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["data"]["channels"][1]["measurements"] == {
+        "voltage": 2.2,
+        "current": 0.22,
+    }
+
+    assert (
+        cli.main(
+            [
+                "status",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::E36312A::INSTR",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["data"]["outputs"] == [
+        {"channel": 1, "enabled": False},
+        {"channel": 2, "enabled": False},
+        {"channel": 3, "enabled": False},
+    ]
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::E36312A::INSTR",
+                "--pin",
+                "3",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["data"]["triggered"] is True
+
+
+@pytest.mark.parametrize(
+    ("command", "extra_args", "code"),
+    [
+        ("measure-all", [], "unsupported_model_for_measure_all"),
+        ("status", [], "unsupported_model_for_status"),
+        ("trigger-pulse", ["--pin", "1"], "unsupported_model_for_trigger_pulse"),
+    ],
+)
+def test_new_real_commands_reject_non_e36312a(
+    monkeypatch,
+    capsys,
+    command,
+    extra_args,
+    code,
+) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36103B,MY00000000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main([command, "--json", "--resource", OUTPUT_RESOURCE, *extra_args]) == 2
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == code
+    assert session.closed is True
+
+
+def test_status_unsupported_channel_is_argument_error(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["status", "--json", "--resource", OUTPUT_RESOURCE, "--channel", "99"]) == 2
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "argument_error"
+
+
+def test_trigger_pulse_invalid_pin_is_argument_error(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--pin",
+                "4",
+            ]
+        )
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "argument_error"
+
+
+def test_status_invalid_max_errors_is_argument_error(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "status",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--max-errors",
+                "0",
+            ]
+        )
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "argument_error"
+
+
+def test_new_command_open_failure_uses_connection_failed(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise VisaConnectionError("open failed")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert cli.main(["measure-all", "--json", "--resource", OUTPUT_RESOURCE]) == 1
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "connection_failed"
+
+
+def test_measure_all_scpi_failure_uses_measure_all_failed(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["measure-all", "--json", "--resource", OUTPUT_RESOURCE]) == 1
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "measure_all_failed"
+
+
+def test_trigger_pulse_write_failure_uses_trigger_pulse_failed(monkeypatch, capsys) -> None:
+    class FailingWriteSession(FakeSession):
+        def write(self, command: str) -> None:
+            super().write(command)
+            raise VisaConnectionError("write failed")
+
+    session = FailingWriteSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--pin",
+                "1",
+            ]
+        )
+        == 1
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "trigger_pulse_failed"
+
+
+def test_status_scpi_failure_uses_status_failed(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"SYST:ERR?": '0,"No error"'},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["status", "--json", "--resource", OUTPUT_RESOURCE]) == 1
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "status_failed"
+
+
+def test_new_commands_log_scpi_to_stderr_without_corrupting_json(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--pin",
+                "1",
+                "--log-scpi",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    json.loads(captured.out)
+    assert f"{OUTPUT_RESOURCE} SCPI >> *IDN?" in captured.err
+    assert f"{OUTPUT_RESOURCE} SCPI >> DIG:PIN1:FUNC TOUT" in captured.err
+    assert f"{OUTPUT_RESOURCE} SCPI >> *TRG" in captured.err
+
+
 # --- Preserved behaviors: dry-run and simulate ---
 
 

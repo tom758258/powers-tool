@@ -94,6 +94,38 @@ def assert_contract_envelope(payload: dict[str, object], *, command: str, ok: bo
             ],
         ),
         (
+            "measure-all",
+            [
+                "measure-all",
+                "--simulate",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+            ],
+        ),
+        (
+            "status",
+            [
+                "status",
+                "--simulate",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+            ],
+        ),
+        (
+            "trigger-pulse",
+            [
+                "trigger-pulse",
+                "--dry-run",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+                "--pin",
+                "1",
+            ],
+        ),
+        (
             "output-state",
             [
                 "output-state",

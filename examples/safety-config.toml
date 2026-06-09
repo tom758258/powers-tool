@@ -1,0 +1,11 @@
+[safety]
+max_voltage = 5.0
+max_current = 0.5
+allowed_channels = [1, 2, 3]
+
+[[resources]]
+alias = "sim-e36103b"
+resource = "USB0::SIM::E36103B::INSTR"
+max_voltage = 3.3
+max_current = 0.1
+allowed_channels = [1]
