@@ -130,6 +130,95 @@ def test_output_plan_apply_shape_unchanged() -> None:
     ]
 
 
+def test_output_plan_all_channel_output_commands_expand_once() -> None:
+    assert [step["action"] for step in output_plan(request("output-on", channel="all"))["steps"]] == [
+        "output_on",
+        "output_on",
+        "output_on",
+    ]
+    assert [step["action"] for step in output_plan(request("output-off", channel="all"))["steps"]] == [
+        "output_off",
+        "output_off",
+        "output_off",
+    ]
+    assert [step["action"] for step in output_plan(request("output-state", channel="all"))["steps"]] == [
+        "output_state",
+        "output_state",
+        "output_state",
+    ]
+    cycle_steps = output_plan(request("cycle-output", channel="all", duration_ms=250))["steps"]
+    assert [step["action"] for step in cycle_steps] == [
+        "output_on",
+        "output_on",
+        "output_on",
+        "sleep",
+        "output_off",
+        "output_off",
+        "output_off",
+    ]
+    assert cycle_steps[3]["parameters"] == {"duration_ms": 250}
+
+
+def test_output_on_all_checks_readbacks_before_writes() -> None:
+    session = FakeSession(
+        responses={
+            "VOLT? (@1)": "1.0",
+            "CURR? (@1)": "0.1",
+            "VOLT? (@2)": "2.0",
+            "CURR? (@2)": "0.2",
+            "VOLT? (@3)": "3.0",
+            "CURR? (@3)": "0.3",
+        }
+    )
+    core_request = OperationRequest(
+        command="output-on",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+        parameters=request("output-on", channel="all").parameters,
+    )
+
+    data = run_operation(core_request, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
+
+    assert session.queries[:7] == [
+        "*IDN?",
+        "VOLT? (@1)",
+        "CURR? (@1)",
+        "VOLT? (@2)",
+        "CURR? (@2)",
+        "VOLT? (@3)",
+        "CURR? (@3)",
+    ]
+    assert session.writes == ["OUTP ON,(@1)", "OUTP ON,(@2)", "OUTP ON,(@3)"]
+    assert data["channel"] == "all"
+    assert [output["channel"] for output in data["outputs"]] == [1, 2, 3]
+
+
+def test_cycle_output_all_turns_on_all_then_sleeps_once_then_off() -> None:
+    session = FakeSession()
+    sleeps: list[float] = []
+    core_request = OperationRequest(
+        command="cycle-output",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+        parameters=request("cycle-output", channel="all", duration_ms=250).parameters,
+    )
+
+    data = run_operation(core_request, opener=lambda *args, **kwargs: session, sleep=sleeps.append)
+
+    assert session.writes == [
+        "OUTP ON,(@1)",
+        "OUTP ON,(@2)",
+        "OUTP ON,(@3)",
+        "OUTP OFF,(@1)",
+        "OUTP OFF,(@2)",
+        "OUTP OFF,(@3)",
+    ]
+    assert sleeps == [0.25]
+    assert data["outputs"] == [
+        {"channel": 1, "cycled": True, "final_enabled": False},
+        {"channel": 2, "cycled": True, "final_enabled": False},
+        {"channel": 3, "cycled": True, "final_enabled": False},
+    ]
+
+
 def test_ramp_real_native_completion_uses_list_before_software_voltage_writes() -> None:
     session = FakeSession(responses=_trigger_snapshot_responses())
     params = request(

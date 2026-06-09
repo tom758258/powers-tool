@@ -189,12 +189,14 @@ EDU36311A channels 2 and 3 use IDN-selected channel-list measurement queries.
 Real CLI `set` is supported for E36312A and EDU36311A channels 1, 2, and 3. It
 writes the current limit before voltage and does not enable output.
 
-Real CLI `output-on` is supported for E36312A and EDU36311A channels 1, 2, and
-3. After `*IDN?`, it reads back `VOLT? (@N)` and `CURR? (@N)` before sending
-`OUTP ON,(@N)`. With `--safety-config`, unsafe readback setpoints are rejected
-before output is enabled. Real CLI `output-off`, `output-state`, `safe-off`,
-`cycle-output`, `apply`, `smoke-output`, and setpoint-only `ramp` are also
-supported for both models.
+Real CLI `output-on` is supported for E36312A and EDU36311A channels 1, 2, 3,
+and `all`. After `*IDN?`, it reads back `VOLT? (@N)` and `CURR? (@N)` before
+sending `OUTP ON,(@N)`. With `--safety-config`, unsafe readback setpoints are
+rejected before any output is enabled. Real CLI `output-off`, `output-state`,
+`safe-off`, `cycle-output`, `apply`, `smoke-output`, and setpoint-only `ramp`
+are also supported for both models. `output-off`, `output-state`, and
+`cycle-output` also accept `--channel all`; `set`, `ramp`, and `smoke-output`
+remain single-channel commands.
 
 Real CLI `measure-all` and `trigger-pulse` remain E36312A-first commands for
 all-channel measurement and rear digital trigger output pulses.
@@ -413,6 +415,7 @@ Enable an E36312A or EDU36311A output only after setpoints are already safe:
 
 ```powershell
 uv run keysight-power output-on --json --resource "USB0::...::INSTR" --channel 1 --log-scpi
+uv run keysight-power output-on --json --resource "USB0::...::INSTR" --channel all --log-scpi
 ```
 
 Real `output-on` first confirms the selected resource is an E36312A or
@@ -424,7 +427,12 @@ Read back and cycle output state:
 ```powershell
 uv run keysight-power output-state --json --resource "USB0::...::INSTR" --channel 1 --log-scpi
 uv run keysight-power cycle-output --json --resource "USB0::...::INSTR" --channel 1 --duration-ms 500 --log-scpi
+uv run keysight-power cycle-output --json --resource "USB0::...::INSTR" --channel all --duration-ms 500 --log-scpi
 ```
+
+For `cycle-output --channel all`, the CLI enables channels 1, 2, and 3 in
+order, waits once for `--duration-ms`, then disables channels 1, 2, and 3 in
+order.
 
 Apply low setpoints and enable output:
 
@@ -492,10 +500,11 @@ stays parseable. Every JSON success and error envelope includes
 - Output-affecting behavior must be explicit.
 - Real output execution is enabled for E36312A and EDU36311A `set`, `apply`,
   `output-on`, `output-off`, `output-state`, `cycle-output`, `safe-off`,
-  `smoke-output`, and `ramp` on explicit channels 1, 2, or 3. `apply --channel
-  all` and `safe-off --channel all` expand to channels 1, 2, and 3 in order.
-  `set` and `ramp` do not enable output. `output-on` does not set voltage or
-  current.
+  `smoke-output`, and `ramp` on explicit channels 1, 2, or 3. `apply`,
+  `output-on`, `output-off`, `output-state`, `cycle-output`, and `safe-off`
+  accept `--channel all` and expand to channels 1, 2, and 3 in order. `set`,
+  `ramp`, and `smoke-output` remain single-channel commands. `output-on` does
+  not set voltage or current.
 - Real `measure-all`, `trigger-pulse`, `trigger-status`, `trigger-list`, and
   native LIST-backed ramp are enabled only for E36312A. `status`, `readback`,
   `log`, `validate-readonly`, and protection commands are enabled for E36312A

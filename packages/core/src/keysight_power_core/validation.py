@@ -157,8 +157,12 @@ def validate_output_request(
     stop_voltage: float | None = None,
     step_voltage: float | None = None,
 ) -> None:
+    if command in {"set", "smoke-output"} and channel == "all":
+        raise ValidationError(f"{command} does not support channel all")
+    if command == "ramp" and channel == "all":
+        raise ValidationError("ramp does not support channel all")
     if command in {"set", "apply", "smoke-output"}:
-        channels = (1, 2, 3) if channel == "all" else (channel,)
+        channels = (1, 2, 3) if channel == "all" else (int(channel),)
         for selected_channel in channels:
             validate_setpoint(
                 channel=selected_channel,
@@ -179,7 +183,9 @@ def validate_output_request(
             )
         return
     if command in {"output-on", "output-off", "output-state", "cycle-output"}:
-        validate_channel(channel, safety_limits)
+        channels = (1, 2, 3) if channel == "all" else (int(channel),)
+        for selected_channel in channels:
+            validate_channel(selected_channel, safety_limits)
         return
     if command == "safe-off" and channel != "all":
         validate_channel(channel, safety_limits)

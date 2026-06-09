@@ -22,12 +22,12 @@ const PARAMS = {
   "read-status": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
   readback: [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
   set: baseOutputParams(),
-  apply: [...baseOutputParams(), { name: "no_output", type: "checkbox", label: "Do not enable output" }],
-  "output-on": [{ name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" }],
-  "output-off": [{ name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" }],
+  apply: [...applyOutputParams(), { name: "no_output", type: "checkbox", label: "Do not enable output" }],
+  "output-on": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
+  "output-off": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
   "safe-off": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
-  "output-state": [{ name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" }],
-  "cycle-output": [{ name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" }, { name: "duration_ms", type: "number", label: "Duration ms", value: 100 }],
+  "output-state": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
+  "cycle-output": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }, { name: "duration_ms", type: "number", label: "Duration ms", value: 100 }],
   ramp: [
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
     { name: "current", type: "number", label: "Current", value: 0.1 },
@@ -57,6 +57,12 @@ function baseOutputParams() {
     { name: "settle_ms", type: "number", label: "Settle ms", value: 0 },
     { name: "verify_after_write", type: "checkbox", label: "Verify after write" }
   ];
+}
+
+function applyOutputParams() {
+  const params = baseOutputParams();
+  params[0] = { ...params[0], options: ["all", "1", "2", "3"], value: "1" };
+  return params;
 }
 
 document.addEventListener("DOMContentLoaded", async () => {

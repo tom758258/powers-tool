@@ -184,6 +184,18 @@ def test_result_panel_is_light_and_collapsible():
 def test_static_channel_confirmation_and_job_detail_contracts():
     app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 
+    base_output_params = app_js[app_js.index("function baseOutputParams()"):app_js.index("function applyOutputParams()")]
+    apply_output_params = app_js[app_js.index("function applyOutputParams()"):app_js.index('document.addEventListener("DOMContentLoaded"')]
+
+    assert 'set: baseOutputParams()' in app_js
+    assert 'apply: [...applyOutputParams(), { name: "no_output", type: "checkbox", label: "Do not enable output" }]' in app_js
+    assert 'options: ["1", "2", "3"], value: "1"' in base_output_params
+    assert 'options: ["all", "1", "2", "3"]' in apply_output_params
+    assert 'value: "1"' in apply_output_params
+    for command in ("output-on", "output-off", "output-state", "cycle-output"):
+        assert f'"{command}": [{{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }}' in app_js
+    assert '"smoke-output": [...baseOutputParams()' in app_js
+
     assert 'param.name === "channel" ? normalizeChannelValue(input.value) : input.value' in app_js
     assert "function normalizeChannelValue(value)" in app_js
     assert 'if (value === "all") return value;' in app_js
@@ -360,6 +372,44 @@ def test_post_job_simulate_set_normalizes_string_channel(client: TestClient):
     assert job_data["result"]["steps"][0]["parameters"]["channel"] == 3
 
 
+def test_post_job_simulate_apply_preserves_all_channel(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    from keysight_power_webui import commands
+
+    captured: list[Any] = []
+
+    def fake_run_core_command(request, *, stop_requested=None):
+        captured.append(request)
+        return {"ok": True, "parameters": request.parameters}
+
+    monkeypatch.setattr(commands, "run_core_command", fake_run_core_command)
+
+    payload = {
+        "command": "apply",
+        "runtime": {
+            "resource": "USB0::SIM::E36312A::INSTR",
+            "simulate": True,
+            "timeout_ms": 5000,
+            "confirm": False,
+        },
+        "parameters": {"channel": "all", "voltage": 5.0, "current": 1.0},
+    }
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+
+    job_id = response.json()["job_id"]
+    for _ in range(20):
+        res = client.get(f"/api/jobs/{job_id}")
+        if res.json()["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.1)
+
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    assert job_data["status"] == "finished"
+    assert captured[0].command == "apply"
+    assert captured[0].parameters["channel"] == "all"
+    assert job_data["result"]["parameters"]["channel"] == "all"
+
+
 def test_adapter_normalizes_channel_for_core_requests(monkeypatch: pytest.MonkeyPatch):
     from keysight_power_core.core import RuntimeOptions
     from keysight_power_webui import commands
@@ -410,6 +460,33 @@ def test_post_job_real_output_without_confirm_fails(client: TestClient):
             break
         time.sleep(0.1)
     
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    assert job_data["status"] == "failed"
+    assert "requires explicit confirmation" in job_data["error"]
+
+
+def test_post_job_real_apply_all_without_confirm_fails(client: TestClient):
+    payload = {
+        "command": "apply",
+        "runtime": {
+            "resource": "USB0::FAKE::E36312A::INSTR",
+            "simulate": False,
+            "dry_run": False,
+            "timeout_ms": 5000,
+            "confirm": False,
+        },
+        "parameters": {"channel": "all", "voltage": 5.0, "current": 1.0},
+    }
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+
+    job_id = response.json()["job_id"]
+    for _ in range(20):
+        res = client.get(f"/api/jobs/{job_id}")
+        if res.json()["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.1)
+
     job_data = client.get(f"/api/jobs/{job_id}").json()
     assert job_data["status"] == "failed"
     assert "requires explicit confirmation" in job_data["error"]

@@ -107,6 +107,11 @@ Selected data mappings:
 - `readback`: `resource`, `idn_raw`, and `channels[].setpoints`.
 - `measure`: selected channel measurements.
 - `measure-all`: all E36312A channel measurements.
+- `output-on`, `output-off`, `output-state`, and `cycle-output`: single-channel
+  responses keep the existing `channel` plus `output` shape. With
+  `channel: "all"`, responses keep `channel: "all"` and add `outputs[]` entries
+  keyed by `channel`. `cycle-output` enables all channels, waits once for
+  `duration_ms`, then disables all channels.
 - `protection-status`: aggregate protection, per-channel protection, and output state.
 - `snapshot`: errors, outputs, readback, measurements, and protection settings.
 - `sequence`: lint/plan/execution status, step results, and stop/failure details.

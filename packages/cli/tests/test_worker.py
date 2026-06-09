@@ -313,6 +313,30 @@ def test_worker_measure_all_rejects_channel_filter(running_worker):
     assert "all channels" in result_data["error"]["message"]
 
 
+@pytest.mark.parametrize("command", ["output-on", "output-off", "output-state", "cycle-output"])
+def test_worker_output_commands_accept_all_channel_dry_run(running_worker, command):
+    port = running_worker["port"]
+    artifacts_dir = running_worker["artifacts_dir"]
+    arguments = {"channel": "all", "dry_run": True}
+    if command == "cycle-output":
+        arguments["duration_ms"] = 250
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/command",
+        data=json.dumps({"command": command, "arguments": arguments}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+
+    with urllib.request.urlopen(req) as res:
+        assert res.status == 202
+        job_id = json.loads(res.read().decode("utf-8"))["worker_job_id"]
+
+    result_data = _wait_for_json_file(artifacts_dir / "jobs" / job_id / "result.json")
+    assert result_data["ok"] is True
+    assert result_data["request"]["arguments"]["channel"] == "all"
+    plan = result_data["data"].get("plan", result_data["data"])
+    assert plan["target"]["channel"] == "all"
+
+
 def test_worker_result_artifact_write_failure_reports_artifact_error_without_fake_path(tmp_path, monkeypatch):
     config = {
         "id": "artifact_worker",

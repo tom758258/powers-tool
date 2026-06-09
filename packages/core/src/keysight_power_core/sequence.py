@@ -27,9 +27,10 @@ SEQUENCE_ACTIONS = {
     "set",
     "output-on",
     "output-off",
+    "cycle-output",
     "apply",
 }
-SEQUENCE_OUTPUT_ACTIONS = {"safe-off", "set", "output-on", "output-off", "apply"}
+SEQUENCE_OUTPUT_ACTIONS = {"safe-off", "set", "output-on", "output-off", "cycle-output", "apply"}
 
 
 def run_sequence(
@@ -183,11 +184,19 @@ def sequence_step_preview(step: dict[str, Any]) -> dict[str, Any] | None:
                 commands.append(f"OUTP ON,(@{selected_channel})")
         return {"commands": commands}
     if action == "output-on":
-        channel = sequence_channel(parameters.get("channel", 1))
-        return {"commands": [f"OUTP ON,(@{channel})"]}
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        return {"commands": [f"OUTP ON,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]}
     if action == "output-off":
-        channel = sequence_channel(parameters.get("channel", 1))
-        return {"commands": [f"OUTP OFF,(@{channel})"]}
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]}
+    if action == "output-state":
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        return {"commands": [f"OUTP? (@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]}
+    if action == "cycle-output":
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        commands = [f"OUTP ON,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]
+        commands.extend(f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel))
+        return {"commands": commands, "duration_ms": int(parameters.get("duration_ms", 500))}
     if action == "safe-off":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
         return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]}
@@ -215,8 +224,8 @@ def normalize_sequence_step(index: int, raw_step: Any) -> dict[str, Any]:
 def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> None:
     action = step["action"]
     parameters = step["parameters"]
-    if action in {"measure", "readback", "output-state", "safe-off", "output-on", "output-off"}:
-        sequence_channel(parameters.get("channel", 1), allow_all=(action == "safe-off"))
+    if action in {"measure", "readback", "output-state", "safe-off", "output-on", "output-off", "cycle-output"}:
+        sequence_channel(parameters.get("channel", 1), allow_all=(action in {"safe-off", "output-state", "output-on", "output-off", "cycle-output"}))
     if action == "wait":
         seconds = float(parameters.get("seconds", parameters.get("duration_sec", 0)))
         if seconds < 0:
@@ -232,9 +241,14 @@ def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> No
                 validate_setpoint(channel=selected_channel, voltage=voltage, current=current, limits=limits)
         except (SafetyConfigError, SafetyValidationError) as exc:
             raise CoreValidationError(str(exc)) from exc
-    elif action in {"output-on", "output-off"}:
+    elif action in {"output-on", "output-off", "cycle-output"}:
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        duration_ms = int(parameters.get("duration_ms", 500))
+        if action == "cycle-output" and duration_ms < 0:
+            raise CoreValidationError("cycle-output duration_ms must be non-negative")
         try:
-            validate_channel(int(parameters.get("channel", 1)), _safety_limits(request))
+            for selected_channel in sequence_preview_channels(channel):
+                validate_channel(selected_channel, _safety_limits(request))
         except (SafetyConfigError, SafetyValidationError) as exc:
             raise CoreValidationError(str(exc)) from exc
 
@@ -337,8 +351,12 @@ def execute_sequence_step(
     parameters = step["parameters"]
     if action in SEQUENCE_OUTPUT_ACTIONS and not request.runtime.simulate and not isinstance(power_supply, OUTPUT_WRITE_POWER_SUPPLY_TYPES):
         raise CoreValidationError("real output-affecting sequence steps are enabled only for E36312A or EDU36311A")
-    if action in {"measure", "readback", "output-state"}:
+    if action in {"measure", "readback"}:
         _validate_read_only_channel(power_supply, sequence_channel(parameters.get("channel", 1)), command_label="sequence")
+    if action == "output-state":
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        for selected_channel in sequence_channels(channel, getattr(power_supply.capabilities, "real_measure_channels", power_supply.capabilities.channels)):
+            _validate_read_only_channel(power_supply, selected_channel, command_label="sequence")
     if action == "measure":
         channel = sequence_channel(parameters.get("channel", 1))
         return {
@@ -362,8 +380,15 @@ def execute_sequence_step(
             },
         }
     if action == "output-state":
-        channel = sequence_channel(parameters.get("channel", 1))
-        return {"index": step["index"], "action": action, "channel": channel, "enabled": power_supply.output_state(channel=channel)}
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        outputs = [
+            {"channel": selected_channel, "enabled": power_supply.output_state(channel=selected_channel)}
+            for selected_channel in sequence_channels(channel, getattr(power_supply.capabilities, "real_measure_channels", power_supply.capabilities.channels))
+        ]
+        result = {"index": step["index"], "action": action, "channel": channel, "enabled": outputs[0]["enabled"]}
+        if channel == "all":
+            result["outputs"] = outputs
+        return result
     if action == "log":
         return {"index": step["index"], "action": action, "message": str(parameters.get("message", ""))}
     if action == "wait":
@@ -382,13 +407,28 @@ def execute_sequence_step(
             power_supply.output_off(channel=selected_channel)
         return {"index": step["index"], "action": action, "channel": channel}
     if action == "output-off":
-        channel = sequence_channel(parameters.get("channel", 1))
-        power_supply.output_off(channel=channel)
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        for selected_channel in sequence_channels(channel, power_supply.capabilities.channels):
+            power_supply.output_off(channel=selected_channel)
         return {"index": step["index"], "action": action, "channel": channel}
     if action == "output-on":
-        channel = sequence_channel(parameters.get("channel", 1))
-        power_supply.output_on(channel=channel)
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        for selected_channel in sequence_channels(channel, power_supply.capabilities.channels):
+            power_supply.output_on(channel=selected_channel)
         return {"index": step["index"], "action": action, "channel": channel}
+    if action == "cycle-output":
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        channels = sequence_channels(channel, power_supply.capabilities.channels)
+        enabled_channels: list[int] = []
+        try:
+            for selected_channel in channels:
+                power_supply.output_on(channel=selected_channel)
+                enabled_channels.append(selected_channel)
+            sleep(int(parameters.get("duration_ms", 500)) / 1000)
+        finally:
+            for selected_channel in enabled_channels:
+                power_supply.output_off(channel=selected_channel)
+        return {"index": step["index"], "action": action, "channel": channel, "duration_ms": int(parameters.get("duration_ms", 500))}
     if action in {"set", "apply"}:
         channel = sequence_channel(parameters.get("channel", 1), allow_all=(action == "apply"))
         voltage = float(parameters["voltage"])

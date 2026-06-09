@@ -2304,7 +2304,7 @@ def test_channel_two_plan_is_logical_and_not_scpi(capsys) -> None:
     assert "SCPI" not in captured.out
 
 
-def test_safe_off_all_allowed_but_other_output_commands_reject_all(capsys) -> None:
+def test_output_all_channel_dry_run_expands_supported_commands(capsys) -> None:
     assert (
         cli.main(
             [
@@ -2329,11 +2329,54 @@ def test_safe_off_all_allowed_but_other_output_commands_reject_all(capsys) -> No
             "type": "driver_action",
             "action": "safe_off",
             "parameters": {"channel": "all"},
-        }
-    ]
+            }
+        ]
 
-    for command in ("set", "output-on", "output-off"):
-        assert cli.main([*output_command_args(command, channel="all"), "--dry-run", "--json"]) == 2
+    for command, expected_actions in (
+        ("output-on", ["output_on", "output_on", "output_on"]),
+        ("output-off", ["output_off", "output_off", "output_off"]),
+        ("output-state", ["output_state", "output_state", "output_state"]),
+    ):
+        assert cli.main([*output_command_args(command, channel="all"), "--dry-run", "--json"]) == 0
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload["data"]["plan"]["target"]["channel"] == "all"
+        assert [step["action"] for step in payload["data"]["plan"]["steps"]] == expected_actions
+        assert [step["parameters"]["channel"] for step in payload["data"]["plan"]["steps"]] == [1, 2, 3]
+
+    assert cli.main([*output_command_args("cycle-output", channel="all", duration_ms="250"), "--dry-run", "--json"]) == 0
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert [step["action"] for step in payload["data"]["plan"]["steps"]] == [
+        "output_on",
+        "output_on",
+        "output_on",
+        "sleep",
+        "output_off",
+        "output_off",
+        "output_off",
+    ]
+    assert payload["data"]["plan"]["steps"][3]["parameters"] == {"duration_ms": 250}
+
+    for command in ("set", "ramp", "smoke-output"):
+        args = output_command_args(command, channel="all")
+        if command == "ramp":
+            args = [
+                "ramp",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "all",
+                "--start-voltage",
+                "0",
+                "--stop-voltage",
+                "1",
+                "--step-voltage",
+                "0.5",
+                "--current",
+                "0.1",
+            ]
+        assert cli.main([*args, "--dry-run", "--json"]) == 2
         captured = capsys.readouterr()
         payload = json.loads(captured.out)
         assert payload["error"]["type"] == "validation"

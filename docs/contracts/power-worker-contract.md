@@ -116,7 +116,13 @@ Common `arguments` keys:
 - `dry_run`: optional boolean, default `false`. When true, no VISA I/O is performed.
 - `confirm_output`: optional boolean, default `false`. Required with Worker config `settings.allow_output_writes: true` for live non-dry-run output-affecting commands.
 
-Command-specific fields match the CLI/core names, including `channel`, `voltage`, `current`, `max_errors`, `max_reads`, `file`, `document`, `snapshot`, `wait_timeout_ms`, `poll_ms`, protection options, snapshot options, and sequence options.
+Command-specific fields match the CLI/core names, including `channel`,
+`voltage`, `current`, `max_errors`, `max_reads`, `file`, `document`,
+`snapshot`, `wait_timeout_ms`, `poll_ms`, protection options, snapshot
+options, and sequence options. `channel` accepts a positive integer or `"all"`;
+for output commands, `"all"` is supported by `apply`, `safe-off`,
+`output-on`, `output-off`, `output-state`, and `cycle-output`. `set`, `ramp`,
+and `smoke-output` remain single-channel commands.
 
 ## Safety
 

@@ -73,6 +73,63 @@ def test_sequence_dry_run_does_not_open_visa_and_adds_preview() -> None:
     assert data["plan"]["steps"][0]["preview"]["commands"] == ["CURR 0.1,(@1)", "VOLT 1,(@1)"]
 
 
+def test_sequence_dry_run_all_output_and_cycle_previews() -> None:
+    core_request = request(
+        {
+            "version": 1,
+            "steps": [
+                {"action": "output-on", "channel": "all"},
+                {"action": "output-state", "channel": "all"},
+                {"action": "cycle-output", "channel": "all", "duration_ms": 250},
+            ],
+        },
+        dry_run=True,
+    )
+
+    data = run_sequence(core_request, opener=lambda *args, **kwargs: FakeSession())
+
+    assert data["plan"]["steps"][0]["preview"]["commands"] == [
+        "OUTP ON,(@1)",
+        "OUTP ON,(@2)",
+        "OUTP ON,(@3)",
+    ]
+    assert data["plan"]["steps"][1]["preview"]["commands"] == [
+        "OUTP? (@1)",
+        "OUTP? (@2)",
+        "OUTP? (@3)",
+    ]
+    assert data["plan"]["steps"][2]["preview"] == {
+        "commands": [
+            "OUTP ON,(@1)",
+            "OUTP ON,(@2)",
+            "OUTP ON,(@3)",
+            "OUTP OFF,(@1)",
+            "OUTP OFF,(@2)",
+            "OUTP OFF,(@3)",
+        ],
+        "duration_ms": 250,
+    }
+
+
+def test_sequence_execute_cycle_output_all_sleeps_once() -> None:
+    session = FakeSession()
+    sleeps: list[float] = []
+    core_request = request({"version": 1, "steps": [{"action": "cycle-output", "channel": "all", "duration_ms": 250}]})
+
+    data = run_sequence(core_request, opener=lambda *args, **kwargs: session, sleep=sleeps.append)
+
+    assert data["status"] == "completed"
+    assert session.writes == [
+        "OUTP ON,(@1)",
+        "OUTP ON,(@2)",
+        "OUTP ON,(@3)",
+        "OUTP OFF,(@1)",
+        "OUTP OFF,(@2)",
+        "OUTP OFF,(@3)",
+    ]
+    assert sleeps == [0.25]
+
+
 def test_sequence_keyboard_interrupt_safe_off_cleanup() -> None:
     session = FakeSession()
     core_request = request(

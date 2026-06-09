@@ -111,21 +111,40 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
         ]
         _append_write_followup_steps(p, plan["steps"], ("programmed_voltage", "programmed_current"))
     elif command == "output-on":
-        plan["steps"] = [_driver_step(1, "output_on", channel=channel)]
+        channels = _plan_channels(channel)
+        plan["steps"] = [
+            _driver_step(index, "output_on", channel=selected_channel)
+            for index, selected_channel in enumerate(channels, start=1)
+        ]
         _append_write_followup_steps(p, plan["steps"], ("output_state",))
     elif command == "output-off":
-        plan["steps"] = [_driver_step(1, "output_off", channel=channel)]
+        channels = _plan_channels(channel)
+        plan["steps"] = [
+            _driver_step(index, "output_off", channel=selected_channel)
+            for index, selected_channel in enumerate(channels, start=1)
+        ]
         _append_write_followup_steps(p, plan["steps"], ("output_state",))
     elif command == "safe-off":
         plan["steps"] = [_driver_step(1, "safe_off", channel=channel)]
     elif command == "output-state":
-        plan["steps"] = [_driver_step(1, "output_state", channel=channel)]
-    elif command == "cycle-output":
+        channels = _plan_channels(channel)
         plan["steps"] = [
-            _driver_step(1, "output_on", channel=channel),
-            _driver_step(2, "sleep", duration_ms=p.get("duration_ms", 0)),
-            _driver_step(3, "output_off", channel=channel),
+            _driver_step(index, "output_state", channel=selected_channel)
+            for index, selected_channel in enumerate(channels, start=1)
         ]
+    elif command == "cycle-output":
+        channels = _plan_channels(channel)
+        steps = []
+        index = 1
+        for selected_channel in channels:
+            steps.append(_driver_step(index, "output_on", channel=selected_channel))
+            index += 1
+        steps.append(_driver_step(index, "sleep", duration_ms=p.get("duration_ms", 0)))
+        index += 1
+        for selected_channel in channels:
+            steps.append(_driver_step(index, "output_off", channel=selected_channel))
+            index += 1
+        plan["steps"] = steps
     elif command == "apply":
         channels = (1, 2, 3) if channel == "all" else (channel,)
         steps = []
@@ -296,38 +315,67 @@ def _execute_output_write(
         return data
 
     if command == "output-on":
-        _require_channel(power_supply, channel, command)
-        voltage = power_supply.programmed_voltage(channel=channel)
-        current = power_supply.programmed_current(channel=channel)
-        _validate_setpoint_for_request(request, idn, channel, voltage=voltage, current=current)
-        _require_confirmation_if_needed(request, voltage, current, channel, idn)
-        power_supply.output_on(channel=channel)
+        channels = _channels_from_selection(channel, power_supply.capabilities.channels, command=command)
+        outputs = []
+        for selected_channel in channels:
+            voltage = power_supply.programmed_voltage(channel=selected_channel)
+            current = power_supply.programmed_current(channel=selected_channel)
+            _validate_setpoint_for_request(request, idn, selected_channel, voltage=voltage, current=current)
+            _require_confirmation_if_needed(request, voltage, current, selected_channel, idn)
+            outputs.append(
+                {
+                    "channel": selected_channel,
+                    "enabled": True,
+                    "readback": {
+                        "setpoints": {"voltage": voltage, "current": current},
+                        "safety_checked": request.runtime.safety_config is not None,
+                    },
+                }
+            )
+        for selected_channel in channels:
+            power_supply.output_on(channel=selected_channel)
         _settle_after_write(request, sleep)
-        verification = _verify_output_state_after_write(request, power_supply, expected=True)
+        verification = _combine_verifications(
+            "output-on",
+            *(
+                _verify_output_state_after_write(request, power_supply, expected=True, channel=selected_channel)
+                for selected_channel in channels
+            ),
+        )
         _raise_verification_failed(verification)
-        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
+        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=_completion_pulse_channel(request, channel))
         _raise_on_instrument_errors(power_supply, command)
         data = _resource_payload(request, idn, channel=channel)
         data["output_enabled"] = True
-        data["readback"] = {
-            "setpoints": {"voltage": voltage, "current": current},
-            "safety_checked": request.runtime.safety_config is not None,
-        }
+        if channel == "all":
+            data["outputs"] = outputs
+        else:
+            data["readback"] = outputs[0]["readback"]
         _attach_trigger_if_present(data, trigger)
         _attach_verification_if_requested(request, data, verification)
         return data
 
     if command == "output-off":
-        _require_channel(power_supply, channel, command)
-        validate_channel(channel, _safety_limits(request, channel=channel, model=parse_idn(idn).model))
-        power_supply.output_off(channel=channel)
+        channels = _channels_from_selection(channel, power_supply.capabilities.channels, command=command)
+        for selected_channel in channels:
+            validate_channel(selected_channel, _safety_limits(request, channel=selected_channel, model=parse_idn(idn).model))
+        for selected_channel in channels:
+            power_supply.output_off(channel=selected_channel)
         _settle_after_write(request, sleep)
-        verification = _verify_output_state_after_write(request, power_supply, expected=False)
+        verification = _combine_verifications(
+            "output-off",
+            *(
+                _verify_output_state_after_write(request, power_supply, expected=False, channel=selected_channel)
+                for selected_channel in channels
+            ),
+        )
         _raise_verification_failed(verification)
-        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
+        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=_completion_pulse_channel(request, channel))
         _raise_on_instrument_errors(power_supply, command)
         data = _resource_payload(request, idn, channel=channel)
         data["output_enabled"] = False
+        if channel == "all":
+            data["outputs"] = [{"channel": selected_channel, "enabled": False} for selected_channel in channels]
         _attach_trigger_if_present(data, trigger)
         _attach_verification_if_requested(request, data, verification)
         return data
@@ -346,27 +394,48 @@ def _execute_output_write(
         return data
 
     if command == "output-state":
-        _require_read_only_channel(power_supply, channel, command)
-        validate_channel(channel, _safety_limits(request, channel=channel, model=parse_idn(idn).model))
-        output_enabled = power_supply.output_state(channel=channel)
-        return _resource_payload(request, idn, channel=channel, output_enabled=output_enabled)
+        channels = _channels_from_selection(
+            channel,
+            getattr(power_supply.capabilities, "real_measure_channels", power_supply.capabilities.channels),
+            command=command,
+        )
+        outputs = []
+        for selected_channel in channels:
+            validate_channel(selected_channel, _safety_limits(request, channel=selected_channel, model=parse_idn(idn).model))
+            outputs.append({"channel": selected_channel, "enabled": power_supply.output_state(channel=selected_channel)})
+        data = _resource_payload(request, idn, channel=channel, output_enabled=outputs[0]["enabled"])
+        if channel == "all":
+            data["outputs"] = outputs
+        return data
 
     if command == "cycle-output":
-        _require_channel(power_supply, channel, command)
-        limits = _safety_limits(request, channel=channel, model=parse_idn(idn).model)
-        if limits is not None:
-            voltage = power_supply.programmed_voltage(channel=channel)
-            current = power_supply.programmed_current(channel=channel)
-            _validate_setpoint_for_request(request, idn, channel, voltage=voltage, current=current)
-            _require_confirmation_if_needed(request, voltage, current, channel, idn)
-        power_supply.output_on(channel=channel)
-        sleep(p.get("duration_ms", 0) / 1000)
-        power_supply.output_off(channel=channel)
-        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
+        channels = _channels_from_selection(channel, power_supply.capabilities.channels, command=command)
+        for selected_channel in channels:
+            limits = _safety_limits(request, channel=selected_channel, model=parse_idn(idn).model)
+            if limits is not None:
+                voltage = power_supply.programmed_voltage(channel=selected_channel)
+                current = power_supply.programmed_current(channel=selected_channel)
+                _validate_setpoint_for_request(request, idn, selected_channel, voltage=voltage, current=current)
+                _require_confirmation_if_needed(request, voltage, current, selected_channel, idn)
+        enabled_channels: list[int] = []
+        try:
+            for selected_channel in channels:
+                power_supply.output_on(channel=selected_channel)
+                enabled_channels.append(selected_channel)
+            sleep(p.get("duration_ms", 0) / 1000)
+        finally:
+            for selected_channel in enabled_channels:
+                power_supply.output_off(channel=selected_channel)
+        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=_completion_pulse_channel(request, channel))
         _raise_on_instrument_errors(power_supply, command)
         data = _resource_payload(request, idn, channel=channel, duration_ms=p.get("duration_ms", 0))
         data["cycled"] = True
         data["final_output_enabled"] = False
+        if channel == "all":
+            data["outputs"] = [
+                {"channel": selected_channel, "cycled": True, "final_enabled": False}
+                for selected_channel in channels
+            ]
         _attach_trigger_if_present(data, trigger)
         return data
 
@@ -569,11 +638,12 @@ def _require_read_only_channel(power_supply: Any, channel: int, command: str) ->
     return channel
 
 
-def _channels_from_selection(selection: int | str, supported: Sequence[int]) -> tuple[int, ...]:
+def _channels_from_selection(selection: int | str, supported: Sequence[int], *, command: str | None = None) -> tuple[int, ...]:
     if selection == "all":
         return tuple(supported)
     if selection not in supported:
-        raise UnsupportedChannelError(f"channel {selection} is not supported; supported: {tuple(supported)}")
+        command_label = f" for {command}" if command else ""
+        raise UnsupportedChannelError(f"channel {selection} is not supported{command_label}; supported: {tuple(supported)}")
     return (int(selection),)
 
 
@@ -787,6 +857,12 @@ def _append_write_followup_steps(
         for action in verification_actions:
             steps.append(_driver_step(next_index, action, channel=selected_channel))
             next_index += 1
+
+
+def _plan_channels(channel: int | str) -> tuple[int, ...]:
+    if channel == "all":
+        return E36312APowerSupply.capabilities.channels
+    return (int(channel),)
 
 
 def _json_safe_number(value: float) -> float | str:

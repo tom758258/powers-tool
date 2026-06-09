@@ -68,9 +68,13 @@ def test_safety_config_alias_without_config_is_rejected() -> None:
         ("smoke-output", 2),
         ("ramp", 1),
         ("output-on", 1),
+        ("output-on", "all"),
         ("output-off", 1),
+        ("output-off", "all"),
         ("output-state", 1),
+        ("output-state", "all"),
         ("cycle-output", 1),
+        ("cycle-output", "all"),
         ("safe-off", 1),
         ("safe-off", "all"),
     ],
@@ -86,6 +90,21 @@ def test_validate_output_request_accepts_supported_commands(command: str, channe
         stop_voltage=1.0,
         step_voltage=0.5,
     )
+
+
+@pytest.mark.parametrize("command", ["set", "ramp", "smoke-output"])
+def test_validate_output_request_rejects_all_for_single_channel_commands(command: str) -> None:
+    with pytest.raises(validation.ValidationError, match=f"{command} does not support channel all"):
+        validation.validate_output_request(
+            command=command,
+            channel="all",
+            safety_limits=SafetyLimits(max_voltage=5, max_current=1, allowed_channels=(1, 2, 3)),
+            voltage=1.0,
+            current=0.1,
+            start_voltage=0.0,
+            stop_voltage=1.0,
+            step_voltage=0.5,
+        )
 
 
 def test_validate_output_request_blocks_unsafe_setpoint() -> None:

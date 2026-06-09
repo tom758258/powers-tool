@@ -59,8 +59,8 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     output_on_parser.add_argument(
         "--channel",
         required=True,
-        type=runtime._positive_channel,
-        help="Positive integer output channel.",
+        type=runtime._output_channel,
+        help="Positive integer output channel or 'all'.",
     )
     runtime._add_json_argument(output_on_parser)
     runtime._add_simulate_argument(output_on_parser)
@@ -91,8 +91,8 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     output_off_parser.add_argument(
         "--channel",
         required=True,
-        type=runtime._positive_channel,
-        help="Positive integer output channel.",
+        type=runtime._output_channel,
+        help="Positive integer output channel or 'all'.",
     )
     runtime._add_json_argument(output_off_parser)
     runtime._add_simulate_argument(output_off_parser)
@@ -144,8 +144,8 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     output_state_parser.add_argument(
         "--channel",
         required=True,
-        type=runtime._positive_channel,
-        help="Positive integer output channel.",
+        type=runtime._output_channel,
+        help="Positive integer output channel or 'all'.",
     )
     runtime._add_json_argument(output_state_parser)
     runtime._add_simulate_argument(output_state_parser)
@@ -167,8 +167,8 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     cycle_output_parser.add_argument(
         "--channel",
         required=True,
-        type=runtime._positive_channel,
-        help="Positive integer output channel.",
+        type=runtime._output_channel,
+        help="Positive integer output channel or 'all'.",
     )
     cycle_output_parser.add_argument(
         "--duration-ms",
