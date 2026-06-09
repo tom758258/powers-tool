@@ -34,21 +34,21 @@ const PARAMS = {
   "output-on": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
   "output-off": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
   "safe-off": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
-  "cycle-output": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }, { name: "duration_ms", type: "number", label: "Duration ms", value: 100 }],
+  "cycle-output": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }, { name: "duration_ms", type: "number", label: "Duration(ms)", value: 100 }],
   ramp: [
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
-    { name: "current", type: "number", label: "Current", value: 0.1 },
-    { name: "start_voltage", type: "number", label: "Start voltage", value: 0 },
-    { name: "stop_voltage", type: "number", label: "Stop voltage", value: 1 },
-    { name: "step_voltage", type: "number", label: "Step voltage", value: 0.1 },
-    { name: "delay_ms", type: "number", label: "Delay ms", value: 0 }
+    { name: "current", type: "number", label: "Current(A)", value: 0.1 },
+    { name: "start_voltage", type: "number", label: "Start voltage(V)", value: 0 },
+    { name: "stop_voltage", type: "number", label: "Stop voltage(V)", value: 1 },
+    { name: "step_voltage", type: "number", label: "Step voltage(V)", value: 0.1 },
+    { name: "delay_ms", type: "number", label: "Delay(ms)", value: 0 }
   ],
   "smoke-output": smokeOutputParams(),
   "protection-set": [
     { name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" },
-    { name: "ovp_voltage", type: "number", label: "OVP voltage", value: 5 },
+    { name: "ovp_voltage", type: "number", label: "OVP voltage(V)", value: 5 },
     { name: "ocp", type: "select", label: "OCP", options: ["", "on", "off"], value: "" },
-    { name: "ocp_delay", type: "number", label: "OCP delay", optional: true },
+    { name: "ocp_delay", type: "number", label: "OCP delay(s)", optional: true },
     { name: "ocp_delay_trigger", type: "select", label: "OCP delay trigger", options: ["", "setting-change", "cc-transition"], value: "" }
   ],
   "clear-protection": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
@@ -78,8 +78,8 @@ const PARAMS = {
 function baseOutputParams() {
   return [
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
-    { name: "voltage", type: "number", label: "Voltage", value: 1 },
-    { name: "current", type: "number", label: "Current", value: 0.1 }
+    { name: "voltage", type: "number", label: "Voltage(V)", value: 1 },
+    { name: "current", type: "number", label: "Current(A)", value: 0.1 }
   ];
 }
 
@@ -92,17 +92,17 @@ function applyOutputParams() {
 function smokeOutputParams() {
   return [
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
-    { name: "voltage", type: "number", label: "Voltage", value: 1 },
-    { name: "current", type: "number", label: "Current", value: 0.1 },
-    { name: "duration_ms", type: "number", label: "Duration ms", value: 100 }
+    { name: "voltage", type: "number", label: "Voltage(V)", value: 1 },
+    { name: "current", type: "number", label: "Current(A)", value: 0.1 },
+    { name: "duration_ms", type: "number", label: "Duration(ms)", value: 100 }
   ];
 }
 
 function triggerStepParams() {
   return [
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
-    { name: "voltage", type: "number", label: "Triggered V", optional: true },
-    { name: "current", type: "number", label: "Triggered A", optional: true },
+    { name: "voltage", type: "number", label: "Triggered voltage(V)", optional: true },
+    { name: "current", type: "number", label: "Triggered current(A)", optional: true },
     { name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus" },
     { name: "fire", type: "checkbox", label: "Fire now" },
     { name: "wait_complete", type: "checkbox", label: "Wait complete" },
@@ -114,9 +114,9 @@ function triggerStepParams() {
 function triggerListParams() {
   return [
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
-    { name: "voltage_list", type: "text", label: "Voltage list", value: "0,1", parser: "numberList" },
-    { name: "current_list", type: "text", label: "Current list", value: "0.05", parser: "numberList" },
-    { name: "dwell_list", type: "text", label: "Dwell list", value: "0.01", parser: "numberList" },
+    { name: "voltage_list", type: "text", label: "Voltage list(V)", value: "0,1", parser: "numberList" },
+    { name: "current_list", type: "text", label: "Current list(A)", value: "0.05", parser: "numberList" },
+    { name: "dwell_list", type: "text", label: "Dwell list(s)", value: "0.01", parser: "numberList" },
     { name: "count", type: "number", label: "Count", value: 1 },
     { name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus" },
     { name: "fire", type: "checkbox", label: "Fire now" },
@@ -131,8 +131,8 @@ function triggerListParams() {
 
 function triggerWaitParams() {
   return [
-    { name: "poll_ms", type: "number", label: "Poll ms", value: 200 },
-    { name: "wait_timeout_ms", type: "number", label: "Timeout ms", optional: true }
+    { name: "poll_ms", type: "number", label: "Poll(ms)", value: 200 },
+    { name: "wait_timeout_ms", type: "number", label: "Timeout(ms)", optional: true }
   ];
 }
 

@@ -67,6 +67,13 @@ def assert_param_contract(
         assert f"options: [{quoted}]" in block
 
 
+def assert_param_label(block: str, name: str, label: str) -> None:
+    assert re.search(
+        rf'name: "{re.escape(name)}"[^}}]*label: "{re.escape(label)}"',
+        block,
+    )
+
+
 # Guard test: Ensure webui does not import keysight_power_cli
 def test_guard_no_cli_import():
     assert "keysight_power_cli" not in sys.modules
@@ -359,6 +366,48 @@ def test_static_channel_confirmation_and_job_detail_contracts():
     assert "const job = await fetchJson(`/api/jobs/${encodeURIComponent(jobId)}`);" in app_js
     for key in ("job_id", "command", "status", "runtime", "parameters", "result", "error"):
         assert f"{key}: job.{key}" in app_js
+
+
+def test_static_command_parameter_labels_include_units():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    assert_param_label(app_js, "voltage", "Voltage(V)")
+    assert_param_label(app_js, "current", "Current(A)")
+
+    cycle_output_block = extract_param_block(app_js, "cycle-output")
+    assert_param_label(cycle_output_block, "duration_ms", "Duration(ms)")
+
+    ramp_block = extract_param_block(app_js, "ramp")
+    assert_param_label(ramp_block, "current", "Current(A)")
+    assert_param_label(ramp_block, "start_voltage", "Start voltage(V)")
+    assert_param_label(ramp_block, "stop_voltage", "Stop voltage(V)")
+    assert_param_label(ramp_block, "step_voltage", "Step voltage(V)")
+    assert_param_label(ramp_block, "delay_ms", "Delay(ms)")
+
+    protection_block = extract_param_block(app_js, "protection-set")
+    assert_param_label(protection_block, "ovp_voltage", "OVP voltage(V)")
+    assert_param_label(protection_block, "ocp_delay", "OCP delay(s)")
+
+    smoke_output = app_js[app_js.index("function smokeOutputParams()"):app_js.index("function triggerStepParams()")]
+    assert_param_label(smoke_output, "voltage", "Voltage(V)")
+    assert_param_label(smoke_output, "current", "Current(A)")
+    assert_param_label(smoke_output, "duration_ms", "Duration(ms)")
+
+    trigger_step = app_js[app_js.index("function triggerStepParams()"):app_js.index("function triggerListParams()")]
+    assert_param_label(trigger_step, "voltage", "Triggered voltage(V)")
+    assert_param_label(trigger_step, "current", "Triggered current(A)")
+
+    trigger_list = app_js[app_js.index("function triggerListParams()"):app_js.index("function triggerWaitParams()")]
+    assert_param_label(trigger_list, "voltage_list", "Voltage list(V)")
+    assert_param_label(trigger_list, "current_list", "Current list(A)")
+    assert_param_label(trigger_list, "dwell_list", "Dwell list(s)")
+
+    trigger_wait = app_js[app_js.index("function triggerWaitParams()"):app_js.index("document.addEventListener")]
+    assert_param_label(trigger_wait, "poll_ms", "Poll(ms)")
+    assert_param_label(trigger_wait, "wait_timeout_ms", "Timeout(ms)")
+
+    for label in ("Triggered V", "Triggered A", "Duration ms", "Delay ms", "Poll ms", "Timeout ms"):
+        assert f'label: "{label}"' not in app_js
 
 
 def test_static_form_has_no_advanced_json_injection():
