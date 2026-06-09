@@ -487,11 +487,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Configure a trigger output pin and emit a BUS trigger pulse.",
     )
     _add_output_resource_arguments(trigger_pulse_parser)
-    trigger_pulse_parser.add_argument(
+    trigger_pin_group = trigger_pulse_parser.add_mutually_exclusive_group(required=True)
+    trigger_pin_group.add_argument(
         "--pin",
-        required=True,
         type=_trigger_pin,
         help="Rear digital trigger output pin 1, 2, or 3.",
+    )
+    trigger_pin_group.add_argument(
+        "--pins",
+        type=_trigger_pins_list,
+        help="Comma-separated rear digital trigger output pins: 1, 2, and/or 3.",
     )
     trigger_pulse_parser.add_argument(
         "--channel",
@@ -506,9 +511,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Trigger output polarity.",
     )
     trigger_pulse_parser.add_argument(
+        "--exclusive-pins",
         "--exclusive-pin",
+        dest="exclusive_pins",
         action="store_true",
-        help="Reset the other rear digital pins to DIO before pulsing the selected pin.",
+        help="Reset unselected rear digital pins to DIO before pulsing the selected pin(s).",
     )
     _add_json_argument(trigger_pulse_parser)
     _add_simulate_argument(trigger_pulse_parser)
@@ -1351,6 +1358,7 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
     request = _request_for_args(args)
     execution = _execution_for_args(args, hardware_intent=True)
     manager = _resource_manager_for_args(args)
+    pins = _trigger_pins_for_args(args)
 
     try:
         _resolve_optional_resource_alias(args)
@@ -1366,10 +1374,10 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
         )
 
     scpi = _trigger_pulse_scpi(
-        args.pin,
+        pins,
         args.polarity,
         args.channel,
-        exclusive_pin=args.exclusive_pin,
+        exclusive_pins=args.exclusive_pins,
     )
     if args.dry_run:
         plan = dry_run_plan(
@@ -1413,9 +1421,9 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
                 )
             voltage = power_supply.programmed_voltage(channel=args.channel)
             current = power_supply.programmed_current(channel=args.channel)
-            if args.exclusive_pin:
-                power_supply.clear_trigger_output_pins(except_pin=args.pin)
-            power_supply.configure_trigger_output_pin(args.pin, args.polarity)
+            if args.exclusive_pins:
+                power_supply.clear_trigger_output_pins(except_pins=pins)
+            power_supply.configure_trigger_output_pins(pins, args.polarity)
             power_supply.enable_trigger_output_bus(True)
             power_supply.set_triggered_current(channel=args.channel, current=current)
             power_supply.set_triggered_voltage(channel=args.channel, voltage=voltage)
@@ -1459,8 +1467,8 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
 
     data = {
         "resource": args.resource,
-        "pin": args.pin,
-        "exclusive_pin": args.exclusive_pin,
+        "pins": list(pins),
+        "exclusive_pins": args.exclusive_pins,
         "channel": args.channel,
         "polarity": args.polarity,
         "triggered": True,
@@ -1469,6 +1477,9 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
             "voltage": _json_safe_number(voltage),
         },
     }
+    if args.pin is not None:
+        data["pin"] = args.pin
+        data["exclusive_pin"] = args.exclusive_pins
     if args.json:
         emit_json_success(
             command=args.command,
@@ -1479,8 +1490,8 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
         return 0
 
     print(f"Resource: {args.resource}")
-    print(f"Pin: {args.pin}")
-    print(f"Exclusive pin: {str(args.exclusive_pin).lower()}")
+    print("Pins: " + ", ".join(str(pin) for pin in pins))
+    print(f"Exclusive pins: {str(args.exclusive_pins).lower()}")
     print(f"Polarity: {args.polarity}")
     print("Triggered: True")
     return 0
@@ -3095,21 +3106,28 @@ def _resolve_optional_resource_alias(args: argparse.Namespace) -> None:
 
 
 def _trigger_pulse_scpi(
-    pin: int,
+    pins: Sequence[int],
     polarity: str,
     channel: int,
     *,
-    exclusive_pin: bool = False,
+    exclusive_pins: bool = False,
 ) -> tuple[str, ...]:
     polarity_command = "POS" if polarity == "positive" else "NEG"
+    selected_pins = tuple(pins)
     clear_commands = tuple(
         f"DIG:PIN{other_pin}:FUNC DIO"
         for other_pin in (1, 2, 3)
-        if exclusive_pin and other_pin != pin
+        if exclusive_pins and other_pin not in selected_pins
     )
-    return clear_commands + (
-        f"DIG:PIN{pin}:FUNC TOUT",
-        f"DIG:PIN{pin}:POL {polarity_command}",
+    configure_commands = tuple(
+        command
+        for pin in selected_pins
+        for command in (
+            f"DIG:PIN{pin}:FUNC TOUT",
+            f"DIG:PIN{pin}:POL {polarity_command}",
+        )
+    )
+    return clear_commands + configure_commands + (
         "DIG:TOUT:BUS ON",
         f"CURR:TRIG <current-readback>,(@{channel})",
         f"VOLT:TRIG <voltage-readback>,(@{channel})",
@@ -4801,17 +4819,22 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     if args.command == "trigger-pulse":
-        return {
+        pins = _trigger_pins_for_args(args)
+        request = {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
-            "pin": args.pin,
+            "pins": list(pins),
             "channel": getattr(args, "channel", 1),
             "polarity": args.polarity,
-            "exclusive_pin": getattr(args, "exclusive_pin", False),
+            "exclusive_pins": getattr(args, "exclusive_pins", False),
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
+        if args.pin is not None:
+            request["pin"] = args.pin
+            request["exclusive_pin"] = getattr(args, "exclusive_pins", False)
+        return request
     if args.command == "status":
         channel = "all" if getattr(args, "all", False) else args.channel
         return {
@@ -5048,17 +5071,23 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
         }
     if command == "trigger-pulse":
-        return {
+        pin = _pin_from_argv(argv)
+        pins = _pins_from_argv(argv)
+        request = {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
-            "pin": _pin_from_argv(argv),
+            "pins": pins if pins is not None else ([pin] if pin is not None else None),
             "channel": _channel_from_argv(argv) or 1,
             "polarity": _option_value(argv, "--polarity") or "positive",
-            "exclusive_pin": "--exclusive-pin" in argv,
+            "exclusive_pins": "--exclusive-pins" in argv or "--exclusive-pin" in argv,
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
         }
+        if pin is not None:
+            request["pin"] = pin
+            request["exclusive_pin"] = "--exclusive-pins" in argv or "--exclusive-pin" in argv
+        return request
     if command == "status":
         channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")
         return {
@@ -5267,6 +5296,23 @@ def _pin_from_argv(argv: Sequence[str]) -> int | str | None:
         return value
 
 
+def _pins_from_argv(argv: Sequence[str]) -> list[int | str] | None:
+    value = _option_value(argv, "--pins")
+    if value is None:
+        return None
+    pins: list[int | str] = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            pins.append(item)
+            continue
+        try:
+            pins.append(int(item))
+        except ValueError:
+            pins.append(item)
+    return pins
+
+
 def _command_from_argv(argv: Sequence[str]) -> str:
     for item in argv:
         if item in COMMAND_NAMES:
@@ -5392,6 +5438,29 @@ def _trigger_pin(value: str) -> int:
     if pin not in (1, 2, 3):
         raise argparse.ArgumentTypeError("pin must be 1, 2, or 3")
     return pin
+
+
+def _trigger_pins_list(value: str) -> tuple[int, ...]:
+    pins: list[int] = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            raise argparse.ArgumentTypeError("pins must be comma-separated pins 1, 2, or 3")
+        pin = _trigger_pin(item)
+        if pin in pins:
+            raise argparse.ArgumentTypeError("pins must not contain duplicates")
+        pins.append(pin)
+    return tuple(pins)
+
+
+def _trigger_pins_for_args(args: argparse.Namespace) -> tuple[int, ...]:
+    pins = getattr(args, "pins", None)
+    if pins is not None:
+        return tuple(pins)
+    pin = getattr(args, "pin", None)
+    if pin is not None:
+        return (pin,)
+    raise ValueError("trigger-pulse requires --pin or --pins")
 
 
 def _safety_limits_for_args(args: argparse.Namespace) -> SafetyLimits | None:

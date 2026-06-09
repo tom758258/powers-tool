@@ -37,19 +37,32 @@ class E36312APowerSupply(GenericScpiPowerSupply):
     def configure_trigger_output_pin(self, pin: int, polarity: str) -> None:
         """Configure a rear digital pin as a trigger output."""
 
-        if pin not in (1, 2, 3):
-            raise ValueError("trigger output pin must be 1, 2, or 3")
-        polarity_command = _trigger_polarity_command(polarity)
-        self._session.write(f"DIG:PIN{pin}:FUNC TOUT")
-        self._session.write(f"DIG:PIN{pin}:POL {polarity_command}")
+        self.configure_trigger_output_pins((pin,), polarity)
 
-    def clear_trigger_output_pins(self, *, except_pin: int | None = None) -> None:
+    def configure_trigger_output_pins(self, pins: tuple[int, ...], polarity: str) -> None:
+        """Configure rear digital pins as trigger outputs."""
+
+        _validate_trigger_pins(pins)
+        polarity_command = _trigger_polarity_command(polarity)
+        for pin in pins:
+            self._session.write(f"DIG:PIN{pin}:FUNC TOUT")
+            self._session.write(f"DIG:PIN{pin}:POL {polarity_command}")
+
+    def clear_trigger_output_pins(
+        self,
+        *,
+        except_pin: int | None = None,
+        except_pins: tuple[int, ...] | None = None,
+    ) -> None:
         """Configure rear digital trigger output pins back to digital I/O."""
 
-        if except_pin is not None and except_pin not in (1, 2, 3):
-            raise ValueError("trigger output pin must be 1, 2, or 3")
+        if except_pin is not None and except_pins is not None:
+            raise ValueError("use except_pin or except_pins, not both")
+        keep_pins = (except_pin,) if except_pin is not None else tuple(except_pins or ())
+        if keep_pins:
+            _validate_trigger_pins(keep_pins)
         for pin in (1, 2, 3):
-            if pin != except_pin:
+            if pin not in keep_pins:
                 self._session.write(f"DIG:PIN{pin}:FUNC DIO")
 
     def enable_trigger_output_bus(self, enabled: bool = True) -> None:
@@ -111,6 +124,18 @@ def _trigger_polarity_command(polarity: str) -> str:
     if normalized == "negative":
         return "NEG"
     raise ValueError("trigger polarity must be positive or negative")
+
+
+def _validate_trigger_pins(pins: tuple[int, ...]) -> None:
+    if not pins:
+        raise ValueError("at least one trigger output pin is required")
+    seen: set[int] = set()
+    for pin in pins:
+        if pin not in (1, 2, 3):
+            raise ValueError("trigger output pin must be 1, 2, or 3")
+        if pin in seen:
+            raise ValueError("trigger output pins must not contain duplicates")
+        seen.add(pin)
 
 
 def _format_number(value: float) -> str:

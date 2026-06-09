@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from keysight_power.errors import VisaConnectionError
 
 SIMULATED_RESOURCES = (
@@ -141,9 +143,9 @@ class SimulatedResource:
             return "1" if SIMULATED_PROTECTION_TRIPS.get(self.resource_name, {}).get("current") else "0"
         if command == "*TRG":
             return ""
-        if command.startswith("DIG:PIN") and ":POL " in command:
+        if _simulated_digital_pin_polarity(command):
             return ""
-        if command.startswith("DIG:PIN") and ":FUNC " in command:
+        if _simulated_digital_pin_function(command):
             return ""
         if command.startswith("DIG:TOUT:BUS "):
             return ""
@@ -227,6 +229,14 @@ def _simulated_output_state(command: str) -> int | None:
     if command.startswith("OUTP? (@") and command.endswith(")"):
         return _parse_channel_list(command, "OUTP? (@")
     return None
+
+
+def _simulated_digital_pin_function(command: str) -> bool:
+    return re.fullmatch(r"DIG:PIN[123]:FUNC (?:DIO|TOUT)", command) is not None
+
+
+def _simulated_digital_pin_polarity(command: str) -> bool:
+    return re.fullmatch(r"DIG:PIN[123]:POL (?:POS|NEG)", command) is not None
 
 
 def _simulated_clear_protection(command: str) -> int | None:

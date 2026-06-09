@@ -3667,12 +3667,14 @@ def test_trigger_pulse_real_sends_expected_scpi(monkeypatch, capsys) -> None:
     assert session.closed is True
     assert payload["data"] == {
         "resource": OUTPUT_RESOURCE,
-        "pin": 2,
-        "exclusive_pin": False,
+        "pins": [2],
+        "exclusive_pins": False,
         "channel": 3,
         "polarity": "negative",
         "triggered": True,
         "trigger_setpoints": {"current": 0.05, "voltage": 1.0},
+        "pin": 2,
+        "exclusive_pin": False,
     }
 
 
@@ -3714,6 +3716,74 @@ def test_trigger_pulse_dry_run_json_does_not_open_resource(monkeypatch, capsys) 
     ]
 
 
+def test_trigger_pulse_dry_run_json_accepts_multiple_pins(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("real VISA resource should not be opened")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--pins",
+                "1,2",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["request"]["pins"] == [1, 2]
+    assert payload["request"]["exclusive_pins"] is False
+    assert "pin" not in payload["request"]
+    assert payload["data"]["plan"]["steps"][:5] == [
+        {"index": 1, "type": "scpi", "command": "DIG:PIN1:FUNC TOUT"},
+        {"index": 2, "type": "scpi", "command": "DIG:PIN1:POL POS"},
+        {"index": 3, "type": "scpi", "command": "DIG:PIN2:FUNC TOUT"},
+        {"index": 4, "type": "scpi", "command": "DIG:PIN2:POL POS"},
+        {"index": 5, "type": "scpi", "command": "DIG:TOUT:BUS ON"},
+    ]
+
+
+def test_trigger_pulse_real_accepts_multiple_pins(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--pins",
+                "1,2",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.writes[:5] == [
+        "DIG:PIN1:FUNC TOUT",
+        "DIG:PIN1:POL POS",
+        "DIG:PIN2:FUNC TOUT",
+        "DIG:PIN2:POL POS",
+        "DIG:TOUT:BUS ON",
+    ]
+    assert payload["data"]["pins"] == [1, 2]
+    assert payload["data"]["exclusive_pins"] is False
+    assert "pin" not in payload["data"]
+
+
 def test_trigger_pulse_exclusive_pin_clears_other_trigger_pins(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,MY00000001,1.0",
@@ -3745,6 +3815,41 @@ def test_trigger_pulse_exclusive_pin_clears_other_trigger_pins(monkeypatch, caps
         "DIG:TOUT:BUS ON",
     ]
     assert payload["data"]["exclusive_pin"] is True
+
+
+def test_trigger_pulse_exclusive_pins_clears_only_unselected_pin(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--pins",
+                "1,2",
+                "--exclusive-pins",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.writes[:6] == [
+        "DIG:PIN3:FUNC DIO",
+        "DIG:PIN1:FUNC TOUT",
+        "DIG:PIN1:POL POS",
+        "DIG:PIN2:FUNC TOUT",
+        "DIG:PIN2:POL POS",
+        "DIG:TOUT:BUS ON",
+    ]
+    assert payload["data"]["pins"] == [1, 2]
+    assert payload["data"]["exclusive_pins"] is True
 
 
 def test_trigger_pulse_exclusive_pin_dry_run_lists_clear_steps(monkeypatch, capsys) -> None:
@@ -3874,13 +3979,15 @@ resource = "{OUTPUT_RESOURCE}"
     assert payload["request"] == {
         "resource": OUTPUT_RESOURCE,
         "resource_alias": "e36312a",
-        "pin": 1,
+        "pins": [1],
         "channel": 1,
         "polarity": "positive",
-        "exclusive_pin": False,
+        "exclusive_pins": False,
         "safety_config": safety_config,
         "backend": "@py",
         "timeout_ms": 1234,
+        "pin": 1,
+        "exclusive_pin": False,
     }
 
 
@@ -3996,6 +4103,34 @@ def test_trigger_pulse_invalid_pin_is_argument_error(capsys) -> None:
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
+    assert payload["error"]["code"] == "argument_error"
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--pins", "1,1"],
+        ["--pins", "4"],
+        ["--pins", ""],
+        ["--pins", "1,"],
+        ["--pin", "1", "--pins", "1,2"],
+    ],
+)
+def test_trigger_pulse_invalid_pins_are_argument_errors(capsys, args) -> None:
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                *args,
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["code"] == "argument_error"
 
 
