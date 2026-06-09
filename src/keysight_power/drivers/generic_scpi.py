@@ -122,6 +122,18 @@ class GenericScpiPowerSupply:
     def clear_output_protection(self, *, channel: Channel = None) -> None:
         self._write("OUTP:PROT:CLE", channel=channel)
 
+    def set_over_voltage_protection(self, *, channel: Channel = None, voltage: float) -> None:
+        validate_setpoint(channel=channel, voltage=voltage, limits=self._safety_limits)
+        self._write(f"VOLT:PROT {_format_number(voltage)}", channel=channel)
+
+    def set_over_current_protection_enabled(
+        self,
+        *,
+        channel: Channel = None,
+        enabled: bool,
+    ) -> None:
+        self._write(f"CURR:PROT:STAT {'ON' if enabled else 'OFF'}", channel=channel)
+
     def clear_status(self) -> None:
         self._session.write("*CLS")
 

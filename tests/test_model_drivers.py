@@ -84,3 +84,16 @@ def test_first_target_driver_safety_validation_runs_before_scpi_write() -> None:
         power_supply.set_voltage(channel=2, voltage=1.0)
 
     assert session.commands == []
+
+
+def test_e36312a_driver_sets_protection_with_channel_list_scpi() -> None:
+    session = FakeSession()
+    power_supply = E36312APowerSupply(session)
+
+    power_supply.set_over_voltage_protection(channel=2, voltage=5.0)
+    power_supply.set_over_current_protection_enabled(channel=2, enabled=True)
+
+    assert session.commands == [
+        "VOLT:PROT 5,(@2)",
+        "CURR:PROT:STAT ON,(@2)",
+    ]

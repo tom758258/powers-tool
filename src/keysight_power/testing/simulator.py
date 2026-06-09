@@ -100,6 +100,8 @@ class SimulatedResource:
         self.commands.append(command)
         if _simulated_clear_protection(command) is not None:
             return
+        if _simulated_protection_set(command) is not None:
+            return
 
     def query(self, command: str) -> str:
         self._ensure_open()
@@ -192,6 +194,22 @@ def _simulated_output_state(command: str) -> int | None:
 def _simulated_clear_protection(command: str) -> int | None:
     if command.startswith("OUTP:PROT:CLE (@") and command.endswith(")"):
         return _parse_channel_list(command, "OUTP:PROT:CLE (@")
+    return None
+
+
+def _simulated_protection_set(command: str) -> int | None:
+    if command.startswith("VOLT:PROT ") and ",(@" in command and command.endswith(")"):
+        value, channel_text = command.removeprefix("VOLT:PROT ").split(",(@", maxsplit=1)
+        try:
+            float(value)
+        except ValueError as exc:
+            raise VisaConnectionError(f"Unsupported simulated protection command {command!r}") from exc
+        return _parse_channel_list(f"(@{channel_text}", "(@")
+    if command.startswith("CURR:PROT:STAT ") and ",(@" in command and command.endswith(")"):
+        state, channel_text = command.removeprefix("CURR:PROT:STAT ").split(",(@", maxsplit=1)
+        if state not in {"ON", "OFF"}:
+            raise VisaConnectionError(f"Unsupported simulated protection command {command!r}")
+        return _parse_channel_list(f"(@{channel_text}", "(@")
     return None
 
 

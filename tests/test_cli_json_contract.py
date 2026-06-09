@@ -199,6 +199,22 @@ def assert_contract_envelope(payload: dict[str, object], *, command: str, ok: bo
             ],
         ),
         (
+            "protection-set",
+            [
+                "protection-set",
+                "--dry-run",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+                "--channel",
+                "all",
+                "--ovp-voltage",
+                "5",
+                "--ocp",
+                "on",
+            ],
+        ),
+        (
             "identify",
             [
                 "identify",

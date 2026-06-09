@@ -15,7 +15,9 @@ E36312A channels 2 and 3 use IDN-selected channel-list measurement queries.
 Real CLI `set` is supported only for E36312A channels 1, 2, and 3. It writes
 the current limit before voltage and does not enable output. Real CLI
 `output-on` is also supported only for E36312A channels 1, 2, and 3; after
-`*IDN?` it sends only `OUTP ON,(@N)` and does not set voltage or current.
+`*IDN?` it reads back `VOLT? (@N)` and `CURR? (@N)` before sending
+`OUTP ON,(@N)`. With `--safety-config`, unsafe readback setpoints are rejected
+before output is enabled.
 Real CLI `output-off` is supported only for E36312A channels 1, 2, and 3.
 Real CLI `output-state` reads back `OUTP? (@N)`. Real CLI `safe-off` now
 supports E36312A channel `1`, `2`, `3`, or `all` and expands `all` to
@@ -155,6 +157,13 @@ Preview or confirm clearing E36312A output protection:
 .\.venv\Scripts\python.exe -m keysight_power.cli clear-protection --json --resource "USB0::...::INSTR" --all --confirm --log-scpi
 ```
 
+Preview or confirm E36312A protection setup:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli protection-set --dry-run --json --resource "USB0::...::INSTR" --channel all --ovp-voltage 5 --ocp on
+.\.venv\Scripts\python.exe -m keysight_power.cli protection-set --json --resource "USB0::...::INSTR" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
+```
+
 Configure an E36312A rear digital pin as trigger output and emit `*TRG`:
 
 ```powershell
@@ -191,8 +200,8 @@ Enable an E36312A output only after setpoints are already safe:
 ```
 
 Real `output-on` first confirms the selected resource is an E36312A with
-`*IDN?`, then sends only `OUTP ON,(@N)`. It does not query or change voltage or
-current setpoints.
+`*IDN?`, reads programmed voltage/current setpoints, then sends
+`OUTP ON,(@N)`. It does not change voltage or current setpoints.
 
 Read back the enabled state for one E36312A channel:
 
@@ -210,6 +219,13 @@ Apply low setpoints and enable output:
 
 ```powershell
 .\.venv\Scripts\python.exe -m keysight_power.cli apply --json --resource "USB0::...::INSTR" --channel 1 --voltage 1 --current 0.05 --log-scpi
+```
+
+Apply the same setpoints to all E36312A channels, or skip output enable:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli apply --json --resource "USB0::...::INSTR" --channel all --voltage 1 --current 0.05 --log-scpi
+.\.venv\Scripts\python.exe -m keysight_power.cli apply --json --resource "USB0::...::INSTR" --channel all --voltage 1 --current 0.05 --no-output --log-scpi
 ```
 
 Add an explicit safety config to apply local global limits to output plans:
@@ -261,9 +277,9 @@ query behavior:
 - Output-affecting behavior must be explicit.
 - Real output execution is enabled for E36312A `set`, `apply`, `output-on`,
   `output-off`, `output-state`, `cycle-output`, and `safe-off` on explicit
-  channels 1, 2, or 3. `safe-off --channel all` expands to channels 1, 2, and
-  3 in order. `set` does not enable output. `output-on` does not set voltage or
-  current.
+  channels 1, 2, or 3. `apply --channel all` and `safe-off --channel all`
+  expand to channels 1, 2, and 3 in order. `set` does not enable output.
+  `output-on` does not set voltage or current.
 - Real `measure-all`, `status`, and `trigger-pulse` are enabled only for
   E36312A in this first implementation. `trigger-pulse` affects rear-panel
   digital trigger output state and supports `--dry-run`.

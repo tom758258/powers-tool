@@ -1744,6 +1744,86 @@ def test_apply_real_e36312a_sets_then_enables_output(monkeypatch, capsys) -> Non
     assert captured.err == ""
 
 
+def test_apply_real_e36312a_all_channels_sets_then_enables_each(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "apply",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "all",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.queries == ["*IDN?"]
+    assert session.writes == [
+        "CURR 0.05,(@1)",
+        "VOLT 1,(@1)",
+        "CURR 0.05,(@2)",
+        "VOLT 1,(@2)",
+        "CURR 0.05,(@3)",
+        "VOLT 1,(@3)",
+        "OUTP ON,(@1)",
+        "OUTP ON,(@2)",
+        "OUTP ON,(@3)",
+    ]
+    assert payload["data"]["channel"] == "all"
+    assert payload["data"]["output"] == {"enabled": True}
+    assert payload["data"]["channels"] == [
+        {"channel": 1, "setpoints": {"current": 0.05, "voltage": 1.0}},
+        {"channel": 2, "setpoints": {"current": 0.05, "voltage": 1.0}},
+        {"channel": 3, "setpoints": {"current": 0.05, "voltage": 1.0}},
+    ]
+
+
+def test_apply_real_e36312a_no_output_skips_output_on(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "apply",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "all",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+                "--no-output",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.writes == [
+        "CURR 0.05,(@1)",
+        "VOLT 1,(@1)",
+        "CURR 0.05,(@2)",
+        "VOLT 1,(@2)",
+        "CURR 0.05,(@3)",
+        "VOLT 1,(@3)",
+    ]
+    assert payload["request"]["no_output"] is True
+    assert payload["data"]["output"] == {"enabled": False}
+
+
 @pytest.mark.parametrize(
     "args",
     [
@@ -2264,7 +2344,13 @@ def test_set_real_write_failure_uses_set_failed(monkeypatch, capsys) -> None:
 
 @pytest.mark.parametrize("channel", [1, 2, 3])
 def test_output_on_real_e36312a_sends_correct_scpi(monkeypatch, capsys, channel) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={
+            f"VOLT? (@{channel})": "1.0",
+            f"CURR? (@{channel})": "0.05",
+        },
+    )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert (
@@ -2284,7 +2370,7 @@ def test_output_on_real_e36312a_sends_correct_scpi(monkeypatch, capsys, channel)
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert session.writes == [f"OUTP ON,(@{channel})"]
-    assert session.queries == ["*IDN?"]
+    assert session.queries == ["*IDN?", f"VOLT? (@{channel})", f"CURR? (@{channel})"]
     assert session.closed is True
     assert payload["execution"] == {
         "mode": "real",
@@ -2299,12 +2385,19 @@ def test_output_on_real_e36312a_sends_correct_scpi(monkeypatch, capsys, channel)
         ),
         "channel": channel,
         "output": {"enabled": True},
+        "readback": {
+            "setpoints": {"voltage": 1.0, "current": 0.05},
+            "safety_checked": False,
+        },
     }
     assert captured.err == ""
 
 
 def test_output_on_real_text_output_reports_enabled(monkeypatch, capsys) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"VOLT? (@2)": "1.0", "CURR? (@2)": "0.05"},
+    )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert cli.main([*output_command_args("output-on"), "--channel", "2"]) == 0
@@ -2324,7 +2417,10 @@ def test_output_on_real_resource_alias_backend_timeout_resolves_once(
     tmp_path,
     capsys,
 ) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"VOLT? (@2)": "1.0", "CURR? (@2)": "0.05"},
+    )
     opened: list[tuple[str, str | None, int]] = []
 
     def fake_open_resource(resource, *, backend=None, timeout_ms=5000):
@@ -2368,7 +2464,7 @@ allowed_channels = [2]
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert opened == [(OUTPUT_RESOURCE, "@py", 1234)]
-    assert session.queries == ["*IDN?"]
+    assert session.queries == ["*IDN?", "VOLT? (@2)", "CURR? (@2)"]
     assert session.writes == ["OUTP ON,(@2)"]
     assert payload["request"] == {
         "resource": OUTPUT_RESOURCE,
@@ -2425,7 +2521,10 @@ allowed_channels = [1]
 
 
 def test_output_on_real_e36312a_with_log_scpi(monkeypatch, capsys) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05"},
+    )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert (
@@ -2448,6 +2547,8 @@ def test_output_on_real_e36312a_with_log_scpi(monkeypatch, capsys) -> None:
     assert payload["ok"] is True
     assert payload["data"]["output"]["enabled"] is True
     assert f"{OUTPUT_RESOURCE} SCPI >> *IDN?" in captured.err
+    assert f"{OUTPUT_RESOURCE} SCPI >> VOLT? (@1)" in captured.err
+    assert f"{OUTPUT_RESOURCE} SCPI >> CURR? (@1)" in captured.err
     assert f"{OUTPUT_RESOURCE} SCPI >> OUTP ON,(@1)" in captured.err
     json.loads(captured.out)  # must not raise - stdout is valid JSON
 
@@ -2531,19 +2632,94 @@ def test_output_on_real_write_failure_uses_output_on_failed(monkeypatch, capsys)
             super().write(command)
             raise VisaConnectionError("write failed")
 
-    session = FailingWriteSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    session = FailingWriteSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05"},
+    )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert cli.main([*output_command_args("output-on"), "--json"]) == 1
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert session.queries == ["*IDN?"]
+    assert session.queries == ["*IDN?", "VOLT? (@1)", "CURR? (@1)"]
     assert session.writes == ["OUTP ON,(@1)"]
     assert session.closed is True
     assert payload["execution"]["hardware_touched"] is True
     assert payload["error"]["type"] == "connection"
     assert payload["error"]["code"] == "output_on_failed"
+
+
+def test_output_on_real_safety_config_checks_readback_before_enabling(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+    safety_config = write_safety_config(tmp_path)
+
+    assert (
+        cli.main(
+            [
+                "output-on",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--safety-config",
+                safety_config,
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.queries == ["*IDN?", "VOLT? (@1)", "CURR? (@1)"]
+    assert session.writes == ["OUTP ON,(@1)"]
+    assert payload["data"]["readback"] == {
+        "setpoints": {"voltage": 1.0, "current": 0.05},
+        "safety_checked": True,
+    }
+
+
+def test_output_on_real_safety_config_rejects_unsafe_readback(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"VOLT? (@1)": "5.1", "CURR? (@1)": "0.05"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+    safety_config = write_safety_config(tmp_path)
+
+    assert (
+        cli.main(
+            [
+                "output-on",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--safety-config",
+                safety_config,
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.queries == ["*IDN?", "VOLT? (@1)", "CURR? (@1)"]
+    assert session.writes == []
+    assert payload["error"]["type"] == "safety"
+    assert payload["error"]["code"] == "unsafe_output_setpoint"
 
 
 # --- E36312A real output-off (uses hardcoded resource) ---
@@ -3469,6 +3645,158 @@ def test_clear_protection_dry_run_does_not_open_resource(monkeypatch, capsys) ->
     assert payload["data"]["plan"]["steps"] == [
         {"index": 1, "type": "scpi", "command": "OUTP:PROT:CLE (@2)"}
     ]
+
+
+def test_protection_set_requires_confirm_for_real_hardware(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("VISA resource should not be opened without --confirm")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "protection-set",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--ovp-voltage",
+                "5",
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "confirmation_required"
+
+
+def test_protection_set_requires_operation(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "protection-set",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+
+
+def test_protection_set_dry_run_does_not_open_resource(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("VISA resource should not be opened for dry-run")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "protection-set",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "all",
+                "--ovp-voltage",
+                "5",
+                "--ocp",
+                "on",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["plan"]["steps"] == [
+        {"index": 1, "type": "scpi", "command": "VOLT:PROT 5,(@1)"},
+        {"index": 2, "type": "scpi", "command": "CURR:PROT:STAT ON,(@1)"},
+        {"index": 3, "type": "scpi", "command": "VOLT:PROT 5,(@2)"},
+        {"index": 4, "type": "scpi", "command": "CURR:PROT:STAT ON,(@2)"},
+        {"index": 5, "type": "scpi", "command": "VOLT:PROT 5,(@3)"},
+        {"index": 6, "type": "scpi", "command": "CURR:PROT:STAT ON,(@3)"},
+    ]
+
+
+def test_protection_set_real_sends_expected_scpi(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "protection-set",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "all",
+                "--ovp-voltage",
+                "5",
+                "--ocp",
+                "on",
+                "--confirm",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.queries == ["*IDN?"]
+    assert session.writes == [
+        "VOLT:PROT 5,(@1)",
+        "CURR:PROT:STAT ON,(@1)",
+        "VOLT:PROT 5,(@2)",
+        "CURR:PROT:STAT ON,(@2)",
+        "VOLT:PROT 5,(@3)",
+        "CURR:PROT:STAT ON,(@3)",
+    ]
+    assert payload["data"] == {
+        "resource": OUTPUT_RESOURCE,
+        "channels": [
+            {"channel": 1, "protection": {"ovp_voltage": 5.0, "ocp_enabled": True}},
+            {"channel": 2, "protection": {"ovp_voltage": 5.0, "ocp_enabled": True}},
+            {"channel": 3, "protection": {"ovp_voltage": 5.0, "ocp_enabled": True}},
+        ],
+    }
+
+
+def test_protection_set_rejects_ovp_above_safety_limit(tmp_path, capsys) -> None:
+    safety_config = write_safety_config(tmp_path)
+
+    assert (
+        cli.main(
+            [
+                "protection-set",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--ovp-voltage",
+                "5.1",
+                "--safety-config",
+                safety_config,
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+    assert "voltage 5.1 exceeds maximum 5" in payload["error"]["message"]
 
 
 def test_identify_real_reads_identity_queries(monkeypatch, capsys) -> None:

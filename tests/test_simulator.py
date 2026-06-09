@@ -117,3 +117,12 @@ def test_e36312a_simulator_accepts_clear_protection_writes() -> None:
     session.write("OUTP:PROT:CLE (@2)")
 
     assert session.commands == ["OUTP:PROT:CLE (@2)"]
+
+
+def test_e36312a_simulator_accepts_protection_set_writes() -> None:
+    session = SimulatedResourceManager().open_resource("USB0::SIM::E36312A::INSTR")
+
+    session.write("VOLT:PROT 5,(@2)")
+    session.write("CURR:PROT:STAT ON,(@2)")
+
+    assert session.commands == ["VOLT:PROT 5,(@2)", "CURR:PROT:STAT ON,(@2)"]

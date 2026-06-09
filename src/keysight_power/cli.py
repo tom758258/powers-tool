@@ -55,6 +55,7 @@ COMMAND_NAMES = frozenset(
         "status",
         "readback",
         "protection-status",
+        "protection-set",
         "clear-protection",
         "identify",
         "snapshot",
@@ -389,11 +390,16 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument(
         "--channel",
         required=True,
-        type=_positive_channel,
-        help="Positive integer output channel.",
+        type=_apply_channel,
+        help="Positive integer output channel or 'all'.",
     )
     apply_parser.add_argument("--voltage", required=True, type=float, help="Voltage setpoint.")
     apply_parser.add_argument("--current", required=True, type=float, help="Current limit.")
+    apply_parser.add_argument(
+        "--no-output",
+        action="store_true",
+        help="Set voltage/current without enabling output.",
+    )
     _add_json_argument(apply_parser)
     _add_simulate_argument(apply_parser)
     _add_dry_run_argument(apply_parser)
@@ -506,6 +512,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print SCPI commands and responses to stderr.",
     )
     protection_parser.set_defaults(func=_run_protection_status)
+
+    protection_set_parser = subparsers.add_parser(
+        "protection-set",
+        help="Set E36312A over-voltage and over-current protection parameters.",
+    )
+    _add_output_resource_arguments(protection_set_parser)
+    _add_channel_or_all_argument(protection_set_parser)
+    protection_set_parser.add_argument(
+        "--ovp-voltage",
+        type=float,
+        help="Over-voltage protection level.",
+    )
+    protection_set_parser.add_argument(
+        "--ocp",
+        choices=("on", "off"),
+        help="Enable or disable over-current protection.",
+    )
+    protection_set_parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Confirm real hardware protection setup.",
+    )
+    _add_json_argument(protection_set_parser)
+    _add_simulate_argument(protection_set_parser)
+    _add_dry_run_argument(protection_set_parser)
+    _add_safety_config_argument(protection_set_parser)
+    _add_backend_argument(protection_set_parser)
+    _add_timeout_argument(protection_set_parser)
+    protection_set_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    protection_set_parser.set_defaults(func=_run_protection_set)
 
     clear_protection_parser = subparsers.add_parser(
         "clear-protection",
@@ -1494,6 +1534,153 @@ def _run_clear_protection(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_protection_set(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    if args.ovp_voltage is None and args.ocp is None:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message="protection-set requires --ovp-voltage or --ocp",
+            retryable=False,
+        )
+    try:
+        safety_limits = _safety_limits_for_args(args)
+        request = _request_for_args(args)
+        channels = _channels_from_selection(args.channel, E36312APowerSupply.capabilities.channels)
+        for channel in channels:
+            validate_channel(channel, safety_limits)
+            if args.ovp_voltage is not None:
+                validate_setpoint(channel=channel, voltage=args.ovp_voltage, limits=safety_limits)
+    except (SafetyConfigError, SafetyValidationError, _E36312AChannelError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    if args.dry_run:
+        plan = dry_run_plan(
+            command=args.command,
+            resource=args.resource,
+            scpi=_protection_set_scpi(channels, args.ovp_voltage, args.ocp),
+            description="Preview setting E36312A output protection for selected channels.",
+        )
+        if args.json:
+            emit_json_success(command=args.command, execution=execution, request=request, data={"plan": plan})
+            return 0
+        _print_scpi_plan(plan, mode=_mode_for_args(args), dry_run=True)
+        return 0
+
+    if not args.simulate and not args.confirm:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="confirmation_required",
+            message="protection-set real execution requires --confirm",
+            retryable=False,
+            hardware_intent=True,
+        )
+
+    opened = False
+    try:
+        with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
+            opened = True
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _ProtectionSetModelError(
+                    "protection-set is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            channels = _channels_from_selection(args.channel, power_supply.capabilities.channels)
+            for channel in channels:
+                if args.ovp_voltage is not None:
+                    power_supply.set_over_voltage_protection(
+                        channel=channel,
+                        voltage=args.ovp_voltage,
+                    )
+                if args.ocp is not None:
+                    power_supply.set_over_current_protection_enabled(
+                        channel=channel,
+                        enabled=args.ocp == "on",
+                    )
+    except _ProtectionSetModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_protection_set",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _E36312AChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        code = "protection_set_failed" if opened else "connection_failed"
+        message = (
+            f"protection-set failed: {exc}"
+            if opened
+            else f"Could not open resource for protection-set: {exc}"
+        )
+        return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=message)
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="protection_set_failed",
+            message=f"protection-set failed: {exc}",
+        )
+
+    data = {
+        "resource": args.resource,
+        "channels": [
+            {
+                "channel": channel,
+                "protection": {
+                    "ovp_voltage": (
+                        _json_safe_number(args.ovp_voltage)
+                        if args.ovp_voltage is not None
+                        else None
+                    ),
+                    "ocp_enabled": (args.ocp == "on" if args.ocp is not None else None),
+                },
+            }
+            for channel in channels
+        ],
+    }
+    if args.json:
+        emit_json_success(command=args.command, execution=execution, request=request, data=data)
+        return 0
+    print(f"Resource: {args.resource}")
+    for channel in data["channels"]:
+        protection = channel["protection"]
+        print(
+            f"Channel {channel['channel']}: "
+            f"OVP={_format_text_value(protection['ovp_voltage'])}, "
+            f"OCP={_format_text_value(protection['ocp_enabled'])}"
+        )
+    return 0
+
+
 def _run_identify(args: argparse.Namespace) -> int:
     request = _request_for_args(args)
     execution = _execution_for_args(args, hardware_intent=True)
@@ -1993,6 +2180,19 @@ def _protection_payload(power_supply: E36312APowerSupply) -> dict[str, bool]:
     }
 
 
+def _validate_readback_for_output_on(
+    channel: int,
+    setpoints: dict[str, float],
+    safety_limits: SafetyLimits,
+) -> None:
+    validate_setpoint(
+        channel=channel,
+        voltage=setpoints["voltage"],
+        current=setpoints["current"],
+        limits=safety_limits,
+    )
+
+
 def _channels_from_selection(
     selected_channel: int | str,
     supported_channels: tuple[int, ...],
@@ -2008,6 +2208,20 @@ def _channels_from_selection(
 
 def _clear_protection_scpi(channels: tuple[int, ...]) -> tuple[str, ...]:
     return tuple(f"OUTP:PROT:CLE (@{channel})" for channel in channels)
+
+
+def _protection_set_scpi(
+    channels: tuple[int, ...],
+    ovp_voltage: float | None,
+    ocp: str | None,
+) -> tuple[str, ...]:
+    commands: list[str] = []
+    for channel in channels:
+        if ovp_voltage is not None:
+            commands.append(f"VOLT:PROT {_format_text_value(ovp_voltage)},(@{channel})")
+        if ocp is not None:
+            commands.append(f"CURR:PROT:STAT {ocp.upper()},(@{channel})")
+    return tuple(commands)
 
 
 def _resource_payload(
@@ -2123,6 +2337,10 @@ class _E36312AChannelError(ValueError):
 
 class _ClearProtectionModelError(ValueError):
     """Raised when clear-protection sees a non-E36312A model."""
+
+
+class _ProtectionSetModelError(ValueError):
+    """Raised when protection-set sees a non-E36312A model."""
 
 
 def _run_set_real(args: argparse.Namespace) -> int:
@@ -2455,15 +2673,18 @@ def _run_apply_real(args: argparse.Namespace) -> int:
                     "apply real execution is only supported for E36312A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
-            capabilities = power_supply.capabilities
-            if args.channel not in capabilities.channels:
+            channels = _channels_from_selection(args.channel, power_supply.capabilities.channels)
+            if args.channel == "all" and not isinstance(power_supply, E36312APowerSupply):
                 raise _ApplyChannelError(
                     f"channel {args.channel} is not supported for apply; "
-                    f"supported: {capabilities.channels}"
+                    f"supported: {power_supply.capabilities.channels}"
                 )
-            power_supply.set_current_limit(channel=args.channel, current=args.current)
-            power_supply.set_voltage(channel=args.channel, voltage=args.voltage)
-            power_supply.output_on(channel=args.channel)
+            for channel in channels:
+                power_supply.set_current_limit(channel=channel, current=args.current)
+                power_supply.set_voltage(channel=channel, voltage=args.voltage)
+            if not args.no_output:
+                for channel in channels:
+                    power_supply.output_on(channel=channel)
     except _ApplyModelError as exc:
         return _emit_cli_error(
             args,
@@ -2474,7 +2695,7 @@ def _run_apply_real(args: argparse.Namespace) -> int:
             retryable=False,
             hardware_intent=True,
         )
-    except _ApplyChannelError as exc:
+    except (_ApplyChannelError, _E36312AChannelError) as exc:
         return _emit_cli_error(
             args,
             request=request,
@@ -2501,7 +2722,7 @@ def _run_apply_real(args: argparse.Namespace) -> int:
             message=f"apply failed: {exc}",
         )
 
-    resource_data = _apply_resource_payload(args, idn)
+    resource_data = _apply_resource_payload(args, idn, channels)
     if args.json:
         emit_json_success(
             command=args.command,
@@ -2515,7 +2736,7 @@ def _run_apply_real(args: argparse.Namespace) -> int:
     print(f"Channel: {args.channel}")
     print(f"Current limit: {_format_text_value(args.current)} A")
     print(f"Voltage: {_format_text_value(args.voltage)} V")
-    print("Output enabled: True")
+    print(f"Output enabled: {str(not args.no_output)}")
     return 0
 
 
@@ -2561,6 +2782,15 @@ def _run_output_on_real(args: argparse.Namespace) -> int:
                     f"channel {args.channel} is not supported for output-on; "
                     f"supported: {capabilities.channels}"
                 )
+            readback = {
+                "setpoints": {
+                    "voltage": power_supply.programmed_voltage(channel=args.channel),
+                    "current": power_supply.programmed_current(channel=args.channel),
+                },
+                "safety_checked": safety_limits is not None,
+            }
+            if safety_limits is not None:
+                _validate_readback_for_output_on(args.channel, readback["setpoints"], safety_limits)
             power_supply.output_on(channel=args.channel)
     except _OutputOnModelError as exc:
         return _emit_cli_error(
@@ -2578,6 +2808,16 @@ def _run_output_on_real(args: argparse.Namespace) -> int:
             request=request,
             error_type="validation",
             code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except SafetyValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="safety",
+            code="unsafe_output_setpoint",
             message=str(exc),
             retryable=False,
             hardware_intent=True,
@@ -2605,7 +2845,7 @@ def _run_output_on_real(args: argparse.Namespace) -> int:
             message=f"output-on failed: {exc}",
         )
 
-    resource_data = _output_on_resource_payload(args, idn)
+    resource_data = _output_on_resource_payload(args, idn, readback)
     if args.json:
         emit_json_success(
             command=args.command,
@@ -2915,8 +3155,9 @@ def _cycle_output_resource_payload(
 def _apply_resource_payload(
     args: argparse.Namespace,
     idn_raw: str,
+    channels: tuple[int, ...],
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "resource": _resource_payload(
             args.resource,
             simulated=args.simulate,
@@ -2929,14 +3170,27 @@ def _apply_resource_payload(
             "voltage": _json_safe_number(args.voltage),
         },
         "output": {
-            "enabled": True,
+            "enabled": not args.no_output,
         },
     }
+    if args.channel == "all":
+        payload["channels"] = [
+            {
+                "channel": channel,
+                "setpoints": {
+                    "current": _json_safe_number(args.current),
+                    "voltage": _json_safe_number(args.voltage),
+                },
+            }
+            for channel in channels
+        ]
+    return payload
 
 
 def _output_on_resource_payload(
     args: argparse.Namespace,
     idn_raw: str,
+    readback: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "resource": _resource_payload(
@@ -2949,6 +3203,7 @@ def _output_on_resource_payload(
         "output": {
             "enabled": True,
         },
+        "readback": readback,
     }
 
 
@@ -3110,6 +3365,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "channel": args.channel,
             "voltage": _json_safe_number(args.voltage),
             "current": _json_safe_number(args.current),
+            "no_output": getattr(args, "no_output", False),
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
@@ -3141,6 +3397,22 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": channel,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "protection-set":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": args.channel,
+            "ovp_voltage": (
+                _json_safe_number(args.ovp_voltage)
+                if args.ovp_voltage is not None
+                else None
+            ),
+            "ocp": args.ocp,
+            "confirm": getattr(args, "confirm", False),
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
@@ -3276,9 +3548,10 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
         return {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
-            "channel": _channel_from_argv(argv),
+            "channel": _status_channel_from_argv(argv),
             "voltage": _number_from_argv(argv, "--voltage"),
             "current": _number_from_argv(argv, "--current"),
+            "no_output": "--no-output" in argv,
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
@@ -3310,6 +3583,19 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": channel,
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "protection-set":
+        channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "channel": channel,
+            "ovp_voltage": _number_from_argv(argv, "--ovp-voltage"),
+            "ocp": _option_value(argv, "--ocp"),
+            "confirm": "--confirm" in argv,
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
@@ -3511,6 +3797,12 @@ def _status_channel(value: str) -> int | str:
     return _positive_channel(value)
 
 
+def _apply_channel(value: str) -> int | str:
+    if value.lower() == "all":
+        return "all"
+    return _positive_channel(value)
+
+
 def _trigger_pin(value: str) -> int:
     pin = _positive_channel(value)
     if pin not in (1, 2, 3):
@@ -3539,12 +3831,14 @@ def _validate_output_request(
     safety_limits: SafetyLimits | None,
 ) -> None:
     if args.command in {"set", "apply"}:
-        validate_setpoint(
-            channel=args.channel,
-            voltage=args.voltage,
-            current=args.current,
-            limits=safety_limits,
-        )
+        channels = (1, 2, 3) if args.channel == "all" else (args.channel,)
+        for channel in channels:
+            validate_setpoint(
+                channel=channel,
+                voltage=args.voltage,
+                current=args.current,
+                limits=safety_limits,
+            )
         return
     if args.command in {"output-on", "output-off", "output-state", "cycle-output"}:
         validate_channel(args.channel, safety_limits)
@@ -3644,21 +3938,33 @@ def _output_plan_for_args(args: argparse.Namespace) -> dict[str, Any]:
             _driver_step(3, "output_off", channel=channel),
         ]
     elif args.command == "apply":
-        plan["steps"] = [
-            _driver_step(
-                1,
-                "set_current_limit",
-                channel=channel,
-                current=_json_safe_number(args.current),
-            ),
-            _driver_step(
-                2,
-                "set_voltage",
-                channel=channel,
-                voltage=_json_safe_number(args.voltage),
-            ),
-            _driver_step(3, "output_on", channel=channel),
-        ]
+        channels = (1, 2, 3) if channel == "all" else (channel,)
+        steps = []
+        index = 1
+        for selected_channel in channels:
+            steps.append(
+                _driver_step(
+                    index,
+                    "set_current_limit",
+                    channel=selected_channel,
+                    current=_json_safe_number(args.current),
+                )
+            )
+            index += 1
+            steps.append(
+                _driver_step(
+                    index,
+                    "set_voltage",
+                    channel=selected_channel,
+                    voltage=_json_safe_number(args.voltage),
+                )
+            )
+            index += 1
+        if not args.no_output:
+            for selected_channel in channels:
+                steps.append(_driver_step(index, "output_on", channel=selected_channel))
+                index += 1
+        plan["steps"] = steps
     else:  # pragma: no cover - parser dispatch keeps this unreachable
         raise ValueError(f"Unsupported output command {args.command!r}")
 
