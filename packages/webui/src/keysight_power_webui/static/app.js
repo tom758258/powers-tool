@@ -412,7 +412,7 @@ async function startLive() {
     state.liveEvents.addEventListener("finished", () => {
       document.getElementById("live-start").disabled = false;
       document.getElementById("live-stop").disabled = true;
-      setMonitorState("Not monitoring");
+      setLiveState("Not monitoring");
       closeEventSource("liveEvents");
     });
     state.liveEvents.addEventListener("failed", (event) => {
@@ -434,13 +434,13 @@ async function stopLive() {
   closeEventSource("liveEvents");
   document.getElementById("live-start").disabled = false;
   document.getElementById("live-stop").disabled = true;
-  setMonitorState("Not monitoring");
+  setLiveState("Not monitoring");
 }
 
 async function startLivePreviewSnapshot(healthState, resource = null) {
   if (state.liveEvents) return;
   stopLivePreviewSnapshot();
-  setMonitorState("Not monitoring");
+  setLiveState("Not monitoring");
   if (!healthState?.serverReady || !healthState?.deviceIdle) {
     renderBlankLivePanel("error", "Server or hardware is not ready.");
     return;
@@ -460,18 +460,18 @@ async function startLivePreviewSnapshot(healthState, resource = null) {
       if (handledFirstSample) return;
       handledFirstSample = true;
       renderLivePanel(JSON.parse(event.data).data);
-      setMonitorState("Not monitoring");
+      setLiveState("Not monitoring");
       stopLivePreviewSnapshot();
     });
     state.previewEvents.addEventListener("failed", (event) => {
       const error = JSON.parse(event.data).data?.error || "Snapshot preview failed.";
       renderBlankLivePanel("error", error);
-      setMonitorState("Not monitoring");
+      setLiveState("Not monitoring");
       stopLivePreviewSnapshot();
     });
   } catch (error) {
     renderBlankLivePanel("error", error.message || String(error));
-    setMonitorState("Not monitoring");
+    setLiveState("Not monitoring");
   }
 }
 
@@ -501,14 +501,14 @@ function renderLivePanel(data) {
   state.samples = state.samples.slice(-60);
 
   const lastUpdate = next.timestamp ? new Date(next.timestamp * 1000).toLocaleTimeString() : "never";
-  setMonitorState(`${next.status}${next.stale ? " stale" : ""} - last update ${lastUpdate}${next.message ? ` - ${next.message}` : ""}`);
+  setLiveState(`${next.status}${next.stale ? " stale" : ""} - last update ${lastUpdate}${next.message ? ` - ${next.message}` : ""}`);
 
   next.channels.forEach((channel) => renderChannelCard(channel, next));
   drawTrend();
 }
 
-function setMonitorState(text) {
-  document.getElementById("monitor-state").textContent = text;
+function setLiveState(text) {
+  document.getElementById("live-state").textContent = text;
 }
 
 function renderBlankLivePanel(status = "ok", message = "") {

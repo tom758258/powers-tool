@@ -63,7 +63,7 @@ def test_static_top_bar_uses_live_resource_defaults():
     assert 'id="scan"' in index_html
     assert 'id="server-state">Checking server</strong>' in index_html
     assert 'id="device-state">hardware unknown</strong>' in index_html
-    assert 'id="monitor-state">Not monitoring</strong>' in index_html
+    assert 'id="live-state">Not monitoring</strong>' in index_html
     assert 'id="health"' not in index_html
     assert '<span id="health">checking</span>' not in index_html
 
@@ -124,7 +124,7 @@ def test_static_live_data_uses_three_channel_panel_contract():
     styles_css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
 
     assert 'id="live-cards"' in index_html
-    assert 'Monitor State:' in index_html
+    assert 'Live State:' in index_html
     for channel in ("1", "2", "3"):
         assert f'data-channel-card="{channel}"' in index_html
     assert 'id="live-table"' not in index_html
