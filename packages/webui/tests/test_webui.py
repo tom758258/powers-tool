@@ -183,10 +183,26 @@ def test_static_live_data_uses_three_channel_panel_contract():
         render_channel_card.index('<div class="live-setpoints">')
         < render_channel_card.index('<div class="protection-settings">')
     )
-    assert "formatProtectionVoltage(channel.over_voltage_protection_level)" in render_channel_card
-    assert "formatProtectionState(channel.over_current_protection_enabled)" in render_channel_card
+    protection_start = render_channel_card.index('<div class="protection-settings">')
+    protection_end = render_channel_card.index("</div>\n  `;", protection_start)
+    protection_markup = render_channel_card[protection_start:protection_end]
+    assert (
+        '<div><span>${formatProtectionVoltage(channel.over_voltage_protection_level)}</span><small>OVP</small></div>'
+        in protection_markup
+    )
+    assert (
+        '<div><span>${formatProtectionState(channel.over_current_protection_enabled)}</span><small>OCP</small></div>'
+        in protection_markup
+    )
+    assert "OVP ${formatProtectionVoltage" not in protection_markup
+    assert "OCP ${formatProtectionState" not in protection_markup
     assert "protection-tripped" in render_channel_card
     assert "function formatProtectionVoltage(value)" in app_js
+    assert (
+        'typeof value === "number" && Number.isFinite(value) ? value.toFixed(4) : "--"'
+        in app_js
+    )
+    assert "value.toFixed(4)} V" not in app_js
     assert "function formatProtectionState(value)" in app_js
     assert "last update" in app_js
 
@@ -198,6 +214,18 @@ def test_static_live_data_uses_three_channel_panel_contract():
     assert "color: #fff" in styles_css
     assert ".protection-badge.trip" in styles_css
     assert ".protection-settings" in styles_css
+    protection_css_start = styles_css.index(".protection-settings {")
+    protection_css_end = styles_css.index(".live-measured", protection_css_start)
+    protection_css = styles_css[protection_css_start:protection_css_end]
+    assert "display: grid;" in protection_css
+    assert "grid-template-columns: 1fr 1fr;" in protection_css
+    assert ".protection-settings div" in protection_css
+    assert ".protection-settings span" in protection_css
+    assert "font-size: 16px;" in protection_css
+    assert "line-height: 20px;" in protection_css
+    assert "font-weight: 700;" in protection_css
+    assert ".protection-settings small" in protection_css
+    assert "font-size: 11px;" in protection_css
     assert ".live-card.protection-tripped" in styles_css
     assert ".live-card.stale" in styles_css
     assert ".live-state-field strong" in styles_css

@@ -756,8 +756,8 @@ function renderChannelCard(channel, sample) {
       <div><span>${formatNum(channel.set_current)}</span><small>SET A</small></div>
     </div>
     <div class="protection-settings">
-      <span>OVP ${formatProtectionVoltage(channel.over_voltage_protection_level)}</span>
-      <span>OCP ${formatProtectionState(channel.over_current_protection_enabled)}</span>
+      <div><span>${formatProtectionVoltage(channel.over_voltage_protection_level)}</span><small>OVP</small></div>
+      <div><span>${formatProtectionState(channel.over_current_protection_enabled)}</span><small>OCP</small></div>
     </div>
   `;
 }
@@ -769,7 +769,7 @@ function protectionBadge(label, tripped) {
 }
 
 function formatProtectionVoltage(value) {
-  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(4)} V` : "--";
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(4) : "--";
 }
 
 function formatProtectionState(value) {

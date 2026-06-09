@@ -276,15 +276,21 @@ canvas { display: block; width: 100%; height: 180px; background: #fbfcfd; border
 .protection-badge.ok { border-color: #8cc9ad; background: #e9f7f0; color: var(--ok); }
 .protection-badge.trip { border-color: #e5a29a; background: #fdecea; color: var(--danger); }
 .protection-settings {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  margin-top: -2px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.protection-settings div { display: grid; gap: 2px; min-width: 0; }
+.protection-settings span {
+  font-size: 16px;
+  line-height: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.protection-settings small {
   color: var(--muted);
   font-size: 11px;
-  font-weight: 600;
 }
-.protection-settings span { white-space: nowrap; }
 .live-measured {
   display: grid;
   grid-template-columns: 1fr 1fr;
