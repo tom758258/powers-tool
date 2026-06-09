@@ -11,6 +11,9 @@ This workspace contains three separately installable packages:
 - `packages/webui`: `keysight-power-webui` `0.1.0`, imported as
   `keysight_power_webui`
 
+The CLI and WebUI are parallel product interfaces over the shared Core
+runtime. Neither adapter owns SCPI behavior.
+
 The root `pyproject.toml` is workspace tooling only. Package metadata lives in
 each package directory.
 
@@ -99,7 +102,7 @@ Default tests must run without hardware. Any command or test that can affect a
 real instrument output must remain explicit and opt-in. Real VISA resources must
 not be hard-coded in committed files.
 
-See `Agent.md`, `docs/workspace.md`, and the relevant package README before
+See `AGENTS.md`, `docs/workspace.md`, and the relevant package README before
 making implementation changes.
 
 ## License and Disclaimer

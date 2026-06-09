@@ -1,4 +1,5 @@
 import pytest
+from pyvisa.constants import RENLineOperation
 
 from keysight_power_core.connection import (
     DEFAULT_READ_TERMINATION,
@@ -36,6 +37,7 @@ class FakeResource:
             "SYST:ERR?": ['0,"No error"'],
         }
         self.closed = False
+        self.ren_operations: list[RENLineOperation] = []
 
     def write(self, command: str) -> None:
         self.commands.append(command)
@@ -51,6 +53,9 @@ class FakeResource:
 
     def close(self) -> None:
         self.closed = True
+
+    def control_ren(self, operation: RENLineOperation) -> None:
+        self.ren_operations.append(operation)
 
 
 def test_list_resources_uses_supplied_resource_manager() -> None:
@@ -106,6 +111,15 @@ def test_session_context_manager_closes_resource() -> None:
 
     assert session.closed
     assert manager.resource.closed
+
+
+def test_gpib_release_to_local_addresses_only_current_device() -> None:
+    resource = FakeResource()
+    session = InstrumentSession(resource, "GPIB0::1::INSTR")
+
+    session.release_to_local()
+
+    assert resource.ren_operations == [RENLineOperation.address_gtl]
 
 
 def test_closed_session_rejects_io() -> None:

@@ -19,7 +19,7 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
-from keysight_power_core.operations import ERROR_QUERY, ScpiLoggingSession
+from keysight_power_core.operations import ScpiLoggingSession
 from keysight_power_core.safety import SafetyConfigError, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
 from keysight_power_core.testing.simulator import SimulatedResourceManager
 from keysight_power_core.transport import dry_run_plan
@@ -288,12 +288,7 @@ def _safety_limits(request: OperationRequest):
 
 
 def _raise_on_errors(power_supply: Any, command: str) -> None:
-    errors = []
-    for _ in range(20):
-        response = power_supply._session.query(ERROR_QUERY)
-        if response.strip().lstrip("+").startswith("0"):
-            break
-        errors.append(response)
+    errors, _read_count = power_supply.read_error_queue(20)
     if errors:
         raise CoreExecutionError(f"{command} completed with instrument errors: {errors}")
 

@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from keysight_power_core.core import CommandCancelled, StopCleanupError
 
 from .jobs import job_manager, JobStatus
 from .commands import execute_job_command, MUTATING_COMMANDS, WEBUI_UNSUPPORTED_COMMANDS, webui_command_support
@@ -179,7 +180,9 @@ async def create_job(request: Request):
 async def _execute_job_background(job_id: str):
     started = await job_manager.start_job(job_id)
     if not started:
-        await job_manager.fail_job(job_id, "Failed to acquire hardware lock or job not found")
+        job = job_manager.jobs.get(job_id)
+        if job is None or job.status != JobStatus.CANCELLED:
+            await job_manager.fail_job(job_id, "Failed to acquire hardware lock or job not found")
         return
 
     job = job_manager.jobs.get(job_id)
@@ -193,7 +196,14 @@ async def _execute_job_background(job_id: str):
                 result = await asyncio.to_thread(execute_job_command, job)
         else:
             result = await asyncio.to_thread(execute_job_command, job)
-        await job_manager.finish_job(job_id, result)
+        if job.cancel_requested:
+            await job_manager.complete_cancel(job_id)
+        else:
+            await job_manager.finish_job(job_id, result)
+    except CommandCancelled:
+        await job_manager.complete_cancel(job_id)
+    except StopCleanupError as e:
+        await job_manager.fail_job(job_id, str(e))
     except Exception as e:
         error_msg = str(e)
         await job_manager.fail_job(job_id, error_msg)
@@ -282,7 +292,7 @@ async def _execute_live_data_background(job_id: str):
                     message="Hardware busy; keeping last live values.",
                 )
                 await job_manager.update_progress(job_id, busy_sample)
-                await asyncio.sleep(interval)
+                await _cancel_aware_async_sleep(job, interval)
                 continue
             
             try:
@@ -298,13 +308,17 @@ async def _execute_live_data_background(job_id: str):
                             message="Hardware busy; keeping last live values.",
                         )
                         await job_manager.update_progress(job_id, busy_sample)
-                        await asyncio.sleep(interval)
+                        await _cancel_aware_async_sleep(job, interval)
                         continue
-                    result = await asyncio.to_thread(
-                        execute_live_panel_read,
-                        runtime,
-                        {},
-                    )
+                    job.io_in_progress = True
+                    try:
+                        result = await asyncio.to_thread(
+                            execute_live_panel_read,
+                            runtime,
+                            {},
+                        )
+                    finally:
+                        job.io_in_progress = False
                 sample = _live_panel_sample_from_reading(result, runtime_opts)
                 last_sample = sample
                 await job_manager.update_progress(job_id, sample)
@@ -320,15 +334,22 @@ async def _execute_live_data_background(job_id: str):
                     ),
                 )
             
-            await asyncio.sleep(interval)
-        if job.status != JobStatus.CANCELLED:
-            await job_manager.finish_job(job_id, {"stopped": True})
+            await _cancel_aware_async_sleep(job, interval)
+        await job_manager.complete_cancel(job_id)
     except Exception as e:
         await job_manager.fail_job(job_id, str(e))
 
 
 def _real_command_is_active(live_job_id: str) -> bool:
     return job_manager.active_job_id is not None and job_manager.active_job_id != live_job_id
+
+
+async def _cancel_aware_async_sleep(job: Any, seconds: float) -> None:
+    remaining = max(seconds, 0.0)
+    while remaining > 0 and not job.cancel_requested:
+        chunk = min(remaining, 0.05)
+        await asyncio.sleep(chunk)
+        remaining -= chunk
 
 
 def _live_panel_sample_from_reading(reading: dict[str, Any], runtime: dict[str, Any]) -> dict[str, Any]:

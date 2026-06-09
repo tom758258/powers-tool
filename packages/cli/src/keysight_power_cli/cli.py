@@ -24,6 +24,7 @@ import keysight_power_core.discovery as discovery_core
 import keysight_power_core.instrument_io as instrument_io_core
 import keysight_power_core.operations as operations
 import keysight_power_core.protection as protection_core
+import keysight_power_core.restore as restore_core
 import keysight_power_core.sequence as sequence
 import keysight_power_core.snapshot as snapshot_core
 import keysight_power_core.trigger as trigger_core
@@ -3534,82 +3535,39 @@ def _run_restore_from_snapshot(args: argparse.Namespace) -> int:
             message="--plan-json requires --dry-run",
             retryable=False,
         )
-    manager = _resource_manager_for_args(args)
     try:
-        snapshot = _load_snapshot_document(args.snapshot)
-        selected_channels = _restore_channels_from_args(args, snapshot)
-        plan = _restore_plan(
-            snapshot,
-            resource=args.resource,
-            channels=selected_channels,
-            restore_output_state=args.restore_output_state,
-            allow_output_on=args.restore_output_state and args.confirm,
+        data = restore_core.run_restore(
+            OperationRequest(
+                command="restore-from-snapshot",
+                runtime=RuntimeOptions(
+                    resource=args.resource,
+                    simulate=args.simulate,
+                    dry_run=args.dry_run,
+                    backend=args.backend,
+                    timeout_ms=args.timeout_ms,
+                    log_scpi=args.log_scpi,
+                    confirm=args.confirm,
+                ),
+                parameters={
+                    "snapshot": args.snapshot,
+                    "channel": args.channel,
+                    "restore_output_state": args.restore_output_state,
+                },
+            ),
+            opener=_core_opener_for_args(args),
+            scpi_logger=_log_scpi,
         )
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="argument_error",
-            message=str(exc),
-            retryable=False,
-        )
-
-    if args.dry_run:
-        data = {
-            "plan": plan,
-            "restored_channels": list(selected_channels),
-            "restore_output_state": args.restore_output_state,
-            "resource": args.resource,
-        }
-        if args.plan_json:
-            try:
-                _write_json_file(args.plan_json, data)
-            except OSError as exc:
-                return _emit_cli_error(
-                    args,
-                    request=request,
-                    error_type="validation",
-                    code="argument_error",
-                    message=f"could not write plan JSON: {exc}",
-                    retryable=False,
-                )
-        if args.json:
-            emit_json_success(command=args.command, execution=execution, request=request, data=data)
-            return 0
-        _print_scpi_plan(plan, mode=_mode_for_args(args), dry_run=True)
-        return 0
-
-    if not args.simulate and not args.confirm:
+    except ConfirmationRequiredError as exc:
         return _emit_cli_error(
             args,
             request=request,
             error_type="validation",
             code="confirmation_required",
-            message="restore-from-snapshot real execution requires --confirm",
+            message=str(exc),
             retryable=False,
             hardware_intent=True,
         )
-
-    opened = False
-    try:
-        with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
-            opened = True
-            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
-            idn_raw = session.query(IDN_QUERY)
-            idn = parse_idn(idn_raw)
-            expected_idn = snapshot.get("idn") if isinstance(snapshot.get("idn"), dict) else {}
-            if not args.simulate:
-                _validate_restore_identity(idn, expected_idn)
-            power_supply = create_power_supply(session, idn_raw)
-            if not isinstance(power_supply, E36312APowerSupply):
-                raise _RestoreModelError(
-                    "restore-from-snapshot real execution is only supported for E36312A; "
-                    f"found {type(power_supply).__name__} from *IDN? response"
-                )
-            _execute_restore_plan(power_supply, plan)
-            _raise_on_instrument_errors(power_supply, "restore-from-snapshot")
-    except _RestoreModelError as exc:
+    except UnsupportedModelError as exc:
         return _emit_cli_error(
             args,
             request=request,
@@ -3619,39 +3577,47 @@ def _run_restore_from_snapshot(args: argparse.Namespace) -> int:
             retryable=False,
             hardware_intent=True,
         )
-    except _RestoreIdentityError as exc:
+    except CoreValidationError as exc:
+        message = str(exc)
+        code = "snapshot_identity_mismatch" if "does not match snapshot" in message else "argument_error"
         return _emit_cli_error(
             args,
             request=request,
             error_type="validation",
-            code="snapshot_identity_mismatch",
-            message=str(exc),
+            code=code,
+            message=message,
             retryable=False,
-            hardware_intent=True,
+            hardware_intent=not args.dry_run,
         )
-    except VisaConnectionError as exc:
-        code = "restore_failed" if opened else "connection_failed"
-        message = (
-            f"restore-from-snapshot failed: {exc}"
-            if opened
-            else f"Could not open resource for restore-from-snapshot: {exc}"
-        )
-        return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=message)
-    except ValueError as exc:
+    except CoreIoError as exc:
         return _emit_safe_io_error(
             args,
             request=request,
             execution=execution,
-            code="restore_failed",
-            message=f"restore-from-snapshot failed: {exc}",
+            code="restore_failed" if exc.opened else "connection_failed",
+            message=str(exc),
         )
 
-    data = {"resource": args.resource, "restored_channels": list(selected_channels), "plan": plan}
+    if args.plan_json:
+        try:
+            _write_json_file(args.plan_json, data)
+        except OSError as exc:
+            return _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code="argument_error",
+                message=f"could not write plan JSON: {exc}",
+                retryable=False,
+            )
     if args.json:
         emit_json_success(command=args.command, execution=execution, request=request, data=data)
         return 0
+    if args.dry_run or args.simulate:
+        _print_scpi_plan(data["plan"], mode=_mode_for_args(args), dry_run=args.dry_run)
+        return 0
     print(f"Resource: {args.resource}")
-    print("Restored channels: " + ", ".join(str(channel) for channel in selected_channels))
+    print("Restored channels: " + ", ".join(str(channel) for channel in data["restored_channels"]))
     return 0
 
 
@@ -5209,15 +5175,7 @@ def _read_error_queue_from_driver(
     if max_reads < 1:
         raise ValueError("max_errors must be at least 1")
 
-    errors: list[str] = []
-    read_count = 0
-    for _ in range(max_reads):
-        response = power_supply._session.query(ERROR_QUERY).strip()
-        read_count += 1
-        if _is_no_error_response(response):
-            break
-        errors.append(response)
-    return errors, read_count
+    return power_supply.read_error_queue(max_reads)
 
 
 def _raise_on_instrument_errors(

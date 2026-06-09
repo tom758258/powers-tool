@@ -7,6 +7,7 @@ import time
 from typing import Any, Callable, Sequence
 
 from keysight_power_core.connection import open_resource
+from keysight_power_core.cancellation import StopRequested, interruptible_sleep, raise_if_cancelled
 from keysight_power_core.core import (
     ConfirmationRequiredError,
     CoreExecutionError,
@@ -33,7 +34,6 @@ from keysight_power_core.safety import (
 from keysight_power_core.trigger import run_native_list_operation, run_post_action_completion_pulse
 
 IDN_QUERY = "*IDN?"
-ERROR_QUERY = "SYST:ERR?"
 OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
 
 
@@ -65,6 +65,7 @@ def run_operation(
     opener: Callable[..., Any] = open_resource,
     sleep: Callable[[float], None] = time.sleep,
     scpi_logger: Callable[[str, str, str], None] | None = None,
+    stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
     """Run an operation command and return parser-neutral data."""
 
@@ -82,7 +83,13 @@ def run_operation(
         "ramp",
         "smoke-output",
     }:
-        return _run_output_write_operation(request, opener=opener, sleep=sleep, scpi_logger=scpi_logger)
+        return _run_output_write_operation(
+            request,
+            opener=opener,
+            sleep=sleep,
+            scpi_logger=scpi_logger,
+            stop_requested=stop_requested,
+        )
 
     raise CoreValidationError(f"unsupported operation command {request.command!r}")
 
@@ -223,6 +230,7 @@ def _run_output_write_operation(
     opener: Callable[..., Any],
     sleep: Callable[[float], None],
     scpi_logger: Callable[[str, str, str], None] | None,
+    stop_requested: StopRequested,
 ) -> dict[str, Any]:
     _validate_real_gate(request)
     opened = False
@@ -245,7 +253,13 @@ def _run_output_write_operation(
                     f"{request.command} real execution is only supported for E36312A or EDU36311A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
-            return _execute_output_write(request, power_supply, idn=idn, sleep=sleep)
+            return _execute_output_write(
+                request,
+                power_supply,
+                idn=idn,
+                sleep=sleep,
+                stop_requested=stop_requested,
+            )
     except VisaConnectionError as exc:
         prefix = f"{request.command} failed" if opened else f"Could not open resource for {request.command}"
         raise CoreIoError(f"{prefix}: {exc}", opened=opened) from exc
@@ -261,17 +275,20 @@ def _execute_output_write(
     *,
     idn: str,
     sleep: Callable[[float], None],
+    stop_requested: StopRequested,
 ) -> dict[str, Any]:
     command = request.command
     p = request.parameters
     channel = p.get("channel")
+    if command not in {"output-off", "safe-off"}:
+        raise_if_cancelled(stop_requested)
 
     if command == "set":
         _require_channel(power_supply, channel, command)
         _validate_setpoint_for_request(request, idn, channel)
         power_supply.set_current_limit(channel=channel, current=p["current"])
         power_supply.set_voltage(channel=channel, voltage=p["voltage"])
-        _settle_after_write(request, sleep)
+        _settle_after_write(request, sleep, stop_requested)
         verification = _verify_setpoints_after_write(request, power_supply, channels=(channel,))
         _raise_verification_failed(verification)
         trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
@@ -401,6 +418,7 @@ def _execute_output_write(
         )
         outputs = []
         for selected_channel in channels:
+            raise_if_cancelled(stop_requested)
             validate_channel(selected_channel, _safety_limits(request, channel=selected_channel, model=parse_idn(idn).model))
             outputs.append({"channel": selected_channel, "enabled": power_supply.output_state(channel=selected_channel)})
         data = _resource_payload(request, idn, channel=channel, output_enabled=outputs[0]["enabled"])
@@ -420,9 +438,14 @@ def _execute_output_write(
         enabled_channels: list[int] = []
         try:
             for selected_channel in channels:
+                raise_if_cancelled(stop_requested)
                 power_supply.output_on(channel=selected_channel)
                 enabled_channels.append(selected_channel)
-            sleep(p.get("duration_ms", 0) / 1000)
+            interruptible_sleep(
+                p.get("duration_ms", 0) / 1000,
+                sleep=sleep,
+                stop_requested=stop_requested,
+            )
         finally:
             for selected_channel in enabled_channels:
                 power_supply.output_off(channel=selected_channel)
@@ -485,14 +508,20 @@ def _execute_output_write(
                 poll_ms=p.get("poll_ms"),
                 sleep=sleep,
                 result_mode="ramp",
+                stop_requested=stop_requested,
             )
         else:
             power_supply.set_current_limit(channel=channel, current=p["current"])
             for index, voltage in enumerate(voltages):
+                raise_if_cancelled(stop_requested)
                 power_supply.set_voltage(channel=channel, voltage=voltage)
                 if p.get("delay_ms", 0) > 0 and index < len(voltages) - 1:
-                    sleep(p["delay_ms"] / 1000)
-            _settle_after_write(request, sleep)
+                    interruptible_sleep(
+                        p["delay_ms"] / 1000,
+                        sleep=sleep,
+                        stop_requested=stop_requested,
+                    )
+            _settle_after_write(request, sleep, stop_requested)
             verification = _verify_setpoints_after_write(
                 request,
                 power_supply,
@@ -529,7 +558,11 @@ def _execute_output_write(
             power_supply.set_voltage(channel=channel, voltage=p["voltage"])
             power_supply.output_on(channel=channel)
             output_was_enabled = True
-            sleep(p.get("duration_ms", 0) / 1000)
+            interruptible_sleep(
+                p.get("duration_ms", 0) / 1000,
+                sleep=sleep,
+                stop_requested=stop_requested,
+            )
             measurements = {
                 "voltage": power_supply.measure_voltage(channel=channel),
                 "current": power_supply.measure_current(channel=channel),
@@ -648,20 +681,19 @@ def _channels_from_selection(selection: int | str, supported: Sequence[int], *, 
 
 
 def _raise_on_instrument_errors(power_supply: Any, command: str) -> None:
-    errors = []
-    for _ in range(20):
-        response = power_supply._session.query(ERROR_QUERY)
-        if _is_no_error_response(response):
-            break
-        errors.append(response)
+    errors, _read_count = power_supply.read_error_queue(20)
     if errors:
         raise CoreExecutionError(f"{command} completed with instrument errors: {errors}")
 
 
-def _settle_after_write(request: OperationRequest, sleep: Callable[[float], None]) -> None:
+def _settle_after_write(
+    request: OperationRequest,
+    sleep: Callable[[float], None],
+    stop_requested: StopRequested = None,
+) -> None:
     settle_ms = request.parameters.get("settle_ms", 0)
     if settle_ms > 0:
-        sleep(settle_ms / 1000)
+        interruptible_sleep(settle_ms / 1000, sleep=sleep, stop_requested=stop_requested)
 
 
 def _verify_setpoints_after_write(
@@ -811,11 +843,6 @@ def _maybe_run_completion_pulse(
 def _attach_trigger_if_present(data: dict[str, Any], trigger: dict[str, Any] | None) -> None:
     if trigger is not None:
         data["trigger"] = trigger
-
-
-def _is_no_error_response(response: str) -> bool:
-    stripped = response.strip()
-    return stripped.startswith("+0") or stripped.startswith("0")
 
 
 def _resource_payload(request: OperationRequest, idn: str, **extra: Any) -> dict[str, Any]:

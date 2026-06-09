@@ -41,6 +41,10 @@ dependency environments, but package installs should resolve PyYAML.
 
 ## Packages
 
+The CLI and WebUI are parallel product interfaces. Both adapters build
+parser-neutral Core requests and must keep SCPI, cancellation, and cleanup
+behavior in `packages/core`.
+
 The project is structured into independent packages located inside the `packages/` directory:
 
 1. **`packages/core` (keysight-power-core)**

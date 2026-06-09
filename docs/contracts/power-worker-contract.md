@@ -10,6 +10,25 @@ This contract extends `common-worker-protocol.md` for Keysight Power.
 
 `/trigger`, `trigger_url`, `--default-action`, and default-action config are not supported.
 
+## Power Stop Cleanup
+
+`POST /stop` only sets stop state, wakes the background runner, and returns.
+It performs no VISA I/O, cleanup, or HTTP-server shutdown in the handler.
+The runner must finish command safety cleanup before the Worker stops the HTTP
+server or emits the final `summary`.
+
+Stop-only cleanup results use Power status values `succeeded`, `unsupported`,
+`not_applicable`, and `failed`. Cleanup runs `release_to_local`, closes the
+VISA session, then records `cleanup_release_to_local`; HTTP server shutdown
+follows runner completion. `release_to_local` uses device-specific PyVISA GPIB
+local control only when available. USB/LAN are `unsupported`; simulated or
+unopened sessions are `not_applicable`. `cleanup_release_to_local` is
+post-close bookkeeping and must not access the closed VISA session.
+
+Each result is emitted as a structured `power_cleanup` JSONL event.
+Unsupported cleanup is a warning. Any failed release, close, or post-cleanup
+makes final `summary.ok` false and Worker exit code `3`.
+
 ## `POST /command`
 
 The request body is a strict JSON object:

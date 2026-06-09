@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Callable, Sequence
 
+from keysight_power_core.cancellation import StopRequested, raise_if_cancelled
 from keysight_power_core.connection import open_resource
 from keysight_power_core.core import (
     CoreExecutionError,
@@ -22,7 +23,6 @@ from keysight_power_core.factory import create_power_supply
 from keysight_power_core.transport import dry_run_plan
 
 IDN_QUERY = "*IDN?"
-ERROR_QUERY = "SYST:ERR?"
 
 
 def run_trigger(
@@ -38,14 +38,16 @@ def run_trigger(
     if request.runtime.dry_run:
         return {"plan": trigger_plan(request)}
 
+    if request.command != "trigger-abort":
+        raise_if_cancelled(stop_requested)
     if request.command == "trigger-pulse":
-        return _run_trigger_pulse(request, opener=opener, scpi_logger=scpi_logger)
+        return _run_trigger_pulse(request, opener=opener, scpi_logger=scpi_logger, stop_requested=stop_requested)
     if request.command == "trigger-status":
         return _run_trigger_status(request, opener=opener, scpi_logger=scpi_logger)
     if request.command == "trigger-step":
-        return _run_trigger_step(request, opener=opener, sleep=sleep, scpi_logger=scpi_logger)
+        return _run_trigger_step(request, opener=opener, sleep=sleep, scpi_logger=scpi_logger, stop_requested=stop_requested)
     if request.command == "trigger-list":
-        return _run_trigger_list(request, opener=opener, sleep=sleep, scpi_logger=scpi_logger)
+        return _run_trigger_list(request, opener=opener, sleep=sleep, scpi_logger=scpi_logger, stop_requested=stop_requested)
     if request.command == "trigger-fire":
         return _run_trigger_fire(request, opener=opener, sleep=sleep, scpi_logger=scpi_logger, stop_requested=stop_requested)
     if request.command == "trigger-abort":
@@ -486,6 +488,7 @@ def _run_trigger_pulse(
     *,
     opener: Callable[..., Any],
     scpi_logger: Callable[[str, str, str], None] | None,
+    stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
     p = request.parameters
     pins = tuple(p.get("pins") or ((p["pin"],) if p.get("pin") is not None else ()))
@@ -504,6 +507,7 @@ def _run_trigger_pulse(
             channel = int(p.get("channel", 1))
             voltage = power_supply.programmed_voltage(channel=channel)
             current = power_supply.programmed_current(channel=channel)
+            raise_if_cancelled(stop_requested)
             configure_completion_output_pins(
                 power_supply,
                 pins,
@@ -515,6 +519,7 @@ def _run_trigger_pulse(
             power_supply.set_current_trigger_mode_step(channel)
             power_supply.set_voltage_trigger_mode_step(channel)
             power_supply.configure_output_trigger_source_bus(channel)
+            raise_if_cancelled(stop_requested)
             power_supply.trigger_pulse(channel=channel)
             _raise_on_instrument_errors(power_supply, request.command)
             data = {
@@ -612,6 +617,7 @@ def _run_trigger_step(
     opener: Callable[..., Any],
     sleep: Callable[[float], None],
     scpi_logger: Callable[[str, str, str], None] | None,
+    stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
     p = request.parameters
     validate_real_trigger_source(request, str(p.get("source", "bus")))
@@ -647,6 +653,7 @@ def _run_trigger_step(
                     fire=bool(p.get("fire", False)),
                     wait_complete=bool(p.get("wait_complete", False)),
                     sleep=sleep,
+                    stop_requested=stop_requested,
                 )
             else:
                 raise UnsupportedModelError("trigger-step is only supported for E36312A")
@@ -706,6 +713,7 @@ def _run_trigger_list(
     opener: Callable[..., Any],
     sleep: Callable[[float], None],
     scpi_logger: Callable[[str, str, str], None] | None,
+    stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
     p = request.parameters
     config = trigger_list_config(p)
@@ -726,6 +734,7 @@ def _run_trigger_list(
                 fire=bool(p.get("fire", False)),
                 wait_complete=bool(p.get("wait_complete", False)),
                 sleep=sleep,
+                stop_requested=stop_requested,
             )
             _raise_on_instrument_errors(power_supply, request.command)
             return {"idn": getattr(power_supply, "_core_idn_raw", None), "steps": len(config["voltages"]), "trigger": trigger}
@@ -755,6 +764,7 @@ def run_native_list_operation(
     poll_ms: int | None = None,
     sleep: Callable[[float], None] = time.sleep,
     result_mode: str = "list",
+    stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
     """Run native LIST execution for an operation that already opened E36312A."""
 
@@ -784,6 +794,7 @@ def run_native_list_operation(
         wait_complete=wait_complete,
         sleep=sleep,
         result_mode=result_mode,
+        stop_requested=stop_requested,
     )
 
 
@@ -884,9 +895,11 @@ def _native_step(
     fire: bool,
     wait_complete: bool,
     sleep: Callable[[float], None],
+    stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
     snapshot = power_supply.trigger_snapshot(channel)
     try:
+        raise_if_cancelled(stop_requested)
         power_supply.abort_output_trigger(channel)
         configure_completion_output_pins(power_supply, pins, polarity)
         selected_voltage = power_supply.programmed_voltage(channel=channel) if voltage is None else voltage
@@ -911,6 +924,7 @@ def _native_step(
                     timeout_ms=_trigger_wait_timeout_ms(request.parameters),
                     poll_ms=_trigger_poll_interval_ms(request.parameters),
                     sleep=sleep,
+                    stop_requested=stop_requested,
                 )
                 completed = True
             except (TriggerInterrupted, TriggerWaitTimeout):
@@ -953,10 +967,12 @@ def _native_list(
     wait_complete: bool,
     sleep: Callable[[float], None],
     result_mode: str = "list",
+    stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
     validate_trigger_list_limits(voltages=voltages, currents=currents, dwell=dwell, count=count)
     snapshot = power_supply.trigger_snapshot(channel)
     try:
+        raise_if_cancelled(stop_requested)
         power_supply.abort_output_trigger(channel)
         configure_completion_output_pins(power_supply, pins, polarity, exclusive_pins=exclusive_pins)
         begin_outputs = tuple(False for _ in voltages)
@@ -990,6 +1006,7 @@ def _native_list(
                     timeout_ms=_trigger_wait_timeout_ms(request.parameters, dwell=dwell, count=count),
                     poll_ms=_trigger_poll_interval_ms(request.parameters),
                     sleep=sleep,
+                    stop_requested=stop_requested,
                 )
                 completed = True
             except (TriggerInterrupted, TriggerWaitTimeout):
@@ -1030,15 +1047,7 @@ def _raise_on_instrument_errors(power_supply: Any, command: str) -> None:
 
 
 def _read_error_queue(power_supply: Any, max_errors: int) -> tuple[list[str], int]:
-    errors = []
-    read_count = 0
-    for _ in range(max_errors):
-        read_count += 1
-        response = power_supply._session.query(ERROR_QUERY)
-        if response.strip().startswith(("+0", "0")):
-            break
-        errors.append(response)
-    return errors, read_count
+    return power_supply.read_error_queue(max_errors)
 
 
 def _wait_complete_preview_commands(wait_complete: bool) -> tuple[str, ...]:

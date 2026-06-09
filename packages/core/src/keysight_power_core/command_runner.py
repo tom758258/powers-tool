@@ -14,6 +14,7 @@ from keysight_power_core.restore import run_restore
 from keysight_power_core.sequence import run_sequence
 from keysight_power_core.snapshot import run_snapshot
 from keysight_power_core.trigger import run_trigger
+from keysight_power_core.stop_cleanup import CleanupReporter, stop_aware_opener
 
 
 def run_core_command(
@@ -23,8 +24,16 @@ def run_core_command(
     resource_lister: Callable[..., tuple[str, ...]] | None = None,
     stop_requested: Callable[[], bool] | None = None,
     scpi_logger: Callable[[str, str, str], None] | None = None,
+    cleanup_reporter: CleanupReporter | None = None,
 ) -> dict[str, Any]:
     command = request.command
+    if stop_requested is not None:
+        opener = stop_aware_opener(
+            opener or _default_opener,
+            stop_requested=stop_requested,
+            simulated=request.runtime.simulate,
+            reporter=cleanup_reporter,
+        )
     if isinstance(request, SequenceRequest) or command == "sequence":
         kwargs: dict[str, Any] = {"stop_requested": stop_requested}
         if opener is not None:
@@ -58,7 +67,7 @@ def run_core_command(
             kwargs["opener"] = opener
         return run_snapshot(request, **kwargs)
     if command == "restore-from-snapshot":
-        kwargs = {"scpi_logger": scpi_logger}
+        kwargs = {"scpi_logger": scpi_logger, "stop_requested": stop_requested}
         if opener is not None:
             kwargs["opener"] = opener
         return run_restore(request, **kwargs)
@@ -68,8 +77,14 @@ def run_core_command(
             kwargs["opener"] = opener
         return run_readonly(request, **kwargs)
     if command in {"set", "apply", "output-on", "output-off", "safe-off", "output-state", "cycle-output", "ramp", "smoke-output"}:
-        kwargs = {"scpi_logger": scpi_logger}
+        kwargs = {"scpi_logger": scpi_logger, "stop_requested": stop_requested}
         if opener is not None:
             kwargs["opener"] = opener
         return run_operation(request, **kwargs)
     raise CoreValidationError(f"unsupported core command {command!r}")
+
+
+def _default_opener(*args: Any, **kwargs: Any) -> Any:
+    from keysight_power_core.connection import open_resource
+
+    return open_resource(*args, **kwargs)

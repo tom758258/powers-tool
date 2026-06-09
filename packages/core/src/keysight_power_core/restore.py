@@ -7,12 +7,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from keysight_power_core.connection import open_resource
+from keysight_power_core.cancellation import StopRequested, raise_if_cancelled
 from keysight_power_core.core import ConfirmationRequiredError, CoreIoError, CoreValidationError, OperationRequest, UnsupportedModelError
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
-from keysight_power_core.operations import ERROR_QUERY, IDN_QUERY, ScpiLoggingSession
+from keysight_power_core.operations import IDN_QUERY, ScpiLoggingSession
 from keysight_power_core.testing.simulator import SimulatedResourceManager
 
 
@@ -21,6 +22,7 @@ def run_restore(
     *,
     opener: Callable[..., Any] = open_resource,
     scpi_logger: Callable[[str, str, str], None] | None = None,
+    stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
     if request.command != "restore-from-snapshot":
         raise CoreValidationError(f"unsupported restore command {request.command!r}")
@@ -59,7 +61,7 @@ def run_restore(
                     "restore-from-snapshot real execution is only supported for E36312A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
-            _execute_restore_plan(power_supply, plan)
+            _execute_restore_plan(power_supply, plan, stop_requested=stop_requested)
             _raise_on_instrument_errors(power_supply)
     except CoreValidationError:
         raise
@@ -165,8 +167,14 @@ def _ocp_delay_trigger_scpi(trigger: Any) -> str:
     raise CoreValidationError("ocp_delay_trigger must be one of: setting-change, cc-transition")
 
 
-def _execute_restore_plan(power_supply: E36312APowerSupply, plan: dict[str, Any]) -> None:
+def _execute_restore_plan(
+    power_supply: E36312APowerSupply,
+    plan: dict[str, Any],
+    *,
+    stop_requested: StopRequested = None,
+) -> None:
     for step in plan["steps"]:
+        raise_if_cancelled(stop_requested)
         action = step["action"]
         parameters = step["parameters"]
         channel = parameters["channel"]
@@ -202,13 +210,7 @@ def _validate_restore_identity(idn: Any, expected_idn: dict[str, Any]) -> None:
 
 
 def _raise_on_instrument_errors(power_supply: E36312APowerSupply) -> None:
-    errors = []
-    for _ in range(20):
-        response = power_supply._session.query(ERROR_QUERY).strip()
-        norm = response.lstrip("+")
-        if norm == "0" or norm.startswith("0,"):
-            break
-        errors.append(response)
+    errors, _read_count = power_supply.read_error_queue(20)
     if errors:
         raise CoreValidationError("instrument reported errors after restore-from-snapshot: " + "; ".join(errors))
 

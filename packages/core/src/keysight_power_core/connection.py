@@ -65,6 +65,19 @@ class InstrumentSession:
             errors.append(response)
         return errors
 
+    def release_to_local(self) -> None:
+        """Release only this GPIB device to local control when PyVISA supports it."""
+
+        self._ensure_open()
+        control_ren = getattr(self._resource, "control_ren", None)
+        if not callable(control_ren):
+            raise NotImplementedError("PyVISA resource does not support device-local control")
+        try:
+            from pyvisa.constants import RENLineOperation
+        except (ImportError, AttributeError) as exc:
+            raise NotImplementedError("PyVISA does not expose RENLineOperation.address_gtl") from exc
+        control_ren(RENLineOperation.address_gtl)
+
     def close(self) -> None:
         if self._closed:
             return

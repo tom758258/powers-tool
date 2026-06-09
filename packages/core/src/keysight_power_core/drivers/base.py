@@ -58,6 +58,10 @@ class PowerSupply(Protocol):
         """Read the instrument error queue until no error is reported."""
         ...
 
+    def read_error_queue(self, max_reads: int = 20) -> tuple[list[str], int]:
+        """Read the error queue and return errors plus total query count."""
+        ...
+
     def close(self) -> None:
         """Close the underlying session."""
         ...

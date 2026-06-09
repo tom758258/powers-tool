@@ -112,16 +112,7 @@ class _ManagedSession:
 
 
 def _read_errors(power_supply: Any, max_errors: int) -> tuple[list[str], int]:
-    errors = []
-    read_count = 0
-    for _ in range(max_errors):
-        response = power_supply._session.query("SYST:ERR?").strip()
-        read_count += 1
-        norm = response.lstrip("+")
-        if norm == "0" or norm.startswith("0,"):
-            break
-        errors.append(response)
-    return errors, read_count
+    return power_supply.read_error_queue(max_errors)
 
 
 def _tolerate(callback):

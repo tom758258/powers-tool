@@ -72,6 +72,18 @@ class CoreExecutionError(RuntimeError):
     """A command failed after request validation."""
 
 
+class CommandCancelled(CoreExecutionError):
+    """A command stopped cooperatively after a cancellation request."""
+
+
+class StopCleanupError(CoreExecutionError):
+    """Stop cleanup failed after all remaining cleanup steps were attempted."""
+
+    def __init__(self, message: str, *, results: tuple[dict[str, Any], ...]) -> None:
+        super().__init__(message)
+        self.results = results
+
+
 class CoreVerificationError(CoreExecutionError):
     """A write verification failed after hardware I/O."""
 

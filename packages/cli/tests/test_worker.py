@@ -608,6 +608,20 @@ def test_worker_stop_shutdown_lifecycle(tmp_path):
     # Thread should join cleanly within a very short time
     worker_thread.join(timeout=2.0)
     assert not worker_thread.is_alive()
+
+    events = [
+        json.loads(line)
+        for line in events_jsonl.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    cleanup_events = [event for event in events if event["event"] == "power_cleanup"]
+    assert [(event["cleanup"]["operation"], event["cleanup"]["status"]) for event in cleanup_events] == [
+        ("release_to_local", "not_applicable"),
+        ("close_session", "not_applicable"),
+        ("cleanup_release_to_local", "succeeded"),
+    ]
+    assert events[-1]["event"] == "summary"
+    assert events[-1]["ok"] is True
     
     # Connection should now fail
     with pytest.raises(Exception):

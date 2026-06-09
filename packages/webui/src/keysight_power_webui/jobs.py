@@ -15,6 +15,7 @@ class JobStatus(str, Enum):
     ACCEPTED = "accepted"
     STARTED = "started"
     PROGRESS = "progress"
+    CANCEL_REQUESTED = "cancel_requested"
     FINISHED = "finished"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -50,6 +51,9 @@ class Job:
         self.error: Optional[str] = None
         self.events: List[Dict[str, Any]] = []
         self.cancel_requested = False
+        self.io_in_progress = False
+        self.cleanup: List[Dict[str, Any]] = []
+        self.warnings: List[Dict[str, str]] = []
         self.created_at = time.time()
         self.updated_at = time.time()
         self._event_counter = 0
@@ -81,6 +85,8 @@ class Job:
             "status": self.status.value,
             "result": self.result,
             "error": self.error,
+            "cleanup": self.cleanup,
+            "warnings": self.warnings,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -121,6 +127,8 @@ class JobManager:
             job = self.jobs.get(job_id)
             if not job:
                 return False
+            if job.status != JobStatus.ACCEPTED:
+                return False
             if job.requires_hardware_lock:
                 if self.active_job_id is not None:
                     return False
@@ -146,6 +154,15 @@ class JobManager:
             if self.active_job_id == job_id:
                 self.active_job_id = None
 
+    async def complete_cancel(self, job_id: str) -> None:
+        async with self._lock:
+            job = self.jobs.get(job_id)
+            if job:
+                job.status = JobStatus.CANCELLED
+                job.add_event("cancelled", {"message": "Job cancellation and cleanup completed"})
+            if self.active_job_id == job_id:
+                self.active_job_id = None
+
     async def fail_job(self, job_id: str, error: str) -> None:
         async with self._lock:
             job = self.jobs.get(job_id)
@@ -159,12 +176,19 @@ class JobManager:
     async def cancel_job(self, job_id: str) -> bool:
         async with self._lock:
             job = self.jobs.get(job_id)
-            if job and job.status in (JobStatus.ACCEPTED, JobStatus.STARTED, JobStatus.PROGRESS):
+            if job and job.status == JobStatus.ACCEPTED:
                 job.cancel_requested = True
                 job.status = JobStatus.CANCELLED
-                job.add_event("cancelled", {"message": "Job cancelled"})
-                if self.active_job_id == job_id:
-                    self.active_job_id = None
+                job.add_event("cancelled", {"message": "Job cancelled before execution"})
+                return True
+            if job and job.status in (JobStatus.STARTED, JobStatus.PROGRESS):
+                job.cancel_requested = True
+                if job.command == "live-data" and not job.io_in_progress:
+                    job.status = JobStatus.CANCELLED
+                    job.add_event("cancelled", {"message": "Live data cancelled between reads"})
+                else:
+                    job.status = JobStatus.CANCEL_REQUESTED
+                    job.add_event("cancel_requested", {"message": "Cancellation requested; waiting for command cleanup"})
                 return True
             return False
 
@@ -185,7 +209,7 @@ class JobManager:
 
     def request_cancel(self, job_id: str) -> bool:
         job = self.jobs.get(job_id)
-        if job and job.status in (JobStatus.STARTED, JobStatus.PROGRESS):
+        if job and job.status in (JobStatus.STARTED, JobStatus.PROGRESS, JobStatus.CANCEL_REQUESTED):
             job.cancel_requested = True
             return True
         return False

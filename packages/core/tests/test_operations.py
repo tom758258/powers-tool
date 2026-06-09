@@ -1,6 +1,6 @@
 import pytest
 
-from keysight_power_core.core import ConfirmationRequiredError, CoreValidationError, OperationRequest, RuntimeOptions
+from keysight_power_core.core import CommandCancelled, ConfirmationRequiredError, CoreValidationError, OperationRequest, RuntimeOptions
 from keysight_power_core.operations import output_plan, run_operation
 
 
@@ -90,6 +90,31 @@ def test_output_real_scpi_order(command: str, expected: list[str]) -> None:
 
     write_positions = [session.writes.index(command_text) for command_text in expected]
     assert write_positions == sorted(write_positions)
+
+
+def test_cycle_output_cancellation_preserves_output_off_cleanup() -> None:
+    session = FakeSession()
+    cancelled = False
+
+    def sleep(_seconds: float) -> None:
+        nonlocal cancelled
+        cancelled = True
+
+    core_request = OperationRequest(
+        command="cycle-output",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+        parameters=request("cycle-output", duration_ms=500).parameters,
+    )
+
+    with pytest.raises(CommandCancelled):
+        run_operation(
+            core_request,
+            opener=lambda *args, **kwargs: session,
+            sleep=sleep,
+            stop_requested=lambda: cancelled,
+        )
+
+    assert session.writes == ["OUTP ON,(@1)", "OUTP OFF,(@1)"]
 
 
 def test_real_output_affecting_operation_requires_confirm_above_config_threshold(tmp_path) -> None:

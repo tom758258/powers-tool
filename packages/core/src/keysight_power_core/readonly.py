@@ -77,16 +77,8 @@ def run_readonly(
                     raise CoreValidationError(f"invalid channel parameter {channel_sel!r}")
 
             if command == "status":
-                errors = []
-                read_count = 0
                 max_errors = p.get("max_errors", 20)
-                for _ in range(max_errors):
-                    res = power_supply._session.query(ERROR_QUERY).strip()
-                    read_count += 1
-                    norm = res.lstrip("+")
-                    if norm == "0" or norm.startswith("0,"):
-                        break
-                    errors.append(res)
+                errors, read_count = power_supply.read_error_queue(max_errors)
 
                 outputs = [
                     {"channel": ch, "enabled": power_supply.output_state(channel=ch)}

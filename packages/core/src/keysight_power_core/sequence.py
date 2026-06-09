@@ -7,8 +7,9 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from keysight_power_core.cancellation import interruptible_sleep, raise_if_cancelled
 from keysight_power_core.connection import open_resource
-from keysight_power_core.core import CoreIoError, CoreValidationError, SequenceRequest
+from keysight_power_core.core import CommandCancelled, CoreIoError, CoreValidationError, SequenceRequest
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
@@ -276,15 +277,12 @@ def execute_sequence(
             idn_raw = instrument.query(IDN_QUERY)
             power_supply = create_power_supply(instrument, idn_raw)
             for step in plan["steps"]:
-                if stop_requested is not None and stop_requested():
-                    stopped = True
-                    failed_step = {"index": step["index"], "action": step["action"], "code": "stopped"}
-                    break
                 try:
+                    raise_if_cancelled(stop_requested)
                     result = execute_sequence_step(request, power_supply, step, sleep=sleep, stop_requested=stop_requested)
                     results.append(result)
                     completed_steps += 1
-                except KeyboardInterrupt:
+                except (CommandCancelled, KeyboardInterrupt):
                     stopped = True
                     failed_step = {"index": step["index"], "action": step["action"], "code": "interrupted"}
                     break
@@ -393,13 +391,7 @@ def execute_sequence_step(
         return {"index": step["index"], "action": action, "message": str(parameters.get("message", ""))}
     if action == "wait":
         seconds = float(parameters.get("seconds", parameters.get("duration_sec", 0)))
-        remaining = seconds
-        while remaining > 0:
-            if stop_requested is not None and stop_requested():
-                raise KeyboardInterrupt("sequence wait interrupted")
-            chunk = min(remaining, 0.05)
-            sleep(chunk)
-            remaining -= chunk
+        interruptible_sleep(seconds, sleep=sleep, stop_requested=stop_requested)
         return {"index": step["index"], "action": action, "seconds": seconds}
     if action == "safe-off":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
@@ -422,9 +414,14 @@ def execute_sequence_step(
         enabled_channels: list[int] = []
         try:
             for selected_channel in channels:
+                raise_if_cancelled(stop_requested)
                 power_supply.output_on(channel=selected_channel)
                 enabled_channels.append(selected_channel)
-            sleep(int(parameters.get("duration_ms", 500)) / 1000)
+            interruptible_sleep(
+                int(parameters.get("duration_ms", 500)) / 1000,
+                sleep=sleep,
+                stop_requested=stop_requested,
+            )
         finally:
             for selected_channel in enabled_channels:
                 power_supply.output_off(channel=selected_channel)
@@ -434,6 +431,7 @@ def execute_sequence_step(
         voltage = float(parameters["voltage"])
         current = float(parameters["current"])
         for selected_channel in sequence_channels(channel, power_supply.capabilities.channels):
+            raise_if_cancelled(stop_requested)
             power_supply.set_current_limit(channel=selected_channel, current=current)
             power_supply.set_voltage(channel=selected_channel, voltage=voltage)
             if action == "apply" and not parameters.get("no_output", False):

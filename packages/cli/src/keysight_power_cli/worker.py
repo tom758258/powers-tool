@@ -24,10 +24,13 @@ from keysight_power_core.core import (
     UnsupportedModelError,
     UnsupportedChannelError,
     ConfirmationRequiredError,
+    CommandCancelled,
     CoreIoError,
+    StopCleanupError,
 )
 from keysight_power_core.command_runner import run_core_command
 from keysight_power_core.sequence import load_sequence_document, sequence_plan
+from keysight_power_core.stop_cleanup import StopCleanupResult
 
 READ_ONLY_COMMANDS = {
     "identify",
@@ -220,6 +223,8 @@ class WorkerState:
         self.shutdown_flag = False
         self.server: WorkerHTTPServer | None = None
         self.run_id = str(uuid.uuid4())
+        self.cleanup_results: list[dict[str, str]] = []
+        self.cleanup_failed = False
 
         if config["mode"] == "simulate":
             from keysight_power_core.testing.simulator import SimulatedResourceManager
@@ -289,20 +294,14 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                 return
 
         if self.path == "/stop":
-            # Set stop state immediately without taking VISA lock
+            # The handler only publishes cooperative stop state and wakes the runner.
             reason = body_data.get("reason", "manual stop")
             state.stop_event.set()
             emit_event(state.config, "stop_requested", {"reason": reason})
-            
-            self._send_json(200, {"ok": True, "message": "Stop requested"})
-
-            # Handle graceful process shutdown
             with state.lock:
-                idle = (state.status != "busy")
                 state.shutdown_flag = True
-
-            if idle:
-                request_worker_shutdown(self.server, state)
+                state.lock.notify_all()
+            self._send_json(200, {"ok": True, "message": "Stop requested"})
             return
 
         if self.path == "/command":
@@ -381,6 +380,33 @@ def request_worker_shutdown(server: WorkerHTTPServer, state: WorkerState) -> Non
     threading.Thread(target=server.shutdown, daemon=True).start()
 
 
+def record_cleanup_result(state: WorkerState, result: StopCleanupResult) -> None:
+    payload = result.to_dict()
+    with state.lock:
+        state.cleanup_results.append(payload)
+        if result.status == "failed":
+            state.cleanup_failed = True
+            state.status = "error"
+    emit_event(state.config, "power_cleanup", {"run_id": state.run_id, "cleanup": payload})
+
+
+def record_no_session_stop_cleanup(state: WorkerState) -> None:
+    if state.cleanup_results:
+        return
+    record_cleanup_result(
+        state,
+        StopCleanupResult("release_to_local", "not_applicable", "no open VISA session"),
+    )
+    record_cleanup_result(
+        state,
+        StopCleanupResult("close_session", "not_applicable", "no open VISA session"),
+    )
+    record_cleanup_result(
+        state,
+        StopCleanupResult("cleanup_release_to_local", "succeeded", "post-close cleanup recorded release_to_local=not_applicable"),
+    )
+
+
 def get_opener(state: WorkerState) -> Callable[..., Any]:
     """Return a connection opener that correctly utilizes simulated or live PyVISA resources."""
     if state.sim_mgr is not None:
@@ -398,9 +424,13 @@ def job_runner(state: WorkerState) -> None:
     while not state.shutdown_event.is_set():
         job = None
         with state.lock:
-            while state.next_job is None and not state.shutdown_event.is_set():
+            while state.next_job is None and not state.shutdown_event.is_set() and not state.shutdown_flag:
                 state.lock.wait(timeout=0.05)
             if state.shutdown_event.is_set():
+                break
+            if state.shutdown_flag and state.next_job is None:
+                record_no_session_stop_cleanup(state)
+                request_worker_shutdown(state.server, state)
                 break
             job = state.next_job
             state.next_job = None
@@ -412,11 +442,14 @@ def job_runner(state: WorkerState) -> None:
             should_shutdown = False
             with state.lock:
                 state.active_job = None
-                if state.status == "busy":
+                if state.cleanup_failed:
+                    state.status = "error"
+                elif state.status == "busy":
                     state.status = "ready"
                 should_shutdown = state.shutdown_flag
 
             if should_shutdown:
+                record_no_session_stop_cleanup(state)
                 request_worker_shutdown(state.server, state)
 
 
@@ -462,6 +495,14 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
     ok = True
     exc_obj: Exception | None = None
     final_status = "succeeded"
+    cleanup_results: list[dict[str, str]] = []
+
+    def report_cleanup(result: StopCleanupResult) -> None:
+        payload = result.to_dict()
+        cleanup_results.append(payload)
+        record_cleanup_result(state, result)
+        if result.status == "unsupported":
+            warnings.append({"code": "cleanup_unsupported", "message": result.message})
 
     try:
         if cmd == "sequence":
@@ -502,6 +543,7 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             req,
             opener=opener,
             stop_requested=lambda: state.stop_event.is_set(),
+            cleanup_reporter=report_cleanup,
         )
         if cmd == "sequence":
             if result_data.get("status") == "stopped":
@@ -536,7 +578,11 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             if getattr(exc, "opened", False) is False:
                 code = "connection_failed"
             retryable = True
-        elif isinstance(exc, KeyboardInterrupt) or exc.__class__.__name__ in {"TriggerInterrupted", "SequenceStopped"} or state.stop_event.is_set():
+        elif isinstance(exc, StopCleanupError):
+            err_type = "io"
+            code = "cleanup_failed"
+            retryable = True
+        elif isinstance(exc, (CommandCancelled, KeyboardInterrupt)) or exc.__class__.__name__ in {"TriggerInterrupted", "SequenceStopped"} or state.stop_event.is_set():
             err_type = "execution"
             code = "stopped"
             retryable = True
@@ -580,6 +626,7 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
         "error": error_payload,
         "metadata": {
             "duration_ms": duration_ms,
+            "cleanup": cleanup_results,
         },
     }
 
@@ -804,14 +851,25 @@ def run_worker(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        ok = state.status != "error"
+        state.stop_event.set()
+        with state.lock:
+            state.shutdown_flag = True
+            state.lock.notify_all()
         request_worker_shutdown(server, state)
-
-        # Stop job thread
         state.shutdown_event.set()
         with state.lock:
             state.lock.notify_all()
-        runner_thread.join(timeout=2.0)
-        emit_event(config, "summary", {"run_id": state.run_id, "ok": ok, "last_job": state.last_job})
+        runner_thread.join()
+        ok = state.status != "error" and not state.cleanup_failed
+        emit_event(
+            config,
+            "summary",
+            {
+                "run_id": state.run_id,
+                "ok": ok,
+                "last_job": state.last_job,
+                "cleanup": state.cleanup_results,
+            },
+        )
 
     return 0 if ok else 3

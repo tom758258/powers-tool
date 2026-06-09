@@ -60,6 +60,7 @@ Power runtime JSONL events use `schema_version: 1` and include
 - `error`
 - `summary`
 - `dry_run`
+- `power_cleanup`
 
 Each non-dry-run Worker session creates one `run_id`. Runtime events,
 `GET /status`, accepted job status, and job result artifacts use that same
@@ -74,6 +75,11 @@ The Worker emits `ready` only after `POST /command`, `GET /status`, and
 Normal Worker shutdown emits a final `summary`. Fatal failure emits
 `summary.ok: false`, includes `fatal_error`, and exits `3`. A missing final
 summary is incomplete.
+
+`power_cleanup` is Power-specific and contains a `cleanup` object with
+`operation`, `status`, and `message`. Cleanup status is one of `succeeded`,
+`unsupported`, `not_applicable`, or `failed`. The final `summary` is emitted
+only after runner completion, stop cleanup, and HTTP server shutdown.
 
 ## Lifecycle Clients
 

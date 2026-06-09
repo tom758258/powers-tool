@@ -1558,3 +1558,29 @@ def test_job_cancel_not_found(client: TestClient):
     """Test cancel returns 400 for non-existent job."""
     response = client.post("/api/jobs/non-existent-id/cancel")
     assert response.status_code == 400
+
+
+def test_running_cancel_keeps_hardware_lock_until_cleanup_completes():
+    import asyncio
+
+    from keysight_power_webui.jobs import JobManager, JobStatus
+
+    async def check_lifecycle() -> None:
+        manager = JobManager()
+        job_id = await manager.submit_job(
+            "output-on",
+            {"resource": "USB0::FAKE::INSTR", "simulate": False, "dry_run": False},
+            {"channel": 1},
+        )
+        assert await manager.start_job(job_id) is True
+        assert manager.active_job_id == job_id
+
+        assert await manager.cancel_job(job_id) is True
+        assert manager.jobs[job_id].status == JobStatus.CANCEL_REQUESTED
+        assert manager.active_job_id == job_id
+
+        await manager.complete_cancel(job_id)
+        assert manager.jobs[job_id].status == JobStatus.CANCELLED
+        assert manager.active_job_id is None
+
+    asyncio.run(check_lifecycle())

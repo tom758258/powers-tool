@@ -239,6 +239,10 @@ Start the worker in simulation mode on a dynamic port:
 uv run keysight-power worker --id power_1 --mode simulate --control-port 0
 ```
 
+`POST /stop` is cooperative: the handler only sets stop state and wakes the
+runner. The Worker emits structured `power_cleanup` JSONL events and does not
+emit its final `summary` or stop the HTTP server until runner cleanup finishes.
+
 When started, it outputs a `ready` event on stdout containing the dynamically
 assigned control endpoints.
 

@@ -159,16 +159,22 @@ class GenericScpiPowerSupply:
         self._session.write("*CLS")
 
     def check_errors(self, max_reads: int = 20) -> list[str]:
+        errors, _read_count = self.read_error_queue(max_reads)
+        return errors
+
+    def read_error_queue(self, max_reads: int = 20) -> tuple[list[str], int]:
         if max_reads < 1:
             raise ValueError("max_reads must be at least 1")
 
         errors: list[str] = []
+        read_count = 0
         for _ in range(max_reads):
             response = self._session.query("SYST:ERR?").strip()
+            read_count += 1
             if _is_no_error(response):
                 break
             errors.append(response)
-        return errors
+        return errors, read_count
 
     def close(self) -> None:
         self._session.close()

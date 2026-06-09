@@ -18,8 +18,8 @@ These instructions guide coding agents working in this repository. They are long
 ## 3. Project Direction
 
 - Build a Python package for Keysight DC power supplies.
-- The first product surface is a CLI.
-- Do not start UI work until the CLI, driver layer, tests, and long-running cleanup behavior are stable or the user explicitly changes priority.
+- CLI and WebUI are parallel product interfaces over the shared Core runtime.
+- Keep adapter behavior aligned; neither CLI nor WebUI may own SCPI behavior.
 - Main environment is Windows.
 - Use the root `uv` workspace workflow. Install packages with `uv sync --all-packages --dev`.
 - Primary communication interfaces are USB and LAN through PyVISA.
@@ -55,16 +55,10 @@ Preserve the current stop design for long-running flows:
   2. `release_to_local`.
   3. Close session.
   4. `cleanup_release_to_local`.
-  5. Stop HTTP server if a future UI/server exists.
+  5. Stop HTTP server.
 
-Expected stop output for long-running flows includes:
-
-```text
-stop request received
-recording stopped
-release_to_local: ...
-cleanup_release_to_local: ...
-```
+Power Worker stop and cleanup output must remain structured JSONL. Do not emit
+plain-text lifecycle output on stdout.
 
 Do not change stop/release/local behavior without explicit confirmation.
 

@@ -40,6 +40,9 @@ script from `keysight-power-cli`.
   protection, and snapshot commands shared by CLI and WebUI.
 - `keysight_power_core.command_runner`: shared router used by adapters that
   submit parser-neutral core requests.
+- `keysight_power_core.cancellation` and `stop_cleanup`: cooperative
+  cancellation, interruptible waits, GPIB-only local release, and structured
+  stop cleanup results shared by Worker and WebUI.
 - `keysight_power_core.safety`: explicit local safety-config loading and plan
   validation.
 - `keysight_power_core.capabilities`: command and model capability reporting.

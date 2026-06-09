@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from keysight_power_core import capabilities as core_capabilities
@@ -71,6 +72,7 @@ SHARED_CORE_COMMANDS = {
     "clear-protection",
     "identify",
     "snapshot",
+    "restore-from-snapshot",
     "sequence",
     *TRIGGER_COMMANDS,
 }
@@ -118,7 +120,17 @@ def execute_job_command(job: Job) -> dict[str, Any]:
     if _requires_real_confirmation(command, runtime):
         raise ConfirmationRequiredError(f"Command '{command}' affects hardware output and requires explicit confirmation.")
     request = _request_for_job(command, runtime, job.parameters)
-    return run_core_command(request, stop_requested=lambda: job.cancel_requested)
+    def report_cleanup(result: Any) -> None:
+        payload = result.to_dict()
+        job.cleanup.append(payload)
+        job.add_event("power_cleanup", payload)
+        if payload["status"] == "unsupported":
+            job.warnings.append({"code": "cleanup_unsupported", "message": payload["message"]})
+
+    kwargs: dict[str, Any] = {"stop_requested": lambda: job.cancel_requested}
+    if "cleanup_reporter" in inspect.signature(run_core_command).parameters:
+        kwargs["cleanup_reporter"] = report_cleanup
+    return run_core_command(request, **kwargs)
 
 
 def execute_live_readonly(command: str, runtime: RuntimeOptions, parameters: dict[str, Any]) -> dict[str, Any]:

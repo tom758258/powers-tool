@@ -2,6 +2,9 @@
 
 FastAPI and static-asset WebUI adapter for Keysight Power.
 
+The WebUI and CLI are parallel product interfaces over the shared Core
+runtime.
+
 - Package: `keysight-power-webui` `0.1.0`
 - Import package: `keysight_power_webui`
 - Runtime dependency: `keysight-power-core`
@@ -41,6 +44,12 @@ Real hardware jobs are serialized by a single hardware lock. Simulate,
 dry-run, offline metadata commands, and live-data jobs do not occupy that lock.
 Synchronous core execution runs in a worker thread so FastAPI's event loop
 continues serving health, job status, cancellation, and SSE endpoints.
+
+Cancelling an executing job first moves it to non-terminal
+`cancel_requested`. The WebUI keeps `active_job_id` and the hardware lock until
+the current thread I/O and Core stop cleanup finish. Only then does the job
+become `cancelled`; cleanup failure makes it `failed`. Accepted jobs that have
+not started can become `cancelled` immediately.
 
 ## UI
 

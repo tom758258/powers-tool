@@ -5,8 +5,8 @@ Use this checklist before creating a release commit and package tags.
 ## core-v1.0.0 and cli-v1.0.0
 
 The `keysight-power-core` and `keysight-power-cli` packages are released
-together for this milestone. `keysight-power-webui` remains a `0.1.0` skeleton
-package until runtime WebUI code and dependencies are added.
+together for this milestone. `keysight-power-webui` remains version `0.1.0`
+but is an active parallel product interface over the shared Core runtime.
 
 Recommended commit message:
 
