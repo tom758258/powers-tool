@@ -188,8 +188,8 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         type=_positive_channel,
         help=(
-            "Positive integer output channel. Real mode allows channel 1; "
-            "simulate mode allows model-specific measured channels."
+            "Positive integer output channel. Real mode allows channel 1 for "
+            "the generic path and model-specific measured channels after *IDN?."
         ),
     )
     _add_json_argument(measure_parser)
@@ -588,21 +588,6 @@ def _run_error(args: argparse.Namespace) -> int:
 
 def _run_measure(args: argparse.Namespace) -> int:
     request = _request_for_args(args)
-    if not args.simulate and args.channel not in GenericScpiPowerSupply.capabilities.real_measure_channels:
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="argument_error",
-            message=_unsupported_measure_channel_message(
-                channel=args.channel,
-                mode="real",
-                driver_name=GenericScpiPowerSupply.__name__,
-                allowed_channels=GenericScpiPowerSupply.capabilities.real_measure_channels,
-            ),
-            retryable=False,
-        )
-
     execution = _execution_for_args(args, hardware_intent=True)
     manager = _resource_manager_for_args(args)
     try:
@@ -616,14 +601,19 @@ def _run_measure(args: argparse.Namespace) -> int:
             simulate=args.simulate,
         )
     except _MeasureChannelUnsupported as exc:
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="argument_error",
-            message=str(exc),
-            retryable=False,
-        )
+        if args.json:
+            emit_json_error(
+                command="measure",
+                execution=execution,
+                request=request,
+                error_type="validation",
+                code="argument_error",
+                message=str(exc),
+                retryable=False,
+            )
+        else:
+            print(str(exc), file=sys.stderr)
+        return 2
     except (VisaConnectionError, ValueError) as exc:
         return _emit_safe_io_error(
             args,
@@ -771,6 +761,16 @@ def _measure_voltage_current(
                 instrument,
                 channel=channel,
                 log_scpi=log_scpi,
+                mode="simulate",
+            )
+
+        if channel not in GenericScpiPowerSupply.capabilities.real_measure_channels:
+            return _measure_voltage_current_with_driver(
+                resource,
+                instrument,
+                channel=channel,
+                log_scpi=log_scpi,
+                mode="real",
             )
 
         if log_scpi:
@@ -795,18 +795,24 @@ def _measure_voltage_current_with_driver(
     *,
     channel: int,
     log_scpi: bool,
+    mode: str,
 ) -> dict[str, float]:
     session = _ScpiLoggingSession(resource, instrument) if log_scpi else instrument
     idn = session.query(IDN_QUERY)
     power_supply = create_power_supply(session, idn)
     capabilities = power_supply.capabilities
-    if channel not in capabilities.simulated_measure_channels:
+    allowed_channels = (
+        capabilities.simulated_measure_channels
+        if mode == "simulate"
+        else capabilities.real_measure_channels
+    )
+    if channel not in allowed_channels:
         raise _MeasureChannelUnsupported(
             _unsupported_measure_channel_message(
                 channel=channel,
-                mode="simulate",
+                mode=mode,
                 driver_name=type(power_supply).__name__,
-                allowed_channels=capabilities.simulated_measure_channels,
+                allowed_channels=allowed_channels,
             )
         )
 

@@ -832,24 +832,69 @@ def test_measure_real_json_queries_voltage_then_current(monkeypatch, capsys) -> 
 
 
 @pytest.mark.parametrize("channel", ["2", "3"])
-def test_measure_channel_two_and_three_are_rejected_before_visa(
+def test_measure_real_e36312a_channel_two_and_three_use_channel_list_queries(
     monkeypatch,
     capsys,
     channel,
 ) -> None:
-    def fail_open_resource(*args, **kwargs):
-        raise AssertionError("real VISA resource should not be opened")
-
-    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={
+            f"MEAS:VOLT? (@{channel})": "1.234",
+            f"MEAS:CURR? (@{channel})": "0.056",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert (
-        cli.main(["measure", "--json", "--resource", OUTPUT_RESOURCE, "--channel", channel])
+        cli.main(
+            [
+                "measure",
+                "--json",
+                "--resource",
+                "USB0::FAKE::E36312A::INSTR",
+                "--channel",
+                channel,
+                "--log-scpi",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.writes == []
+    assert session.queries == [
+        "*IDN?",
+        f"MEAS:VOLT? (@{channel})",
+        f"MEAS:CURR? (@{channel})",
+    ]
+    assert session.closed is True
+    assert payload["execution"]["hardware_touched"] is True
+    assert payload["data"]["channel"] == int(channel)
+    assert payload["data"]["measurements"] == {"voltage": 1.234, "current": 0.056}
+    assert "USB0::FAKE::E36312A::INSTR SCPI >> *IDN?" in captured.err
+    assert f"USB0::FAKE::E36312A::INSTR SCPI >> MEAS:VOLT? (@{channel})" in captured.err
+    assert f"USB0::FAKE::E36312A::INSTR SCPI >> MEAS:CURR? (@{channel})" in captured.err
+
+
+def test_measure_real_generic_channel_two_is_rejected_after_idn(
+    monkeypatch,
+    capsys,
+) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36103B,MY00000000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(["measure", "--json", "--resource", OUTPUT_RESOURCE, "--channel", "2"])
         == 2
     )
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert payload["execution"]["hardware_touched"] is False
+    assert session.writes == []
+    assert session.queries == ["*IDN?"]
+    assert payload["execution"]["hardware_touched"] is True
     assert payload["error"]["type"] == "validation"
     assert payload["error"]["code"] == "argument_error"
     assert "channel 1 only" in payload["error"]["message"]

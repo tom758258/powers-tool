@@ -37,7 +37,12 @@ def test_first_target_models_are_recognized() -> None:
 
 
 def test_first_target_drivers_expose_conservative_capabilities() -> None:
-    expected = DriverCapabilities(
+    e36312a_expected = DriverCapabilities(
+        channels=(1, 2, 3),
+        simulated_measure_channels=(1, 2, 3),
+        real_measure_channels=(1, 2, 3),
+    )
+    edu36311a_expected = DriverCapabilities(
         channels=(1, 2, 3),
         simulated_measure_channels=(1, 2, 3),
         real_measure_channels=(1,),
@@ -46,8 +51,8 @@ def test_first_target_drivers_expose_conservative_capabilities() -> None:
     e36312a = select_driver("KEYSIGHT,E36312A,MY00000001,1.0")
     edu36311a = select_driver("KEYSIGHT,EDU36311A,MY00000002,1.0")
 
-    assert e36312a.capabilities == expected
-    assert edu36311a.capabilities == expected
+    assert e36312a.capabilities == e36312a_expected
+    assert edu36311a.capabilities == edu36311a_expected
 
 
 def test_generic_fallback_exposes_channel_one_measure_capability() -> None:

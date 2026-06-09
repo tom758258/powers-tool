@@ -172,7 +172,7 @@ def test_validation_error_json_keeps_contract_and_does_not_touch_visa(
             "--resource",
             SIM_RESOURCE,
             "--channel",
-            "2",
+            "0",
         ],
         capsys,
     )

@@ -10,8 +10,8 @@ remain explicit and opt-in.
 E36312A and EDU36311A now have model-specific driver foundations selected from
 valid `*IDN?` responses. Their channel-list SCPI is covered by no-hardware
 tests. Simulated CLI measurement supports channels 1, 2, and 3 for these
-models; real CLI measurement remains limited to `--channel 1` until channel 2
-and 3 behavior is validated on real instruments.
+models. Real CLI measurement keeps generic instruments on channel 1, and
+E36312A channels 2 and 3 use IDN-selected channel-list measurement queries.
 
 ## Development
 
@@ -93,11 +93,16 @@ Read the instrument error queue without changing output state:
 .\.venv\Scripts\python.exe -m keysight_power.cli error --resource "USB0::...::INSTR" --max-reads 20 --log-scpi
 ```
 
-Measure voltage and current for the generic real-mode path. Only `--channel 1`
-is accepted in real mode until model-specific channel SCPI is validated:
+Measure voltage and current for the generic real-mode path:
 
 ```powershell
 .\.venv\Scripts\python.exe -m keysight_power.cli measure --resource "USB0::...::INSTR" --channel 1 --log-scpi
+```
+
+Measure E36312A channels 2 and 3 with IDN-selected channel-list queries:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli measure --resource "USB0::...::INSTR" --channel 2 --log-scpi
 ```
 
 Simulate first-target model measurement without hardware:

@@ -18,7 +18,7 @@ class E36312APowerSupply(GenericScpiPowerSupply):
     capabilities = DriverCapabilities(
         channels=(1, 2, 3),
         simulated_measure_channels=(1, 2, 3),
-        real_measure_channels=(1,),
+        real_measure_channels=(1, 2, 3),
     )
 
     def __init__(
