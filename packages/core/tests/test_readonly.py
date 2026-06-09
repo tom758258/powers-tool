@@ -92,6 +92,8 @@ def test_live_panel_read_returns_only_panel_fields():
         "over_voltage_tripped",
         "over_current_tripped",
         "protection_tripped",
+        "over_voltage_protection_level",
+        "over_current_protection_enabled",
         "setpoints",
         "measurements",
     }
@@ -100,6 +102,8 @@ def test_live_panel_read_returns_only_panel_fields():
     assert res["channels"][0]["over_voltage_tripped"] is False
     assert res["channels"][0]["over_current_tripped"] is False
     assert res["channels"][0]["protection_tripped"] is False
+    assert isinstance(res["channels"][0]["over_voltage_protection_level"], float)
+    assert res["channels"][0]["over_current_protection_enabled"] in {True, False}
     assert "protection_settings" not in res
     assert "errors" not in res
     assert "read_count" not in res

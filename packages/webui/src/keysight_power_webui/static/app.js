@@ -41,6 +41,24 @@ const PARAMS = {
     { name: "ocp", type: "select", label: "OCP", options: ["", "on", "off"], value: "" }
   ],
   "clear-protection": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
+  "trigger-pulse": [
+    { name: "pins", type: "text", label: "Pins", value: "1", parser: "intList" },
+    { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
+    { name: "polarity", type: "select", label: "Polarity", options: ["positive", "negative"], value: "positive" },
+    { name: "exclusive_pins", type: "checkbox", label: "Exclusive pins" }
+  ],
+  "trigger-status": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
+  "trigger-step": triggerStepParams(),
+  "trigger-list": triggerListParams(),
+  "trigger-fire": [
+    { name: "channel", type: "select", label: "Channel", options: ["", "1", "2", "3"], value: "", optional: true },
+    { name: "wait_complete", type: "checkbox", label: "Wait complete" },
+    ...triggerWaitParams()
+  ],
+  "trigger-abort": [
+    { name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" },
+    { name: "max_errors", type: "number", label: "Max errors", value: 20 }
+  ],
   identify: [],
   snapshot: [{ name: "max_errors", type: "number", label: "Max errors", value: 20 }],
   sequence: [{ name: "document", type: "textarea", label: "Sequence document", value: "{}" }]
@@ -66,6 +84,44 @@ function smokeOutputParams() {
     { name: "voltage", type: "number", label: "Voltage", value: 1 },
     { name: "current", type: "number", label: "Current", value: 0.1 },
     { name: "duration_ms", type: "number", label: "Duration ms", value: 100 }
+  ];
+}
+
+function triggerStepParams() {
+  return [
+    { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
+    { name: "voltage", type: "number", label: "Triggered V", optional: true },
+    { name: "current", type: "number", label: "Triggered A", optional: true },
+    { name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus" },
+    { name: "fire", type: "checkbox", label: "Fire now" },
+    { name: "wait_complete", type: "checkbox", label: "Wait complete" },
+    ...triggerWaitParams(),
+    { name: "leave_trigger_configured", type: "checkbox", label: "Leave configured" }
+  ];
+}
+
+function triggerListParams() {
+  return [
+    { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
+    { name: "voltage_list", type: "text", label: "Voltage list", value: "0,1", parser: "numberList" },
+    { name: "current_list", type: "text", label: "Current list", value: "0.05", parser: "numberList" },
+    { name: "dwell_list", type: "text", label: "Dwell list", value: "0.01", parser: "numberList" },
+    { name: "count", type: "number", label: "Count", value: 1 },
+    { name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus" },
+    { name: "fire", type: "checkbox", label: "Fire now" },
+    { name: "wait_complete", type: "checkbox", label: "Wait complete" },
+    { name: "completion_pulse_pins", type: "text", label: "Pulse pins", optional: true, parser: "intList" },
+    { name: "completion_pulse_polarity", type: "select", label: "Pulse polarity", options: ["positive", "negative"], value: "positive" },
+    { name: "exclusive_pins", type: "checkbox", label: "Exclusive pins" },
+    ...triggerWaitParams(),
+    { name: "leave_trigger_configured", type: "checkbox", label: "Leave configured" }
+  ];
+}
+
+function triggerWaitParams() {
+  return [
+    { name: "poll_ms", type: "number", label: "Poll ms", value: 200 },
+    { name: "wait_timeout_ms", type: "number", label: "Timeout ms", optional: true }
   ];
 }
 
@@ -121,7 +177,7 @@ function renderCommands() {
   const CATEGORY_LABELS = {
     "output": "Output",
     "trigger": "Trigger",
-    "artifact": "Artifact",
+    "artifact": "Workflows & State",
     "discovery": "Advanced Diagnostics"
   };
 
@@ -278,17 +334,37 @@ function parameterPayload() {
   (PARAMS[state.selected] || []).forEach((param) => {
     const input = document.getElementById(`param-${param.name}`);
     if (!input) return;
-    if (param.type === "checkbox") payload[param.name] = input.checked;
-    else if (param.type === "number") payload[param.name] = input.value === "" ? null : Number(input.value);
-    else if (param.type === "textarea") payload[param.name] = parseMaybeJson(input.value);
-    else if (input.value !== "") payload[param.name] = param.name === "channel" ? normalizeChannelValue(input.value) : input.value;
+    const parsed = parameterValue(param, input);
+    if (parsed !== undefined) payload[param.name] = parsed;
   });
   return payload;
+}
+
+function parameterValue(param, input) {
+  if (param.type === "checkbox") return input.checked;
+  if (param.type === "number") {
+    if (input.value === "") return param.optional ? undefined : null;
+    return Number(input.value);
+  }
+  if (param.type === "textarea") return parseMaybeJson(input.value);
+  if (input.value === "") return undefined;
+  if (param.name === "channel") return normalizeChannelValue(input.value);
+  if (param.parser === "intList") return parseDelimitedNumbers(input.value, true);
+  if (param.parser === "numberList") return parseDelimitedNumbers(input.value, false);
+  return input.value;
 }
 
 function normalizeChannelValue(value) {
   if (value === "all") return value;
   return /^[1-9]\d*$/.test(value) ? Number(value) : value;
+}
+
+function parseDelimitedNumbers(value, integerOnly) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => integerOnly ? parseInt(item, 10) : Number(item));
 }
 
 function commandDisplayName(name) {
@@ -619,7 +695,9 @@ function blankLiveChannels() {
     set_current: null,
     over_voltage_tripped: null,
     over_current_tripped: null,
-    protection_tripped: null
+    protection_tripped: null,
+    over_voltage_protection_level: null,
+    over_current_protection_enabled: null
   }));
 }
 
@@ -644,7 +722,9 @@ function mergeLiveChannel(previous, incoming, preservePreviousValues) {
     "set_current",
     "over_voltage_tripped",
     "over_current_tripped",
-    "protection_tripped"
+    "protection_tripped",
+    "over_voltage_protection_level",
+    "over_current_protection_enabled"
   ].forEach((key) => {
     if (incoming[key] === null || incoming[key] === undefined) next[key] = previous[key];
   });
@@ -661,11 +741,11 @@ function renderChannelCard(channel, sample) {
   card.innerHTML = `
     <div class="live-card-head">
       <strong>CH${channel.channel}</strong>
-      <span class="status-badge ${outputClass}">${outputText}</span>
-    </div>
-    <div class="protection-badges">
-      ${protectionBadge("OVP", channel.over_voltage_tripped)}
-      ${protectionBadge("OCP", channel.over_current_tripped)}
+      <div class="live-status-badges">
+        ${protectionBadge("OVP", channel.over_voltage_tripped)}
+        ${protectionBadge("OCP", channel.over_current_tripped)}
+        <span class="status-badge ${outputClass}">${outputText}</span>
+      </div>
     </div>
     <div class="live-measured">
       <div><span>${formatNum(channel.measured_voltage)}</span><small>OUT V</small></div>
@@ -675,6 +755,10 @@ function renderChannelCard(channel, sample) {
       <div><span>${formatNum(channel.set_voltage)}</span><small>SET V</small></div>
       <div><span>${formatNum(channel.set_current)}</span><small>SET A</small></div>
     </div>
+    <div class="protection-settings">
+      <span>OVP ${formatProtectionVoltage(channel.over_voltage_protection_level)}</span>
+      <span>OCP ${formatProtectionState(channel.over_current_protection_enabled)}</span>
+    </div>
   `;
 }
 
@@ -682,6 +766,14 @@ function protectionBadge(label, tripped) {
   const stateClass = tripped === true ? "trip" : tripped === false ? "ok" : "unknown";
   const stateText = tripped === true ? "TRIP" : tripped === false ? "OK" : "--";
   return `<span class="protection-badge ${stateClass}">${label} ${stateText}</span>`;
+}
+
+function formatProtectionVoltage(value) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(4)} V` : "--";
+}
+
+function formatProtectionState(value) {
+  return value === true ? "ON" : value === false ? "OFF" : "--";
 }
 
 function drawTrend() {

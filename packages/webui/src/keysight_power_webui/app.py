@@ -62,12 +62,12 @@ COMMAND_METADATA = {
     "smoke-output": {"description": "Run guarded output diagnostic", "requires_confirm": True, "category": "discovery"},
     "protection-set": {"description": "Set protection limits", "requires_confirm": True, "category": "output"},
     "clear-protection": {"description": "Clear protection latches", "requires_confirm": True, "category": "output"},
-    "trigger-pulse": {"description": "Configure and fire trigger pulse", "requires_confirm": False, "category": "trigger"},
-    "trigger-status": {"description": "Read trigger status", "requires_confirm": False, "category": "trigger"},
-    "trigger-step": {"description": "Configure native STEP trigger", "requires_confirm": False, "category": "trigger"},
-    "trigger-list": {"description": "Configure native LIST trigger", "requires_confirm": False, "category": "trigger"},
-    "trigger-fire": {"description": "Fire armed BUS trigger", "requires_confirm": False, "category": "trigger"},
-    "trigger-abort": {"description": "Abort active trigger", "requires_confirm": False, "category": "trigger"},
+    "trigger-pulse": {"description": "Configure rear trigger output pins and emit a BUS trigger pulse", "requires_confirm": False, "category": "trigger"},
+    "trigger-status": {"description": "Read digital pin, trigger source, STEP, and LIST state", "requires_confirm": False, "category": "trigger"},
+    "trigger-step": {"description": "Configure a STEP transient trigger and optionally fire it", "requires_confirm": False, "category": "trigger"},
+    "trigger-list": {"description": "Configure a LIST transient waveform and optionally fire it", "requires_confirm": False, "category": "trigger"},
+    "trigger-fire": {"description": "Send *TRG to an already armed BUS trigger", "requires_confirm": False, "category": "trigger"},
+    "trigger-abort": {"description": "Abort trigger or LIST execution for selected channels", "requires_confirm": False, "category": "trigger"},
     "sequence": {"description": "Execute sequence document", "requires_confirm": True, "category": "artifact"},
     "snapshot": {"description": "Create hardware snapshot", "requires_confirm": False, "category": "artifact"},
     "snapshot-diff": {"description": "Compare snapshots", "requires_confirm": False, "category": "artifact"},
@@ -429,6 +429,8 @@ def _blank_live_channels() -> list[dict[str, Any]]:
             "over_voltage_tripped": None,
             "over_current_tripped": None,
             "protection_tripped": None,
+            "over_voltage_protection_level": None,
+            "over_current_protection_enabled": None,
         }
         for channel in (1, 2, 3)
     ]
@@ -449,7 +451,7 @@ def _records_by_channel(records: Any) -> dict[int, dict[str, Any]]:
     return by_channel
 
 
-def _protection_fields(record: dict[str, Any]) -> dict[str, bool | None]:
+def _protection_fields(record: dict[str, Any]) -> dict[str, bool | float | int | None]:
     over_voltage = _bool_or_none(record.get("over_voltage_tripped"))
     over_current = _bool_or_none(record.get("over_current_tripped"))
     protection = _bool_or_none(record.get("protection_tripped"))
@@ -462,6 +464,8 @@ def _protection_fields(record: dict[str, Any]) -> dict[str, bool | None]:
         "over_voltage_tripped": over_voltage,
         "over_current_tripped": over_current,
         "protection_tripped": protection,
+        "over_voltage_protection_level": _number_or_none(record.get("over_voltage_protection_level")),
+        "over_current_protection_enabled": _bool_or_none(record.get("over_current_protection_enabled")),
     }
 
 

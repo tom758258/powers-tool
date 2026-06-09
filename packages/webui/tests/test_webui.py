@@ -159,6 +159,8 @@ def test_static_live_data_uses_three_channel_panel_contract():
         "over_voltage_tripped",
         "over_current_tripped",
         "protection_tripped",
+        "over_voltage_protection_level",
+        "over_current_protection_enabled",
         "stale",
         "error",
     ):
@@ -166,15 +168,36 @@ def test_static_live_data_uses_three_channel_panel_contract():
     render_channel_card = app_js[app_js.index("function renderChannelCard(channel, sample)"):app_js.index("function drawTrend()")]
     assert "live-card-foot" not in render_channel_card
     assert "sample.timestamp" not in render_channel_card
+    head_start = render_channel_card.index('<div class="live-card-head">')
+    head_end = render_channel_card.index('<div class="live-measured">')
+    head_markup = render_channel_card[head_start:head_end]
+    assert "live-status-badges" in head_markup
     assert "protectionBadge(\"OVP\", channel.over_voltage_tripped)" in render_channel_card
     assert "protectionBadge(\"OCP\", channel.over_current_tripped)" in render_channel_card
+    assert (
+        head_markup.index('protectionBadge("OVP", channel.over_voltage_tripped)')
+        < head_markup.index('protectionBadge("OCP", channel.over_current_tripped)')
+        < head_markup.index('status-badge ${outputClass}')
+    )
+    assert (
+        render_channel_card.index('<div class="live-setpoints">')
+        < render_channel_card.index('<div class="protection-settings">')
+    )
+    assert "formatProtectionVoltage(channel.over_voltage_protection_level)" in render_channel_card
+    assert "formatProtectionState(channel.over_current_protection_enabled)" in render_channel_card
     assert "protection-tripped" in render_channel_card
+    assert "function formatProtectionVoltage(value)" in app_js
+    assert "function formatProtectionState(value)" in app_js
     assert "last update" in app_js
 
     assert ".live-cards" in styles_css
     assert ".live-card-foot" not in styles_css
+    assert ".live-status-badges" in styles_css
     assert ".status-badge.on" in styles_css
+    assert "background: var(--ok)" in styles_css
+    assert "color: #fff" in styles_css
     assert ".protection-badge.trip" in styles_css
+    assert ".protection-settings" in styles_css
     assert ".live-card.protection-tripped" in styles_css
     assert ".live-card.stale" in styles_css
     assert ".live-state-field strong" in styles_css
@@ -235,6 +258,8 @@ def test_static_command_display_names_are_sorted_and_capitalized_without_renamin
     assert "Read-Only" not in render_commands
     assert "read-only" not in render_commands
     assert "grid-template-columns: repeat(4, 1fr);" in (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+    assert '"artifact": "Workflows & State"' in render_commands
+    assert '"artifact": "Artifact"' not in render_commands
     assert '"discovery": "Advanced Diagnostics"' in render_commands
     assert '"discovery": "Discovery"' not in render_commands
     assert ".sort((a, b) => a[0].localeCompare(b[0]))" in render_commands
@@ -304,7 +329,11 @@ def test_static_channel_confirmation_and_job_detail_contracts():
         assert f'"{command}"' not in params_block
     assert '"smoke-output": [...baseOutputParams()' not in app_js
 
-    assert 'param.name === "channel" ? normalizeChannelValue(input.value) : input.value' in app_js
+    assert "function parameterValue(param, input)" in app_js
+    assert 'if (param.name === "channel") return normalizeChannelValue(input.value);' in app_js
+    assert 'if (param.parser === "intList") return parseDelimitedNumbers(input.value, true);' in app_js
+    assert 'if (param.parser === "numberList") return parseDelimitedNumbers(input.value, false);' in app_js
+    assert "function parseDelimitedNumbers(value, integerOnly)" in app_js
     assert "function normalizeChannelValue(value)" in app_js
     assert 'if (value === "all") return value;' in app_js
     assert 'return /^[1-9]\\d*$/.test(value) ? Number(value) : value;' in app_js
@@ -335,6 +364,33 @@ def test_static_form_has_no_advanced_json_injection():
     assert ".advanced" not in styles_css
     assert "advanced JSON editor" not in readme
     assert "typed controls and sequence-document JSON input" in readme
+
+
+def test_static_trigger_forms_have_advanced_parameters():
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    params_block = app_js[app_js.index("const PARAMS = {"):app_js.index("function baseOutputParams()")]
+
+    for command in (
+        "trigger-pulse",
+        "trigger-status",
+        "trigger-step",
+        "trigger-list",
+        "trigger-fire",
+        "trigger-abort",
+    ):
+        assert f'"{command}"' in params_block
+
+    assert 'triggerStepParams()' in params_block
+    assert 'triggerListParams()' in params_block
+    assert 'function triggerStepParams()' in app_js
+    assert 'function triggerListParams()' in app_js
+    assert 'function triggerWaitParams()' in app_js
+    assert 'name: "pins", type: "text", label: "Pins", value: "1", parser: "intList"' in app_js
+    assert 'name: "voltage_list", type: "text", label: "Voltage list", value: "0,1", parser: "numberList"' in app_js
+    assert 'name: "completion_pulse_pins", type: "text", label: "Pulse pins", optional: true, parser: "intList"' in app_js
+    assert 'name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus"' in app_js
+    assert 'name: "wait_timeout_ms", type: "number", label: "Timeout ms", optional: true' in app_js
+    assert 'name: "leave_trigger_configured", type: "checkbox", label: "Leave configured"' in app_js
 
 
 @pytest.fixture
@@ -389,6 +445,12 @@ def test_commands_metadata(client: TestClient):
     assert cmds["identify"]["category"] == "discovery"
     assert cmds["identify"]["description"] == "Read instrument identification information"
     assert cmds["readback"]["category"] == "discovery"
+    assert cmds["trigger-pulse"]["description"] == "Configure rear trigger output pins and emit a BUS trigger pulse"
+    assert cmds["trigger-status"]["description"] == "Read digital pin, trigger source, STEP, and LIST state"
+    assert cmds["trigger-step"]["description"] == "Configure a STEP transient trigger and optionally fire it"
+    assert cmds["trigger-list"]["description"] == "Configure a LIST transient waveform and optionally fire it"
+    assert cmds["trigger-fire"]["description"] == "Send *TRG to an already armed BUS trigger"
+    assert cmds["trigger-abort"]["description"] == "Abort trigger or LIST execution for selected channels"
     
     # Check output-affecting commands are marked correctly
     assert cmds["output-on"]["requires_confirm"] is True
@@ -427,6 +489,59 @@ def test_command_coverage(client: TestClient):
     assert not (WEBUI_HIDDEN_UNSUPPORTED_COMMANDS & webui_commands)
     for model_support in data["command_support_by_model"].values():
         assert set(model_support) <= webui_commands
+
+
+@pytest.mark.parametrize(
+    ("command", "parameters"),
+    [
+        ("trigger-pulse", {"pins": [1], "channel": 1, "polarity": "positive", "exclusive_pins": False}),
+        ("trigger-status", {"channel": "all"}),
+        ("trigger-step", {"channel": 1, "source": "bus", "fire": True, "wait_complete": False, "poll_ms": 200}),
+        (
+            "trigger-list",
+            {
+                "channel": 1,
+                "voltage_list": [0.0, 1.0],
+                "current_list": [0.05],
+                "dwell_list": [0.01],
+                "count": 1,
+                "source": "bus",
+                "fire": True,
+                "wait_complete": False,
+                "completion_pulse_pins": [1],
+                "completion_pulse_polarity": "positive",
+                "exclusive_pins": False,
+                "poll_ms": 200,
+                "leave_trigger_configured": False,
+            },
+        ),
+        ("trigger-fire", {"channel": 1, "wait_complete": False, "poll_ms": 200}),
+        ("trigger-abort", {"channel": "all", "max_errors": 20}),
+    ],
+)
+def test_trigger_commands_submit_in_dry_run(client: TestClient, command: str, parameters: dict[str, Any]):
+    payload = {
+        "command": command,
+        "runtime": {
+            "resource": "USB0::FAKE::E36312A::INSTR",
+            "dry_run": True,
+            "simulate": False,
+        },
+        "parameters": parameters,
+    }
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+
+    job_id = response.json()["job_id"]
+    for _ in range(20):
+        res = client.get(f"/api/jobs/{job_id}")
+        if res.json()["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.05)
+
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    assert job_data["status"] == "finished", job_data.get("error")
+    assert job_data["result"]["plan"]["operation"]["name"] == command
 
 
 def test_hidden_list_resources_direct_submit_succeeds(client: TestClient):
@@ -851,6 +966,8 @@ def test_live_data_live_panel_emits_three_channel_panel_sample(client: TestClien
     assert [channel["over_voltage_tripped"] for channel in sample["channels"]] == [False, False, False]
     assert [channel["over_current_tripped"] for channel in sample["channels"]] == [True, True, True]
     assert [channel["protection_tripped"] for channel in sample["channels"]] == [True, True, True]
+    assert [channel["over_voltage_protection_level"] for channel in sample["channels"]] == [5.0, 6.0, 7.0]
+    assert [channel["over_current_protection_enabled"] for channel in sample["channels"]] == [True, False, True]
     assert calls
     assert calls[0][0].simulate is False
     assert calls[0][1] == {}
@@ -890,7 +1007,10 @@ def test_live_data_live_panel_unwraps_envelope(client: TestClient, monkeypatch: 
     assert sample["channels"][0]["over_voltage_tripped"] is False
     assert sample["channels"][0]["over_current_tripped"] is False
     assert sample["channels"][0]["protection_tripped"] is False
+    assert sample["channels"][0]["over_voltage_protection_level"] == 5.0
+    assert sample["channels"][0]["over_current_protection_enabled"] is True
     assert sample["channels"][1]["set_voltage"] == 0.0
+    assert sample["channels"][1]["over_current_protection_enabled"] is False
     assert sample["channels"][2]["measured_current"] == 0.0
 
     assert client.post(f"/api/live/{job_id}/stop").status_code == 200
@@ -922,6 +1042,8 @@ def test_live_data_live_panel_with_no_panel_records_is_stale_error(client: TestC
     assert "did not include output, readback, or measurement records" in sample["message"]
     assert [channel["measured_voltage"] for channel in sample["channels"]] == [None, None, None]
     assert [channel["protection_tripped"] for channel in sample["channels"]] == [None, None, None]
+    assert [channel["over_voltage_protection_level"] for channel in sample["channels"]] == [None, None, None]
+    assert [channel["over_current_protection_enabled"] for channel in sample["channels"]] == [None, None, None]
 
     assert client.post(f"/api/live/{job_id}/stop").status_code == 200
 
@@ -946,12 +1068,16 @@ def test_live_data_panel_sample_normalizes_numeric_values():
                     "channel": 1,
                     "over_voltage_tripped": "0",
                     "over_current_tripped": "1",
+                    "over_voltage_protection_level": "5.5",
+                    "over_current_protection_enabled": "on",
                 },
                 {
                     "channel": 2,
                     "over_voltage_tripped": None,
                     "over_current_tripped": None,
                     "protection_tripped": "false",
+                    "over_voltage_protection_level": "nan",
+                    "over_current_protection_enabled": "off",
                 },
             ],
         },
@@ -971,7 +1097,11 @@ def test_live_data_panel_sample_normalizes_numeric_values():
     assert sample["channels"][0]["over_voltage_tripped"] is False
     assert sample["channels"][0]["over_current_tripped"] is True
     assert sample["channels"][0]["protection_tripped"] is True
+    assert sample["channels"][0]["over_voltage_protection_level"] == 5.5
+    assert sample["channels"][0]["over_current_protection_enabled"] is True
     assert sample["channels"][1]["protection_tripped"] is False
+    assert sample["channels"][1]["over_voltage_protection_level"] is None
+    assert sample["channels"][1]["over_current_protection_enabled"] is False
 
 
 def test_live_data_real_mode_reports_busy_without_live_panel_call(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -1003,6 +1133,8 @@ def test_live_data_real_mode_reports_busy_without_live_panel_call(client: TestCl
     assert [channel["channel"] for channel in event["data"]["channels"]] == [1, 2, 3]
     assert [channel["measured_voltage"] for channel in event["data"]["channels"]] == [None, None, None]
     assert [channel["protection_tripped"] for channel in event["data"]["channels"]] == [None, None, None]
+    assert [channel["over_voltage_protection_level"] for channel in event["data"]["channels"]] == [None, None, None]
+    assert [channel["over_current_protection_enabled"] for channel in event["data"]["channels"]] == [None, None, None]
 
     assert client.post(f"/api/live/{job_id}/stop").status_code == 200
     job_manager.active_job_id = None
@@ -1154,9 +1286,27 @@ def _fake_live_panel(resource: str) -> dict[str, Any]:
             {"channel": 3, "measurements": {"voltage": 3.3, "current": 0.33}},
         ],
         "channels": [
-            {"channel": 1, "over_voltage_tripped": False, "over_current_tripped": True},
-            {"channel": 2, "over_voltage_tripped": False, "over_current_tripped": True},
-            {"channel": 3, "over_voltage_tripped": False, "over_current_tripped": True},
+            {
+                "channel": 1,
+                "over_voltage_tripped": False,
+                "over_current_tripped": True,
+                "over_voltage_protection_level": 5.0,
+                "over_current_protection_enabled": True,
+            },
+            {
+                "channel": 2,
+                "over_voltage_tripped": False,
+                "over_current_tripped": True,
+                "over_voltage_protection_level": 6.0,
+                "over_current_protection_enabled": False,
+            },
+            {
+                "channel": 3,
+                "over_voltage_tripped": False,
+                "over_current_tripped": True,
+                "over_voltage_protection_level": 7.0,
+                "over_current_protection_enabled": True,
+            },
         ],
     }
 
@@ -1180,9 +1330,27 @@ def _fake_e36312a_live_panel(resource: str) -> dict[str, Any]:
             {"channel": 3, "measurements": {"voltage": "0.0", "current": "0.0"}},
         ],
         "channels": [
-            {"channel": 1, "over_voltage_tripped": False, "over_current_tripped": False},
-            {"channel": 2, "over_voltage_tripped": False, "over_current_tripped": False},
-            {"channel": 3, "over_voltage_tripped": False, "over_current_tripped": False},
+            {
+                "channel": 1,
+                "over_voltage_tripped": False,
+                "over_current_tripped": False,
+                "over_voltage_protection_level": "5.0",
+                "over_current_protection_enabled": "1",
+            },
+            {
+                "channel": 2,
+                "over_voltage_tripped": False,
+                "over_current_tripped": False,
+                "over_voltage_protection_level": "5.0",
+                "over_current_protection_enabled": "0",
+            },
+            {
+                "channel": 3,
+                "over_voltage_tripped": False,
+                "over_current_tripped": False,
+                "over_voltage_protection_level": "5.0",
+                "over_current_protection_enabled": "1",
+            },
         ],
     }
 
