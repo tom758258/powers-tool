@@ -13,7 +13,9 @@ tests. Simulated CLI measurement supports channels 1, 2, and 3 for these
 models. Real CLI measurement keeps generic instruments on channel 1, and
 E36312A channels 2 and 3 use IDN-selected channel-list measurement queries.
 Real CLI `set` is supported only for E36312A channels 1, 2, and 3. It writes
-the current limit before voltage and does not enable output.
+the current limit before voltage and does not enable output. Real CLI
+`output-on` is also supported only for E36312A channels 1, 2, and 3; after
+`*IDN?` it sends only `OUTP ON,(@N)` and does not set voltage or current.
 
 ## Development
 
@@ -133,6 +135,16 @@ Real `set` first confirms the selected resource is an E36312A with `*IDN?`,
 then sends `CURR <current>,(@N)` followed by `VOLT <voltage>,(@N)`. Channels
 other than 1, 2, and 3 are rejected.
 
+Enable an E36312A output only after setpoints are already safe:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli output-on --json --resource "USB0::...::INSTR" --channel 1 --log-scpi
+```
+
+Real `output-on` first confirms the selected resource is an E36312A with
+`*IDN?`, then sends only `OUTP ON,(@N)`. It does not query or change voltage or
+current setpoints.
+
 Add an explicit safety config to apply local global limits to output plans:
 
 ```powershell
@@ -180,10 +192,11 @@ query behavior:
 ## Safety Defaults
 
 - Output-affecting behavior must be explicit.
-- Real output execution is disabled except for E36312A `set` and `output-off`
-  on explicit channels 1, 2, or 3. Real `set` does not enable output.
-- `output-on` and `safe-off` remain disabled in real mode; use `--dry-run` or
-  `--simulate` for planning.
+- Real output execution is disabled except for E36312A `set`, `output-on`, and
+  `output-off` on explicit channels 1, 2, or 3. Real `set` does not enable
+  output. Real `output-on` does not set voltage or current.
+- `safe-off` remains disabled in real mode; use `--dry-run` or `--simulate`
+  for planning.
 - Real `clear`, `error`, and `measure` are safe I/O commands: `clear` sends
   `*CLS` and clears status/error state, while `error` and `measure` only query.
 - `--safety-config` is explicit only and applies local plan validation limits;
