@@ -333,6 +333,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_simulate_argument(safe_off_parser)
     _add_dry_run_argument(safe_off_parser)
     _add_safety_config_argument(safe_off_parser)
+    _add_backend_argument(safe_off_parser)
+    _add_timeout_argument(safe_off_parser)
+    safe_off_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
     safe_off_parser.set_defaults(func=_run_output_plan)
 
     output_state_parser = subparsers.add_parser(
@@ -456,6 +463,12 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         type=_trigger_pin,
         help="Rear digital trigger output pin 1, 2, or 3.",
+    )
+    trigger_pulse_parser.add_argument(
+        "--channel",
+        type=_e36312a_channel,
+        default=1,
+        help="E36312A output channel to arm for the BUS trigger: 1, 2, or 3.",
     )
     trigger_pulse_parser.add_argument(
         "--polarity",
@@ -1196,7 +1209,7 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
             retryable=False,
         )
 
-    scpi = _trigger_pulse_scpi(args.pin, args.polarity)
+    scpi = _trigger_pulse_scpi(args.pin, args.polarity, args.channel)
     if args.dry_run:
         plan = dry_run_plan(
             command=args.command,
@@ -1204,7 +1217,8 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
             scpi=scpi,
             description=(
                 "Preview configuring an E36312A rear digital trigger output pin "
-                "and issuing *TRG. *TRG may also trigger any already armed "
+                "then arming a channel with TRIG:SOUR BUS and INIT before "
+                "issuing *TRG. *TRG may also trigger any already armed "
                 "BUS-triggered behavior on the instrument."
             ),
         )
@@ -1236,9 +1250,17 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
                     "trigger-pulse is only supported for E36312A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
+            voltage = power_supply.programmed_voltage(channel=args.channel)
+            current = power_supply.programmed_current(channel=args.channel)
             power_supply.configure_trigger_output_pin(args.pin, args.polarity)
             power_supply.enable_trigger_output_bus(True)
-            power_supply.trigger_pulse()
+            power_supply.set_triggered_current(channel=args.channel, current=current)
+            power_supply.set_triggered_voltage(channel=args.channel, voltage=voltage)
+            power_supply.set_current_trigger_mode_step(args.channel)
+            power_supply.set_voltage_trigger_mode_step(args.channel)
+            power_supply.configure_output_trigger_source_bus(args.channel)
+            power_supply.trigger_pulse(channel=args.channel)
+            _raise_on_instrument_errors(power_supply, "trigger-pulse")
     except _TriggerPulseModelError as exc:
         return _emit_cli_error(
             args,
@@ -1275,8 +1297,13 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
     data = {
         "resource": args.resource,
         "pin": args.pin,
+        "channel": args.channel,
         "polarity": args.polarity,
         "triggered": True,
+        "trigger_setpoints": {
+            "current": _json_safe_number(current),
+            "voltage": _json_safe_number(voltage),
+        },
     }
     if args.json:
         emit_json_success(
@@ -1552,6 +1579,7 @@ def _run_clear_protection(args: argparse.Namespace) -> int:
             channels = _channels_from_selection(selected_channel, power_supply.capabilities.channels)
             for channel in channels:
                 power_supply.clear_output_protection(channel=channel)
+            _raise_on_instrument_errors(power_supply, "clear-protection")
     except _ClearProtectionModelError as exc:
         return _emit_cli_error(
             args,
@@ -1677,6 +1705,7 @@ def _run_protection_set(args: argparse.Namespace) -> int:
                         channel=channel,
                         enabled=args.ocp == "on",
                     )
+            _raise_on_instrument_errors(power_supply, "protection-set")
     except _ProtectionSetModelError as exc:
         return _emit_cli_error(
             args,
@@ -2020,12 +2049,18 @@ def _resolve_optional_resource_alias(args: argparse.Namespace) -> None:
     _safety_limits_for_args(args)
 
 
-def _trigger_pulse_scpi(pin: int, polarity: str) -> tuple[str, ...]:
+def _trigger_pulse_scpi(pin: int, polarity: str, channel: int) -> tuple[str, ...]:
     polarity_command = "POS" if polarity == "positive" else "NEG"
     return (
         f"DIG:PIN{pin}:FUNC TOUT",
         f"DIG:PIN{pin}:POL {polarity_command}",
         "DIG:TOUT:BUS ON",
+        f"CURR:TRIG <current-readback>,(@{channel})",
+        f"VOLT:TRIG <voltage-readback>,(@{channel})",
+        f"CURR:MODE STEP,(@{channel})",
+        f"VOLT:MODE STEP,(@{channel})",
+        f"TRIG:SOUR BUS,(@{channel})",
+        f"INIT (@{channel})",
         "*TRG",
     )
 
@@ -2046,6 +2081,20 @@ def _read_error_queue_from_driver(
             break
         errors.append(response)
     return errors, read_count
+
+
+def _raise_on_instrument_errors(
+    power_supply: GenericScpiPowerSupply,
+    operation: str,
+    *,
+    max_reads: int = 20,
+) -> None:
+    errors, _ = _read_error_queue_from_driver(power_supply, max_reads)
+    if errors:
+        raise ValueError(
+            f"{operation} left instrument error queue entries: "
+            + "; ".join(errors)
+        )
 
 
 def _run_e36312a_read_command(
@@ -2460,6 +2509,7 @@ def _run_set_real(args: argparse.Namespace) -> int:
                 )
             power_supply.set_current_limit(channel=args.channel, current=args.current)
             power_supply.set_voltage(channel=args.channel, voltage=args.voltage)
+            _raise_on_instrument_errors(power_supply, "set")
     except _SetModelError as exc:
         return _emit_cli_error(
             args,
@@ -2657,6 +2707,7 @@ def _run_cycle_output_real(args: argparse.Namespace) -> int:
             power_supply.output_on(channel=args.channel)
             time.sleep(args.duration_ms / 1000)
             power_supply.output_off(channel=args.channel)
+            _raise_on_instrument_errors(power_supply, "cycle-output")
     except _CycleOutputModelError as exc:
         return _emit_cli_error(
             args,
@@ -2758,6 +2809,7 @@ def _run_apply_real(args: argparse.Namespace) -> int:
             if not args.no_output:
                 for channel in channels:
                     power_supply.output_on(channel=channel)
+            _raise_on_instrument_errors(power_supply, "apply")
     except _ApplyModelError as exc:
         return _emit_cli_error(
             args,
@@ -2865,6 +2917,7 @@ def _run_output_on_real(args: argparse.Namespace) -> int:
             if safety_limits is not None:
                 _validate_readback_for_output_on(args.channel, readback["setpoints"], safety_limits)
             power_supply.output_on(channel=args.channel)
+            _raise_on_instrument_errors(power_supply, "output-on")
     except _OutputOnModelError as exc:
         return _emit_cli_error(
             args,
@@ -2973,8 +3026,9 @@ def _run_output_off_real(args: argparse.Namespace) -> int:
                 raise _OutputOffChannelError(
                     f"channel {args.channel} is not supported for output-off; "
                     f"supported: {capabilities.channels}"
-                )
+            )
             power_supply.output_off(channel=args.channel)
+            _raise_on_instrument_errors(power_supply, "output-off")
     except _OutputOffModelError as exc:
         return _emit_cli_error(
             args,
@@ -3088,6 +3142,7 @@ def _run_safe_off_real(args: argparse.Namespace) -> int:
                         "enabled": power_supply.output_state(channel=args.channel),
                     }
                 ]
+            _raise_on_instrument_errors(power_supply, "safe-off")
     except _SafeOffModelError as exc:
         return _emit_cli_error(
             args,
@@ -3197,6 +3252,7 @@ def _run_smoke_output_real(args: argparse.Namespace) -> int:
                     safe_off_attempted = True
                     power_supply.output_off(channel=args.channel)
             final_enabled = power_supply.output_state(channel=args.channel)
+            _raise_on_instrument_errors(power_supply, "smoke-output")
     except _SmokeOutputModelError as exc:
         return _emit_cli_error(
             args,
@@ -3613,6 +3669,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "pin": args.pin,
+            "channel": getattr(args, "channel", 1),
             "polarity": args.polarity,
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
@@ -3811,6 +3868,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "pin": _pin_from_argv(argv),
+            "channel": _channel_from_argv(argv) or 1,
             "polarity": _option_value(argv, "--polarity") or "positive",
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),

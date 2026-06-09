@@ -164,14 +164,17 @@ Preview or confirm E36312A protection setup:
 .\.venv\Scripts\python.exe -m keysight_power.cli protection-set --json --resource "USB0::...::INSTR" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
 ```
 
-Configure an E36312A rear digital pin as trigger output and emit `*TRG`:
+Configure an E36312A rear digital pin as trigger output, arm one output
+channel with a no-change STEP trigger sequence, and emit `*TRG`:
 
 ```powershell
-.\.venv\Scripts\python.exe -m keysight_power.cli trigger-pulse --json --resource "USB0::...::INSTR" --pin 1 --polarity positive --log-scpi
+.\.venv\Scripts\python.exe -m keysight_power.cli trigger-pulse --json --resource "USB0::...::INSTR" --pin 1 --channel 1 --polarity positive --log-scpi
 ```
 
 Use `--dry-run` to preview trigger-pulse SCPI without opening VISA. The final
 `*TRG` may also trigger any already armed BUS-triggered instrument behavior.
+Real execution checks `SYST:ERR?` after output-affecting writes and fails the
+command if the instrument reports errors.
 
 Add `--json` to supported CLI commands for the stable machine-readable v1
 contract. The contract is documented in `docs/cli-json-contract.md`; diagnostic

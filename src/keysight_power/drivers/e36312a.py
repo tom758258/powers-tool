@@ -48,10 +48,51 @@ class E36312APowerSupply(GenericScpiPowerSupply):
 
         self._session.write(f"DIG:TOUT:BUS {'ON' if enabled else 'OFF'}")
 
-    def trigger_pulse(self) -> None:
+    def set_triggered_voltage(self, *, channel: int, voltage: float) -> None:
+        """Program a triggered voltage level for one channel."""
+
+        self._require_output_channel(channel)
+        self._session.write(f"VOLT:TRIG {_format_number(voltage)},(@{channel})")
+
+    def set_triggered_current(self, *, channel: int, current: float) -> None:
+        """Program a triggered current level for one channel."""
+
+        self._require_output_channel(channel)
+        self._session.write(f"CURR:TRIG {_format_number(current)},(@{channel})")
+
+    def set_voltage_trigger_mode_step(self, channel: int) -> None:
+        """Set voltage transient mode to STEP for one channel."""
+
+        self._require_output_channel(channel)
+        self._session.write(f"VOLT:MODE STEP,(@{channel})")
+
+    def set_current_trigger_mode_step(self, channel: int) -> None:
+        """Set current transient mode to STEP for one channel."""
+
+        self._require_output_channel(channel)
+        self._session.write(f"CURR:MODE STEP,(@{channel})")
+
+    def configure_output_trigger_source_bus(self, channel: int) -> None:
+        """Select BUS as the output trigger source for one channel."""
+
+        self._require_output_channel(channel)
+        self._session.write(f"TRIG:SOUR BUS,(@{channel})")
+
+    def initiate_output_trigger(self, channel: int) -> None:
+        """Initiate the output trigger system for one channel."""
+
+        self._require_output_channel(channel)
+        self._session.write(f"INIT (@{channel})")
+
+    def trigger_pulse(self, *, channel: int) -> None:
         """Emit a BUS trigger pulse."""
 
+        self.initiate_output_trigger(channel)
         self._session.write("*TRG")
+
+    def _require_output_channel(self, channel: int) -> None:
+        if channel not in self.capabilities.channels:
+            raise ValueError("trigger output channel must be 1, 2, or 3")
 
 
 def _trigger_polarity_command(polarity: str) -> str:
@@ -61,3 +102,7 @@ def _trigger_polarity_command(polarity: str) -> str:
     if normalized == "negative":
         return "NEG"
     raise ValueError("trigger polarity must be positive or negative")
+
+
+def _format_number(value: float) -> str:
+    return format(value, ".12g")
