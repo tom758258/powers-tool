@@ -89,7 +89,7 @@ def test_scan_resources_handles_missing_live_only_checkbox():
     assert "parameters: { live_only: true }" in app_js
     assert 'addHistory(response.job_id, "list-resources", "accepted", "Scan Device")' in app_js
     assert "startLivePreviewSnapshot(healthState)" in app_js
-    assert "function startLivePreviewSnapshot(healthState)" in app_js
+    assert "function startLivePreviewSnapshot(healthState, resource = null)" in app_js
     assert "renderBlankLivePanel" in app_js
     assert 'fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
     assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
@@ -97,6 +97,25 @@ def test_scan_resources_handles_missing_live_only_checkbox():
     assert 'selectCommand("list-resources")' not in app_js
     assert 'const liveOnly = document.getElementById("param-live_only")' not in app_js
     assert 'document.getElementById("param-live_only").checked = true' not in app_js
+
+
+def test_static_finished_real_command_refreshes_live_snapshot():
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    handle_job = app_js[app_js.index("async function handleJobEvent"):app_js.index("async function renderJobDetail")]
+    refresh_guard = app_js[app_js.index("function shouldRefreshLiveAfterCommand"):app_js.index("function renderResult")]
+    preview = app_js[app_js.index("async function startLivePreviewSnapshot"):app_js.index("function stopLivePreviewSnapshot")]
+
+    assert "const job = await renderJobDetail(jobId, event);" in handle_job
+    assert "shouldRefreshLiveAfterCommand(event, job)" in handle_job
+    assert "startLivePreviewSnapshot(healthState, job.runtime.resource)" in handle_job
+    assert "job?.command !== \"list-resources\"" in refresh_guard
+    assert "Boolean(runtime?.resource)" in refresh_guard
+    assert "runtime.simulate === false" in refresh_guard
+    assert "runtime.dry_run === false" in refresh_guard
+    assert "!state.liveEvents" in refresh_guard
+    assert "async function startLivePreviewSnapshot(healthState, resource = null)" in app_js
+    assert "if (resource) payload.runtime.resource = resource;" in preview
 
 
 def test_static_live_data_uses_three_channel_panel_contract():
@@ -144,8 +163,8 @@ def test_static_live_data_note_and_header_styles_are_scoped():
     assert 'class="live-data-section"' in index_html
     assert 'class="secondary live-start-button">Start Monitor</button>' in index_html
     assert (
-        "Live Data updates every 15 seconds. Hardware commands wait for the current read to finish, "
-        "then Live Data pauses briefly to avoid VISA communication conflicts."
+        "Live Data monitor updates every 15 seconds. When the monitor is stopped, "
+        "successful real hardware commands refresh this panel once after completion."
     ) in index_html
     assert 'id="live-start" class="secondary" style=' not in index_html
     assert '<div style=' not in index_html

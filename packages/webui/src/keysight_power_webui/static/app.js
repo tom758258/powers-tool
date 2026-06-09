@@ -293,12 +293,15 @@ function subscribeToJob(jobId, baseUrl) {
 async function handleJobEvent(jobId, event) {
   updateHistory(jobId, event.type);
   if (event.type === "finished" || event.type === "failed" || event.type === "cancelled") {
-    await renderJobDetail(jobId, event);
+    const job = await renderJobDetail(jobId, event);
     let healthState = null;
     if (event.type === "finished" && jobCommand(jobId) === "list-resources") {
       populateResourceSelect(event.data?.result?.resources || []);
       healthState = await refreshHealth();
       startLivePreviewSnapshot(healthState);
+    } else if (shouldRefreshLiveAfterCommand(event, job)) {
+      healthState = await refreshHealth();
+      startLivePreviewSnapshot(healthState, job.runtime.resource);
     }
     closeEventSource("events");
     if (!healthState) refreshHealth();
@@ -317,9 +320,21 @@ async function renderJobDetail(jobId, event) {
       result: job.result,
       error: job.error
     });
+    return job;
   } catch (error) {
     renderResult(event.data);
+    return null;
   }
+}
+
+function shouldRefreshLiveAfterCommand(event, job) {
+  const runtime = job?.runtime;
+  return event.type === "finished"
+    && job?.command !== "list-resources"
+    && Boolean(runtime?.resource)
+    && runtime.simulate === false
+    && runtime.dry_run === false
+    && !state.liveEvents;
 }
 
 function renderResult(data) {
@@ -422,7 +437,7 @@ async function stopLive() {
   setMonitorState("Not monitoring");
 }
 
-async function startLivePreviewSnapshot(healthState) {
+async function startLivePreviewSnapshot(healthState, resource = null) {
   if (state.liveEvents) return;
   stopLivePreviewSnapshot();
   setMonitorState("Not monitoring");
@@ -431,6 +446,7 @@ async function startLivePreviewSnapshot(healthState) {
     return;
   }
   const payload = { runtime: runtimePayload(), parameters: { interval_ms: 1000 } };
+  if (resource) payload.runtime.resource = resource;
   if (!payload.runtime.resource) {
     renderBlankLivePanel();
     return;
