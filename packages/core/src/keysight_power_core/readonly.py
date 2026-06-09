@@ -1,0 +1,281 @@
+﻿"""Parser-neutral read-only core operations."""
+
+from __future__ import annotations
+
+from typing import Any, Callable
+import time
+import inspect
+
+from keysight_power_core.core import (
+    OperationRequest,
+    CoreValidationError,
+    UnsupportedModelError,
+    UnsupportedChannelError,
+    CoreIoError,
+)
+from keysight_power_core.connection import open_resource
+from keysight_power_core.factory import create_power_supply
+from keysight_power_core.drivers.e36312a import E36312APowerSupply
+from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
+from keysight_power_core.errors import VisaConnectionError
+from keysight_power_core.testing.simulator import SimulatedResourceManager
+from keysight_power_core.transport import dry_run_plan
+
+IDN_QUERY = "*IDN?"
+ERROR_QUERY = "SYST:ERR?"
+
+def run_readonly(
+    request: OperationRequest,
+    *,
+    opener: Callable[..., Any] = open_resource,
+    scpi_logger: Callable[[str, str, str], None] | None = None,
+) -> dict[str, Any]:
+    """Run a read-only command and return parser-neutral data."""
+    command = "status" if request.command == "read-status" else request.command
+    if command not in {"status", "readback", "measure-all"}:
+        raise CoreValidationError(f"unsupported read-only command {request.command!r}")
+
+    p = request.parameters
+    if command == "measure-all" and "channel" in p:
+        raise CoreValidationError("measure-all always reads all channels and does not accept channel")
+
+    if request.runtime.dry_run:
+        return {"plan": readonly_plan(request)}
+
+    opened = False
+    try:
+        with _open_readonly_resource(request, opener) as instrument:
+            opened = True
+            if request.runtime.log_scpi and scpi_logger is not None:
+                from keysight_power_core.operations import ScpiLoggingSession
+                instrument = ScpiLoggingSession(str(request.runtime.resource), instrument, scpi_logger)
+
+            idn_raw = instrument.query(IDN_QUERY)
+            power_supply = create_power_supply(instrument, idn_raw)
+
+            if not isinstance(power_supply, (E36312APowerSupply, EDU36311APowerSupply)):
+                raise UnsupportedModelError(
+                    f"{request.command} is only supported for E36312A or EDU36311A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+
+            channel_sel = p.get("channel", "all")
+            if channel_sel == "all":
+                channels = power_supply.capabilities.channels
+            else:
+                try:
+                    ch = int(channel_sel)
+                    if ch not in power_supply.capabilities.channels:
+                        raise UnsupportedChannelError(
+                            f"channel {ch} is not supported; "
+                            f"supported: {power_supply.capabilities.channels}"
+                        )
+                    channels = (ch,)
+                except UnsupportedChannelError:
+                    raise
+                except (ValueError, TypeError):
+                    raise CoreValidationError(f"invalid channel parameter {channel_sel!r}")
+
+            if command == "status":
+                errors = []
+                read_count = 0
+                max_errors = p.get("max_errors", 20)
+                for _ in range(max_errors):
+                    res = power_supply._session.query(ERROR_QUERY).strip()
+                    read_count += 1
+                    norm = res.lstrip("+")
+                    if norm == "0" or norm.startswith("0,"):
+                        break
+                    errors.append(res)
+
+                outputs = [
+                    {"channel": ch, "enabled": power_supply.output_state(channel=ch)}
+                    for ch in channels
+                ]
+                return {
+                    "resource": request.runtime.resource,
+                    "idn_raw": idn_raw,
+                    "errors": errors,
+                    "read_count": read_count,
+                    "outputs": outputs,
+                }
+
+            elif command == "readback":
+                return {
+                    "resource": request.runtime.resource,
+                    "idn_raw": idn_raw,
+                    "channels": [
+                        {
+                            "channel": ch,
+                            "setpoints": {
+                                "voltage": power_supply.programmed_voltage(channel=ch),
+                                "current": power_supply.programmed_current(channel=ch),
+                            },
+                        }
+                        for ch in channels
+                    ],
+                }
+
+            elif command == "measure-all":
+                if not isinstance(power_supply, E36312APowerSupply):
+                    raise UnsupportedModelError(
+                        f"measure-all is only supported for E36312A; "
+                        f"found {type(power_supply).__name__} from *IDN? response"
+                    )
+                return {
+                    "resource": request.runtime.resource,
+                    "idn_raw": idn_raw,
+                    "channels": [
+                        {
+                            "channel": ch,
+                            "measurements": {
+                                "voltage": power_supply.measure_voltage(channel=ch),
+                                "current": power_supply.measure_current(channel=ch),
+                            },
+                        }
+                        for ch in channels
+                    ],
+                }
+
+    except CoreValidationError:
+        raise
+    except VisaConnectionError as exc:
+        raise CoreIoError(f"{request.command} failed: {exc}", opened=opened) from exc
+    except (ValueError, TypeError) as exc:
+        raise CoreIoError(f"{request.command} failed: {exc}", opened=opened) from exc
+
+
+def run_live_panel_read(
+    request: OperationRequest,
+    *,
+    opener: Callable[..., Any] = open_resource,
+    scpi_logger: Callable[[str, str, str], None] | None = None,
+) -> dict[str, Any]:
+    """Read only the fields needed by the WebUI live panel."""
+    if request.command != "live-panel":
+        raise CoreValidationError(f"unsupported live-panel command {request.command!r}")
+    if request.runtime.dry_run:
+        return {"plan": live_panel_plan(request)}
+
+    opened = False
+    try:
+        with _open_readonly_resource(request, opener) as instrument:
+            opened = True
+            if request.runtime.log_scpi and scpi_logger is not None:
+                from keysight_power_core.operations import ScpiLoggingSession
+                instrument = ScpiLoggingSession(str(request.runtime.resource), instrument, scpi_logger)
+
+            idn_raw = instrument.query(IDN_QUERY)
+            power_supply = create_power_supply(instrument, idn_raw)
+            if not isinstance(power_supply, (E36312APowerSupply, EDU36311APowerSupply)):
+                raise UnsupportedModelError(
+                    f"live-panel is only supported for E36312A or EDU36311A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+
+            return {
+                "resource": request.runtime.resource,
+                "idn_raw": idn_raw,
+                "channels": [
+                    {
+                        "channel": channel,
+                        "output_enabled": power_supply.output_state(channel=channel),
+                        "setpoints": {
+                            "voltage": power_supply.programmed_voltage(channel=channel),
+                            "current": power_supply.programmed_current(channel=channel),
+                        },
+                        "measurements": {
+                            "voltage": power_supply.measure_voltage(channel=channel),
+                            "current": power_supply.measure_current(channel=channel),
+                        },
+                    }
+                    for channel in power_supply.capabilities.channels
+                ],
+            }
+    except CoreValidationError:
+        raise
+    except VisaConnectionError as exc:
+        raise CoreIoError(f"live-panel failed: {exc}", opened=opened) from exc
+    except (ValueError, TypeError) as exc:
+        raise CoreIoError(f"live-panel failed: {exc}", opened=opened) from exc
+
+
+def readonly_plan(request: OperationRequest) -> dict[str, object]:
+    """Build a read/query preview for a read-only command without opening VISA."""
+    command = "status" if request.command == "read-status" else request.command
+    if command == "status":
+        channel = request.parameters.get("channel", "all")
+        return dry_run_plan(
+            command=request.command,
+            resource=request.runtime.resource,
+            scpi=(ERROR_QUERY, f"OUTP? (@{channel})"),
+            description="Preview reading instrument error queue and output state.",
+        )
+    if command == "readback":
+        channel = request.parameters.get("channel", "all")
+        return dry_run_plan(
+            command=command,
+            resource=request.runtime.resource,
+            scpi=(f"VOLT? (@{channel})", f"CURR? (@{channel})"),
+            description="Preview reading programmed voltage and current setpoints.",
+        )
+    if command == "measure-all":
+        return dry_run_plan(
+            command=command,
+            resource=request.runtime.resource,
+            scpi=(IDN_QUERY, "MEAS:VOLT? (@1)", "MEAS:CURR? (@1)", "MEAS:VOLT? (@2)", "MEAS:CURR? (@2)", "MEAS:VOLT? (@3)", "MEAS:CURR? (@3)"),
+            description="Preview reading measured voltage and current for all E36312A channels.",
+        )
+    raise CoreValidationError(f"unsupported read-only command {command!r}")
+
+
+def live_panel_plan(request: OperationRequest) -> dict[str, object]:
+    return dry_run_plan(
+        command="live-panel",
+        resource=request.runtime.resource,
+        scpi=(
+            IDN_QUERY,
+            "OUTP? (@1)",
+            "VOLT? (@1)",
+            "CURR? (@1)",
+            "MEAS:VOLT? (@1)",
+            "MEAS:CURR? (@1)",
+            "OUTP? (@2)",
+            "VOLT? (@2)",
+            "CURR? (@2)",
+            "MEAS:VOLT? (@2)",
+            "MEAS:CURR? (@2)",
+            "OUTP? (@3)",
+            "VOLT? (@3)",
+            "CURR? (@3)",
+            "MEAS:VOLT? (@3)",
+            "MEAS:CURR? (@3)",
+        ),
+        description="Preview reading WebUI live panel output state, setpoints, and measurements.",
+    )
+
+
+def _open_readonly_resource(request: OperationRequest, opener: Callable[..., Any]) -> Any:
+    resource_manager = SimulatedResourceManager() if request.runtime.simulate else None
+    if resource_manager is not None and _accepts_resource_manager(opener):
+        return opener(
+            request.runtime.resource,
+            resource_manager,
+            backend=request.runtime.backend,
+            timeout_ms=request.runtime.timeout_ms,
+        )
+    return opener(
+        request.runtime.resource,
+        backend=request.runtime.backend,
+        timeout_ms=request.runtime.timeout_ms,
+    )
+
+
+def _accepts_resource_manager(opener: Callable[..., Any]) -> bool:
+    try:
+        parameters = list(inspect.signature(opener).parameters.values())
+    except (TypeError, ValueError):
+        return False
+    if any(parameter.kind == inspect.Parameter.VAR_POSITIONAL for parameter in parameters):
+        return True
+    return len(parameters) >= 2 and parameters[1].name in {"resource_manager", "manager"}

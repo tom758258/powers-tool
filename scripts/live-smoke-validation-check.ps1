@@ -3,6 +3,7 @@ param(
     [string]$Connection,
     [string]$Resource,
     [string]$Backend,
+    [string]$Profile = "auto",
     [bool]$Restore = $true
 )
 
@@ -41,7 +42,14 @@ else {
 if ([string]::IsNullOrWhiteSpace($Resource)) {
     Fail-Validation "Missing required -Resource. Pass the exact VISA resource explicitly; this script does not scan resources or read an environment default."
 }
-$isEduReadonly = $normalizedTarget -eq "EDU36311A"
+$ResourceDisplay = "$connectionLabel`:<redacted-resource>"
+$normalizedProfile = $Profile.Trim().ToLowerInvariant()
+if ($normalizedProfile -notin @("auto", "readonly", "output", "output_smoke")) {
+    Fail-Validation "Unsupported -Profile. Use auto, readonly, or output."
+}
+$isEduReadonly = $normalizedTarget -eq "EDU36311A" -and $normalizedProfile -ne "output" -and $normalizedProfile -ne "output_smoke"
+$ProfileName = if ($isEduReadonly) { "readonly" } else { "output_smoke" }
+$StateChanging = -not $isEduReadonly
 
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $TmpRoot = Join-Path $RepoRoot ".tmp_tests"
@@ -119,6 +127,21 @@ function Format-CommandArgument {
     return $Argument
 }
 
+function Protect-ValidationArgument {
+    param([Parameter(Mandatory = $true)][string]$Argument)
+
+    if ($Argument -eq $Resource) {
+        return $ResourceDisplay
+    }
+    return $Argument
+}
+
+function Protect-ValidationArguments {
+    param([Parameter(Mandatory = $true)][string[]]$Arguments)
+
+    return @($Arguments | ForEach-Object { Protect-ValidationArgument -Argument $_ })
+}
+
 function Add-BackendArgument {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
@@ -141,25 +164,24 @@ function Invoke-LiveCliJsonCommand {
     $stderrPath = Join-Path $OutputDir ($Name + ".stderr-scpi.txt")
     $argsWithBackend = Add-BackendArgument -Arguments $Arguments
     $allArgs = @($argsWithBackend + @("--save-json", $jsonPath))
-    $oldPythonPath = $env:PYTHONPATH
-    $srcPath = Join-Path $RepoRoot "src"
-    if ([string]::IsNullOrWhiteSpace($oldPythonPath)) {
-        $env:PYTHONPATH = $srcPath
-    }
-    else {
-        $env:PYTHONPATH = $srcPath + [System.IO.Path]::PathSeparator + $oldPythonPath
-    }
 
+    $oldErrorActionPreference = $ErrorActionPreference
+    $nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+    $hadNativePreference = $null -ne $nativePreferenceVariable
+    $oldNativePreference = $null
     try {
-        & $PythonExe -m keysight_power.cli @allArgs 1> $stdoutPath 2> $stderrPath
+        $ErrorActionPreference = "Continue"
+        if ($hadNativePreference) {
+            $oldNativePreference = [bool]$nativePreferenceVariable.Value
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+        & $PythonExe -m keysight_power_cli.cli @allArgs 1> $stdoutPath 2> $stderrPath
         $exitCode = $LASTEXITCODE
     }
     finally {
-        if ([string]::IsNullOrWhiteSpace($oldPythonPath)) {
-            Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-        }
-        else {
-            $env:PYTHONPATH = $oldPythonPath
+        $ErrorActionPreference = $oldErrorActionPreference
+        if ($hadNativePreference) {
+            $PSNativeCommandUseErrorActionPreference = $oldNativePreference
         }
     }
 
@@ -192,12 +214,13 @@ function Invoke-LiveCliJsonCommand {
         }
     }
 
-    $formattedArgs = @("-m", "keysight_power.cli") + $allArgs
+    $recordArgs = Protect-ValidationArguments -Arguments $allArgs
+    $formattedArgs = @("-m", "keysight_power_cli.cli") + $recordArgs
     $commandLine = (Format-CommandArgument -Argument $PythonExe) + " " + (($formattedArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
     $record = [pscustomobject]@{
         name = $Name
         command_line = $commandLine
-        arguments = $allArgs
+        arguments = $recordArgs
         exit_code = $exitCode
         ok = $ok
         mode = $mode
@@ -260,8 +283,11 @@ function Write-LiveArtifacts {
         schema_version = "1.0"
         kind = "smoke_validation_live"
         target = $Target
+        profile = $ProfileName
+        state_changing = $StateChanging
         connection = $connectionLabel
-        resource = $Resource
+        resource = "<redacted-resource>"
+        resource_connection = $connectionLabel
         backend = $Backend
         restore = $Restore
         parameters = [pscustomobject]@{
@@ -290,7 +316,9 @@ function Write-LiveArtifacts {
     $lines.Add("")
     $lines.Add("Target: ``" + $Target + "``")
     $lines.Add("Connection: ``" + $connectionLabel + "``")
-    $lines.Add("Resource: ``" + $Resource + "``")
+    $lines.Add("Profile: ``" + $ProfileName + "``")
+    $lines.Add("State-changing: ``" + $StateChanging + "``")
+    $lines.Add("Resource: ``" + $ResourceDisplay + "``")
     $lines.Add("Restore safe-off cleanup: ``" + $Restore + "``")
     $lines.Add("Output directory: ``" + (ConvertTo-RepoRelativePath -Path $OutputDir) + "``")
     $lines.Add("")
@@ -352,6 +380,8 @@ Write-Host ""
 Write-Host "This will open VISA for the selected resource and send SCPI commands."
 if ($isEduReadonly) {
     Write-Host "State-changing operations: none. EDU36311A live smoke is read-only."
+    Write-Host "Read-only checks: verify, identify, channel measurements, output-state,"
+    Write-Host "status, readback, validate-readonly, one log sample, read-only sequence, and capabilities."
 }
 else {
     Write-Host "State-changing operations:"
@@ -406,6 +436,9 @@ $script:IsEduReadonly = $isEduReadonly
 $failures = New-Object System.Collections.Generic.List[string]
 $startedAt = Get-Date
 $result = "passed"
+$logCsv = Join-Path $OutputDir "edu-readonly.csv"
+$logJsonl = Join-Path $OutputDir "edu-readonly.jsonl"
+$sequenceFile = Join-Path $RepoRoot "examples\sequence-readonly-edu.yaml"
 
 try {
     if ($isEduReadonly) {
@@ -419,10 +452,22 @@ try {
             -Arguments @("identify", "--json", "--resource", $Resource, "--log-scpi") `
             -JsonFileName "identify.json" | Out-Null
 
+        foreach ($channel in @(1, 2, 3)) {
+            Invoke-LiveCliJsonCommand `
+                -Name ("measure-ch" + $channel) `
+                -Arguments @("measure", "--json", "--resource", $Resource, "--channel", [string]$channel, "--log-scpi") `
+                -JsonFileName ("measure-ch" + $channel + ".json") | Out-Null
+
+            Invoke-LiveCliJsonCommand `
+                -Name ("output-state-ch" + $channel) `
+                -Arguments @("output-state", "--json", "--resource", $Resource, "--channel", [string]$channel, "--log-scpi") `
+                -JsonFileName ("output-state-ch" + $channel + ".json") | Out-Null
+        }
+
         Invoke-LiveCliJsonCommand `
-            -Name "status" `
-            -Arguments @("status", "--json", "--resource", $Resource, "--all", "--log-scpi") `
-            -JsonFileName "status.json" | Out-Null
+            -Name "read-status" `
+            -Arguments @("read-status", "--json", "--resource", $Resource, "--all", "--log-scpi") `
+            -JsonFileName "read-status.json" | Out-Null
 
         Invoke-LiveCliJsonCommand `
             -Name "readback" `
@@ -436,8 +481,13 @@ try {
 
         Invoke-LiveCliJsonCommand `
             -Name "log" `
-            -Arguments @("log", "--json", "--resource", $Resource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--log-scpi") `
+            -Arguments @("log", "--json", "--resource", $Resource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--csv", $logCsv, "--jsonl", $logJsonl, "--log-scpi") `
             -JsonFileName "log.json" | Out-Null
+
+        Invoke-LiveCliJsonCommand `
+            -Name "sequence-readonly" `
+            -Arguments @("sequence", "--json", "--resource", $Resource, "--file", $sequenceFile, "--log-scpi") `
+            -JsonFileName "sequence-readonly.json" | Out-Null
 
         Invoke-LiveCliJsonCommand `
             -Name "capabilities" `

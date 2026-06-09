@@ -14,6 +14,8 @@ if ($normalizedTarget -notin @("E36312A", "EDU36311A")) {
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $TmpRoot = Join-Path $RepoRoot ".tmp_tests"
 $OutputDir = Join-Path (Join-Path $TmpRoot "smoke_validation_preflight") $Target
+$ProfileName = if ($normalizedTarget -eq "EDU36311A") { "readonly" } else { "output_smoke" }
+$StateChanging = $false
 $PythonExe = Join-Path (Join-Path $RepoRoot ".venv") "Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $PythonExe)) {
     $PythonExe = "python"
@@ -97,25 +99,24 @@ function Invoke-CliJsonCommand {
     $stdoutPath = Join-Path $OutputDir ($Name + ".stdout.txt")
     $stderrPath = Join-Path $OutputDir ($Name + ".stderr.txt")
     $allArgs = @($Arguments + @("--save-json", $jsonPath))
-    $oldPythonPath = $env:PYTHONPATH
-    $srcPath = Join-Path $RepoRoot "src"
-    if ([string]::IsNullOrWhiteSpace($oldPythonPath)) {
-        $env:PYTHONPATH = $srcPath
-    }
-    else {
-        $env:PYTHONPATH = $srcPath + [System.IO.Path]::PathSeparator + $oldPythonPath
-    }
 
+    $oldErrorActionPreference = $ErrorActionPreference
+    $nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+    $hadNativePreference = $null -ne $nativePreferenceVariable
+    $oldNativePreference = $null
     try {
-        & $PythonExe -m keysight_power.cli @allArgs 1> $stdoutPath 2> $stderrPath
+        $ErrorActionPreference = "Continue"
+        if ($hadNativePreference) {
+            $oldNativePreference = [bool]$nativePreferenceVariable.Value
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+        & $PythonExe -m keysight_power_cli.cli @allArgs 1> $stdoutPath 2> $stderrPath
         $exitCode = $LASTEXITCODE
     }
     finally {
-        if ([string]::IsNullOrWhiteSpace($oldPythonPath)) {
-            Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
-        }
-        else {
-            $env:PYTHONPATH = $oldPythonPath
+        $ErrorActionPreference = $oldErrorActionPreference
+        if ($hadNativePreference) {
+            $PSNativeCommandUseErrorActionPreference = $oldNativePreference
         }
     }
 
@@ -148,7 +149,7 @@ function Invoke-CliJsonCommand {
         }
     }
 
-    $formattedArgs = @("-m", "keysight_power.cli") + $allArgs
+    $formattedArgs = @("-m", "keysight_power_cli.cli") + $allArgs
     $commandLine = (Format-CommandArgument -Argument $PythonExe) + " " + (($formattedArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
 
     return [pscustomobject]@{
@@ -201,6 +202,8 @@ function Write-PreflightArtifacts {
         schema_version = "1.0"
         kind = "smoke_validation_preflight"
         target = $Target
+        profile = $ProfileName
+        state_changing = $StateChanging
         resource = $script:SimResource
         parameters = [pscustomobject]@{
             channel = 1
@@ -226,6 +229,8 @@ function Write-PreflightArtifacts {
     $lines.Add("Output directory: ``" + (ConvertTo-RepoRelativePath -Path $OutputDir) + "``")
     $lines.Add("")
     $lines.Add("This preflight uses only ``--dry-run`` and ``--simulate`` commands. It does not open VISA or touch hardware.")
+    $lines.Add("")
+    $lines.Add("Profile: ``" + $ProfileName + "``")
     $lines.Add("")
     $lines.Add("| Command | Exit | ok | hardware_touched | JSON |")
     $lines.Add("| --- | ---: | --- | --- | --- |")
@@ -273,10 +278,17 @@ if ($normalizedTarget -eq "EDU36311A") {
     $commands = @(
         [pscustomobject]@{ Name = "verify-simulate"; Json = "verify.json"; Args = @("verify", "--simulate", "--json", "--resource", $simResource) },
         [pscustomobject]@{ Name = "identify-simulate"; Json = "identify.json"; Args = @("identify", "--simulate", "--json", "--resource", $simResource) },
-        [pscustomobject]@{ Name = "status-simulate"; Json = "status.json"; Args = @("status", "--simulate", "--json", "--resource", $simResource, "--all") },
+        [pscustomobject]@{ Name = "measure-ch1-simulate"; Json = "measure-ch1.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "1") },
+        [pscustomobject]@{ Name = "measure-ch2-simulate"; Json = "measure-ch2.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "2") },
+        [pscustomobject]@{ Name = "measure-ch3-simulate"; Json = "measure-ch3.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "3") },
+        [pscustomobject]@{ Name = "output-state-ch1-simulate"; Json = "output-state-ch1.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "1") },
+        [pscustomobject]@{ Name = "output-state-ch2-simulate"; Json = "output-state-ch2.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "2") },
+        [pscustomobject]@{ Name = "output-state-ch3-simulate"; Json = "output-state-ch3.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "3") },
+        [pscustomobject]@{ Name = "read-status-simulate"; Json = "read-status.json"; Args = @("read-status", "--simulate", "--json", "--resource", $simResource, "--all") },
         [pscustomobject]@{ Name = "readback-simulate"; Json = "readback.json"; Args = @("readback", "--simulate", "--json", "--resource", $simResource, "--all") },
         [pscustomobject]@{ Name = "validate-readonly-simulate"; Json = "validate-readonly.json"; Args = @("validate-readonly", "--simulate", "--json", "--resource", $simResource) },
-        [pscustomobject]@{ Name = "log-simulate"; Json = "log.json"; Args = @("log", "--simulate", "--json", "--resource", $simResource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1") },
+        [pscustomobject]@{ Name = "log-simulate"; Json = "log.json"; Args = @("log", "--simulate", "--json", "--resource", $simResource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--csv", (Join-Path $OutputDir "edu-readonly.csv"), "--jsonl", (Join-Path $OutputDir "edu-readonly.jsonl")) },
+        [pscustomobject]@{ Name = "sequence-readonly-simulate"; Json = "sequence.json"; Args = @("sequence", "--simulate", "--json", "--resource", $simResource, "--file", (Join-Path $RepoRoot "examples\sequence-readonly-edu.yaml")) },
         [pscustomobject]@{ Name = "capabilities-simulate"; Json = "capabilities.json"; Args = @("capabilities", "--simulate", "--json", "--resource", $simResource) }
     )
 }

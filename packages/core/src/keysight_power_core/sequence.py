@@ -1,0 +1,480 @@
+"""Parser-neutral sequence lint, dry-run, and execution core."""
+
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+from typing import Any, Callable
+
+from keysight_power_core.connection import open_resource
+from keysight_power_core.core import CoreIoError, CoreValidationError, SequenceRequest
+from keysight_power_core.drivers.e36312a import E36312APowerSupply
+from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
+from keysight_power_core.errors import VisaConnectionError
+from keysight_power_core.factory import create_power_supply
+from keysight_power_core.safety import SafetyConfigError, SafetyLimits, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
+
+IDN_QUERY = "*IDN?"
+OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
+SEQUENCE_ACTIONS = {
+    "measure",
+    "readback",
+    "output-state",
+    "log",
+    "wait",
+    "safe-off",
+    "set",
+    "output-on",
+    "output-off",
+    "apply",
+}
+SEQUENCE_OUTPUT_ACTIONS = {"safe-off", "set", "output-on", "output-off", "apply"}
+
+
+def run_sequence(
+    request: SequenceRequest,
+    *,
+    opener: Callable[..., Any] = open_resource,
+    sleep: Callable[[float], None] = time.sleep,
+    scpi_logger: Callable[[str, str, str], None] | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Lint, plan, or execute a sequence request."""
+
+    document = request.parameters.get("document")
+    if document is None:
+        file_path = request.parameters.get("file")
+        if file_path is None:
+            raise CoreValidationError("sequence requires file or document")
+        document = load_sequence_document(str(file_path))
+
+    plan = sequence_plan(request, document)
+
+    if request.parameters.get("lint", False):
+        return {
+            "status": "valid",
+            "sequence_version": plan["version"],
+            "step_count": len(plan["steps"]),
+            "plan": plan,
+        }
+
+    if request.runtime.dry_run:
+        add_sequence_scpi_previews(plan)
+        return {
+            "sequence_version": plan["version"],
+            "resource": request.runtime.resource,
+            "resource_alias": request.runtime.resource_alias,
+            "plan": plan,
+            "status": "planned",
+            "completed_steps": 0,
+            "failed_step": None,
+            "stopped": False,
+            "cleanup": {"safe_off_attempted": False, "errors": []},
+        }
+
+    return execute_sequence(request, plan, opener=opener, sleep=sleep, scpi_logger=scpi_logger, stop_requested=stop_requested)
+
+
+def load_sequence_document(path: str) -> dict[str, Any]:
+    sequence_path = Path(path)
+    try:
+        text = sequence_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise OSError(f"could not read sequence file {sequence_path}: {exc}") from exc
+    stripped = text.lstrip()
+    if stripped.startswith("{"):
+        parsed = json.loads(text)
+    else:
+        try:
+            import yaml  # type: ignore[import-untyped]
+        except ModuleNotFoundError:
+            parsed = parse_simple_sequence_yaml(text)
+        else:
+            parsed = yaml.safe_load(text)
+    if not isinstance(parsed, dict):
+        raise CoreValidationError("sequence file must contain a mapping")
+    return parsed
+
+
+def parse_simple_sequence_yaml(text: str) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    steps: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    in_steps = False
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", maxsplit=1)[0].rstrip()
+        if not line.strip():
+            continue
+        stripped = line.strip()
+        if stripped == "steps:":
+            in_steps = True
+            data["steps"] = steps
+            continue
+        if not in_steps:
+            if ":" not in stripped:
+                raise CoreValidationError(f"unsupported sequence YAML line: {raw_line}")
+            key, value = stripped.split(":", maxsplit=1)
+            data[key.strip()] = _parse_sequence_scalar(value.strip())
+            continue
+        if stripped.startswith("- "):
+            current = {}
+            steps.append(current)
+            item = stripped[2:].strip()
+            if item:
+                if ":" not in item:
+                    current["action"] = item
+                else:
+                    key, value = item.split(":", maxsplit=1)
+                    current[key.strip()] = _parse_sequence_scalar(value.strip())
+            continue
+        if current is None or ":" not in stripped:
+            raise CoreValidationError(f"unsupported sequence YAML line: {raw_line}")
+        key, value = stripped.split(":", maxsplit=1)
+        current[key.strip()] = _parse_sequence_scalar(value.strip())
+    return data
+
+
+def sequence_plan(request: SequenceRequest, document: dict[str, Any]) -> dict[str, Any]:
+    version = document.get("version", 1)
+    if version not in (1, "1"):
+        raise CoreValidationError(f"unsupported sequence version: {version}")
+    raw_steps = document.get("steps")
+    if not isinstance(raw_steps, list) or not raw_steps:
+        raise CoreValidationError("sequence requires a non-empty steps list")
+    steps = []
+    for index, raw_step in enumerate(raw_steps, start=1):
+        step = normalize_sequence_step(index, raw_step)
+        validate_sequence_step(request, step)
+        steps.append(step)
+    return {
+        "version": 1,
+        "operation": {"name": "sequence"},
+        "target": {"resource": request.runtime.resource, "resource_alias": request.runtime.resource_alias},
+        "steps": steps,
+        "hardware_touched": False,
+    }
+
+
+def add_sequence_scpi_previews(plan: dict[str, Any]) -> None:
+    for step in plan["steps"]:
+        preview = sequence_step_preview(step)
+        if preview:
+            step["preview"] = preview
+
+
+def sequence_step_preview(step: dict[str, Any]) -> dict[str, Any] | None:
+    action = step["action"]
+    parameters = step["parameters"]
+    if action == "set":
+        channel = sequence_channel(parameters.get("channel", 1))
+        voltage = _format_text_value(float(parameters["voltage"]))
+        current = _format_text_value(float(parameters["current"]))
+        return {"commands": [f"CURR {current},(@{channel})", f"VOLT {voltage},(@{channel})"]}
+    if action == "apply":
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        voltage = _format_text_value(float(parameters["voltage"]))
+        current = _format_text_value(float(parameters["current"]))
+        commands: list[str] = []
+        for selected_channel in sequence_preview_channels(channel):
+            commands.append(f"CURR {current},(@{selected_channel})")
+            commands.append(f"VOLT {voltage},(@{selected_channel})")
+            if not parameters.get("no_output", False):
+                commands.append(f"OUTP ON,(@{selected_channel})")
+        return {"commands": commands}
+    if action == "output-on":
+        channel = sequence_channel(parameters.get("channel", 1))
+        return {"commands": [f"OUTP ON,(@{channel})"]}
+    if action == "output-off":
+        channel = sequence_channel(parameters.get("channel", 1))
+        return {"commands": [f"OUTP OFF,(@{channel})"]}
+    if action == "safe-off":
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]}
+    return None
+
+
+def normalize_sequence_step(index: int, raw_step: Any) -> dict[str, Any]:
+    if isinstance(raw_step, str):
+        return {"index": index, "action": raw_step, "parameters": {}}
+    if not isinstance(raw_step, dict):
+        raise CoreValidationError(f"sequence step {index} must be a mapping")
+    if "action" in raw_step or "type" in raw_step:
+        action = str(raw_step.get("action", raw_step.get("type")))
+        parameters = {key: value for key, value in raw_step.items() if key not in {"action", "type"}}
+    elif len(raw_step) == 1:
+        action, value = next(iter(raw_step.items()))
+        parameters = value if isinstance(value, dict) else {}
+    else:
+        raise CoreValidationError(f"sequence step {index} requires action")
+    if action not in SEQUENCE_ACTIONS:
+        raise CoreValidationError(f"unsupported sequence step {index} action: {action}")
+    return {"index": index, "action": action, "parameters": parameters}
+
+
+def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> None:
+    action = step["action"]
+    parameters = step["parameters"]
+    if action in {"measure", "readback", "output-state", "safe-off", "output-on", "output-off"}:
+        sequence_channel(parameters.get("channel", 1), allow_all=(action == "safe-off"))
+    if action == "wait":
+        seconds = float(parameters.get("seconds", parameters.get("duration_sec", 0)))
+        if seconds < 0:
+            raise CoreValidationError("wait seconds must be non-negative")
+    if action in {"set", "apply"}:
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=(action == "apply"))
+        voltage = float(parameters["voltage"])
+        current = float(parameters["current"])
+        limits = _safety_limits(request)
+        channels = (1, 2, 3) if channel == "all" else (channel,)
+        try:
+            for selected_channel in channels:
+                validate_setpoint(channel=selected_channel, voltage=voltage, current=current, limits=limits)
+        except (SafetyConfigError, SafetyValidationError) as exc:
+            raise CoreValidationError(str(exc)) from exc
+    elif action in {"output-on", "output-off"}:
+        try:
+            validate_channel(int(parameters.get("channel", 1)), _safety_limits(request))
+        except (SafetyConfigError, SafetyValidationError) as exc:
+            raise CoreValidationError(str(exc)) from exc
+
+
+def execute_sequence(
+    request: SequenceRequest,
+    plan: dict[str, Any],
+    *,
+    opener: Callable[..., Any],
+    sleep: Callable[[float], None],
+    scpi_logger: Callable[[str, str, str], None] | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    results: list[dict[str, Any]] = []
+    completed_steps = 0
+    failed_step: dict[str, Any] | None = None
+    stopped = False
+    safe_off_attempted = False
+    cleanup_errors: list[dict[str, Any]] = []
+    idn_raw: str | None = None
+    try:
+        with opener(request.runtime.resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
+            if request.runtime.log_scpi and scpi_logger is not None:
+                instrument = ScpiLoggingSession(str(request.runtime.resource), instrument, scpi_logger)
+            idn_raw = instrument.query(IDN_QUERY)
+            power_supply = create_power_supply(instrument, idn_raw)
+            for step in plan["steps"]:
+                if stop_requested is not None and stop_requested():
+                    stopped = True
+                    failed_step = {"index": step["index"], "action": step["action"], "code": "stopped"}
+                    break
+                try:
+                    result = execute_sequence_step(request, power_supply, step, sleep=sleep, stop_requested=stop_requested)
+                    results.append(result)
+                    completed_steps += 1
+                except KeyboardInterrupt:
+                    stopped = True
+                    failed_step = {"index": step["index"], "action": step["action"], "code": "interrupted"}
+                    break
+                except (VisaConnectionError, ValueError, SafetyValidationError, CoreValidationError) as exc:
+                    failed_step = {
+                        "index": step["index"],
+                        "action": step["action"],
+                        "code": "step_failed",
+                        "message": str(exc),
+                    }
+                    break
+            if stopped or failed_step is not None:
+                cleanup = sequence_cleanup_safe_off(power_supply)
+                safe_off_attempted = cleanup["safe_off_attempted"]
+                cleanup_errors = cleanup["errors"]
+    except VisaConnectionError as exc:
+        raise CoreIoError(f"sequence failed: {exc}", opened=False) from exc
+
+    status = "stopped" if stopped else ("failed" if failed_step is not None else "completed")
+    return {
+        "sequence_version": plan["version"],
+        "resource": request.runtime.resource,
+        "resource_alias": request.runtime.resource_alias,
+        "idn": idn_raw,
+        "plan": plan,
+        "status": status,
+        "results": results,
+        "completed_steps": completed_steps,
+        "failed_step": failed_step,
+        "stopped": stopped,
+        "cleanup": {"safe_off_attempted": safe_off_attempted, "errors": cleanup_errors},
+    }
+
+
+class ScpiLoggingSession:
+    def __init__(self, resource: str, session: Any, logger: Callable[[str, str, str], None]) -> None:
+        self._resource = resource
+        self._session = session
+        self._logger = logger
+
+    def write(self, command: str) -> Any:
+        self._logger(self._resource, ">>", command)
+        return self._session.write(command)
+
+    def query(self, command: str) -> str:
+        self._logger(self._resource, ">>", command)
+        response = self._session.query(command)
+        self._logger(self._resource, "<<", response)
+        return response
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
+
+def execute_sequence_step(
+    request: SequenceRequest,
+    power_supply: Any,
+    step: dict[str, Any],
+    *,
+    sleep: Callable[[float], None],
+    stop_requested: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    action = step["action"]
+    parameters = step["parameters"]
+    if action in SEQUENCE_OUTPUT_ACTIONS and not request.runtime.simulate and not isinstance(power_supply, OUTPUT_WRITE_POWER_SUPPLY_TYPES):
+        raise CoreValidationError("real output-affecting sequence steps are enabled only for E36312A or EDU36311A")
+    if action in {"measure", "readback", "output-state"}:
+        _validate_read_only_channel(power_supply, sequence_channel(parameters.get("channel", 1)), command_label="sequence")
+    if action == "measure":
+        channel = sequence_channel(parameters.get("channel", 1))
+        return {
+            "index": step["index"],
+            "action": action,
+            "channel": channel,
+            "measurements": {
+                "voltage": power_supply.measure_voltage(channel=channel),
+                "current": power_supply.measure_current(channel=channel),
+            },
+        }
+    if action == "readback":
+        channel = sequence_channel(parameters.get("channel", 1))
+        return {
+            "index": step["index"],
+            "action": action,
+            "channel": channel,
+            "setpoints": {
+                "voltage": power_supply.programmed_voltage(channel=channel),
+                "current": power_supply.programmed_current(channel=channel),
+            },
+        }
+    if action == "output-state":
+        channel = sequence_channel(parameters.get("channel", 1))
+        return {"index": step["index"], "action": action, "channel": channel, "enabled": power_supply.output_state(channel=channel)}
+    if action == "log":
+        return {"index": step["index"], "action": action, "message": str(parameters.get("message", ""))}
+    if action == "wait":
+        seconds = float(parameters.get("seconds", parameters.get("duration_sec", 0)))
+        remaining = seconds
+        while remaining > 0:
+            if stop_requested is not None and stop_requested():
+                raise KeyboardInterrupt("sequence wait interrupted")
+            chunk = min(remaining, 0.05)
+            sleep(chunk)
+            remaining -= chunk
+        return {"index": step["index"], "action": action, "seconds": seconds}
+    if action == "safe-off":
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        for selected_channel in sequence_channels(channel, power_supply.capabilities.channels):
+            power_supply.output_off(channel=selected_channel)
+        return {"index": step["index"], "action": action, "channel": channel}
+    if action == "output-off":
+        channel = sequence_channel(parameters.get("channel", 1))
+        power_supply.output_off(channel=channel)
+        return {"index": step["index"], "action": action, "channel": channel}
+    if action == "output-on":
+        channel = sequence_channel(parameters.get("channel", 1))
+        power_supply.output_on(channel=channel)
+        return {"index": step["index"], "action": action, "channel": channel}
+    if action in {"set", "apply"}:
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=(action == "apply"))
+        voltage = float(parameters["voltage"])
+        current = float(parameters["current"])
+        for selected_channel in sequence_channels(channel, power_supply.capabilities.channels):
+            power_supply.set_current_limit(channel=selected_channel, current=current)
+            power_supply.set_voltage(channel=selected_channel, voltage=voltage)
+            if action == "apply" and not parameters.get("no_output", False):
+                power_supply.output_on(channel=selected_channel)
+        return {"index": step["index"], "action": action, "channel": channel, "voltage": voltage, "current": current}
+    raise CoreValidationError(f"unsupported sequence action: {action}")
+
+
+def sequence_cleanup_safe_off(power_supply: Any) -> dict[str, Any]:
+    attempted = False
+    errors: list[dict[str, Any]] = []
+    for channel in power_supply.capabilities.channels:
+        attempted = True
+        try:
+            power_supply.output_off(channel=channel)
+        except Exception as exc:
+            errors.append({"channel": channel, "message": str(exc)})
+    return {"safe_off_attempted": attempted, "errors": errors}
+
+
+def sequence_channel(value: Any, *, allow_all: bool = False) -> int | str:
+    if allow_all and isinstance(value, str) and value.lower() == "all":
+        return "all"
+    try:
+        channel = int(value)
+    except (TypeError, ValueError) as exc:
+        raise CoreValidationError("sequence channel must be a positive integer") from exc
+    if channel < 1:
+        raise CoreValidationError("sequence channel must be a positive integer")
+    return channel
+
+
+def sequence_channels(channel: int | str, supported_channels: tuple[int, ...]) -> tuple[int, ...]:
+    if channel == "all":
+        return supported_channels
+    if int(channel) not in supported_channels:
+        raise CoreValidationError(f"channel {channel} is not supported; supported: {supported_channels}")
+    return (int(channel),)
+
+
+def _validate_read_only_channel(power_supply: Any, channel: int, *, command_label: str) -> None:
+    supported = getattr(power_supply.capabilities, "real_measure_channels", power_supply.capabilities.channels)
+    if channel not in supported:
+        raise CoreValidationError(f"channel {channel} is not supported for {command_label}; supported: {supported}")
+
+
+def sequence_preview_channels(channel: int | str) -> tuple[int, ...]:
+    if channel == "all":
+        return E36312APowerSupply.capabilities.channels
+    return (int(channel),)
+
+
+def _safety_limits(request: SequenceRequest) -> Any:
+    if request.runtime.safety_config is None:
+        return SafetyLimits()
+    try:
+        return resolve_safety_config(
+            request.runtime.safety_config,
+            resource=request.runtime.resource,
+            resource_alias=request.runtime.resource_alias,
+        ).limits
+    except SafetyConfigError as exc:
+        raise CoreValidationError(str(exc)) from exc
+
+
+def _parse_sequence_scalar(value: str) -> Any:
+    if value == "":
+        return None
+    if value.lower() in {"true", "false"}:
+        return value.lower() == "true"
+    if value.lower() == "all":
+        return "all"
+    try:
+        if any(marker in value for marker in (".", "e", "E")):
+            return float(value)
+        return int(value)
+    except ValueError:
+        return value.strip("'\"")
+
+
+def _format_text_value(value: object) -> str:
+    if isinstance(value, float):
+        return format(value, ".12g")
+    return str(value)

@@ -1,27 +1,25 @@
-[build-system]
-requires = ["hatchling>=1.24"]
-build-backend = "hatchling.build"
-
 [project]
-name = "keysight-power"
+name = "keysight-power-workspace"
 version = "0.1.0"
-description = "Safe Python tools for controlling Keysight DC power supplies."
-readme = "README.md"
-requires-python = ">=3.10"
-license = { text = "MIT" }
-authors = [
-  { name = "Keysight Power contributors" },
-]
-dependencies = [
-  "pyvisa>=1.14",
-  "tomli>=2; python_version < '3.11'",
-]
+requires-python = ">=3.10,<3.13"
 
-[project.optional-dependencies]
-dev = [
-  "pytest>=8.0",
-]
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/core", "packages/cli", "packages/webui"]
+
+[tool.uv.sources]
+keysight-power-core = { workspace = true }
+keysight-power-cli = { workspace = true }
+keysight-power-webui = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
+testpaths = [
+  "packages/core/tests",
+  "packages/cli/tests",
+  "packages/webui/tests"
+]

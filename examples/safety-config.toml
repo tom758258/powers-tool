@@ -1,6 +1,8 @@
 [safety]
 max_voltage = 5.0
 max_current = 0.5
+confirm_above_voltage = 3.3
+confirm_above_current = 0.25
 allowed_channels = [1, 2, 3]
 
 [[resources]]

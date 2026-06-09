@@ -1,6 +1,6 @@
 import argparse
 
-from keysight_power.connection import open_resource
+from keysight_power_core.connection import open_resource
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keysight Power WebUI</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="page-head">
+    <div class="brand">
+      <h1>Keysight Power</h1>
+    </div>
+
+    <div class="resource-row">
+      <label>VISA resource
+        <input id="resource" placeholder="Waiting Scan">
+      </label>
+      <div class="live-resource-field">
+        <label>Live resource
+          <select id="resource-select">
+            <option value="">Scan to load live resources</option>
+          </select>
+        </label>
+        <button id="scan" class="secondary">Scan Device</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="shell">
+    <!-- 1. Live Data -->
+    <section class="live-data-section">
+      <div class="section-head">
+        <strong>Live Data</strong>
+        <div class="button-row">
+          <button id="live-start" class="secondary live-start-button">Start Monitor</button>
+          <button id="live-stop" class="secondary" disabled>Stop</button>
+        </div>
+      </div>
+      <div class="live-data-note">Live Data updates every 15 seconds. Hardware commands wait for the current read to finish, then Live Data pauses briefly to avoid VISA communication conflicts.</div>
+      <div class="live-state-row" aria-live="polite">
+        <div class="live-state-field">
+          <span>Server State:</span>
+          <strong id="server-state">Checking server</strong>
+        </div>
+        <div class="live-state-field">
+          <span>Device State:</span>
+          <strong id="device-state">hardware unknown</strong>
+        </div>
+        <div class="live-state-field">
+          <span>Monitor State:</span>
+          <strong id="monitor-state">Not monitoring</strong>
+        </div>
+      </div>
+      <div id="live-cards" class="live-cards" aria-live="polite">
+        <div class="live-card" data-channel-card="1"></div>
+        <div class="live-card" data-channel-card="2"></div>
+        <div class="live-card" data-channel-card="3"></div>
+      </div>
+    </section>
+
+    <!-- 2. Commands -->
+    <aside class="rail">
+      <div class="rail-head">
+        <strong>Commands</strong>
+        <input id="command-filter" placeholder="Filter">
+      </div>
+      <div id="command-list" class="command-list"></div>
+    </aside>
+
+    <!-- 3. Workspace / Command execution -->
+    <section class="workspace">
+      <div class="panel-title">
+        <div>
+          <h2 id="selected-command">No command selected</h2>
+          <p id="command-description">Choose a command from the rail.</p>
+        </div>
+        <button id="run" disabled>Run</button>
+      </div>
+
+      <div id="confirm-banner" class="confirm-banner">
+        <label><input id="confirm" type="checkbox"> Confirm real output-affecting execution</label>
+      </div>
+
+      <form id="command-form" class="form-grid"></form>
+    </section>
+
+    <!-- 4. Job History -->
+    <section>
+      <div class="section-head"><strong>Job History</strong></div>
+      <div id="job-history" class="history"></div>
+    </section>
+
+    <!-- 5. Result -->
+    <section id="result-panel" class="result-panel">
+      <div class="section-head">
+        <strong>Result</strong>
+        <button id="result-toggle" class="secondary icon-button" type="button" aria-label="Collapse result" aria-expanded="true">-</button>
+      </div>
+      <pre id="result">{}</pre>
+    </section></main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

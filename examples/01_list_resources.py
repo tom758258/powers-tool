@@ -1,4 +1,4 @@
-from keysight_power.connection import list_resources
+from keysight_power_core.connection import list_resources
 
 
 def main() -> None:
