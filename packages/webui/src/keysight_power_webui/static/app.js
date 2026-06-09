@@ -36,7 +36,7 @@ const PARAMS = {
     { name: "step_voltage", type: "number", label: "Step voltage", value: 0.1 },
     { name: "delay_ms", type: "number", label: "Delay ms", value: 0 }
   ],
-  "smoke-output": [...baseOutputParams(), { name: "duration_ms", type: "number", label: "Duration ms", value: 100 }],
+  "smoke-output": smokeOutputParams(),
   "protection-status": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
   "protection-set": [
     { name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" },
@@ -53,9 +53,7 @@ function baseOutputParams() {
   return [
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
     { name: "voltage", type: "number", label: "Voltage", value: 1 },
-    { name: "current", type: "number", label: "Current", value: 0.1 },
-    { name: "settle_ms", type: "number", label: "Settle ms", value: 0 },
-    { name: "verify_after_write", type: "checkbox", label: "Verify after write" }
+    { name: "current", type: "number", label: "Current", value: 0.1 }
   ];
 }
 
@@ -63,6 +61,15 @@ function applyOutputParams() {
   const params = baseOutputParams();
   params[0] = { ...params[0], options: ["all", "1", "2", "3"], value: "1" };
   return params;
+}
+
+function smokeOutputParams() {
+  return [
+    { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
+    { name: "voltage", type: "number", label: "Voltage", value: 1 },
+    { name: "current", type: "number", label: "Current", value: 0.1 },
+    { name: "duration_ms", type: "number", label: "Duration ms", value: 100 }
+  ];
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -152,7 +159,7 @@ function renderCommands() {
         const button = document.createElement("button");
         button.className = `command-button${state.selected === name ? " active" : ""}`;
         button.disabled = Boolean(meta.disabled);
-        button.innerHTML = `<span>${name === "capabilities" ? "Capabilities" : name}</span><small>${meta.disabled_reason || ""}</small>`;
+        button.innerHTML = `<span>${commandDisplayName(name)}</span><small>${meta.disabled_reason || ""}</small>`;
         button.addEventListener("click", () => selectCommand(name));
         columns[cat].buttonsContainer.appendChild(button);
         columns[cat].hasVisibleCommands = true;
@@ -171,7 +178,7 @@ function renderCommands() {
 function selectCommand(name) {
   state.selected = name;
   const meta = state.commands[name] || {};
-  document.getElementById("selected-command").textContent = name === "capabilities" ? "Capabilities" : name;
+  document.getElementById("selected-command").textContent = commandDisplayName(name);
   document.getElementById("command-description").textContent = meta.description || "";
   document.getElementById("run").disabled = Boolean(meta.disabled);
   document.getElementById("confirm-banner").classList.toggle("visible", Boolean(meta.requires_confirm));
@@ -276,6 +283,12 @@ function parameterPayload() {
 function normalizeChannelValue(value) {
   if (value === "all") return value;
   return /^[1-9]\d*$/.test(value) ? Number(value) : value;
+}
+
+function commandDisplayName(name) {
+  if (!name) return "";
+  if (name === "capabilities") return "Capabilities";
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 function submitJob(payload) {
@@ -627,7 +640,7 @@ function normalizeMeasurements(sample) {
 }
 
 function addHistory(jobId, command, status, label = command) {
-  const displayLabel = label === "capabilities" ? "Capabilities" : label;
+  const displayLabel = commandDisplayName(label);
   state.jobs.unshift({ jobId, command, label: displayLabel, status });
   state.jobs = state.jobs.slice(0, 20);
   renderHistory();

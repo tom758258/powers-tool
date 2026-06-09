@@ -204,20 +204,57 @@ def test_result_panel_is_light_and_collapsible():
     assert ".result-panel.collapsed pre { display: none; }" in styles_css
 
 
+def test_static_command_display_names_are_sorted_and_capitalized_without_renaming_keys():
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    render_commands = app_js[app_js.index("function renderCommands()"):app_js.index("function selectCommand")]
+    display_name = app_js[app_js.index("function commandDisplayName(name)"):app_js.index("function submitJob")]
+    add_history = app_js[app_js.index("function addHistory"):app_js.index("function updateHistory")]
+
+    assert 'const CATEGORIES = ["output", "trigger", "read-only", "artifact", "discovery"]' in render_commands
+    assert ".sort((a, b) => a[0].localeCompare(b[0]))" in render_commands
+    assert "<span>${commandDisplayName(name)}</span>" in render_commands
+    assert "button.addEventListener(\"click\", () => selectCommand(name));" in render_commands
+    assert "document.getElementById(\"selected-command\").textContent = commandDisplayName(name);" in app_js
+    assert "const displayLabel = commandDisplayName(label);" in add_history
+    assert "if (!name) return \"\";" in display_name
+    assert "if (name === \"capabilities\") return \"Capabilities\";" in display_name
+    assert "return name.charAt(0).toUpperCase() + name.slice(1);" in display_name
+    assert "selectCommand(commandDisplayName(name))" not in app_js
+
+
 def test_static_channel_confirmation_and_job_detail_contracts():
     app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 
     base_output_params = app_js[app_js.index("function baseOutputParams()"):app_js.index("function applyOutputParams()")]
-    apply_output_params = app_js[app_js.index("function applyOutputParams()"):app_js.index('document.addEventListener("DOMContentLoaded"')]
+    apply_output_params = app_js[app_js.index("function applyOutputParams()"):app_js.index("function smokeOutputParams()")]
+    smoke_output_params = app_js[app_js.index("function smokeOutputParams()"):app_js.index('document.addEventListener("DOMContentLoaded"')]
 
     assert 'set: baseOutputParams()' in app_js
     assert 'apply: [...applyOutputParams(), { name: "no_output", type: "checkbox", label: "Do not enable output" }]' in app_js
+    assert '"smoke-output": smokeOutputParams()' in app_js
     assert 'options: ["1", "2", "3"], value: "1"' in base_output_params
+    assert 'name: "channel"' in base_output_params
+    assert 'name: "voltage"' in base_output_params
+    assert 'name: "current"' in base_output_params
+    assert "settle_ms" not in base_output_params
+    assert "verify_after_write" not in base_output_params
+    assert "Verify after write" not in app_js
     assert 'options: ["all", "1", "2", "3"]' in apply_output_params
     assert 'value: "1"' in apply_output_params
+    assert 'name: "no_output", type: "checkbox", label: "Do not enable output"' in app_js
+    assert "settle_ms" not in apply_output_params
+    assert "verify_after_write" not in apply_output_params
+    assert 'options: ["1", "2", "3"], value: "1"' in smoke_output_params
+    assert 'name: "channel"' in smoke_output_params
+    assert 'name: "voltage"' in smoke_output_params
+    assert 'name: "current"' in smoke_output_params
+    assert 'name: "duration_ms", type: "number", label: "Duration ms", value: 100' in smoke_output_params
+    assert "settle_ms" not in smoke_output_params
+    assert "verify_after_write" not in smoke_output_params
     for command in ("output-on", "output-off", "output-state", "cycle-output"):
         assert f'"{command}": [{{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }}' in app_js
-    assert '"smoke-output": [...baseOutputParams()' in app_js
+    assert '"smoke-output": [...baseOutputParams()' not in app_js
 
     assert 'param.name === "channel" ? normalizeChannelValue(input.value) : input.value' in app_js
     assert "function normalizeChannelValue(value)" in app_js
