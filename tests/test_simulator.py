@@ -80,3 +80,40 @@ def test_first_target_simulator_supports_output_state_queries(resource, channel)
     session = SimulatedResourceManager().open_resource(resource)
 
     assert session.query(f"OUTP? (@{channel})") == "OFF"
+
+
+@pytest.mark.parametrize(
+    ("channel", "expected_voltage", "expected_current"),
+    [
+        (1, "1.000", "0.050"),
+        (2, "2.000", "0.100"),
+        (3, "3.000", "0.150"),
+    ],
+)
+def test_e36312a_simulator_supports_programmed_setpoint_queries(
+    channel,
+    expected_voltage,
+    expected_current,
+) -> None:
+    session = SimulatedResourceManager().open_resource("USB0::SIM::E36312A::INSTR")
+
+    assert session.query(f"VOLT? (@{channel})") == expected_voltage
+    assert session.query(f"CURR? (@{channel})") == expected_current
+
+
+def test_e36312a_simulator_supports_protection_and_identity_queries() -> None:
+    session = SimulatedResourceManager().open_resource("USB0::SIM::E36312A::INSTR")
+
+    assert session.query("VOLT:PROT:TRIP?") == "0"
+    assert session.query("CURR:PROT:TRIP?") == "0"
+    assert session.query("*OPT?") == "0"
+    assert session.query("SYST:VERS?") == "1999.0"
+    assert session.query("SYST:COMM:RLST?") == "RWLock"
+
+
+def test_e36312a_simulator_accepts_clear_protection_writes() -> None:
+    session = SimulatedResourceManager().open_resource("USB0::SIM::E36312A::INSTR")
+
+    session.write("OUTP:PROT:CLE (@2)")
+
+    assert session.commands == ["OUTP:PROT:CLE (@2)"]

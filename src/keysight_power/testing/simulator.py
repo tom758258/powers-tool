@@ -44,6 +44,31 @@ SIMULATED_OUTPUT_STATES = {
     "USB0::SIM::EDU36311A::INSTR": {1: False, 2: False, 3: False},
 }
 
+SIMULATED_PROGRAMMED_SETPOINTS = {
+    "USB0::SIM::E36312A::INSTR": {
+        1: {"voltage": "1.000", "current": "0.050"},
+        2: {"voltage": "2.000", "current": "0.100"},
+        3: {"voltage": "3.000", "current": "0.150"},
+    },
+}
+
+SIMULATED_OPTIONS = {
+    "USB0::SIM::E36312A::INSTR": "0",
+}
+
+SIMULATED_SCPI_VERSION = {
+    "USB0::SIM::E36312A::INSTR": "1999.0",
+}
+
+SIMULATED_REMOTE_LOCKOUT = {
+    "USB0::SIM::E36312A::INSTR": "RWLock",
+}
+
+SIMULATED_PROTECTION_TRIPS = {
+    "USB0::SIM::E36312A::INSTR": {"voltage": False, "current": False},
+}
+
+
 class SimulatedResourceManager:
     """Resource manager that never opens real VISA resources."""
 
@@ -73,6 +98,8 @@ class SimulatedResource:
     def write(self, command: str) -> None:
         self._ensure_open()
         self.commands.append(command)
+        if _simulated_clear_protection(command) is not None:
+            return
 
     def query(self, command: str) -> str:
         self._ensure_open()
@@ -81,6 +108,16 @@ class SimulatedResource:
             return SIMULATED_IDN[self.resource_name]
         if command == "SYST:ERR?":
             return '0,"No error"'
+        if command == "*OPT?":
+            return SIMULATED_OPTIONS.get(self.resource_name, "0")
+        if command == "SYST:VERS?":
+            return SIMULATED_SCPI_VERSION.get(self.resource_name, "1999.0")
+        if command == "SYST:COMM:RLST?":
+            return SIMULATED_REMOTE_LOCKOUT.get(self.resource_name, "RWLock")
+        if command == "VOLT:PROT:TRIP?":
+            return "1" if SIMULATED_PROTECTION_TRIPS.get(self.resource_name, {}).get("voltage") else "0"
+        if command == "CURR:PROT:TRIP?":
+            return "1" if SIMULATED_PROTECTION_TRIPS.get(self.resource_name, {}).get("current") else "0"
         if command == "*TRG":
             return ""
         if command.startswith("DIG:PIN") and ":POL " in command:
@@ -101,6 +138,13 @@ class SimulatedResource:
             measurement_name, channel = measurement
             try:
                 return SIMULATED_MEASUREMENTS[self.resource_name][channel][measurement_name]
+            except KeyError as exc:
+                raise VisaConnectionError(f"No simulated response for {command!r}") from exc
+        setpoint = _simulated_setpoint(command)
+        if setpoint is not None:
+            setpoint_name, channel = setpoint
+            try:
+                return SIMULATED_PROGRAMMED_SETPOINTS[self.resource_name][channel][setpoint_name]
             except KeyError as exc:
                 raise VisaConnectionError(f"No simulated response for {command!r}") from exc
         raise VisaConnectionError(f"No simulated response for {command!r}")
@@ -125,11 +169,29 @@ def _simulated_measurement(command: str) -> tuple[str, int] | None:
     return None
 
 
+def _simulated_setpoint(command: str) -> tuple[str, int] | None:
+    if command == "VOLT?":
+        return ("voltage", 1)
+    if command == "CURR?":
+        return ("current", 1)
+    if command.startswith("VOLT? (@") and command.endswith(")"):
+        return ("voltage", _parse_channel_list(command, "VOLT? (@"))
+    if command.startswith("CURR? (@") and command.endswith(")"):
+        return ("current", _parse_channel_list(command, "CURR? (@"))
+    return None
+
+
 def _simulated_output_state(command: str) -> int | None:
     if command == "OUTP?":
         return 1
     if command.startswith("OUTP? (@") and command.endswith(")"):
         return _parse_channel_list(command, "OUTP? (@")
+    return None
+
+
+def _simulated_clear_protection(command: str) -> int | None:
+    if command.startswith("OUTP:PROT:CLE (@") and command.endswith(")"):
+        return _parse_channel_list(command, "OUTP:PROT:CLE (@")
     return None
 
 

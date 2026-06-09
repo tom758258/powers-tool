@@ -32,6 +32,10 @@ CLEAR_STATUS_COMMAND = "*CLS"
 ERROR_QUERY = "SYST:ERR?"
 MEASURE_VOLTAGE_QUERY = "MEAS:VOLT?"
 MEASURE_CURRENT_QUERY = "MEAS:CURR?"
+PROGRAMMED_VOLTAGE_QUERY = "VOLT?"
+PROGRAMMED_CURRENT_QUERY = "CURR?"
+OVP_TRIP_QUERY = "VOLT:PROT:TRIP?"
+OCP_TRIP_QUERY = "CURR:PROT:TRIP?"
 COMMAND_NAMES = frozenset(
     {
         "list-resources",
@@ -49,6 +53,11 @@ COMMAND_NAMES = frozenset(
         "apply",
         "trigger-pulse",
         "status",
+        "readback",
+        "protection-status",
+        "clear-protection",
+        "identify",
+        "snapshot",
     }
 )
 
@@ -462,6 +471,116 @@ def build_parser() -> argparse.ArgumentParser:
     )
     status_parser.set_defaults(func=_run_status)
 
+    readback_parser = subparsers.add_parser(
+        "readback",
+        help="Read programmed voltage and current setpoints for E36312A channels.",
+    )
+    _add_output_resource_arguments(readback_parser)
+    _add_channel_or_all_argument(readback_parser)
+    _add_json_argument(readback_parser)
+    _add_simulate_argument(readback_parser)
+    _add_safety_config_argument(readback_parser)
+    _add_backend_argument(readback_parser)
+    _add_timeout_argument(readback_parser)
+    readback_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    readback_parser.set_defaults(func=_run_readback)
+
+    protection_parser = subparsers.add_parser(
+        "protection-status",
+        help="Read E36312A protection trip flags and output states.",
+    )
+    _add_output_resource_arguments(protection_parser)
+    _add_channel_or_all_argument(protection_parser)
+    _add_json_argument(protection_parser)
+    _add_simulate_argument(protection_parser)
+    _add_safety_config_argument(protection_parser)
+    _add_backend_argument(protection_parser)
+    _add_timeout_argument(protection_parser)
+    protection_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    protection_parser.set_defaults(func=_run_protection_status)
+
+    clear_protection_parser = subparsers.add_parser(
+        "clear-protection",
+        help="Clear E36312A output protection for one channel or all channels.",
+    )
+    _add_output_resource_arguments(clear_protection_parser)
+    clear_protection_parser.add_argument(
+        "--channel",
+        default=None,
+        type=_status_channel,
+        help="Positive integer output channel or 'all'.",
+    )
+    clear_protection_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Clear protection on all E36312A output channels.",
+    )
+    clear_protection_parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Confirm real hardware protection clearing.",
+    )
+    _add_json_argument(clear_protection_parser)
+    _add_simulate_argument(clear_protection_parser)
+    _add_dry_run_argument(clear_protection_parser)
+    _add_safety_config_argument(clear_protection_parser)
+    _add_backend_argument(clear_protection_parser)
+    _add_timeout_argument(clear_protection_parser)
+    clear_protection_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    clear_protection_parser.set_defaults(func=_run_clear_protection)
+
+    identify_parser = subparsers.add_parser(
+        "identify",
+        help="Read IDN, options, SCPI version, and remote/local state.",
+    )
+    _add_output_resource_arguments(identify_parser)
+    _add_json_argument(identify_parser)
+    _add_simulate_argument(identify_parser)
+    _add_safety_config_argument(identify_parser)
+    _add_backend_argument(identify_parser)
+    _add_timeout_argument(identify_parser)
+    identify_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    identify_parser.set_defaults(func=_run_identify)
+
+    snapshot_parser = subparsers.add_parser(
+        "snapshot",
+        help="Read E36312A errors, outputs, readback, measurements, and protection flags.",
+    )
+    _add_output_resource_arguments(snapshot_parser)
+    snapshot_parser.add_argument(
+        "--max-errors",
+        type=_positive_max_errors,
+        default=20,
+        help="Maximum error queue reads before stopping.",
+    )
+    _add_json_argument(snapshot_parser)
+    _add_simulate_argument(snapshot_parser)
+    _add_safety_config_argument(snapshot_parser)
+    _add_backend_argument(snapshot_parser)
+    _add_timeout_argument(snapshot_parser)
+    snapshot_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    snapshot_parser.set_defaults(func=_run_snapshot)
+
     return parser
 
 
@@ -533,6 +652,20 @@ def _add_output_resource_arguments(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--resource-alias",
         help="Alias from an explicit --safety-config [[resources]] entry.",
+    )
+
+
+def _add_channel_or_all_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--channel",
+        default="all",
+        type=_status_channel,
+        help="Positive integer output channel or 'all'.",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Read all E36312A output channels.",
     )
 
 
@@ -1172,6 +1305,268 @@ def _run_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_readback(args: argparse.Namespace) -> int:
+    result = _run_e36312a_read_command(
+        args,
+        command_label="readback",
+        unsupported_code="unsupported_model_for_readback",
+        failure_code="readback_failed",
+        operation=_collect_readback,
+    )
+    if result is None:
+        return 1
+    exit_code, data = result
+    if exit_code != 0:
+        return exit_code
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=_execution_for_args(args, hardware_intent=True),
+            request=_request_for_args(args),
+            data=data,
+        )
+        return 0
+    print(f"Resource: {data['resource']}")
+    for channel in data["channels"]:
+        setpoints = channel["setpoints"]
+        print(
+            f"Channel {channel['channel']}: "
+            f"{_format_text_value(setpoints['voltage'])} V, "
+            f"{_format_text_value(setpoints['current'])} A"
+        )
+    return 0
+
+
+def _run_protection_status(args: argparse.Namespace) -> int:
+    result = _run_e36312a_read_command(
+        args,
+        command_label="protection-status",
+        unsupported_code="unsupported_model_for_protection_status",
+        failure_code="protection_status_failed",
+        operation=_collect_protection_status,
+    )
+    if result is None:
+        return 1
+    exit_code, data = result
+    if exit_code != 0:
+        return exit_code
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=_execution_for_args(args, hardware_intent=True),
+            request=_request_for_args(args),
+            data=data,
+        )
+        return 0
+    protection = data["protection"]
+    print(f"Resource: {data['resource']}")
+    print(f"Over-voltage tripped: {str(protection['over_voltage_tripped']).lower()}")
+    print(f"Over-current tripped: {str(protection['over_current_tripped']).lower()}")
+    for output in data["outputs"]:
+        print(
+            f"Channel {output['channel']}: "
+            f"Output enabled: {str(output['enabled']).lower()}, "
+            f"disabled with protection: {str(output['disabled_with_protection']).lower()}"
+        )
+    return 0
+
+
+def _run_clear_protection(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    if not args.all and args.channel is None:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message="clear-protection requires --channel N or --all",
+            retryable=False,
+        )
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+    except SafetyConfigError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    selected_channel = "all" if args.all else args.channel
+    try:
+        channels = _channels_from_selection(selected_channel, E36312APowerSupply.capabilities.channels)
+    except _E36312AChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+    if args.dry_run:
+        plan = dry_run_plan(
+            command=args.command,
+            resource=args.resource,
+            scpi=_clear_protection_scpi(channels),
+            description="Preview clearing E36312A output protection for selected channels.",
+        )
+        if args.json:
+            emit_json_success(command=args.command, execution=execution, request=request, data={"plan": plan})
+            return 0
+        _print_scpi_plan(plan, mode=_mode_for_args(args), dry_run=True)
+        return 0
+
+    if not args.simulate and not args.confirm:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="confirmation_required",
+            message="clear-protection real execution requires --confirm",
+            retryable=False,
+            hardware_intent=True,
+        )
+
+    opened = False
+    try:
+        with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
+            opened = True
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _ClearProtectionModelError(
+                    "clear-protection is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            channels = _channels_from_selection(selected_channel, power_supply.capabilities.channels)
+            for channel in channels:
+                power_supply.clear_output_protection(channel=channel)
+    except _ClearProtectionModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_clear_protection",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _E36312AChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        code = "clear_protection_failed" if opened else "connection_failed"
+        message = (
+            f"clear-protection failed: {exc}"
+            if opened
+            else f"Could not open resource for clear-protection: {exc}"
+        )
+        return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=message)
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="clear_protection_failed",
+            message=f"clear-protection failed: {exc}",
+        )
+
+    data = {"resource": args.resource, "cleared_channels": list(channels)}
+    if args.json:
+        emit_json_success(command=args.command, execution=execution, request=request, data=data)
+        return 0
+    print(f"Resource: {args.resource}")
+    print("Cleared channels: " + ", ".join(str(channel) for channel in channels))
+    return 0
+
+
+def _run_identify(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+    except SafetyConfigError as exc:
+        return _emit_cli_error(args, request=request, error_type="validation", code="argument_error", message=str(exc), retryable=False)
+
+    opened = False
+    try:
+        with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
+            opened = True
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            options = session.query("*OPT?").strip()
+            scpi_version = session.query("SYST:VERS?").strip()
+            remote_lockout = session.query("SYST:COMM:RLST?").strip()
+    except VisaConnectionError as exc:
+        code = "identify_failed" if opened else "connection_failed"
+        message = f"identify failed: {exc}" if opened else f"Could not open resource for identify: {exc}"
+        return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=message)
+    except ValueError as exc:
+        return _emit_safe_io_error(args, request=request, execution=execution, code="identify_failed", message=f"identify failed: {exc}")
+
+    data = {
+        "resource": args.resource,
+        "idn": parse_idn(idn).to_dict(),
+        "options": options,
+        "scpi_version": scpi_version,
+        "remote_lockout_state": remote_lockout,
+    }
+    if args.json:
+        emit_json_success(command=args.command, execution=execution, request=request, data=data)
+        return 0
+    print(f"Resource: {args.resource}")
+    print(f"IDN: {idn}")
+    print(f"Options: {options}")
+    print(f"SCPI version: {scpi_version}")
+    print(f"Remote/local state: {remote_lockout}")
+    return 0
+
+
+def _run_snapshot(args: argparse.Namespace) -> int:
+    result = _run_e36312a_read_command(
+        args,
+        command_label="snapshot",
+        unsupported_code="unsupported_model_for_snapshot",
+        failure_code="snapshot_failed",
+        operation=_collect_snapshot,
+    )
+    if result is None:
+        return 1
+    exit_code, data = result
+    if exit_code != 0:
+        return exit_code
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=_execution_for_args(args, hardware_intent=True),
+            request=_request_for_args(args),
+            data=data,
+        )
+        return 0
+    print(f"Resource: {data['resource']}")
+    print(f"Model: {data['idn']['model']}")
+    print(f"Errors: {len(data['errors'])}")
+    for output in data["outputs"]:
+        print(f"Channel {output['channel']}: Output enabled: {str(output['enabled']).lower()}")
+    return 0
+
+
 def _run_output_plan(args: argparse.Namespace) -> int:
     if not args.simulate and not args.dry_run:
         real_handlers = {
@@ -1401,6 +1796,220 @@ def _read_error_queue_from_driver(
     return errors, read_count
 
 
+def _run_e36312a_read_command(
+    args: argparse.Namespace,
+    *,
+    command_label: str,
+    unsupported_code: str,
+    failure_code: str,
+    operation: Any,
+) -> tuple[int, dict[str, Any]]:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+    except SafetyConfigError as exc:
+        return (
+            _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code="argument_error",
+                message=str(exc),
+                retryable=False,
+            ),
+            {},
+        )
+
+    selected_channel = "all" if getattr(args, "all", False) else getattr(args, "channel", "all")
+    try:
+        _channels_from_selection(selected_channel, E36312APowerSupply.capabilities.channels)
+    except _E36312AChannelError as exc:
+        return (
+            _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code="argument_error",
+                message=str(exc),
+                retryable=False,
+            ),
+            {},
+        )
+    opened = False
+    try:
+        with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
+            opened = True
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _E36312AOnlyError(
+                    f"{command_label} is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            channels = _channels_from_selection(selected_channel, power_supply.capabilities.channels)
+            return 0, operation(args, power_supply, idn, channels)
+    except _E36312AOnlyError as exc:
+        return (
+            _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code=unsupported_code,
+                message=str(exc),
+                retryable=False,
+                hardware_intent=True,
+            ),
+            {},
+        )
+    except _E36312AChannelError as exc:
+        return (
+            _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code="argument_error",
+                message=str(exc),
+                retryable=False,
+                hardware_intent=True,
+            ),
+            {},
+        )
+    except VisaConnectionError as exc:
+        code = failure_code if opened else "connection_failed"
+        message = (
+            f"{command_label} failed: {exc}"
+            if opened
+            else f"Could not open resource for {command_label}: {exc}"
+        )
+        return (
+            _emit_safe_io_error(args, request=request, execution=execution, code=code, message=message),
+            {},
+        )
+    except ValueError as exc:
+        return (
+            _emit_safe_io_error(
+                args,
+                request=request,
+                execution=execution,
+                code=failure_code,
+                message=f"{command_label} failed: {exc}",
+            ),
+            {},
+        )
+
+
+def _collect_readback(
+    args: argparse.Namespace,
+    power_supply: E36312APowerSupply,
+    idn_raw: str,
+    channels: tuple[int, ...],
+) -> dict[str, Any]:
+    return {
+        "resource": args.resource,
+        "channels": [
+            {
+                "channel": channel,
+                "setpoints": {
+                    "voltage": power_supply.programmed_voltage(channel=channel),
+                    "current": power_supply.programmed_current(channel=channel),
+                },
+            }
+            for channel in channels
+        ],
+    }
+
+
+def _collect_protection_status(
+    args: argparse.Namespace,
+    power_supply: E36312APowerSupply,
+    idn_raw: str,
+    channels: tuple[int, ...],
+) -> dict[str, Any]:
+    protection = _protection_payload(power_supply)
+    tripped = protection["over_voltage_tripped"] or protection["over_current_tripped"]
+    return {
+        "resource": args.resource,
+        "protection": protection,
+        "outputs": [
+            {
+                "channel": channel,
+                "enabled": (enabled := power_supply.output_state(channel=channel)),
+                "disabled_with_protection": (not enabled) and tripped,
+            }
+            for channel in channels
+        ],
+    }
+
+
+def _collect_snapshot(
+    args: argparse.Namespace,
+    power_supply: E36312APowerSupply,
+    idn_raw: str,
+    channels: tuple[int, ...],
+) -> dict[str, Any]:
+    channels = power_supply.capabilities.channels
+    errors, read_count = _read_error_queue_from_driver(power_supply, args.max_errors)
+    return {
+        "resource": args.resource,
+        "idn": parse_idn(idn_raw).to_dict(),
+        "errors": errors,
+        "read_count": read_count,
+        "outputs": [
+            {"channel": channel, "enabled": power_supply.output_state(channel=channel)}
+            for channel in channels
+        ],
+        "readback": [
+            {
+                "channel": channel,
+                "setpoints": {
+                    "voltage": power_supply.programmed_voltage(channel=channel),
+                    "current": power_supply.programmed_current(channel=channel),
+                },
+            }
+            for channel in channels
+        ],
+        "measurements": [
+            {
+                "channel": channel,
+                "measurements": {
+                    "voltage": power_supply.measure_voltage(channel=channel),
+                    "current": power_supply.measure_current(channel=channel),
+                },
+            }
+            for channel in channels
+        ],
+        "protection": _protection_payload(power_supply),
+    }
+
+
+def _protection_payload(power_supply: E36312APowerSupply) -> dict[str, bool]:
+    return {
+        "over_voltage_tripped": power_supply.over_voltage_protection_tripped(),
+        "over_current_tripped": power_supply.over_current_protection_tripped(),
+    }
+
+
+def _channels_from_selection(
+    selected_channel: int | str,
+    supported_channels: tuple[int, ...],
+) -> tuple[int, ...]:
+    if selected_channel == "all":
+        return supported_channels
+    if selected_channel not in supported_channels:
+        raise _E36312AChannelError(
+            f"channel {selected_channel} is not supported; supported: {supported_channels}"
+        )
+    return (int(selected_channel),)
+
+
+def _clear_protection_scpi(channels: tuple[int, ...]) -> tuple[str, ...]:
+    return tuple(f"OUTP:PROT:CLE (@{channel})" for channel in channels)
+
+
 def _resource_payload(
     name: str,
     *,
@@ -1502,6 +2111,18 @@ class _StatusModelError(ValueError):
 
 class _StatusChannelError(ValueError):
     """Raised when status channel is outside E36312A capability (1,2,3)."""
+
+
+class _E36312AOnlyError(ValueError):
+    """Raised when an E36312A-only command sees a different model."""
+
+
+class _E36312AChannelError(ValueError):
+    """Raised when an E36312A command receives an unsupported channel."""
+
+
+class _ClearProtectionModelError(ValueError):
+    """Raised when clear-protection sees a non-E36312A model."""
 
 
 def _run_set_real(args: argparse.Namespace) -> int:
@@ -2514,6 +3135,44 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
+    if args.command in {"readback", "protection-status"}:
+        channel = "all" if getattr(args, "all", False) else args.channel
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": channel,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "clear-protection":
+        channel = "all" if getattr(args, "all", False) else args.channel
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": channel,
+            "confirm": getattr(args, "confirm", False),
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "identify":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "snapshot":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "max_errors": args.max_errors,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
     return {}
 
 
@@ -2640,6 +3299,44 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": channel,
+            "max_errors": _max_errors_from_argv(argv),
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command in {"readback", "protection-status"}:
+        channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "channel": channel,
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "clear-protection":
+        channel = "all" if "--all" in argv else _status_channel_from_argv(argv)
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "channel": channel,
+            "confirm": "--confirm" in argv,
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "identify":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "snapshot":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
             "max_errors": _max_errors_from_argv(argv),
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),

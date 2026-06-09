@@ -167,6 +167,57 @@ def assert_contract_envelope(payload: dict[str, object], *, command: str, ok: bo
                 "0.05",
             ],
         ),
+        (
+            "readback",
+            [
+                "readback",
+                "--simulate",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+            ],
+        ),
+        (
+            "protection-status",
+            [
+                "protection-status",
+                "--simulate",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+            ],
+        ),
+        (
+            "clear-protection",
+            [
+                "clear-protection",
+                "--dry-run",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+                "--all",
+            ],
+        ),
+        (
+            "identify",
+            [
+                "identify",
+                "--simulate",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+            ],
+        ),
+        (
+            "snapshot",
+            [
+                "snapshot",
+                "--simulate",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+            ],
+        ),
     ],
 )
 def test_safe_cli_json_commands_keep_contract(command, args, capsys) -> None:

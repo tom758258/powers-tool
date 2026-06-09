@@ -107,6 +107,21 @@ class GenericScpiPowerSupply:
     def measure_current(self, *, channel: Channel = None) -> float:
         return _parse_float(self._query("MEAS:CURR?", channel=channel), "current")
 
+    def programmed_voltage(self, *, channel: Channel = None) -> float:
+        return _parse_float(self._query("VOLT?", channel=channel), "voltage setpoint")
+
+    def programmed_current(self, *, channel: Channel = None) -> float:
+        return _parse_float(self._query("CURR?", channel=channel), "current setpoint")
+
+    def over_voltage_protection_tripped(self) -> bool:
+        return _parse_bool(self._session.query("VOLT:PROT:TRIP?"), "over-voltage protection")
+
+    def over_current_protection_tripped(self) -> bool:
+        return _parse_bool(self._session.query("CURR:PROT:TRIP?"), "over-current protection")
+
+    def clear_output_protection(self, *, channel: Channel = None) -> None:
+        self._write("OUTP:PROT:CLE", channel=channel)
+
     def clear_status(self) -> None:
         self._session.write("*CLS")
 
@@ -163,12 +178,16 @@ def _parse_float(response: str, measurement: str) -> float:
 
 
 def _parse_output_state(response: str) -> bool:
+    return _parse_bool(response, "output state")
+
+
+def _parse_bool(response: str, label: str) -> bool:
     normalized = response.strip().upper()
     if normalized in {"1", "ON", "TRUE"}:
         return True
     if normalized in {"0", "OFF", "FALSE"}:
         return False
-    raise ValueError(f"Could not parse output state: {response!r}")
+    raise ValueError(f"Could not parse {label}: {response!r}")
 
 
 def _is_no_error(response: str) -> bool:

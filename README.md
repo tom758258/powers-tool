@@ -134,6 +134,27 @@ Read E36312A error queue and output states:
 .\.venv\Scripts\python.exe -m keysight_power.cli status --json --resource "USB0::...::INSTR" --log-scpi
 ```
 
+Read programmed E36312A setpoints and protection state:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli readback --json --resource "USB0::...::INSTR" --log-scpi
+.\.venv\Scripts\python.exe -m keysight_power.cli protection-status --json --resource "USB0::...::INSTR" --log-scpi
+```
+
+Capture an E36312A snapshot for hardware handoff:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli identify --json --resource "USB0::...::INSTR" --log-scpi
+.\.venv\Scripts\python.exe -m keysight_power.cli snapshot --json --resource "USB0::...::INSTR" --log-scpi
+```
+
+Preview or confirm clearing E36312A output protection:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli clear-protection --dry-run --json --resource "USB0::...::INSTR" --all
+.\.venv\Scripts\python.exe -m keysight_power.cli clear-protection --json --resource "USB0::...::INSTR" --all --confirm --log-scpi
+```
+
 Configure an E36312A rear digital pin as trigger output and emit `*TRG`:
 
 ```powershell
