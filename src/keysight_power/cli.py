@@ -11,6 +11,7 @@ from typing import Any
 from keysight_power.cli_io import emit_json_error, emit_json_success
 from keysight_power.connection import DEFAULT_TIMEOUT_MS, list_resources, open_resource
 from keysight_power.drivers.generic_scpi import GenericScpiPowerSupply
+from keysight_power.drivers.e36312a import E36312APowerSupply
 from keysight_power.errors import VisaConnectionError
 from keysight_power.factory import create_power_supply
 from keysight_power.models import parse_idn, resource_interface
@@ -254,6 +255,13 @@ def build_parser() -> argparse.ArgumentParser:
     _add_simulate_argument(output_off_parser)
     _add_dry_run_argument(output_off_parser)
     _add_safety_config_argument(output_off_parser)
+    _add_backend_argument(output_off_parser)
+    _add_timeout_argument(output_off_parser)
+    output_off_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
     output_off_parser.set_defaults(func=_run_output_plan)
 
     safe_off_parser = subparsers.add_parser(
@@ -658,6 +666,10 @@ def _run_output_plan(args: argparse.Namespace) -> int:
         )
 
     if not args.simulate and not args.dry_run:
+        # E36312A output-off real execution is handled by _run_output_off_real.
+        # All other output commands remain disabled.
+        if args.command == "output-off":
+            return _run_output_off_real(args)
         return _emit_cli_error(
             args,
             request=request,
@@ -851,6 +863,125 @@ def _resource_manager_for_args(args: argparse.Namespace) -> SimulatedResourceMan
     if args.simulate:
         return SimulatedResourceManager()
     return None
+
+
+class _OutputOffModelError(ValueError):
+    """Raised when output-off is attempted on a non-E36312A model."""
+
+
+class _OutputOffChannelError(ValueError):
+    """Raised when output-off channel is outside E36312A capability (1,2,3)."""
+
+
+def _run_output_off_real(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+
+    try:
+        safety_limits = _safety_limits_for_args(args)
+        _validate_output_request(args, safety_limits)
+    except (SafetyConfigError, SafetyValidationError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    try:
+        with _open_resource(
+            args.resource,
+            manager,
+            backend=args.backend,
+            timeout_ms=args.timeout_ms,
+        ) as instrument:
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _OutputOffModelError(
+                    "output-off real execution is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            capabilities = power_supply.capabilities
+            if args.channel not in capabilities.channels:
+                raise _OutputOffChannelError(
+                    f"channel {args.channel} is not supported for output-off; "
+                    f"supported: {capabilities.channels}"
+                )
+            power_supply.output_off(channel=args.channel)
+    except _OutputOffModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_output_off",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _OutputOffChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="connection_failed",
+            message=f"Could not open resource for output-off: {exc}",
+        )
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="output_off_failed",
+            message=f"output-off failed: {exc}",
+        )
+
+    resource_data = _output_off_resource_payload(args, idn)
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=execution,
+            request=request,
+            data=resource_data,
+        )
+        return 0
+
+    print(f"Resource: {args.resource}")
+    print(f"Channel: {args.channel}")
+    print(f"Output enabled: False")
+    return 0
+
+
+def _output_off_resource_payload(
+    args: argparse.Namespace,
+    idn_raw: str,
+) -> dict[str, Any]:
+    return {
+        "resource": _resource_payload(
+            args.resource,
+            simulated=args.simulate,
+            reachable=True,
+            idn_raw=idn_raw,
+        ),
+        "channel": args.channel,
+        "output": {
+            "enabled": False,
+        },
+    }
 
 
 def _list_resources(
@@ -1153,11 +1284,12 @@ def _emit_cli_error(
     code: str,
     message: str,
     retryable: bool,
+    hardware_intent: bool = False,
 ) -> int:
     if args.json:
         emit_json_error(
             command=args.command,
-            execution=_execution_for_args(args, hardware_intent=False),
+            execution=_execution_for_args(args, hardware_intent=hardware_intent),
             request=request,
             error_type=error_type,
             code=code,

@@ -1553,7 +1553,6 @@ def test_output_commands_text_dry_run_output(args, expected_lines, capsys) -> No
     [
         output_command_args("set"),
         output_command_args("output-on"),
-        output_command_args("output-off"),
         output_command_args("safe-off"),
     ],
 )
@@ -1562,6 +1561,7 @@ def test_real_output_commands_without_dry_run_are_rejected_before_visa(
     capsys,
     args,
 ) -> None:
+    """set, output-on, and safe-off real mode are still disabled."""
     def fail_real_manager(backend=None):
         raise AssertionError("real VISA manager should not be created")
 
@@ -1811,3 +1811,239 @@ def test_output_command_invalid_values_use_stable_json_validation_errors(
     assert payload["error"]["retryable"] is False
     assert expected_message in payload["error"]["message"]
     assert captured.err == ""
+
+import json
+
+import pytest
+
+import keysight_power.cli as cli
+import keysight_power.connection as connection
+
+# --- E36312A real output-off (uses hardcoded resource) ---
+
+@pytest.mark.parametrize("channel", [1, 2, 3])
+def test_output_off_real_e36312a_sends_correct_scpi(monkeypatch, capsys, channel) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "output-off",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                str(channel),
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.writes == [f"OUTP OFF,(@{channel})"]
+    assert session.queries == ["*IDN?"]
+    assert session.closed is True
+    assert payload["execution"]["mode"] == "real"
+    assert payload["execution"]["dry_run"] is False
+    assert payload["execution"]["hardware_touched"] is True
+    assert payload["data"]["channel"] == channel
+    assert payload["data"]["output"]["enabled"] is False
+    assert payload["data"]["resource"]["name"] == OUTPUT_RESOURCE
+    assert payload["data"]["resource"]["idn"]["model"] == "E36312A"
+    assert captured.err == ""
+
+
+def test_output_off_real_e36312a_with_log_scpi(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "output-off",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--log-scpi",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    assert payload["data"]["output"]["enabled"] is False
+    assert f"{OUTPUT_RESOURCE} SCPI >> *IDN?" in captured.err
+    assert f"{OUTPUT_RESOURCE} SCPI >> OUTP OFF,(@1)" in captured.err
+    json.loads(captured.out)  # must not raise - stdout is valid JSON
+
+
+def test_output_off_real_generic_e36312a_is_rejected(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36103B,MY00000000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "output-off",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+            ]
+        )
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert payload["execution"]["hardware_touched"] is True
+    assert payload["error"]["type"] == "validation"
+    assert payload["error"]["code"] == "unsupported_model_for_output_off"
+    assert "E36312A" in payload["error"]["message"]
+    assert session.closed is True
+
+
+def test_output_off_real_unknown_model_is_rejected(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="UNKNOWN,MODEL,SN,FW")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "output-off",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+            ]
+        )
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "unsupported_model_for_output_off"
+
+
+def test_output_off_real_unsupported_channel_is_rejected(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "output-off",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "99",
+            ]
+        )
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "validation"
+    assert payload["error"]["code"] == "argument_error"
+    # session is closed by context manager after error
+
+
+# --- Preserved behaviors: dry-run and simulate ---
+
+
+def test_output_off_dry_run_does_not_open_resource(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("real VISA resource should not be opened for dry-run")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "output-off",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    assert "plan" in payload["data"]
+    assert payload["data"]["plan"]["operation"]["name"] == "output-off"
+    assert payload["execution"]["hardware_touched"] is False
+
+
+def test_output_off_simulate_does_not_open_resource(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("VISA resource should not be opened for simulate")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "output-off",
+                "--simulate",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    assert "plan" in payload["data"]
+
+
+# --- Other output commands remain disabled ---
+
+
+@pytest.mark.parametrize("command,extra_args", [
+    ("set",      ["--voltage", "1", "--current", "0.05"]),
+    ("output-on", []),
+    ("safe-off", []),
+])
+def test_other_output_commands_real_remain_disabled(monkeypatch, capsys, command, extra_args) -> None:
+    def fail_real_manager(backend=None):
+        raise AssertionError("real VISA manager should not be created")
+
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("real VISA resource should not be opened")
+
+    monkeypatch.setattr(connection, "create_resource_manager", fail_real_manager)
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    args = [command, "--json", "--resource", OUTPUT_RESOURCE, "--channel", "1"] + extra_args
+    assert cli.main(args) == 2
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "safety"
+    assert payload["error"]["code"] == "real_execution_disabled"
+
