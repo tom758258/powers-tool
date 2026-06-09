@@ -2,6 +2,7 @@ const state = {
   commands: {},
   commandSupportByModel: {},
   resourceModels: {},
+  activeCategory: "output",
   selected: null,
   jobs: [],
   events: null,
@@ -11,7 +12,15 @@ const state = {
   previewJobId: null,
   samples: [],
   livePanel: null,
-  resultCollapsed: false
+  resultCollapsed: true
+};
+
+const COMMAND_CATEGORIES = ["output", "trigger", "artifact", "discovery"];
+const COMMAND_CATEGORY_LABELS = {
+  output: "Output",
+  trigger: "Trigger",
+  artifact: "Workflows & State",
+  discovery: "Advanced Diagnostics"
 };
 
 const PARAMS = {
@@ -172,63 +181,36 @@ async function loadCommands() {
 
 function renderCommands() {
   const filter = document.getElementById("command-filter").value.toLowerCase();
+  const categories = document.getElementById("command-categories");
   const list = document.getElementById("command-list");
+  categories.innerHTML = "";
   list.innerHTML = "";
 
-  const CATEGORIES = ["output", "trigger", "artifact", "discovery"];
-  const CATEGORY_LABELS = {
-    "output": "Output",
-    "trigger": "Trigger",
-    "artifact": "Workflows & State",
-    "discovery": "Advanced Diagnostics"
-  };
-
-  const columns = {};
-  CATEGORIES.forEach((cat) => {
-    const colDiv = document.createElement("div");
-    colDiv.className = "command-category-column";
-
-    const header = document.createElement("div");
-    header.className = "category-title";
-    header.textContent = CATEGORY_LABELS[cat];
-    colDiv.appendChild(header);
-
-    const buttonsDiv = document.createElement("div");
-    buttonsDiv.className = "category-buttons";
-    colDiv.appendChild(buttonsDiv);
-
-    list.appendChild(colDiv);
-    columns[cat] = {
-      column: colDiv,
-      buttonsContainer: buttonsDiv,
-      hasVisibleCommands: false
-    };
+  COMMAND_CATEGORIES.forEach((category) => {
+    const button = document.createElement("button");
+    button.className = `category-button${state.activeCategory === category ? " active" : ""}`;
+    button.type = "button";
+    button.textContent = COMMAND_CATEGORY_LABELS[category];
+    button.addEventListener("click", () => {
+      state.activeCategory = category;
+      renderCommands();
+    });
+    categories.appendChild(button);
   });
 
   Object.entries(state.commands)
+    .filter(([name, meta]) => (meta.category || "discovery") === state.activeCategory)
     .filter(([name]) => !filter || name.includes(filter))
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .forEach(([name, meta]) => {
-      const cat = meta.category || "discovery";
-      if (columns[cat]) {
-        const effectiveMeta = commandMeta(name);
-        const button = document.createElement("button");
-        button.className = `command-button${state.selected === name ? " active" : ""}`;
-        button.disabled = Boolean(effectiveMeta.disabled);
-        button.innerHTML = `<span>${commandDisplayName(name)}</span><small>${effectiveMeta.disabled_reason || ""}</small>`;
-        button.addEventListener("click", () => selectCommand(name));
-        columns[cat].buttonsContainer.appendChild(button);
-        columns[cat].hasVisibleCommands = true;
-      }
+    .forEach(([name]) => {
+      const effectiveMeta = commandMeta(name);
+      const button = document.createElement("button");
+      button.className = `command-button${state.selected === name ? " active" : ""}`;
+      button.disabled = Boolean(effectiveMeta.disabled);
+      button.innerHTML = `<span>${commandDisplayName(name)}</span><small>${effectiveMeta.disabled_reason || ""}</small>`;
+      button.addEventListener("click", () => selectCommand(name));
+      list.appendChild(button);
     });
-
-  CATEGORIES.forEach((cat) => {
-    if (filter && !columns[cat].hasVisibleCommands) {
-      columns[cat].column.style.display = "none";
-    } else {
-      columns[cat].column.style.display = "flex";
-    }
-  });
 }
 
 function selectCommand(name) {
@@ -247,6 +229,7 @@ function renderForm(command) {
   form.innerHTML = "";
   (PARAMS[command] || []).forEach((param) => {
     const label = document.createElement("label");
+    if (param.type === "checkbox") label.classList.add("checkbox-field");
     label.textContent = param.label;
     let input;
     if (param.type === "select") {
@@ -282,10 +265,10 @@ async function scanResources() {
     subscribeToJob(response.job_id, "/api/events");
   } catch (error) {
     console.error("Scan resources failed", error);
-    document.getElementById("result").textContent = JSON.stringify({
+    renderClientResult("Scan Device", "failed", error.message || String(error), {
       error: "Scan resources failed",
       detail: error.message || String(error)
-    }, null, 2);
+    });
   }
 }
 
@@ -293,7 +276,7 @@ async function runSelected() {
   if (!state.selected) return;
   const meta = commandMeta(state.selected);
   if (meta.disabled) {
-    renderResult({
+    renderClientResult(state.selected, "failed", meta.disabled_reason || "This command is not available for the selected resource.", {
       error: "Command unavailable",
       detail: meta.disabled_reason || "This command is not available for the selected resource.",
       command: state.selected
@@ -306,7 +289,7 @@ async function runSelected() {
     parameters: parameterPayload()
   };
   if (meta.requires_confirm && !payload.runtime.confirm) {
-    renderResult({
+    renderClientResult(state.selected, "failed", "This command affects real hardware output. Check confirmation before running.", {
       error: "Confirmation required",
       detail: "This command affects real hardware output. Check confirmation before running.",
       command: state.selected,
@@ -409,6 +392,7 @@ async function handleJobEvent(jobId, event) {
 async function renderJobDetail(jobId, event) {
   try {
     const job = await fetchJson(`/api/jobs/${encodeURIComponent(jobId)}`);
+    updateJobResult(job.job_id, job.status, jobSummary(job, event));
     renderResult({
       job_id: job.job_id,
       command: job.command,
@@ -420,6 +404,7 @@ async function renderJobDetail(jobId, event) {
     });
     return job;
   } catch (error) {
+    updateJobResult(jobId, event.type, eventSummary(event));
     renderResult(event.data);
     return null;
   }
@@ -437,6 +422,13 @@ function shouldRefreshLiveAfterCommand(event, job) {
 
 function renderResult(data) {
   document.getElementById("result").textContent = JSON.stringify(data, null, 2);
+}
+
+function renderClientResult(command, status, summary, detail) {
+  const jobId = `client-${Date.now()}`;
+  addHistory(jobId, command, status, command);
+  updateJobResult(jobId, status, summary);
+  renderResult(detail);
 }
 
 function jobCommand(jobId) {
@@ -825,14 +817,25 @@ function normalizeMeasurements(sample) {
 
 function addHistory(jobId, command, status, label = command) {
   const displayLabel = commandDisplayName(label);
-  state.jobs.unshift({ jobId, command, label: displayLabel, status });
+  state.jobs.unshift({ jobId, command, label: displayLabel, status, summary: statusSummary(status) });
   state.jobs = state.jobs.slice(0, 20);
   renderHistory();
 }
 
 function updateHistory(jobId, status) {
   const job = state.jobs.find((item) => item.jobId === jobId);
-  if (job) job.status = status;
+  if (job) {
+    job.status = status;
+    job.summary = statusSummary(status);
+  }
+  renderHistory();
+}
+
+function updateJobResult(jobId, status, summary) {
+  const job = state.jobs.find((item) => item.jobId === jobId);
+  if (!job) return;
+  job.status = status;
+  job.summary = summary || statusSummary(status);
   renderHistory();
 }
 
@@ -842,9 +845,74 @@ function renderHistory() {
   state.jobs.forEach((job) => {
     const item = document.createElement("div");
     item.className = "history-item";
-    item.textContent = `${job.label} - ${job.status}`;
+    const label = document.createElement("strong");
+    label.textContent = job.label;
+    const badge = document.createElement("span");
+    badge.className = `result-status ${statusClass(job.status)}`;
+    badge.textContent = statusLabel(job.status);
+    const summary = document.createElement("span");
+    summary.className = "result-summary";
+    summary.textContent = job.summary || statusSummary(job.status);
+    item.append(label, " - ", badge, " - ", summary);
     history.appendChild(item);
   });
+}
+
+function jobSummary(job, event = null) {
+  const status = job?.status || event?.type;
+  if (status === "failed") return job?.error || event?.data?.error || "Command failed";
+  if (status === "cancelled") return "Job cancelled";
+  if (status !== "finished") return statusSummary(status);
+  return successfulJobSummary(job);
+}
+
+function eventSummary(event) {
+  if (event?.type === "failed") return event.data?.error || "Command failed";
+  if (event?.type === "cancelled") return "Job cancelled";
+  return statusSummary(event?.type);
+}
+
+function successfulJobSummary(job) {
+  const result = job?.result || {};
+  const runtime = job?.runtime || {};
+  if (Array.isArray(result.resources)) {
+    const count = result.resources.length;
+    return `${count} resource${count === 1 ? "" : "s"} found`;
+  }
+  if (runtime.dry_run || result.dry_run || result.plan) return "Plan generated";
+  const resource = result.resource || result;
+  const model = resource?.idn?.model || result.driver?.model;
+  if (resource?.name || model || result.command_support || result.driver) {
+    return model ? `Connected to ${model}` : "Connected to resource";
+  }
+  return "Command completed successfully";
+}
+
+function statusSummary(status) {
+  if (status === "accepted") return "Accepted";
+  if (status === "started") return "Started";
+  if (status === "progress" || status === "running") return "Running";
+  if (status === "cancelled") return "Job cancelled";
+  if (status === "failed" || status === "error") return "Command failed";
+  if (status === "finished") return "Command completed successfully";
+  return status || "Pending";
+}
+
+function statusLabel(status) {
+  if (status === "finished") return "Success";
+  if (status === "failed" || status === "error") return "Failed";
+  if (status === "cancelled") return "Cancelled";
+  if (status === "progress" || status === "running") return "Running";
+  if (status === "started") return "Started";
+  if (status === "accepted") return "Accepted";
+  return status || "Pending";
+}
+
+function statusClass(status) {
+  if (status === "finished") return "success";
+  if (status === "failed" || status === "error") return "failed";
+  if (status === "cancelled") return "cancelled";
+  return "running";
 }
 
 function closeEventSource(name) {

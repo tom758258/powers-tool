@@ -180,25 +180,101 @@ def test_static_live_data_note_and_header_styles_are_scoped():
 
 def test_static_layout_exposes_stable_structural_hooks():
     index_html, _app_js, _styles_css = read_static_texts()
+    command_workbench = index_html[index_html.index('<div class="command-workbench">'):index_html.index("<!-- 4. Job Result -->")]
 
+    assert 'class="command-workbench"' in index_html
+    assert 'id="command-categories"' in index_html
+    assert 'id="command-list"' in index_html
+    assert 'class="command-main"' in index_html
     assert 'class="workspace"' in index_html
     assert 'class="rail"' in index_html
+    assert 'id="job-result-panel"' in index_html
     assert 'id="job-history"' in index_html
-    assert 'id="command-list"' in index_html
+    assert 'id="result-panel" class="result-panel collapsed"' in index_html
     assert 'id="command-form"' in index_html
+    assert 'id="job-history"' not in command_workbench
+    assert 'id="result-panel"' not in command_workbench
     assert 'class="rightbar"' not in index_html
+
+
+def test_static_result_labels_are_renamed():
+    index_html, _app_js, _styles_css = read_static_texts()
+
+    assert "<strong>Job Result</strong>" in index_html
+    assert "<strong>Result Detail</strong>" in index_html
+    assert "<strong>Job History</strong>" not in index_html
+    assert "<strong>Result</strong>" not in index_html
+
+
+def test_static_command_panels_keep_stable_desktop_height():
+    _index_html, _app_js, styles_css = read_static_texts()
+
+    assert "--command-panel-height: 560px;" in styles_css
+    assert ".rail {\n  display: flex;\n  flex-direction: column;\n  height: var(--command-panel-height);" in styles_css
+    assert ".workspace {\n  display: flex;\n  flex-direction: column;\n  height: var(--command-panel-height);" in styles_css
+    assert ".command-browser {\n  display: grid;\n  grid-template-columns: 150px minmax(0, 1fr);\n  flex: 1;" in styles_css
+    assert ".form-grid {\n  display: grid;" in styles_css
+    assert "overflow: auto;" in styles_css
+    assert ".rail, .workspace { height: auto; }" in styles_css
+
+
+def test_static_generated_checkboxes_are_compact():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    render_form = app_js[app_js.index("function renderForm(command)"):app_js.index("async function scanResources")]
+
+    assert 'if (param.type === "checkbox") label.classList.add("checkbox-field");' in render_form
+    assert '.form-grid .checkbox-field {' in styles_css
+    assert '.form-grid .checkbox-field input[type="checkbox"] {' in styles_css
+    assert "width: 16px;" in styles_css
+    assert "height: 16px;" in styles_css
+    assert ".confirm-banner input { width: auto; height: auto; }" in styles_css
+
+
+def test_static_commands_use_category_navigation():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    assert 'activeCategory: "output"' in app_js
+    assert 'const COMMAND_CATEGORIES = ["output", "trigger", "artifact", "discovery"];' in app_js
+
+    render_commands = app_js[app_js.index("function renderCommands()"):app_js.index("function selectCommand")]
+    assert 'const categories = document.getElementById("command-categories");' in render_commands
+    assert "COMMAND_CATEGORIES.forEach((category)" in render_commands
+    assert 'state.activeCategory = category;' in render_commands
+    assert '(meta.category || "discovery") === state.activeCategory' in render_commands
 
 
 def test_result_panel_is_light_and_collapsible():
     index_html, app_js, styles_css = read_static_texts()
 
-    assert 'id="result-panel" class="result-panel"' in index_html
+    assert 'id="result-panel" class="result-panel collapsed"' in index_html
     assert 'id="result-toggle"' in index_html
-    assert 'aria-expanded="true"' in index_html
+    assert 'aria-expanded="false"' in index_html
+    assert 'resultCollapsed: true' in app_js
     assert 'document.getElementById("result-toggle").addEventListener("click"' in app_js
     assert 'classList.toggle("collapsed"' in app_js
     assert 'setAttribute("aria-expanded"' in app_js
     assert ".result-panel.collapsed pre { display: none; }" in styles_css
+
+
+def test_static_job_result_summary_helpers_exist():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    render_job_detail = app_js[app_js.index("async function renderJobDetail"):app_js.index("function shouldRefreshLiveAfterCommand")]
+
+    assert "updateJobResult(job.job_id, job.status, jobSummary(job, event));" in render_job_detail
+    assert "renderResult({" in render_job_detail
+    assert "function renderClientResult(command, status, summary, detail)" in app_js
+    assert "function jobSummary(job, event = null)" in app_js
+    assert "function successfulJobSummary(job)" in app_js
+    assert "function statusLabel(status)" in app_js
+    assert "function statusClass(status)" in app_js
+    assert "result.resources.length" in app_js
+    assert 'return "Plan generated";' in app_js
+    assert 'return "Job cancelled";' in app_js
+    assert 'return "Command completed successfully";' in app_js
+    assert ".result-status.success" in styles_css
+    assert ".result-summary" in styles_css
 
 
 def test_static_command_keys_are_used_for_selection_and_submission():

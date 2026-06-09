@@ -59,46 +59,54 @@
       </div>
     </section>
 
-    <!-- 2. Commands -->
-    <aside class="rail">
-      <div class="rail-head">
-        <strong>Commands</strong>
-        <input id="command-filter" placeholder="Filter">
-      </div>
-      <div id="command-list" class="command-list"></div>
-    </aside>
-
-    <!-- 3. Workspace / Command execution -->
-    <section class="workspace">
-      <div class="panel-title">
-        <div>
-          <h2 id="selected-command">No command selected</h2>
-          <p id="command-description">Choose a command from the rail.</p>
+    <div class="command-workbench">
+      <!-- 2. Commands -->
+      <aside class="rail">
+        <div class="rail-head">
+          <strong>Commands</strong>
+          <input id="command-filter" placeholder="Filter">
         </div>
-        <button id="run" disabled>Run</button>
+        <div class="command-browser">
+          <div id="command-categories" class="command-categories" aria-label="Command categories"></div>
+          <div id="command-list" class="command-list"></div>
+        </div>
+      </aside>
+
+      <div class="command-main">
+        <!-- 3. Workspace / Command execution -->
+        <section class="workspace">
+          <div class="panel-title">
+            <div>
+              <h2 id="selected-command">No command selected</h2>
+              <p id="command-description">Choose a command from the rail.</p>
+            </div>
+            <button id="run" disabled>Run</button>
+          </div>
+
+          <div id="confirm-banner" class="confirm-banner">
+            <label><input id="confirm" type="checkbox"> Confirm real output-affecting execution</label>
+          </div>
+
+          <form id="command-form" class="form-grid"></form>
+        </section>
       </div>
+    </div>
 
-      <div id="confirm-banner" class="confirm-banner">
-        <label><input id="confirm" type="checkbox"> Confirm real output-affecting execution</label>
-      </div>
-
-      <form id="command-form" class="form-grid"></form>
-    </section>
-
-    <!-- 4. Job History -->
-    <section>
-      <div class="section-head"><strong>Job History</strong></div>
+    <!-- 4. Job Result -->
+    <section id="job-result-panel">
+      <div class="section-head"><strong>Job Result</strong></div>
       <div id="job-history" class="history"></div>
     </section>
 
-    <!-- 5. Result -->
-    <section id="result-panel" class="result-panel">
+    <!-- 5. Result Detail -->
+    <section id="result-panel" class="result-panel collapsed">
       <div class="section-head">
-        <strong>Result</strong>
-        <button id="result-toggle" class="secondary icon-button" type="button" aria-label="Collapse result" aria-expanded="true">-</button>
+        <strong>Result Detail</strong>
+        <button id="result-toggle" class="secondary icon-button" type="button" aria-label="Expand result detail" aria-expanded="false">+</button>
       </div>
       <pre id="result">{}</pre>
-    </section></main>
+    </section>
+  </main>
 
   <script src="/static/app.js"></script>
 </body>
