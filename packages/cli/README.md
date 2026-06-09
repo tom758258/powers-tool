@@ -74,12 +74,9 @@ Focused suites:
 .\.venv\Scripts\python.exe -m pytest packages\cli\tests\test_worker.py -q -p no:cacheprovider
 ```
 
-Use a workspace temp directory if Windows temp scanning is blocked:
-
-```powershell
-New-Item -ItemType Directory -Force .tmp_tests | Out-Null
-.\.venv\Scripts\python.exe -m pytest packages\cli\tests -q -p no:cacheprovider --basetemp .tmp_tests\pytest_cli
-```
+Pytest uses the ignored repository-local `.tmp_pytest` directory by default,
+so tests do not depend on access to the Windows system temporary directory.
+Pass `--basetemp PATH` to override it for a specific run.
 
 Run the bundled no-hardware regression checklist:
 

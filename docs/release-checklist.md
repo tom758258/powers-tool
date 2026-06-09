@@ -27,7 +27,7 @@ Run the no-hardware and package gates from the repository root:
 
 ```powershell
 uv sync --locked --all-packages --dev
-.\.venv\Scripts\python.exe -m pytest packages\core\tests\test_import.py -q -p no:cacheprovider --basetemp .tmp_tests\pytest_release_core
+.\.venv\Scripts\python.exe -m pytest packages\core\tests\test_import.py -q -p no:cacheprovider
 uv run keysight-power doctor --simulate --json
 .\scripts\no-hardware-regression.ps1
 uv build --all-packages

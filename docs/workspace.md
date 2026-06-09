@@ -20,8 +20,9 @@ uv run keysight-power doctor --simulate --json
 Use the [release checklist](release-checklist.md) before creating release
 commits or package tags.
 
-On Windows, run the uv/pytest gates from an Administrator PowerShell. The
-current no-hardware validation commands require elevation in this workspace.
+Pytest uses the ignored repository-local `.tmp_pytest` directory by default,
+so the no-hardware test gates do not require access to the system temporary
+directory. Pass `--basetemp PATH` to override it for a specific run.
 
 The tested Python range is 3.10 through 3.12. Package metadata constrains
 `requires-python` to `>=3.10,<3.13` until CI validates newer versions.

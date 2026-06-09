@@ -18,6 +18,7 @@ keysight-power-webui = { workspace = true }
 dev = ["pytest>=8.0"]
 
 [tool.pytest.ini_options]
+addopts = "--basetemp=.tmp_pytest"
 testpaths = [
   "packages/core/tests",
   "packages/cli/tests",
