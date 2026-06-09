@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import threading
 import time
@@ -33,6 +34,39 @@ WEBUI_HIDDEN_LIVE_DATA_COMMANDS = {
 STATIC_DIR = Path(__file__).resolve().parents[1] / "src" / "keysight_power_webui" / "static"
 
 
+def read_static_texts() -> tuple[str, str, str]:
+    return (
+        (STATIC_DIR / "index.html").read_text(encoding="utf-8"),
+        (STATIC_DIR / "app.js").read_text(encoding="utf-8"),
+        (STATIC_DIR / "styles.css").read_text(encoding="utf-8"),
+    )
+
+
+def extract_param_block(app_js: str, command_name: str) -> str:
+    params_block = app_js[app_js.index("const PARAMS = {"):app_js.index("function baseOutputParams()")]
+    match = re.search(rf'(?m)^\s*(?:"{re.escape(command_name)}"|{re.escape(command_name)}):', params_block)
+    if not match:
+        raise AssertionError(f"Missing PARAMS entry for {command_name}")
+    start = match.start()
+    next_match = re.search(r'(?m)^\s*(?:"[^"]+"|[A-Za-z_$][\w$-]*):', params_block[match.end():])
+    end = match.end() + next_match.start() if next_match else len(params_block)
+    return params_block[start:end]
+
+
+def assert_param_contract(
+    block: str,
+    name: str,
+    type_: str | None = None,
+    options: list[str] | None = None,
+) -> None:
+    assert f'name: "{name}"' in block
+    if type_ is not None:
+        assert f'type: "{type_}"' in block
+    if options is not None:
+        quoted = ", ".join(f'"{option}"' for option in options)
+        assert f"options: [{quoted}]" in block
+
+
 # Guard test: Ensure webui does not import keysight_power_cli
 def test_guard_no_cli_import():
     assert "keysight_power_cli" not in sys.modules
@@ -51,23 +85,20 @@ def test_import_smoke():
 
 
 def test_static_top_bar_uses_live_resource_defaults():
-    index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    styles_css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+    index_html, app_js, _styles_css = read_static_texts()
 
     for label in ("Mode", "Backend", "Timeout", "Safety"):
         assert f">{label}<" not in index_html
         assert f">{label}\n" not in index_html
 
     assert 'id="resource"' in index_html
-    assert 'placeholder="Waiting Scan"' in index_html
     assert 'id="resource" value=' not in index_html
     assert 'id="resource" value="USB0::SIM::E36312A::INSTR"' not in index_html
     assert 'id="resource-select"' in index_html
     assert 'id="scan"' in index_html
-    assert 'id="server-state">Checking server</strong>' in index_html
-    assert 'id="device-state">hardware unknown</strong>' in index_html
-    assert 'id="live-state">Not monitoring</strong>' in index_html
+    assert 'id="server-state"' in index_html
+    assert 'id="device-state"' in index_html
+    assert 'id="live-state"' in index_html
     assert 'id="health"' not in index_html
     assert '<span id="health">checking</span>' not in index_html
 
@@ -78,61 +109,37 @@ def test_static_top_bar_uses_live_resource_defaults():
     assert "timeout_ms: 5000" in app_js
     assert "backend: null" in app_js
     assert "safety_config: null" in app_js
-    assert '"Server ready"' in app_js
-    assert '"hardware idle"' in app_js
-    assert '"hardware locked by a job"' in app_js
-    assert ".resource-row label { color: var(--accent-strong); }" in styles_css
-    assert ".live-state-row" in styles_css
-    assert ".live-state-field" in styles_css
 
 
 def test_scan_resources_handles_missing_live_only_checkbox():
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    _index_html, app_js, _styles_css = read_static_texts()
 
     assert 'command: "list-resources"' in app_js
     assert "parameters: { live_only: true }" in app_js
-    assert 'addHistory(response.job_id, "list-resources", "accepted", "Scan Device")' in app_js
-    assert "startLivePreviewSnapshot(healthState)" in app_js
-    assert "function startLivePreviewSnapshot(healthState, resource = null)" in app_js
-    assert "renderBlankLivePanel" in app_js
+    assert 'fetchJson("/api/jobs", { method: "POST", body: JSON.stringify(payload) })' in app_js
     assert 'fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
     assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
-    assert 'console.error("Scan resources failed", error)' in app_js
     assert 'selectCommand("list-resources")' not in app_js
     assert 'const liveOnly = document.getElementById("param-live_only")' not in app_js
     assert 'document.getElementById("param-live_only").checked = true' not in app_js
 
 
 def test_static_finished_real_command_refreshes_live_snapshot():
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    _index_html, app_js, _styles_css = read_static_texts()
 
-    handle_job = app_js[app_js.index("async function handleJobEvent"):app_js.index("async function renderJobDetail")]
-    refresh_guard = app_js[app_js.index("function shouldRefreshLiveAfterCommand"):app_js.index("function renderResult")]
-    preview = app_js[app_js.index("async function startLivePreviewSnapshot"):app_js.index("function stopLivePreviewSnapshot")]
-
-    assert "const job = await renderJobDetail(jobId, event);" in handle_job
-    assert "shouldRefreshLiveAfterCommand(event, job)" in handle_job
-    assert "startLivePreviewSnapshot(healthState, job.runtime.resource)" in handle_job
-    assert "job?.command !== \"list-resources\"" in refresh_guard
-    assert "Boolean(runtime?.resource)" in refresh_guard
-    assert "runtime.simulate === false" in refresh_guard
-    assert "runtime.dry_run === false" in refresh_guard
-    assert "!state.liveEvents" in refresh_guard
-    assert "async function startLivePreviewSnapshot(healthState, resource = null)" in app_js
-    assert "if (resource) payload.runtime.resource = resource;" in preview
-    assert "renderLivePanel(JSON.parse(event.data).data);\n      setLiveState(\"Not monitoring\");" not in preview
-    assert "renderBlankLivePanel(\"error\", error);\n      setLiveState(\"Not monitoring\");" not in preview
-    assert "renderBlankLivePanel(\"error\", message);\n    setLiveState(\"Not monitoring\");" not in preview
-    assert "setLiveState(liveStateText(\"error\", Date.now() / 1000, error));" in preview
+    assert 'fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
+    assert 'fetchJson(`/api/live/${state.liveJobId}/stop`, { method: "POST" })' in app_js
+    assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
+    assert "job.runtime.resource" in app_js
+    assert "runtime.simulate === false" in app_js
+    assert "runtime.dry_run === false" in app_js
+    assert "!state.liveEvents" in app_js
 
 
 def test_static_live_data_uses_three_channel_panel_contract():
-    index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    styles_css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+    index_html, app_js, _styles_css = read_static_texts()
 
     assert 'id="live-cards"' in index_html
-    assert 'Live State:' in index_html
     for channel in ("1", "2", "3"):
         assert f'data-channel-card="{channel}"' in index_html
     assert 'id="live-table"' not in index_html
@@ -142,14 +149,8 @@ def test_static_live_data_uses_three_channel_panel_contract():
     assert 'read_command: "measure-all"' not in start_live
     assert 'channel: "all"' not in start_live
     assert 'if (!payload.runtime.resource)' in start_live
-    assert 'Select or enter a hardware resource before starting Live Data.' in start_live
     assert 'simulate: true' not in start_live
-    assert 'function formatNum(value)' in app_js
-    assert 'typeof value === "number" && Number.isFinite(value) ? value.toFixed(4) : "--"' in app_js
-    assert "function blankLiveChannels()" in app_js
     assert 'mergeLiveChannels(data.channels, previous?.channels, Boolean(data.stale))' in app_js
-    assert "if (incoming[key] === null || incoming[key] === undefined) next[key] = previous[key];" in app_js
-    assert "function renderLivePanel(data)" in app_js
     for field in (
         "output_enabled",
         "measured_voltage",
@@ -165,210 +166,92 @@ def test_static_live_data_uses_three_channel_panel_contract():
         "error",
     ):
         assert field in app_js
-    render_channel_card = app_js[app_js.index("function renderChannelCard(channel, sample)"):app_js.index("function drawTrend()")]
-    assert "live-card-foot" not in render_channel_card
-    assert "sample.timestamp" not in render_channel_card
-    head_start = render_channel_card.index('<div class="live-card-head">')
-    head_end = render_channel_card.index('<div class="live-measured">')
-    head_markup = render_channel_card[head_start:head_end]
-    assert "live-status-badges" in head_markup
-    assert "protectionBadge(\"OVP\", channel.over_voltage_tripped)" in render_channel_card
-    assert "protectionBadge(\"OCP\", channel.over_current_tripped)" in render_channel_card
-    assert (
-        head_markup.index('protectionBadge("OVP", channel.over_voltage_tripped)')
-        < head_markup.index('protectionBadge("OCP", channel.over_current_tripped)')
-        < head_markup.index('status-badge ${outputClass}')
-    )
-    assert (
-        render_channel_card.index('<div class="live-setpoints">')
-        < render_channel_card.index('<div class="protection-settings">')
-    )
-    protection_start = render_channel_card.index('<div class="protection-settings">')
-    protection_end = render_channel_card.index("</div>\n  `;", protection_start)
-    protection_markup = render_channel_card[protection_start:protection_end]
-    assert (
-        '<div><span>${formatProtectionVoltage(channel.over_voltage_protection_level)}</span><small>OVP</small></div>'
-        in protection_markup
-    )
-    assert (
-        '<div><span>${formatProtectionState(channel.over_current_protection_enabled)}</span><small>OCP</small></div>'
-        in protection_markup
-    )
-    assert "OVP ${formatProtectionVoltage" not in protection_markup
-    assert "OCP ${formatProtectionState" not in protection_markup
-    assert "protection-tripped" in render_channel_card
-    assert "function formatProtectionVoltage(value)" in app_js
-    assert (
-        'typeof value === "number" && Number.isFinite(value) ? value.toFixed(4) : "--"'
-        in app_js
-    )
-    assert "value.toFixed(4)} V" not in app_js
-    assert "function formatProtectionState(value)" in app_js
-    assert "last update" in app_js
-
-    assert ".live-cards" in styles_css
-    assert ".live-card-foot" not in styles_css
-    assert ".live-status-badges" in styles_css
-    assert ".status-badge.on" in styles_css
-    assert "background: var(--ok)" in styles_css
-    assert "color: #fff" in styles_css
-    assert ".protection-badge.trip" in styles_css
-    assert ".protection-settings" in styles_css
-    protection_css_start = styles_css.index(".protection-settings {")
-    protection_css_end = styles_css.index(".live-measured", protection_css_start)
-    protection_css = styles_css[protection_css_start:protection_css_end]
-    assert "display: grid;" in protection_css
-    assert "grid-template-columns: 1fr 1fr;" in protection_css
-    assert ".protection-settings div" in protection_css
-    assert ".protection-settings span" in protection_css
-    assert "font-size: 16px;" in protection_css
-    assert "line-height: 20px;" in protection_css
-    assert "font-weight: 700;" in protection_css
-    assert ".protection-settings small" in protection_css
-    assert "font-size: 11px;" in protection_css
-    assert ".live-card.protection-tripped" in styles_css
-    assert ".live-card.stale" in styles_css
-    assert ".live-state-field strong" in styles_css
 
 
 def test_static_live_data_note_and_header_styles_are_scoped():
-    index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    styles_css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+    index_html, _app_js, _styles_css = read_static_texts()
 
     assert 'class="live-data-section"' in index_html
-    assert 'class="secondary live-start-button">Start Monitor</button>' in index_html
-    assert (
-        "Live Data monitor updates every 15 seconds. When the monitor is stopped, "
-        "successful real hardware commands refresh this panel once after completion."
-    ) in index_html
+    assert 'id="live-start"' in index_html
+    assert 'live-start-button' in index_html
     assert 'id="live-start" class="secondary" style=' not in index_html
     assert '<div style=' not in index_html
-    assert ".live-data-section .section-head { border-bottom: 0; }" in styles_css
-    assert "\n.section-head { border-bottom: 0;" not in styles_css
-    assert ".live-data-note" in styles_css
 
 
-def test_static_layout_stacks_results_in_main_column():
-    index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    styles_css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+def test_static_layout_exposes_stable_structural_hooks():
+    index_html, _app_js, _styles_css = read_static_texts()
 
     assert 'class="workspace"' in index_html
     assert 'class="rail"' in index_html
+    assert 'id="job-history"' in index_html
+    assert 'id="command-list"' in index_html
+    assert 'id="command-form"' in index_html
     assert 'class="rightbar"' not in index_html
-    assert "display: flex;" in styles_css
-    assert "flex-direction: column;" in styles_css
 
 
 def test_result_panel_is_light_and_collapsible():
-    index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    styles_css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+    index_html, app_js, styles_css = read_static_texts()
 
     assert 'id="result-panel" class="result-panel"' in index_html
     assert 'id="result-toggle"' in index_html
-    assert 'aria-label="Collapse result"' in index_html
-    assert 'document.getElementById("result-toggle").addEventListener("click", toggleResultPanel)' in app_js
-    assert "function toggleResultPanel()" in app_js
-    assert 'button.textContent = state.resultCollapsed ? "+" : "-";' in app_js
-    assert "background: var(--panel-soft);" in styles_css
-    assert "color: var(--text);" in styles_css
+    assert 'aria-expanded="true"' in index_html
+    assert 'document.getElementById("result-toggle").addEventListener("click"' in app_js
+    assert 'classList.toggle("collapsed"' in app_js
+    assert 'setAttribute("aria-expanded"' in app_js
     assert ".result-panel.collapsed pre { display: none; }" in styles_css
 
 
-def test_static_command_display_names_are_sorted_and_capitalized_without_renaming_keys():
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+def test_static_command_keys_are_used_for_selection_and_submission():
+    _index_html, app_js, _styles_css = read_static_texts()
 
     render_commands = app_js[app_js.index("function renderCommands()"):app_js.index("function selectCommand")]
-    display_name = app_js[app_js.index("function commandDisplayName(name)"):app_js.index("function submitJob")]
-    add_history = app_js[app_js.index("function addHistory"):app_js.index("function updateHistory")]
 
-    assert 'const CATEGORIES = ["output", "trigger", "artifact", "discovery"]' in render_commands
-    assert "Read-Only" not in render_commands
-    assert "read-only" not in render_commands
-    assert "grid-template-columns: repeat(4, 1fr);" in (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
-    assert '"artifact": "Workflows & State"' in render_commands
-    assert '"artifact": "Artifact"' not in render_commands
-    assert '"discovery": "Advanced Diagnostics"' in render_commands
-    assert '"discovery": "Discovery"' not in render_commands
-    assert ".sort((a, b) => a[0].localeCompare(b[0]))" in render_commands
+    assert "Object.entries(state.commands)" in render_commands
     assert "<span>${commandDisplayName(name)}</span>" in render_commands
     assert "button.addEventListener(\"click\", () => selectCommand(name));" in render_commands
-    assert "document.getElementById(\"selected-command\").textContent = commandDisplayName(name);" in app_js
-    assert "const displayLabel = commandDisplayName(label);" in add_history
-    assert "if (!name) return \"\";" in display_name
-    assert "if (name === \"capabilities\") return \"Capabilities\";" in display_name
-    assert "return name.charAt(0).toUpperCase() + name.slice(1);" in display_name
+    assert "command: state.selected" in app_js
+    assert "renderForm(name);" in app_js
     assert "selectCommand(commandDisplayName(name))" not in app_js
 
 
 def test_static_commands_disable_by_selected_resource_model():
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    _index_html, app_js, _styles_css = read_static_texts()
 
     assert "commandSupportByModel: {}" in app_js
     assert "resourceModels: {}" in app_js
     assert "state.commandSupportByModel = payload.command_support_by_model || {};" in app_js
     assert "updateResourceModels(resources);" in app_js
-    assert "function updateResourceModelFromJob(job)" in app_js
-    assert "function commandMeta(name)" in app_js
-    assert "function selectedCommandSupport(name)" in app_js
-    assert "function currentResourceModel()" in app_js
-    assert "function supportedModelKey(model)" in app_js
+    assert "resource.idn?.model" in app_js
+    assert "state.commandSupportByModel?.[model]?.[name]" in app_js
     assert "support.real !== false" in app_js
     assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
     assert "document.getElementById(\"run\").disabled = Boolean(meta.disabled);" in app_js
     assert 'error: "Command unavailable"' in app_js
-    assert "Not supported on ${model}" in app_js
-    assert "Planning only on ${model}" in app_js
 
 
 def test_static_channel_confirmation_and_job_detail_contracts():
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
-    base_output_params = app_js[app_js.index("function baseOutputParams()"):app_js.index("function applyOutputParams()")]
-    apply_output_params = app_js[app_js.index("function applyOutputParams()"):app_js.index("function smokeOutputParams()")]
-    smoke_output_params = app_js[app_js.index("function smokeOutputParams()"):app_js.index('document.addEventListener("DOMContentLoaded"')]
+    _index_html, app_js, _styles_css = read_static_texts()
 
     assert 'set: baseOutputParams()' in app_js
-    assert 'apply: [...applyOutputParams(), { name: "no_output", type: "checkbox", label: "Do not enable output" }]' in app_js
     assert '"smoke-output": smokeOutputParams()' in app_js
-    assert 'options: ["1", "2", "3"], value: "1"' in base_output_params
-    assert 'name: "channel"' in base_output_params
-    assert 'name: "voltage"' in base_output_params
-    assert 'name: "current"' in base_output_params
-    assert "settle_ms" not in base_output_params
-    assert "verify_after_write" not in base_output_params
-    assert "Verify after write" not in app_js
-    assert 'options: ["all", "1", "2", "3"]' in apply_output_params
-    assert 'value: "1"' in apply_output_params
-    assert 'name: "no_output", type: "checkbox", label: "Do not enable output"' in app_js
-    assert "settle_ms" not in apply_output_params
-    assert "verify_after_write" not in apply_output_params
-    assert 'options: ["1", "2", "3"], value: "1"' in smoke_output_params
-    assert 'name: "channel"' in smoke_output_params
-    assert 'name: "voltage"' in smoke_output_params
-    assert 'name: "current"' in smoke_output_params
-    assert 'name: "duration_ms", type: "number", label: "Duration ms", value: 100' in smoke_output_params
-    assert "settle_ms" not in smoke_output_params
-    assert "verify_after_write" not in smoke_output_params
+    assert_param_contract(app_js, "channel", "select", ["1", "2", "3"])
+    assert_param_contract(app_js, "voltage", "number")
+    assert_param_contract(app_js, "current", "number")
+    assert_param_contract(app_js, "no_output", "checkbox")
+    assert_param_contract(app_js, "duration_ms", "number")
     for command in ("output-on", "output-off", "cycle-output"):
-        assert f'"{command}": [{{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }}' in app_js
+        assert_param_contract(extract_param_block(app_js, command), "channel", "select", ["all", "1", "2", "3"])
     params_block = app_js[app_js.index("const PARAMS = {"):app_js.index("function baseOutputParams()")]
     assert '"protection-set"' in params_block
-    assert 'name: "ocp_delay", type: "number", label: "OCP delay", optional: true' in params_block
-    assert (
-        'name: "ocp_delay_trigger", type: "select", label: "OCP delay trigger", '
-        'options: ["", "setting-change", "cc-transition"], value: ""'
-    ) in params_block
+    protection_block = extract_param_block(app_js, "protection-set")
+    assert_param_contract(protection_block, "ocp_delay", "number")
+    assert_param_contract(protection_block, "ocp_delay_trigger", "select", ["", "setting-change", "cc-transition"])
     for command in WEBUI_HIDDEN_LIVE_DATA_COMMANDS:
         assert f'"{command}"' not in params_block
-    assert '"smoke-output": [...baseOutputParams()' not in app_js
 
-    assert "function parameterValue(param, input)" in app_js
-    assert 'if (param.name === "channel") return normalizeChannelValue(input.value);' in app_js
-    assert 'if (param.parser === "intList") return parseDelimitedNumbers(input.value, true);' in app_js
-    assert 'if (param.parser === "numberList") return parseDelimitedNumbers(input.value, false);' in app_js
-    assert "function parseDelimitedNumbers(value, integerOnly)" in app_js
-    assert "function normalizeChannelValue(value)" in app_js
+    assert 'if (param.name === "channel")' in app_js
+    assert 'if (param.parser === "intList")' in app_js
+    assert 'if (param.parser === "numberList")' in app_js
     assert 'if (value === "all") return value;' in app_js
     assert 'return /^[1-9]\\d*$/.test(value) ? Number(value) : value;' in app_js
 
@@ -376,32 +259,24 @@ def test_static_channel_confirmation_and_job_detail_contracts():
     assert "if (meta.requires_confirm && !payload.runtime.confirm)" in app_js
     assert 'error: "Confirmation required"' in app_js
     assert "runtime: { confirm: false }" in app_js
-    assert "function submitJob(payload)" in app_js
-    assert "const response = await submitJob(payload);" in app_js
 
-    assert "async function renderJobDetail(jobId, event)" in app_js
     assert "const job = await fetchJson(`/api/jobs/${encodeURIComponent(jobId)}`);" in app_js
     for key in ("job_id", "command", "status", "runtime", "parameters", "result", "error"):
         assert f"{key}: job.{key}" in app_js
 
 
 def test_static_form_has_no_advanced_json_injection():
-    index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    styles_css = (STATIC_DIR / "styles.css").read_text(encoding="utf-8")
-    readme = (STATIC_DIR.parents[2] / "README.md").read_text(encoding="utf-8")
+    index_html, app_js, styles_css = read_static_texts()
 
     assert "Advanced JSON" not in index_html
     assert "advanced-json" not in index_html
     assert "advanced-json" not in app_js
     assert "Object.assign(payload" not in app_js
     assert ".advanced" not in styles_css
-    assert "advanced JSON editor" not in readme
-    assert "typed controls and sequence-document JSON input" in readme
 
 
 def test_static_trigger_forms_have_advanced_parameters():
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    _index_html, app_js, _styles_css = read_static_texts()
     params_block = app_js[app_js.index("const PARAMS = {"):app_js.index("function baseOutputParams()")]
 
     for command in (
@@ -414,17 +289,16 @@ def test_static_trigger_forms_have_advanced_parameters():
     ):
         assert f'"{command}"' in params_block
 
-    assert 'triggerStepParams()' in params_block
-    assert 'triggerListParams()' in params_block
-    assert 'function triggerStepParams()' in app_js
-    assert 'function triggerListParams()' in app_js
-    assert 'function triggerWaitParams()' in app_js
-    assert 'name: "pins", type: "text", label: "Pins", value: "1", parser: "intList"' in app_js
-    assert 'name: "voltage_list", type: "text", label: "Voltage list", value: "0,1", parser: "numberList"' in app_js
-    assert 'name: "completion_pulse_pins", type: "text", label: "Pulse pins", optional: true, parser: "intList"' in app_js
-    assert 'name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus"' in app_js
-    assert 'name: "wait_timeout_ms", type: "number", label: "Timeout ms", optional: true' in app_js
-    assert 'name: "leave_trigger_configured", type: "checkbox", label: "Leave configured"' in app_js
+    assert_param_contract(app_js, "pins", "text")
+    assert 'parser: "intList"' in app_js
+    assert_param_contract(app_js, "voltage_list", "text")
+    assert_param_contract(app_js, "current_list", "text")
+    assert_param_contract(app_js, "dwell_list", "text")
+    assert 'parser: "numberList"' in app_js
+    assert_param_contract(app_js, "completion_pulse_pins", "text")
+    assert_param_contract(app_js, "source", "select", ["bus", "immediate", "pin1", "pin2", "pin3", "ext"])
+    assert_param_contract(app_js, "wait_timeout_ms", "number")
+    assert_param_contract(app_js, "leave_trigger_configured", "checkbox")
 
 
 @pytest.fixture

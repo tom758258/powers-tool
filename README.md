@@ -91,6 +91,7 @@ uv build --all-packages
 - WebUI: [README](packages/webui/README.md)
 - Workspace: [workspace overview](docs/workspace.md), [release checklist](docs/release-checklist.md),
   [supported models](packages/core/docs/supported-models.md)
+- Testing guidelines: [testing-guidelines.md](docs/testing-guidelines.md)
 
 ## Safety
 

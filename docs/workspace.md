@@ -20,6 +20,10 @@ uv run keysight-power doctor --simulate --json
 Use the [release checklist](release-checklist.md) before creating release
 commits or package tags.
 
+Before adding or changing tests, use the
+[testing guidelines](testing-guidelines.md) to decide whether the assertion
+protects a durable contract or freezes an implementation detail.
+
 Pytest uses the ignored repository-local `.tmp_pytest` directory by default,
 so the no-hardware test gates do not require access to the system temporary
 directory. Pass `--basetemp PATH` to override it for a specific run.

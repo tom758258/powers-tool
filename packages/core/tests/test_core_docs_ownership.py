@@ -52,3 +52,26 @@ def test_root_contracts_remain_canonical():
         "power-orchestrator-workflows.md",
     ):
         assert (REPO_ROOT / "docs" / "contracts" / contract).exists()
+
+
+def test_root_testing_guidelines_are_linked_and_structural():
+    guidelines_path = REPO_ROOT / "docs" / "testing-guidelines.md"
+    assert guidelines_path.exists()
+
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "docs/testing-guidelines.md" in readme
+
+    guidelines = guidelines_path.read_text(encoding="utf-8")
+    for heading in (
+        "# Testing Guidelines",
+        "## What To Test",
+        "## What Not To Freeze",
+        "## Documentation Tests",
+        "## Frontend Static Tests",
+        "## Instrument Safety Tests",
+        "## Review Standard",
+    ):
+        assert heading in guidelines
+
+    for token in ("SCPI", "safety", "JSON", "Frontend Static Tests"):
+        assert token in guidelines
