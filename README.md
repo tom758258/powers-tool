@@ -12,6 +12,8 @@ valid `*IDN?` responses. Their channel-list SCPI is covered by no-hardware
 tests. Simulated CLI measurement supports channels 1, 2, and 3 for these
 models. Real CLI measurement keeps generic instruments on channel 1, and
 E36312A channels 2 and 3 use IDN-selected channel-list measurement queries.
+Real CLI `set` is supported only for E36312A channels 1, 2, and 3. It writes
+the current limit before voltage and does not enable output.
 
 ## Development
 
@@ -121,6 +123,16 @@ Preview output-affecting commands with no hardware writes:
 .\.venv\Scripts\python.exe -m keysight_power.cli set --dry-run --json --resource "USB0::SIM::E36103B::INSTR" --channel 1 --voltage 1 --current 0.05
 ```
 
+Set low E36312A setpoints without enabling output:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli set --json --resource "USB0::...::INSTR" --channel 1 --voltage 1 --current 0.05 --log-scpi
+```
+
+Real `set` first confirms the selected resource is an E36312A with `*IDN?`,
+then sends `CURR <current>,(@N)` followed by `VOLT <voltage>,(@N)`. Channels
+other than 1, 2, and 3 are rejected.
+
 Add an explicit safety config to apply local global limits to output plans:
 
 ```powershell
@@ -168,8 +180,10 @@ query behavior:
 ## Safety Defaults
 
 - Output-affecting behavior must be explicit.
-- Real output execution is still disabled; use `--dry-run` or `--simulate` for
-  output-affecting CLI commands.
+- Real output execution is disabled except for E36312A `set` and `output-off`
+  on explicit channels 1, 2, or 3. Real `set` does not enable output.
+- `output-on` and `safe-off` remain disabled in real mode; use `--dry-run` or
+  `--simulate` for planning.
 - Real `clear`, `error`, and `measure` are safe I/O commands: `clear` sends
   `*CLS` and clears status/error state, while `error` and `measure` only query.
 - `--safety-config` is explicit only and applies local plan validation limits;
