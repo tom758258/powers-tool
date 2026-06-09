@@ -101,3 +101,11 @@ not be hard-coded in committed files.
 
 See `Agent.md`, `docs/workspace.md`, and the relevant package README before
 making implementation changes.
+
+## License and Disclaimer
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
+
+This project is an independent, unofficial project and is not affiliated with, endorsed by, or sponsored by Keysight Technologies.
+
+Users are responsible for complying with all applicable Keysight software, driver, instrument, and documentation license terms.
