@@ -3668,6 +3668,7 @@ def test_trigger_pulse_real_sends_expected_scpi(monkeypatch, capsys) -> None:
     assert payload["data"] == {
         "resource": OUTPUT_RESOURCE,
         "pin": 2,
+        "exclusive_pin": False,
         "channel": 3,
         "polarity": "negative",
         "triggered": True,
@@ -3710,6 +3711,71 @@ def test_trigger_pulse_dry_run_json_does_not_open_resource(monkeypatch, capsys) 
         {"index": 8, "type": "scpi", "command": "TRIG:SOUR BUS,(@1)"},
         {"index": 9, "type": "scpi", "command": "INIT (@1)"},
         {"index": 10, "type": "scpi", "command": "*TRG"},
+    ]
+
+
+def test_trigger_pulse_exclusive_pin_clears_other_trigger_pins(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--pin",
+                "1",
+                "--exclusive-pin",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.writes[:5] == [
+        "DIG:PIN2:FUNC DIO",
+        "DIG:PIN3:FUNC DIO",
+        "DIG:PIN1:FUNC TOUT",
+        "DIG:PIN1:POL POS",
+        "DIG:TOUT:BUS ON",
+    ]
+    assert payload["data"]["exclusive_pin"] is True
+
+
+def test_trigger_pulse_exclusive_pin_dry_run_lists_clear_steps(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("real VISA resource should not be opened")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--pin",
+                "3",
+                "--exclusive-pin",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["request"]["exclusive_pin"] is True
+    assert payload["data"]["plan"]["steps"][:4] == [
+        {"index": 1, "type": "scpi", "command": "DIG:PIN1:FUNC DIO"},
+        {"index": 2, "type": "scpi", "command": "DIG:PIN2:FUNC DIO"},
+        {"index": 3, "type": "scpi", "command": "DIG:PIN3:FUNC TOUT"},
+        {"index": 4, "type": "scpi", "command": "DIG:PIN3:POL POS"},
     ]
 
 
@@ -3811,6 +3877,7 @@ resource = "{OUTPUT_RESOURCE}"
         "pin": 1,
         "channel": 1,
         "polarity": "positive",
+        "exclusive_pin": False,
         "safety_config": safety_config,
         "backend": "@py",
         "timeout_ms": 1234,

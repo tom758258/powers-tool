@@ -43,6 +43,15 @@ class E36312APowerSupply(GenericScpiPowerSupply):
         self._session.write(f"DIG:PIN{pin}:FUNC TOUT")
         self._session.write(f"DIG:PIN{pin}:POL {polarity_command}")
 
+    def clear_trigger_output_pins(self, *, except_pin: int | None = None) -> None:
+        """Configure rear digital trigger output pins back to digital I/O."""
+
+        if except_pin is not None and except_pin not in (1, 2, 3):
+            raise ValueError("trigger output pin must be 1, 2, or 3")
+        for pin in (1, 2, 3):
+            if pin != except_pin:
+                self._session.write(f"DIG:PIN{pin}:FUNC DIO")
+
     def enable_trigger_output_bus(self, enabled: bool = True) -> None:
         """Enable or disable BUS-triggered trigger output pulses."""
 

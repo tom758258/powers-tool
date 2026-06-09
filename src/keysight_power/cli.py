@@ -505,6 +505,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="positive",
         help="Trigger output polarity.",
     )
+    trigger_pulse_parser.add_argument(
+        "--exclusive-pin",
+        action="store_true",
+        help="Reset the other rear digital pins to DIO before pulsing the selected pin.",
+    )
     _add_json_argument(trigger_pulse_parser)
     _add_simulate_argument(trigger_pulse_parser)
     _add_dry_run_argument(trigger_pulse_parser)
@@ -1360,7 +1365,12 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
             retryable=False,
         )
 
-    scpi = _trigger_pulse_scpi(args.pin, args.polarity, args.channel)
+    scpi = _trigger_pulse_scpi(
+        args.pin,
+        args.polarity,
+        args.channel,
+        exclusive_pin=args.exclusive_pin,
+    )
     if args.dry_run:
         plan = dry_run_plan(
             command=args.command,
@@ -1403,6 +1413,8 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
                 )
             voltage = power_supply.programmed_voltage(channel=args.channel)
             current = power_supply.programmed_current(channel=args.channel)
+            if args.exclusive_pin:
+                power_supply.clear_trigger_output_pins(except_pin=args.pin)
             power_supply.configure_trigger_output_pin(args.pin, args.polarity)
             power_supply.enable_trigger_output_bus(True)
             power_supply.set_triggered_current(channel=args.channel, current=current)
@@ -1448,6 +1460,7 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
     data = {
         "resource": args.resource,
         "pin": args.pin,
+        "exclusive_pin": args.exclusive_pin,
         "channel": args.channel,
         "polarity": args.polarity,
         "triggered": True,
@@ -1467,6 +1480,7 @@ def _run_trigger_pulse(args: argparse.Namespace) -> int:
 
     print(f"Resource: {args.resource}")
     print(f"Pin: {args.pin}")
+    print(f"Exclusive pin: {str(args.exclusive_pin).lower()}")
     print(f"Polarity: {args.polarity}")
     print("Triggered: True")
     return 0
@@ -3080,9 +3094,20 @@ def _resolve_optional_resource_alias(args: argparse.Namespace) -> None:
     _safety_limits_for_args(args)
 
 
-def _trigger_pulse_scpi(pin: int, polarity: str, channel: int) -> tuple[str, ...]:
+def _trigger_pulse_scpi(
+    pin: int,
+    polarity: str,
+    channel: int,
+    *,
+    exclusive_pin: bool = False,
+) -> tuple[str, ...]:
     polarity_command = "POS" if polarity == "positive" else "NEG"
-    return (
+    clear_commands = tuple(
+        f"DIG:PIN{other_pin}:FUNC DIO"
+        for other_pin in (1, 2, 3)
+        if exclusive_pin and other_pin != pin
+    )
+    return clear_commands + (
         f"DIG:PIN{pin}:FUNC TOUT",
         f"DIG:PIN{pin}:POL {polarity_command}",
         "DIG:TOUT:BUS ON",
@@ -4782,6 +4807,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "pin": args.pin,
             "channel": getattr(args, "channel", 1),
             "polarity": args.polarity,
+            "exclusive_pin": getattr(args, "exclusive_pin", False),
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
@@ -5028,6 +5054,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "pin": _pin_from_argv(argv),
             "channel": _channel_from_argv(argv) or 1,
             "polarity": _option_value(argv, "--polarity") or "positive",
+            "exclusive_pin": "--exclusive-pin" in argv,
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),

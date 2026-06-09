@@ -143,7 +143,7 @@ class SimulatedResource:
             return ""
         if command.startswith("DIG:PIN") and ":POL " in command:
             return ""
-        if command.startswith("DIG:PIN") and ":FUNC TOUT" in command:
+        if command.startswith("DIG:PIN") and ":FUNC " in command:
             return ""
         if command.startswith("DIG:TOUT:BUS "):
             return ""
