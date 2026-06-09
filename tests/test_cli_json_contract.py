@@ -114,6 +114,16 @@ def assert_contract_envelope(payload: dict[str, object], *, command: str, ok: bo
             ],
         ),
         (
+            "validate-readonly",
+            [
+                "validate-readonly",
+                "--simulate",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+            ],
+        ),
+        (
             "trigger-pulse",
             [
                 "trigger-pulse",

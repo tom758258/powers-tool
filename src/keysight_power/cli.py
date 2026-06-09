@@ -68,6 +68,7 @@ COMMAND_NAMES = frozenset(
         "smoke-output",
         "trigger-pulse",
         "status",
+        "validate-readonly",
         "readback",
         "protection-status",
         "protection-set",
@@ -563,6 +564,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print SCPI commands and responses to stderr.",
     )
     status_parser.set_defaults(func=_run_status)
+
+    validate_readonly_parser = subparsers.add_parser(
+        "validate-readonly",
+        help="Run one read-only validation pass for E36312A or EDU36311A resources.",
+    )
+    _add_output_resource_arguments(validate_readonly_parser)
+    validate_readonly_parser.add_argument(
+        "--max-errors",
+        type=_positive_max_errors,
+        default=20,
+        help="Maximum error queue reads before stopping.",
+    )
+    _add_json_argument(validate_readonly_parser)
+    _add_simulate_argument(validate_readonly_parser)
+    _add_safety_config_argument(validate_readonly_parser)
+    _add_backend_argument(validate_readonly_parser)
+    _add_timeout_argument(validate_readonly_parser)
+    validate_readonly_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    validate_readonly_parser.set_defaults(func=_run_validate_readonly)
 
     readback_parser = subparsers.add_parser(
         "readback",
@@ -1632,6 +1656,150 @@ def _run_readback(args: argparse.Namespace) -> int:
             f"Channel {channel['channel']}: "
             f"{_format_text_value(setpoints['voltage'])} V, "
             f"{_format_text_value(setpoints['current'])} A"
+        )
+    return 0
+
+
+def _run_validate_readonly(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+    except SafetyConfigError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    opened = False
+    try:
+        with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
+            opened = True
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn_raw = session.query(IDN_QUERY)
+            selection = select_driver(idn_raw)
+            power_supply = selection.driver_class(session)
+            if not isinstance(power_supply, (E36312APowerSupply, EDU36311APowerSupply)):
+                raise _ReadOnlyModelError(
+                    "validate-readonly is only supported for E36312A or EDU36311A; "
+                    f"found {selection.driver_class.__name__} from *IDN? response"
+                )
+            channels = power_supply.capabilities.channels
+            for channel in channels:
+                _validate_read_only_channel(power_supply, channel, command_label="validate-readonly")
+            errors, read_count = _read_error_queue_from_driver(power_supply, args.max_errors)
+            outputs = [
+                {"channel": channel, "enabled": power_supply.output_state(channel=channel)}
+                for channel in channels
+            ]
+            readback = [
+                {
+                    "channel": channel,
+                    "setpoints": {
+                        "voltage": power_supply.programmed_voltage(channel=channel),
+                        "current": power_supply.programmed_current(channel=channel),
+                    },
+                }
+                for channel in channels
+            ]
+            measurements = [
+                {
+                    "channel": channel,
+                    "measurements": {
+                        "voltage": power_supply.measure_voltage(channel=channel),
+                        "current": power_supply.measure_current(channel=channel),
+                    },
+                }
+                for channel in channels
+            ]
+    except _ReadOnlyModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_validate_readonly",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _ReadOnlyChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        code = "validate_readonly_failed" if opened else "connection_failed"
+        message = (
+            f"validate-readonly failed: {exc}"
+            if opened
+            else f"Could not open resource for validate-readonly: {exc}"
+        )
+        return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=message)
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="validate_readonly_failed",
+            message=f"validate-readonly failed: {exc}",
+        )
+
+    data = {
+        "resource": _resource_payload(
+            args.resource,
+            simulated=args.simulate,
+            reachable=True,
+            idn_raw=idn_raw,
+        ),
+        "driver": {
+            "class": selection.driver_class.__name__,
+            "reason": selection.reason,
+        },
+        "capabilities": {
+            "channels": list(selection.capabilities.channels),
+            "measure_channels": {
+                "simulate": list(selection.capabilities.simulated_measure_channels),
+                "real": list(selection.capabilities.real_measure_channels),
+            },
+        },
+        "hardware_validation": _hardware_validation_status(selection.idn.model),
+        "errors": errors,
+        "read_count": read_count,
+        "outputs": outputs,
+        "readback": readback,
+        "measurements": measurements,
+    }
+    if args.json:
+        emit_json_success(command=args.command, execution=execution, request=request, data=data)
+        return 0
+
+    idn = data["resource"]["idn"] or {}
+    print(f"Resource: {data['resource']['name']}")
+    print(f"Model: {idn.get('model')}")
+    print(f"Driver: {data['driver']['class']} ({data['driver']['reason']})")
+    print(f"Validation read-only: {data['hardware_validation']['read_only']}")
+    print(f"Errors: {len(errors)}")
+    for channel in selection.capabilities.channels:
+        output = next(item for item in outputs if item["channel"] == channel)
+        setpoints = next(item for item in readback if item["channel"] == channel)["setpoints"]
+        measured = next(item for item in measurements if item["channel"] == channel)["measurements"]
+        print(
+            f"Channel {channel}: output={str(output['enabled']).lower()}, "
+            f"set={_format_text_value(setpoints['voltage'])} V/"
+            f"{_format_text_value(setpoints['current'])} A, "
+            f"meas={_format_text_value(measured['voltage'])} V/"
+            f"{_format_text_value(measured['current'])} A"
         )
     return 0
 
@@ -4846,6 +5014,15 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
+    if args.command == "validate-readonly":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            "max_errors": args.max_errors,
+        }
     if args.command in {"readback", "protection-status"}:
         channel = "all" if getattr(args, "all", False) else args.channel
         return {
@@ -5098,6 +5275,15 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "validate-readonly":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+            "max_errors": _max_errors_from_argv(argv),
         }
     if command in {"readback", "protection-status"}:
         channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")

@@ -25,6 +25,8 @@ channels `1`, `2`, and `3` in order. Real CLI `cycle-output` and `apply` are
 also supported for E36312A channels 1, 2, and 3. Real CLI `measure-all`,
 `status`, and `trigger-pulse` are E36312A-first commands for all-channel
 measurement, error/output status, and rear digital trigger output pulses.
+`validate-readonly` is a one-shot read-only diagnostic for E36312A and
+EDU36311A.
 
 ## Development
 
@@ -134,6 +136,12 @@ Read E36312A error queue and output states:
 
 ```powershell
 .\.venv\Scripts\python.exe -m keysight_power.cli status --json --resource "USB0::...::INSTR" --log-scpi
+```
+
+Run a full read-only validation pass on E36312A or EDU36311A:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli validate-readonly --json --resource "USB0::...::INSTR" --log-scpi --save-json logs\validate-readonly.json
 ```
 
 Read programmed E36312A setpoints and protection state:
@@ -283,9 +291,10 @@ query behavior:
   channels 1, 2, or 3. `apply --channel all` and `safe-off --channel all`
   expand to channels 1, 2, and 3 in order. `set` does not enable output.
   `output-on` does not set voltage or current.
-- Real `measure-all`, `status`, and `trigger-pulse` are enabled only for
-  E36312A in this first implementation. `trigger-pulse` affects rear-panel
-  digital trigger output state and supports `--dry-run`.
+- Real `measure-all` and `trigger-pulse` are enabled only for E36312A in this
+  first implementation. `status`, `readback`, `log`, and `validate-readonly`
+  are read-only paths for E36312A and EDU36311A. `trigger-pulse` affects
+  rear-panel digital trigger output state and supports `--dry-run`.
 - Real `clear`, `error`, and `measure` are safe I/O commands: `clear` sends
   `*CLS` and clears status/error state, while `error` and `measure` only query.
 - `--safety-config` is explicit only and applies local plan validation limits;

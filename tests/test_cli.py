@@ -3608,6 +3608,197 @@ def test_status_real_edu36311a_reads_errors_then_outputs(monkeypatch, capsys) ->
     ]
 
 
+def test_validate_readonly_simulate_json_does_not_create_real_resource_manager(monkeypatch, capsys) -> None:
+    def fail_real_manager(backend=None):
+        raise AssertionError("real VISA manager should not be created")
+
+    monkeypatch.setattr(connection, "create_resource_manager", fail_real_manager)
+
+    assert (
+        cli.main(
+            [
+                "validate-readonly",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::EDU36311A::INSTR",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["resource"]["idn"]["model"] == "EDU36311A"
+    assert payload["data"]["driver"]["class"] == "EDU36311APowerSupply"
+    assert payload["data"]["capabilities"]["channels"] == [1, 2, 3]
+    assert payload["data"]["outputs"] == [
+        {"channel": 1, "enabled": False},
+        {"channel": 2, "enabled": False},
+        {"channel": 3, "enabled": False},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("idn", "resource", "driver_class"),
+    [
+        ("KEYSIGHT,E36312A,MY00000001,1.0", OUTPUT_RESOURCE, "E36312APowerSupply"),
+        ("KEYSIGHT,EDU36311A,MY00000001,1.0", "USB0::FAKE::EDU36311A::INSTR", "EDU36311APowerSupply"),
+    ],
+)
+def test_validate_readonly_real_sends_expected_scpi_for_supported_models(
+    monkeypatch,
+    capsys,
+    idn,
+    resource,
+    driver_class,
+) -> None:
+    session = FakeSession(
+        idn=idn,
+        query_responses={
+            "SYST:ERR?": '0,"No error"',
+            "OUTP? (@1)": "OFF",
+            "OUTP? (@2)": "ON",
+            "OUTP? (@3)": "0",
+            "VOLT? (@1)": "1.0",
+            "CURR? (@1)": "0.05",
+            "VOLT? (@2)": "2.0",
+            "CURR? (@2)": "0.10",
+            "VOLT? (@3)": "3.0",
+            "CURR? (@3)": "0.15",
+            "MEAS:VOLT? (@1)": "1.1",
+            "MEAS:CURR? (@1)": "0.11",
+            "MEAS:VOLT? (@2)": "2.2",
+            "MEAS:CURR? (@2)": "0.22",
+            "MEAS:VOLT? (@3)": "3.3",
+            "MEAS:CURR? (@3)": "0.33",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["validate-readonly", "--json", "--resource", resource]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.queries == [
+        "*IDN?",
+        "SYST:ERR?",
+        "OUTP? (@1)",
+        "OUTP? (@2)",
+        "OUTP? (@3)",
+        "VOLT? (@1)",
+        "CURR? (@1)",
+        "VOLT? (@2)",
+        "CURR? (@2)",
+        "VOLT? (@3)",
+        "CURR? (@3)",
+        "MEAS:VOLT? (@1)",
+        "MEAS:CURR? (@1)",
+        "MEAS:VOLT? (@2)",
+        "MEAS:CURR? (@2)",
+        "MEAS:VOLT? (@3)",
+        "MEAS:CURR? (@3)",
+    ]
+    assert session.closed is True
+    assert payload["data"]["driver"]["class"] == driver_class
+    assert payload["data"]["read_count"] == 1
+    assert payload["data"]["outputs"] == [
+        {"channel": 1, "enabled": False},
+        {"channel": 2, "enabled": True},
+        {"channel": 3, "enabled": False},
+    ]
+    assert payload["data"]["readback"][1] == {
+        "channel": 2,
+        "setpoints": {"voltage": 2.0, "current": 0.1},
+    }
+    assert payload["data"]["measurements"][2] == {
+        "channel": 3,
+        "measurements": {"voltage": 3.3, "current": 0.33},
+    }
+
+
+def test_validate_readonly_rejects_generic_model(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36103B,MY00000000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["validate-readonly", "--json", "--resource", OUTPUT_RESOURCE]) == 2
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "unsupported_model_for_validate_readonly"
+
+
+def test_validate_readonly_invalid_max_errors_is_argument_error(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "validate-readonly",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--max-errors",
+                "0",
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+
+
+def test_validate_readonly_log_scpi_to_stderr_without_corrupting_json(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={
+            "SYST:ERR?": '0,"No error"',
+            "OUTP? (@1)": "OFF",
+            "OUTP? (@2)": "OFF",
+            "OUTP? (@3)": "OFF",
+            "VOLT? (@1)": "1.0",
+            "CURR? (@1)": "0.05",
+            "VOLT? (@2)": "2.0",
+            "CURR? (@2)": "0.10",
+            "VOLT? (@3)": "3.0",
+            "CURR? (@3)": "0.15",
+            "MEAS:VOLT? (@1)": "1.1",
+            "MEAS:CURR? (@1)": "0.11",
+            "MEAS:VOLT? (@2)": "2.2",
+            "MEAS:CURR? (@2)": "0.22",
+            "MEAS:VOLT? (@3)": "3.3",
+            "MEAS:CURR? (@3)": "0.33",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["validate-readonly", "--json", "--resource", OUTPUT_RESOURCE, "--log-scpi"]) == 0
+
+    captured = capsys.readouterr()
+    json.loads(captured.out)
+    assert f"{OUTPUT_RESOURCE} SCPI >> *IDN?" in captured.err
+    assert f"{OUTPUT_RESOURCE} SCPI >> MEAS:CURR? (@3)" in captured.err
+
+
+def test_validate_readonly_save_json_writes_stdout_envelope(tmp_path, capsys) -> None:
+    json_path = tmp_path / "validate-readonly.json"
+
+    assert (
+        cli.main(
+            [
+                "validate-readonly",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::EDU36311A::INSTR",
+                "--save-json",
+                str(json_path),
+            ]
+        )
+        == 0
+    )
+
+    stdout_payload = json.loads(capsys.readouterr().out)
+    saved_payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert saved_payload == stdout_payload
+
+
 def test_status_real_one_channel_text(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,MY00000001,1.0",
