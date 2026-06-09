@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import importlib.metadata
+import importlib.util
+import json
 import math
+import platform
 import sys
 import time
 from collections.abc import Sequence
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from keysight_power.cli_io import (
@@ -16,15 +23,17 @@ from keysight_power.cli_io import (
     set_json_save_path,
 )
 from keysight_power.connection import DEFAULT_TIMEOUT_MS, list_resources, open_resource
-from keysight_power.drivers.generic_scpi import GenericScpiPowerSupply
 from keysight_power.drivers.e36312a import E36312APowerSupply
+from keysight_power.drivers.edu36311a import EDU36311APowerSupply
+from keysight_power.drivers.generic_scpi import GenericScpiPowerSupply
 from keysight_power.errors import VisaConnectionError
-from keysight_power.factory import create_power_supply
+from keysight_power.factory import create_power_supply, select_driver
 from keysight_power.models import parse_idn, resource_interface
 from keysight_power.safety import (
     SafetyConfigError,
     SafetyLimits,
     SafetyValidationError,
+    load_safety_config_document,
     resolve_safety_config,
     validate_channel,
     validate_setpoint,
@@ -65,7 +74,27 @@ COMMAND_NAMES = frozenset(
         "clear-protection",
         "identify",
         "snapshot",
+        "log",
+        "sequence",
+        "doctor",
+        "capabilities",
+        "safety",
     }
+)
+
+LOG_CSV_FIELDS = (
+    "timestamp",
+    "resource",
+    "resource_alias",
+    "model",
+    "serial",
+    "channel",
+    "programmed_voltage",
+    "programmed_current",
+    "measured_voltage",
+    "measured_current",
+    "output_enabled",
+    "errors",
 )
 
 
@@ -666,6 +695,128 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print SCPI commands and responses to stderr.",
     )
     snapshot_parser.set_defaults(func=_run_snapshot)
+
+    log_parser = subparsers.add_parser(
+        "log",
+        help="Log read-only channel telemetry to CSV.",
+    )
+    _add_output_resource_arguments(log_parser)
+    log_channel_group = log_parser.add_mutually_exclusive_group(required=True)
+    log_channel_group.add_argument(
+        "--channel",
+        type=_log_channel,
+        help="Positive integer output channel, or 'all'.",
+    )
+    log_channel_group.add_argument(
+        "--channels",
+        type=_channels_list,
+        help="Comma-separated positive output channels.",
+    )
+    log_parser.add_argument(
+        "--interval-sec",
+        required=True,
+        type=_positive_float,
+        help="Seconds between samples.",
+    )
+    log_parser.add_argument("--csv", required=True, help="CSV output path.")
+    log_parser.add_argument("--jsonl", help="Optional JSONL output path.")
+    log_parser.add_argument(
+        "--append",
+        action="store_true",
+        help="Append to an existing CSV/JSONL file.",
+    )
+    log_parser.add_argument(
+        "--samples",
+        type=_positive_int,
+        help="Number of samples to collect.",
+    )
+    log_parser.add_argument(
+        "--duration-sec",
+        type=_positive_float,
+        help="Collection duration in seconds.",
+    )
+    _add_json_argument(log_parser)
+    _add_simulate_argument(log_parser)
+    _add_safety_config_argument(log_parser)
+    _add_backend_argument(log_parser)
+    _add_timeout_argument(log_parser)
+    log_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    log_parser.set_defaults(func=_run_log)
+
+    sequence_parser = subparsers.add_parser(
+        "sequence",
+        help="Run a conservative software sequence from a YAML or JSON file.",
+    )
+    _add_output_resource_arguments(sequence_parser)
+    sequence_parser.add_argument("--file", required=True, help="YAML or JSON sequence file.")
+    _add_json_argument(sequence_parser)
+    _add_simulate_argument(sequence_parser)
+    _add_dry_run_argument(sequence_parser)
+    _add_safety_config_argument(sequence_parser)
+    _add_backend_argument(sequence_parser)
+    _add_timeout_argument(sequence_parser)
+    sequence_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    sequence_parser.set_defaults(func=_run_sequence)
+
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Report Python, package, PyVISA, simulator, and backend diagnostics.",
+    )
+    _add_json_argument(doctor_parser)
+    _add_simulate_argument(doctor_parser)
+    _add_backend_argument(doctor_parser)
+    _add_timeout_argument(doctor_parser)
+    doctor_parser.add_argument("--resource", help="Optional resource to identify.")
+    doctor_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    doctor_parser.set_defaults(func=_run_doctor)
+
+    capabilities_parser = subparsers.add_parser(
+        "capabilities",
+        help="Report selected driver capabilities for a resource.",
+    )
+    _add_output_resource_arguments(capabilities_parser)
+    _add_json_argument(capabilities_parser)
+    _add_simulate_argument(capabilities_parser)
+    _add_backend_argument(capabilities_parser)
+    _add_timeout_argument(capabilities_parser)
+    capabilities_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    capabilities_parser.set_defaults(func=_run_capabilities)
+
+    safety_parser = subparsers.add_parser(
+        "safety",
+        help="Inspect safety configuration.",
+    )
+    safety_subparsers = safety_parser.add_subparsers(
+        dest="safety_command",
+        required=True,
+        parser_class=JsonCliArgumentParser,
+    )
+    safety_inspect_parser = safety_subparsers.add_parser(
+        "inspect",
+        help="Inspect effective safety limits for a resource or alias.",
+    )
+    _add_output_resource_arguments(safety_inspect_parser)
+    safety_inspect_parser.add_argument("--channel", type=_positive_channel)
+    safety_inspect_parser.add_argument("--model")
+    _add_json_argument(safety_inspect_parser)
+    _add_safety_config_argument(safety_inspect_parser)
+    safety_inspect_parser.set_defaults(func=_run_safety_inspect)
 
     return parser
 
@@ -1352,23 +1503,15 @@ def _run_status(args: argparse.Namespace) -> int:
             session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
             idn = session.query(IDN_QUERY)
             power_supply = create_power_supply(session, idn)
-            if not isinstance(power_supply, E36312APowerSupply):
-                raise _StatusModelError(
-                    "status is only supported for E36312A; "
-                    f"found {type(power_supply).__name__} from *IDN? response"
-                )
             channels = power_supply.capabilities.channels if selected_channel == "all" else (selected_channel,)
-            if any(channel not in power_supply.capabilities.channels for channel in channels):
-                raise _StatusChannelError(
-                    f"channel {selected_channel} is not supported for status; "
-                    f"supported: {power_supply.capabilities.channels}"
-                )
+            for channel in channels:
+                _validate_read_only_channel(power_supply, channel, command_label="status")
             errors, read_count = _read_error_queue_from_driver(power_supply, args.max_errors)
             outputs = [
                 {"channel": channel, "enabled": power_supply.output_state(channel=channel)}
                 for channel in channels
             ]
-    except _StatusModelError as exc:
+    except _ReadOnlyModelError as exc:
         return _emit_cli_error(
             args,
             request=request,
@@ -1378,7 +1521,7 @@ def _run_status(args: argparse.Namespace) -> int:
             retryable=False,
             hardware_intent=True,
         )
-    except _StatusChannelError as exc:
+    except _ReadOnlyChannelError as exc:
         return _emit_cli_error(
             args,
             request=request,
@@ -1437,7 +1580,7 @@ def _run_status(args: argparse.Namespace) -> int:
 
 
 def _run_readback(args: argparse.Namespace) -> int:
-    result = _run_e36312a_read_command(
+    result = _run_read_only_command(
         args,
         command_label="readback",
         unsupported_code="unsupported_model_for_readback",
@@ -1466,6 +1609,115 @@ def _run_readback(args: argparse.Namespace) -> int:
             f"{_format_text_value(setpoints['current'])} A"
         )
     return 0
+
+
+def _run_read_only_command(
+    args: argparse.Namespace,
+    *,
+    command_label: str,
+    unsupported_code: str,
+    failure_code: str,
+    operation: Any,
+) -> tuple[int, dict[str, Any]]:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+    except SafetyConfigError as exc:
+        return (
+            _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code="argument_error",
+                message=str(exc),
+                retryable=False,
+            ),
+            {},
+        )
+
+    selected_channel = "all" if getattr(args, "all", False) else getattr(args, "channel", "all")
+    try:
+        _read_only_channels_from_selection(selected_channel, (1, 2, 3))
+    except _ReadOnlyChannelError as exc:
+        return (
+            _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code="argument_error",
+                message=str(exc),
+                retryable=False,
+            ),
+            {},
+        )
+    opened = False
+    try:
+        with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
+            opened = True
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, (E36312APowerSupply, EDU36311APowerSupply)):
+                raise _ReadOnlyModelError(
+                    f"{command_label} is only supported for E36312A or EDU36311A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            channels = _read_only_channels_from_selection(
+                selected_channel,
+                power_supply.capabilities.channels,
+            )
+            return 0, operation(args, power_supply, idn, channels)
+    except _ReadOnlyModelError as exc:
+        return (
+            _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code=unsupported_code,
+                message=str(exc),
+                retryable=False,
+                hardware_intent=True,
+            ),
+            {},
+        )
+    except _ReadOnlyChannelError as exc:
+        return (
+            _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code="argument_error",
+                message=str(exc),
+                retryable=False,
+                hardware_intent=True,
+            ),
+            {},
+        )
+    except VisaConnectionError as exc:
+        code = failure_code if opened else "connection_failed"
+        message = (
+            f"{command_label} failed: {exc}"
+            if opened
+            else f"Could not open resource for {command_label}: {exc}"
+        )
+        return (
+            _emit_safe_io_error(args, request=request, execution=execution, code=code, message=message),
+            {},
+        )
+    except ValueError as exc:
+        return (
+            _emit_safe_io_error(
+                args,
+                request=request,
+                execution=execution,
+                code=failure_code,
+                message=f"{command_label} failed: {exc}",
+            ),
+            {},
+        )
 
 
 def _run_protection_status(args: argparse.Namespace) -> int:
@@ -1847,6 +2099,610 @@ def _run_snapshot(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_log(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+        _validate_log_request(args)
+    except (SafetyConfigError, ValueError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    try:
+        result = _collect_log_samples(args, manager, backend=args.backend, timeout_ms=args.timeout_ms)
+    except _ReadOnlyModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_log",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _ReadOnlyChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except (OSError, VisaConnectionError, ValueError) as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="log_failed",
+            message=f"log failed: {exc}",
+        )
+
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=execution,
+            request=request,
+            data=result,
+        )
+        return 0
+
+    print(f"Resource: {args.resource}")
+    print(f"CSV: {args.csv}")
+    print(f"Samples written: {result['samples_written']}")
+    print(f"Stopped: {str(result['stopped']).lower()}")
+    return 0
+
+
+def _run_sequence(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+        document = _load_sequence_document(args.file)
+        plan = _sequence_plan(args, document)
+    except (SafetyConfigError, SafetyValidationError, ValueError, OSError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    if args.dry_run:
+        data = {
+            "sequence_version": plan["version"],
+            "resource": args.resource,
+            "resource_alias": args.resource_alias,
+            "plan": plan,
+            "status": "planned",
+            "completed_steps": 0,
+            "failed_step": None,
+            "stopped": False,
+            "cleanup": {"safe_off_attempted": False},
+        }
+        if args.json:
+            emit_json_success(command=args.command, execution=execution, request=request, data=data)
+        else:
+            _print_sequence_summary(data)
+        return 0
+
+    try:
+        data = _execute_sequence(args, plan, manager)
+    except VisaConnectionError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="sequence_failed",
+            message=f"sequence failed: {exc}",
+        )
+    except (SafetyValidationError, ValueError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+
+    if args.json:
+        emit_json_success(command=args.command, execution=execution, request=request, data=data)
+    else:
+        _print_sequence_summary(data)
+    return 0
+
+
+def _run_doctor(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=bool(args.resource))
+    manager = _resource_manager_for_args(args)
+    pyvisa_available = importlib.util.find_spec("pyvisa") is not None
+    data: dict[str, Any] = {
+        "python": {
+            "version": platform.python_version(),
+            "executable": sys.executable,
+            "platform": platform.platform(),
+        },
+        "package": {"name": "keysight-power", "version": _package_version()},
+        "pyvisa": {"available": pyvisa_available, "backend": args.backend},
+        "simulator": {
+            "available": True,
+            "resources": list(SimulatedResourceManager().list_resources()),
+        },
+        "real_resource_manager": {
+            "checked": not args.simulate,
+            "available": None,
+            "error": None,
+        },
+        "resource": None,
+    }
+    if not args.simulate:
+        try:
+            _list_resources(None, backend=args.backend)
+            data["real_resource_manager"]["available"] = True
+        except VisaConnectionError as exc:
+            data["real_resource_manager"]["available"] = False
+            data["real_resource_manager"]["error"] = str(exc)
+
+    if args.resource:
+        try:
+            with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
+                session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+                idn = session.query(IDN_QUERY)
+            data["resource"] = _resource_payload(
+                args.resource,
+                simulated=args.simulate,
+                reachable=True,
+                idn_raw=idn,
+            )
+        except VisaConnectionError as exc:
+            return _emit_safe_io_error(
+                args,
+                request=request,
+                execution=execution,
+                code="doctor_resource_failed",
+                message=f"doctor resource check failed: {exc}",
+            )
+
+    if args.json:
+        emit_json_success(command=args.command, execution=execution, request=request, data=data)
+    else:
+        print(f"Python: {data['python']['version']}")
+        print(f"Package: {data['package']['version']}")
+        print(f"PyVISA: {str(pyvisa_available).lower()}")
+        print(f"Simulator resources: {len(data['simulator']['resources'])}")
+    return 0
+
+
+def _run_capabilities(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+        with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn_raw = session.query(IDN_QUERY)
+        selection = select_driver(idn_raw)
+    except SafetyConfigError as exc:
+        return _emit_cli_error(args, request=request, error_type="validation", code="argument_error", message=str(exc), retryable=False)
+    except VisaConnectionError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="capabilities_failed",
+            message=f"capabilities failed: {exc}",
+        )
+
+    caps = selection.capabilities
+    data = {
+        "resource": _resource_payload(
+            args.resource,
+            simulated=args.simulate,
+            reachable=True,
+            idn_raw=idn_raw,
+        ),
+        "driver": {
+            "class": selection.driver_class.__name__,
+            "reason": selection.reason,
+        },
+        "channels": list(caps.channels),
+        "measure_channels": {
+            "simulate": list(caps.simulated_measure_channels),
+            "real": list(caps.real_measure_channels),
+        },
+        "read_only_commands": ["identify", "measure", "output-state", "readback", "status", "log", "sequence"],
+        "output_commands": ["set", "output-on", "output-off", "safe-off", "cycle-output", "apply", "smoke-output"],
+        "e36312a_only_commands": ["measure-all", "protection-status", "protection-set", "clear-protection", "snapshot", "trigger-pulse"],
+        "hardware_validation": _hardware_validation_status(selection.idn.model),
+    }
+    if args.json:
+        emit_json_success(command=args.command, execution=execution, request=request, data=data)
+    else:
+        print(f"Driver: {data['driver']['class']}")
+        print(f"Channels: {', '.join(str(channel) for channel in data['channels'])}")
+    return 0
+
+
+def _run_safety_inspect(args: argparse.Namespace) -> int:
+    args.command = "safety inspect"
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=False)
+    try:
+        if args.safety_config is None:
+            raise SafetyConfigError("safety inspect requires --safety-config")
+        resolution = resolve_safety_config(
+            args.safety_config,
+            resource=args.resource,
+            resource_alias=args.resource_alias,
+            model=args.model,
+            channel=args.channel,
+        )
+    except SafetyConfigError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+    limits = resolution.limits
+    data = {
+        "resource": resolution.resource,
+        "resource_alias": resolution.resource_alias,
+        "model": args.model,
+        "channel": args.channel,
+        "limits": _safety_limits_payload(limits),
+        "sources": resolution.sources or {},
+        "output_affecting_allowed": _output_affecting_allowed(args.channel, limits),
+    }
+    if args.json:
+        emit_json_success(command="safety inspect", execution=execution, request=request, data=data)
+    else:
+        print(f"Resource: {data['resource']}")
+        print(f"Limits: {data['limits']}")
+        print(f"Output allowed: {str(data['output_affecting_allowed']).lower()}")
+    return 0
+
+
+def _load_sequence_document(path: str) -> dict[str, Any]:
+    sequence_path = Path(path)
+    try:
+        text = sequence_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise OSError(f"could not read sequence file {sequence_path}: {exc}") from exc
+    stripped = text.lstrip()
+    if stripped.startswith("{"):
+        parsed = json.loads(text)
+    else:
+        try:
+            import yaml  # type: ignore[import-untyped]
+        except ModuleNotFoundError:
+            parsed = _parse_simple_sequence_yaml(text)
+        else:
+            parsed = yaml.safe_load(text)
+    if not isinstance(parsed, dict):
+        raise ValueError("sequence file must contain a mapping")
+    return parsed
+
+
+def _parse_simple_sequence_yaml(text: str) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    steps: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    in_steps = False
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", maxsplit=1)[0].rstrip()
+        if not line.strip():
+            continue
+        stripped = line.strip()
+        if stripped == "steps:":
+            in_steps = True
+            data["steps"] = steps
+            continue
+        if not in_steps:
+            if ":" not in stripped:
+                raise ValueError(f"unsupported sequence YAML line: {raw_line}")
+            key, value = stripped.split(":", maxsplit=1)
+            data[key.strip()] = _parse_sequence_scalar(value.strip())
+            continue
+        if stripped.startswith("- "):
+            current = {}
+            steps.append(current)
+            item = stripped[2:].strip()
+            if item:
+                if ":" not in item:
+                    current["action"] = item
+                else:
+                    key, value = item.split(":", maxsplit=1)
+                    current[key.strip()] = _parse_sequence_scalar(value.strip())
+            continue
+        if current is None or ":" not in stripped:
+            raise ValueError(f"unsupported sequence YAML line: {raw_line}")
+        key, value = stripped.split(":", maxsplit=1)
+        current[key.strip()] = _parse_sequence_scalar(value.strip())
+    return data
+
+
+def _parse_sequence_scalar(value: str) -> Any:
+    if value == "":
+        return None
+    if value.lower() in {"true", "false"}:
+        return value.lower() == "true"
+    if value.lower() == "all":
+        return "all"
+    try:
+        if any(marker in value for marker in (".", "e", "E")):
+            return float(value)
+        return int(value)
+    except ValueError:
+        return value.strip("'\"")
+
+
+def _sequence_plan(args: argparse.Namespace, document: dict[str, Any]) -> dict[str, Any]:
+    version = document.get("version", 1)
+    if version not in (1, "1"):
+        raise ValueError(f"unsupported sequence version: {version}")
+    raw_steps = document.get("steps")
+    if not isinstance(raw_steps, list) or not raw_steps:
+        raise ValueError("sequence requires a non-empty steps list")
+    steps = []
+    for index, raw_step in enumerate(raw_steps, start=1):
+        step = _normalize_sequence_step(index, raw_step)
+        _validate_sequence_step(args, step)
+        steps.append(step)
+    return {
+        "version": 1,
+        "operation": {"name": "sequence"},
+        "target": {"resource": args.resource, "resource_alias": args.resource_alias},
+        "steps": steps,
+        "hardware_touched": False,
+    }
+
+
+def _normalize_sequence_step(index: int, raw_step: Any) -> dict[str, Any]:
+    if isinstance(raw_step, str):
+        return {"index": index, "action": raw_step, "parameters": {}}
+    if not isinstance(raw_step, dict):
+        raise ValueError(f"sequence step {index} must be a mapping")
+    if "action" in raw_step or "type" in raw_step:
+        action = str(raw_step.get("action", raw_step.get("type")))
+        parameters = {key: value for key, value in raw_step.items() if key not in {"action", "type"}}
+    elif len(raw_step) == 1:
+        action, value = next(iter(raw_step.items()))
+        parameters = value if isinstance(value, dict) else {}
+    else:
+        raise ValueError(f"sequence step {index} requires action")
+    if action not in _SEQUENCE_ACTIONS:
+        raise ValueError(f"unsupported sequence step {index} action: {action}")
+    return {"index": index, "action": action, "parameters": parameters}
+
+
+_SEQUENCE_ACTIONS = {
+    "measure",
+    "readback",
+    "output-state",
+    "log",
+    "wait",
+    "safe-off",
+    "set",
+    "output-on",
+    "output-off",
+    "apply",
+}
+
+
+_SEQUENCE_OUTPUT_ACTIONS = {"safe-off", "set", "output-on", "output-off", "apply"}
+
+
+def _validate_sequence_step(args: argparse.Namespace, step: dict[str, Any]) -> None:
+    action = step["action"]
+    parameters = step["parameters"]
+    if action in {"measure", "readback", "output-state", "safe-off", "output-on", "output-off"}:
+        _sequence_channel(parameters.get("channel", 1), allow_all=(action == "safe-off"))
+    if action == "wait":
+        seconds = float(parameters.get("seconds", parameters.get("duration_sec", 0)))
+        if seconds < 0:
+            raise ValueError("wait seconds must be non-negative")
+    if action in {"set", "apply"}:
+        channel = _sequence_channel(parameters.get("channel", 1), allow_all=(action == "apply"))
+        voltage = float(parameters["voltage"])
+        current = float(parameters["current"])
+        safety_limits = _safety_limits_for_args(args)
+        channels = (1, 2, 3) if channel == "all" else (channel,)
+        for selected_channel in channels:
+            validate_setpoint(
+                channel=selected_channel,
+                voltage=voltage,
+                current=current,
+                limits=safety_limits,
+            )
+    elif action in {"output-on", "output-off"}:
+        safety_limits = _safety_limits_for_args(args)
+        validate_channel(parameters.get("channel", 1), safety_limits)
+
+
+def _sequence_channel(value: Any, *, allow_all: bool = False) -> int | str:
+    if allow_all and isinstance(value, str) and value.lower() == "all":
+        return "all"
+    try:
+        channel = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("sequence channel must be a positive integer") from exc
+    if channel < 1:
+        raise ValueError("sequence channel must be a positive integer")
+    return channel
+
+
+def _execute_sequence(
+    args: argparse.Namespace,
+    plan: dict[str, Any],
+    manager: SimulatedResourceManager | None,
+) -> dict[str, Any]:
+    results: list[dict[str, Any]] = []
+    completed_steps = 0
+    failed_step: dict[str, Any] | None = None
+    stopped = False
+    safe_off_attempted = False
+    idn_raw: str | None = None
+    with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
+        session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+        idn_raw = session.query(IDN_QUERY)
+        power_supply = create_power_supply(session, idn_raw)
+        for step in plan["steps"]:
+            try:
+                result = _execute_sequence_step(args, power_supply, step)
+                results.append(result)
+                completed_steps += 1
+            except KeyboardInterrupt:
+                stopped = True
+                failed_step = {"index": step["index"], "action": step["action"], "code": "interrupted"}
+                break
+            except (VisaConnectionError, ValueError, SafetyValidationError) as exc:
+                failed_step = {
+                    "index": step["index"],
+                    "action": step["action"],
+                    "code": "step_failed",
+                    "message": str(exc),
+                }
+                break
+        if stopped or failed_step is not None:
+            safe_off_attempted = _sequence_cleanup_safe_off(power_supply)
+
+    status = "stopped" if stopped else ("failed" if failed_step is not None else "completed")
+    return {
+        "sequence_version": plan["version"],
+        "resource": _resource_payload(
+            args.resource,
+            simulated=args.simulate,
+            reachable=True,
+            idn_raw=idn_raw,
+        ),
+        "resource_alias": args.resource_alias,
+        "plan": plan,
+        "status": status,
+        "results": results,
+        "completed_steps": completed_steps,
+        "failed_step": failed_step,
+        "stopped": stopped,
+        "cleanup": {"safe_off_attempted": safe_off_attempted},
+    }
+
+
+def _execute_sequence_step(
+    args: argparse.Namespace,
+    power_supply: GenericScpiPowerSupply,
+    step: dict[str, Any],
+) -> dict[str, Any]:
+    action = step["action"]
+    parameters = step["parameters"]
+    if action in _SEQUENCE_OUTPUT_ACTIONS and not args.simulate and not isinstance(power_supply, E36312APowerSupply):
+        raise ValueError("real output-affecting sequence steps are enabled only for E36312A")
+    if action in {"measure", "readback", "output-state"}:
+        _validate_read_only_channel(power_supply, _sequence_channel(parameters.get("channel", 1)), command_label="sequence")
+    if action == "measure":
+        channel = _sequence_channel(parameters.get("channel", 1))
+        return {
+            "index": step["index"],
+            "action": action,
+            "channel": channel,
+            "measurements": {
+                "voltage": power_supply.measure_voltage(channel=channel),
+                "current": power_supply.measure_current(channel=channel),
+            },
+        }
+    if action == "readback":
+        channel = _sequence_channel(parameters.get("channel", 1))
+        return {
+            "index": step["index"],
+            "action": action,
+            "channel": channel,
+            "setpoints": {
+                "voltage": power_supply.programmed_voltage(channel=channel),
+                "current": power_supply.programmed_current(channel=channel),
+            },
+        }
+    if action == "output-state":
+        channel = _sequence_channel(parameters.get("channel", 1))
+        return {"index": step["index"], "action": action, "channel": channel, "enabled": power_supply.output_state(channel=channel)}
+    if action == "log":
+        return {"index": step["index"], "action": action, "message": str(parameters.get("message", ""))}
+    if action == "wait":
+        seconds = float(parameters.get("seconds", parameters.get("duration_sec", 0)))
+        time.sleep(seconds)
+        return {"index": step["index"], "action": action, "seconds": seconds}
+    if action == "safe-off":
+        channel = _sequence_channel(parameters.get("channel", 1), allow_all=True)
+        for selected_channel in _sequence_channels(channel, power_supply.capabilities.channels):
+            power_supply.output_off(channel=selected_channel)
+        return {"index": step["index"], "action": action, "channel": channel}
+    if action == "output-off":
+        channel = _sequence_channel(parameters.get("channel", 1))
+        power_supply.output_off(channel=channel)
+        return {"index": step["index"], "action": action, "channel": channel}
+    if action == "output-on":
+        channel = _sequence_channel(parameters.get("channel", 1))
+        power_supply.output_on(channel=channel)
+        return {"index": step["index"], "action": action, "channel": channel}
+    if action in {"set", "apply"}:
+        channel = _sequence_channel(parameters.get("channel", 1), allow_all=(action == "apply"))
+        voltage = float(parameters["voltage"])
+        current = float(parameters["current"])
+        for selected_channel in _sequence_channels(channel, power_supply.capabilities.channels):
+            power_supply.set_current_limit(channel=selected_channel, current=current)
+            power_supply.set_voltage(channel=selected_channel, voltage=voltage)
+            if action == "apply" and not parameters.get("no_output", False):
+                power_supply.output_on(channel=selected_channel)
+        return {"index": step["index"], "action": action, "channel": channel, "voltage": voltage, "current": current}
+    raise ValueError(f"unsupported sequence action: {action}")
+
+
+def _sequence_channels(channel: int | str, supported_channels: tuple[int, ...]) -> tuple[int, ...]:
+    if channel == "all":
+        return supported_channels
+    if int(channel) not in supported_channels:
+        raise ValueError(f"channel {channel} is not supported; supported: {supported_channels}")
+    return (int(channel),)
+
+
+def _sequence_cleanup_safe_off(power_supply: GenericScpiPowerSupply) -> bool:
+    attempted = False
+    for channel in power_supply.capabilities.channels:
+        try:
+            power_supply.output_off(channel=channel)
+            attempted = True
+        except Exception:
+            continue
+    return attempted
+
+
+def _print_sequence_summary(data: dict[str, Any]) -> None:
+    print(f"Resource: {data['resource'] if isinstance(data['resource'], str) else data['resource'].get('name')}")
+    print(f"Status: {data['status']}")
+    print(f"Completed steps: {data['completed_steps']}")
+
+
 def _run_output_plan(args: argparse.Namespace) -> int:
     if not args.simulate and not args.dry_run:
         real_handlers = {
@@ -1960,6 +2816,156 @@ def _read_error_queue(
     return errors, read_count
 
 
+def _collect_log_samples(
+    args: argparse.Namespace,
+    resource_manager: SimulatedResourceManager | None,
+    *,
+    backend: str | None,
+    timeout_ms: int,
+) -> dict[str, Any]:
+    samples_written = 0
+    idn_raw: str | None = None
+    interrupted = False
+    with _open_resource(
+        args.resource,
+        resource_manager,
+        backend=backend,
+        timeout_ms=timeout_ms,
+    ) as instrument:
+        session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+        idn_raw = session.query(IDN_QUERY)
+        idn = parse_idn(idn_raw)
+        power_supply = create_power_supply(session, idn_raw)
+        channels = _log_channels_for_power_supply(args, power_supply)
+
+        csv_path = Path(args.csv)
+        if csv_path.parent != Path("."):
+            csv_path.parent.mkdir(parents=True, exist_ok=True)
+        jsonl_file = _open_jsonl_log(args)
+        mode = "a" if args.append else "w"
+        write_header = (not args.append) or (not csv_path.exists()) or csv_path.stat().st_size == 0
+        with csv_path.open(mode, newline="", encoding="utf-8") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=LOG_CSV_FIELDS)
+            if write_header:
+                writer.writeheader()
+            start = time.monotonic()
+            try:
+                while True:
+                    if not _should_collect_log_sample(args, samples_written, start):
+                        break
+                    try:
+                        for channel in channels:
+                            row = _read_log_row(args, power_supply, idn, channel=channel)
+                            writer.writerow(row)
+                            if jsonl_file is not None:
+                                jsonl_file.write(json.dumps({"event": "sample", "sample": row}, sort_keys=True) + "\n")
+                        csv_file.flush()
+                        if jsonl_file is not None:
+                            jsonl_file.flush()
+                        samples_written += 1
+                        if not _should_collect_log_sample(args, samples_written, start):
+                            break
+                        time.sleep(args.interval_sec)
+                    except KeyboardInterrupt:
+                        interrupted = True
+                        break
+            finally:
+                if jsonl_file is not None:
+                    jsonl_file.write(
+                        json.dumps(
+                            {
+                                "event": "summary",
+                                "samples_written": samples_written,
+                                "channels": list(channels),
+                                "stopped": interrupted,
+                                "stop_reason": "interrupted" if interrupted else "completed",
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    )
+                    jsonl_file.close()
+
+    return {
+        "resource": _resource_payload(
+            args.resource,
+            simulated=args.simulate,
+            reachable=True,
+            idn_raw=idn_raw,
+        ),
+        "resource_alias": args.resource_alias,
+        "csv": args.csv,
+        "jsonl": args.jsonl,
+        "append": args.append,
+        "channel": args.channel,
+        "channels": list(channels),
+        "samples_requested": args.samples,
+        "duration_sec": args.duration_sec,
+        "interval_sec": args.interval_sec,
+        "samples_written": samples_written,
+        "stopped": interrupted,
+        "stop_reason": "interrupted" if interrupted else "completed",
+    }
+
+
+def _should_collect_log_sample(args: argparse.Namespace, samples_written: int, start: float) -> bool:
+    if args.samples is not None and samples_written >= args.samples:
+        return False
+    if args.duration_sec is not None and samples_written > 0:
+        return (time.monotonic() - start) < args.duration_sec
+    return True
+
+
+def _log_channels_for_power_supply(
+    args: argparse.Namespace,
+    power_supply: GenericScpiPowerSupply,
+) -> tuple[int, ...]:
+    requested = args.channels if args.channels is not None else args.channel
+    if requested == "all":
+        channels = power_supply.capabilities.channels
+    elif isinstance(requested, tuple):
+        channels = requested
+    else:
+        channels = (requested,)
+    for channel in channels:
+        _validate_read_only_channel(power_supply, channel, command_label="log")
+    return tuple(int(channel) for channel in channels)
+
+
+def _open_jsonl_log(args: argparse.Namespace):
+    if args.jsonl is None:
+        return None
+    path = Path(args.jsonl)
+    if path.parent != Path("."):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    mode = "a" if args.append else "w"
+    return path.open(mode, encoding="utf-8")
+
+
+def _read_log_row(
+    args: argparse.Namespace,
+    power_supply: GenericScpiPowerSupply,
+    idn: Any,
+    *,
+    channel: int,
+) -> dict[str, Any]:
+    errors = power_supply.check_errors(20)
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "resource": args.resource,
+        "resource_alias": args.resource_alias or "",
+        "model": idn.model or "",
+        "serial": idn.serial or "",
+        "channel": channel,
+        "programmed_voltage": power_supply.programmed_voltage(channel=channel),
+        "programmed_current": power_supply.programmed_current(channel=channel),
+        "measured_voltage": power_supply.measure_voltage(channel=channel),
+        "measured_current": power_supply.measure_current(channel=channel),
+        "output_enabled": power_supply.output_state(channel=channel),
+        "errors": "; ".join(errors),
+    }
+
+
 def _measure_voltage_current(
     resource: str,
     *,
@@ -2041,6 +3047,31 @@ def _measure_voltage_current_with_driver(
         "voltage": power_supply.measure_voltage(channel=channel),
         "current": power_supply.measure_current(channel=channel),
     }
+
+
+def _validate_log_request(args: argparse.Namespace) -> None:
+    if args.samples is None and args.duration_sec is None:
+        raise ValueError("log requires --samples or --duration-sec")
+    if args.samples is not None and args.duration_sec is not None:
+        raise ValueError("log accepts either --samples or --duration-sec, not both")
+
+
+def _validate_read_only_channel(
+    power_supply: GenericScpiPowerSupply,
+    channel: int,
+    *,
+    command_label: str,
+) -> None:
+    if not isinstance(power_supply, (E36312APowerSupply, EDU36311APowerSupply)):
+        raise _ReadOnlyModelError(
+            f"{command_label} is only supported for E36312A or EDU36311A; "
+            f"found {type(power_supply).__name__} from *IDN? response"
+        )
+    if channel not in power_supply.capabilities.channels:
+        raise _ReadOnlyChannelError(
+            f"channel {channel} is not supported for {command_label}; "
+            f"supported: {power_supply.capabilities.channels}"
+        )
 
 
 def _resolve_optional_resource_alias(args: argparse.Namespace) -> None:
@@ -2205,7 +3236,7 @@ def _run_e36312a_read_command(
 
 def _collect_readback(
     args: argparse.Namespace,
-    power_supply: E36312APowerSupply,
+    power_supply: GenericScpiPowerSupply,
     idn_raw: str,
     channels: tuple[int, ...],
 ) -> dict[str, Any]:
@@ -2320,6 +3351,19 @@ def _channels_from_selection(
     return (int(selected_channel),)
 
 
+def _read_only_channels_from_selection(
+    selected_channel: int | str,
+    supported_channels: tuple[int, ...],
+) -> tuple[int, ...]:
+    if selected_channel == "all":
+        return supported_channels
+    if selected_channel not in supported_channels:
+        raise _ReadOnlyChannelError(
+            f"channel {selected_channel} is not supported; supported: {supported_channels}"
+        )
+    return (int(selected_channel),)
+
+
 def _clear_protection_scpi(channels: tuple[int, ...]) -> tuple[str, ...]:
     return tuple(f"OUTP:PROT:CLE (@{channel})" for channel in channels)
 
@@ -2367,6 +3411,58 @@ def _resource_manager_for_args(args: argparse.Namespace) -> SimulatedResourceMan
     if args.simulate:
         return SimulatedResourceManager()
     return None
+
+
+def _package_version() -> str:
+    try:
+        return importlib.metadata.version("keysight-power")
+    except importlib.metadata.PackageNotFoundError:
+        return "0.1.0"
+
+
+def _hardware_validation_status(model: str | None) -> dict[str, Any]:
+    normalized = (model or "").upper()
+    if normalized == "E36312A":
+        return {
+            "read_only": "validated",
+            "output": "validated",
+            "protection": "validated",
+            "trigger": "validated",
+        }
+    if normalized == "EDU36311A":
+        return {
+            "read_only": "pending_real_hardware",
+            "output": "not_enabled",
+            "protection": "not_enabled",
+            "trigger": "not_applicable",
+        }
+    return {
+        "read_only": "generic_channel_1_only",
+        "output": "not_enabled",
+        "protection": "not_enabled",
+        "trigger": "not_enabled",
+    }
+
+
+def _safety_limits_payload(limits: SafetyLimits) -> dict[str, Any]:
+    return {
+        "max_voltage": limits.max_voltage,
+        "max_current": limits.max_current,
+        "allowed_channels": (
+            list(limits.allowed_channels)
+            if limits.allowed_channels is not None
+            else None
+        ),
+    }
+
+
+def _output_affecting_allowed(channel: int | None, limits: SafetyLimits) -> bool:
+    if channel is not None:
+        try:
+            validate_channel(channel, limits)
+        except SafetyValidationError:
+            return False
+    return True
 
 
 class _OutputOffModelError(ValueError):
@@ -2447,6 +3543,14 @@ class _StatusModelError(ValueError):
 
 class _StatusChannelError(ValueError):
     """Raised when status channel is outside E36312A capability (1,2,3)."""
+
+
+class _ReadOnlyModelError(ValueError):
+    """Raised when read-only model-specific commands see an unsupported model."""
+
+
+class _ReadOnlyChannelError(ValueError):
+    """Raised when read-only model-specific commands receive an unsupported channel."""
 
 
 class _E36312AOnlyError(ValueError):
@@ -2597,19 +3701,9 @@ def _run_output_state_real(args: argparse.Namespace) -> int:
             session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
             idn = session.query(IDN_QUERY)
             power_supply = create_power_supply(session, idn)
-            if not isinstance(power_supply, E36312APowerSupply):
-                raise _OutputStateModelError(
-                    "output-state real execution is only supported for E36312A; "
-                    f"found {type(power_supply).__name__} from *IDN? response"
-                )
-            capabilities = power_supply.capabilities
-            if args.channel not in capabilities.channels:
-                raise _OutputStateChannelError(
-                    f"channel {args.channel} is not supported for output-state; "
-                    f"supported: {capabilities.channels}"
-                )
+            _validate_read_only_channel(power_supply, args.channel, command_label="output-state")
             output_enabled = power_supply.output_state(channel=args.channel)
-    except _OutputStateModelError as exc:
+    except _ReadOnlyModelError as exc:
         return _emit_cli_error(
             args,
             request=request,
@@ -2619,7 +3713,7 @@ def _run_output_state_real(args: argparse.Namespace) -> int:
             retryable=False,
             hardware_intent=True,
         )
-    except _OutputStateChannelError as exc:
+    except _ReadOnlyChannelError as exc:
         return _emit_cli_error(
             args,
             request=request,
@@ -3517,7 +4611,7 @@ def _open_resource(
 
 
 def _mode_for_args(args: argparse.Namespace) -> str:
-    if args.simulate:
+    if getattr(args, "simulate", False):
         return "simulate"
     return "real"
 
@@ -3545,6 +4639,23 @@ def _validation_execution_from_argv(argv: Sequence[str]) -> dict[str, Any]:
 
 
 def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
+    if args.command == "safety":
+        return {
+            "subcommand": getattr(args, "safety_command", None),
+            "resource": getattr(args, "resource", None),
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": getattr(args, "channel", None),
+            "model": getattr(args, "model", None),
+            "safety_config": getattr(args, "safety_config", None),
+        }
+    if args.command == "safety inspect":
+        return {
+            "resource": getattr(args, "resource", None),
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": getattr(args, "channel", None),
+            "model": getattr(args, "model", None),
+            "safety_config": getattr(args, "safety_config", None),
+        }
     if args.command == "list-resources":
         return {
             "backend": getattr(args, "backend", None),
@@ -3740,10 +4851,57 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
+    if args.command == "log":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": args.channel,
+            "channels": getattr(args, "channels", None),
+            "interval_sec": args.interval_sec,
+            "csv": args.csv,
+            "jsonl": getattr(args, "jsonl", None),
+            "append": getattr(args, "append", False),
+            "samples": args.samples,
+            "duration_sec": args.duration_sec,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "sequence":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "file": args.file,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "doctor":
+        return {
+            "resource": getattr(args, "resource", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "capabilities":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
     return {}
 
 
 def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
+    if command == "safety":
+        return {
+            "subcommand": "inspect" if "inspect" in argv else None,
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "channel": _channel_from_argv(argv),
+            "model": _option_value(argv, "--model"),
+            "safety_config": _option_value(argv, "--safety-config"),
+        }
     if command == "list-resources":
         return {
             "backend": _option_value(argv, "--backend"),
@@ -3936,6 +5094,44 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
         }
+    if command == "log":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "channel": _channel_from_argv(argv),
+            "channels": _option_value(argv, "--channels"),
+            "interval_sec": _number_from_argv(argv, "--interval-sec"),
+            "csv": _option_value(argv, "--csv"),
+            "jsonl": _option_value(argv, "--jsonl"),
+            "append": "--append" in argv,
+            "samples": _int_from_argv(argv, "--samples"),
+            "duration_sec": _number_from_argv(argv, "--duration-sec"),
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "sequence":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "file": _option_value(argv, "--file"),
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "doctor":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "capabilities":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
     return {}
 
 
@@ -3998,6 +5194,16 @@ def _number_from_argv(argv: Sequence[str], option: str) -> float | str | None:
         return None
     try:
         return _json_safe_number(float(value))
+    except ValueError:
+        return value
+
+
+def _int_from_argv(argv: Sequence[str], option: str) -> int | str | None:
+    value = _option_value(argv, option)
+    if value is None:
+        return None
+    try:
+        return int(value)
     except ValueError:
         return value
 
@@ -4091,6 +5297,42 @@ def _positive_duration_ms(value: str) -> int:
     if duration_ms < 1:
         raise argparse.ArgumentTypeError("duration-ms must be a positive integer")
     return duration_ms
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
+def _positive_float(value: str) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a positive number") from exc
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive number")
+    return parsed
+
+
+def _log_channel(value: str) -> int | str:
+    if value.lower() == "all":
+        return "all"
+    return _positive_channel(value)
+
+
+def _channels_list(value: str) -> tuple[int, ...]:
+    channels: list[int] = []
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            raise argparse.ArgumentTypeError("channels must be comma-separated positive integers")
+        channels.append(_positive_channel(item))
+    return tuple(channels)
 
 
 def _safe_off_channel(value: str) -> int | str:

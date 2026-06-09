@@ -1,0 +1,14 @@
+version: 1
+steps:
+  - action: log
+    message: readonly EDU36311A simulator check
+  - action: measure
+    channel: 2
+  - action: readback
+    channel: 2
+  - action: output-state
+    channel: 2
+  - action: wait
+    seconds: 0
+  - action: safe-off
+    channel: 2

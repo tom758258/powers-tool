@@ -50,6 +50,11 @@ SIMULATED_PROGRAMMED_SETPOINTS = {
         2: {"voltage": "2.000", "current": "0.100"},
         3: {"voltage": "3.000", "current": "0.150"},
     },
+    "USB0::SIM::EDU36311A::INSTR": {
+        1: {"voltage": "1.000", "current": "0.050"},
+        2: {"voltage": "2.000", "current": "0.100"},
+        3: {"voltage": "3.000", "current": "0.150"},
+    },
 }
 
 SIMULATED_OPTIONS = {
@@ -98,6 +103,20 @@ class SimulatedResource:
     def write(self, command: str) -> None:
         self._ensure_open()
         self.commands.append(command)
+        output_change = _simulated_output_change(command)
+        if output_change is not None:
+            channel, enabled = output_change
+            if channel not in SIMULATED_OUTPUT_STATES.get(self.resource_name, {}):
+                raise VisaConnectionError(f"No simulated response for {command!r}")
+            SIMULATED_OUTPUT_STATES[self.resource_name][channel] = enabled
+            return
+        setpoint_change = _simulated_setpoint_change(command)
+        if setpoint_change is not None:
+            name, channel, value = setpoint_change
+            if channel not in SIMULATED_PROGRAMMED_SETPOINTS.get(self.resource_name, {}):
+                raise VisaConnectionError(f"No simulated response for {command!r}")
+            SIMULATED_PROGRAMMED_SETPOINTS[self.resource_name][channel][name] = value
+            return
         if _simulated_clear_protection(command) is not None:
             return
         if _simulated_protection_set(command) is not None:
@@ -180,6 +199,25 @@ def _simulated_setpoint(command: str) -> tuple[str, int] | None:
         return ("voltage", _parse_channel_list(command, "VOLT? (@"))
     if command.startswith("CURR? (@") and command.endswith(")"):
         return ("current", _parse_channel_list(command, "CURR? (@"))
+    return None
+
+
+def _simulated_setpoint_change(command: str) -> tuple[str, int, str] | None:
+    if command.startswith("VOLT ") and ",(@" in command and command.endswith(")"):
+        value, channel_text = command.removeprefix("VOLT ").split(",(@", maxsplit=1)
+        return ("voltage", _parse_channel_list(f"(@{channel_text}", "(@"), value)
+    if command.startswith("CURR ") and ",(@" in command and command.endswith(")"):
+        value, channel_text = command.removeprefix("CURR ").split(",(@", maxsplit=1)
+        return ("current", _parse_channel_list(f"(@{channel_text}", "(@"), value)
+    return None
+
+
+def _simulated_output_change(command: str) -> tuple[int, bool] | None:
+    if command.startswith("OUTP ") and ",(@" in command and command.endswith(")"):
+        state, channel_text = command.removeprefix("OUTP ").split(",(@", maxsplit=1)
+        if state not in {"ON", "OFF"}:
+            raise VisaConnectionError(f"Unsupported simulated output command {command!r}")
+        return (_parse_channel_list(f"(@{channel_text}", "(@"), state == "ON")
     return None
 
 

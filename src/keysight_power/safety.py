@@ -19,8 +19,8 @@ Channel = int | str | None
 SUPPORTED_SAFETY_CONFIG_KEYS = frozenset(
     {"max_voltage", "max_current", "allowed_channels"}
 )
-SUPPORTED_RESOURCE_CONFIG_KEYS = SUPPORTED_SAFETY_CONFIG_KEYS | {"alias", "resource"}
-SUPPORTED_TOP_LEVEL_CONFIG_KEYS = frozenset({"safety", "resources"})
+SUPPORTED_RESOURCE_CONFIG_KEYS = SUPPORTED_SAFETY_CONFIG_KEYS | {"alias", "resource", "channels"}
+SUPPORTED_TOP_LEVEL_CONFIG_KEYS = frozenset({"safety", "models", "resources"})
 
 
 class SafetyValidationError(KeysightPowerError, ValueError):
@@ -58,6 +58,7 @@ class ResourceSafetyEntry:
     resource: str
     limits: SafetyLimits
     limit_fields: frozenset[str]
+    channel_limits: dict[int, tuple[SafetyLimits, frozenset[str]]] | None = None
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,7 @@ class SafetyConfig:
     """Parsed safety config with optional global and resource-specific limits."""
 
     global_limits: SafetyLimits | None = None
+    model_limits: dict[str, tuple[SafetyLimits, frozenset[str]]] | None = None
     resources: tuple[ResourceSafetyEntry, ...] = ()
 
     def global_or_empty_limits(self) -> SafetyLimits:
@@ -82,25 +84,27 @@ class SafetyConfig:
                 return entry
         return None
 
-    def effective_limits_for_entry(self, entry: ResourceSafetyEntry) -> SafetyLimits:
-        global_limits = self.global_or_empty_limits()
-        return SafetyLimits(
-            max_voltage=(
-                entry.limits.max_voltage
-                if "max_voltage" in entry.limit_fields
-                else global_limits.max_voltage
-            ),
-            max_current=(
-                entry.limits.max_current
-                if "max_current" in entry.limit_fields
-                else global_limits.max_current
-            ),
-            allowed_channels=(
-                entry.limits.allowed_channels
-                if "allowed_channels" in entry.limit_fields
-                else global_limits.allowed_channels
-            ),
-        )
+    def model_limits_for(self, model: str | None) -> tuple[SafetyLimits, frozenset[str]] | None:
+        if model is None or self.model_limits is None:
+            return None
+        return self.model_limits.get(model.upper())
+
+    def effective_limits_for_entry(
+        self,
+        entry: ResourceSafetyEntry,
+        *,
+        model: str | None = None,
+        channel: Channel = None,
+    ) -> SafetyLimits:
+        limits = self.global_or_empty_limits()
+        model_entry = self.model_limits_for(model)
+        if model_entry is not None:
+            limits = _merge_limits(limits, model_entry[0], model_entry[1])
+        limits = _merge_limits(limits, entry.limits, entry.limit_fields)
+        channel_entry = _channel_limits_for_entry(entry, channel)
+        if channel_entry is not None:
+            limits = _merge_limits(limits, channel_entry[0], channel_entry[1])
+        return limits
 
 
 @dataclass(frozen=True)
@@ -110,6 +114,7 @@ class SafetyResolution:
     resource: str | None
     resource_alias: str | None
     limits: SafetyLimits
+    sources: dict[str, str | None] | None = None
 
 
 def validate_voltage(
@@ -202,6 +207,8 @@ def resolve_safety_config(
     *,
     resource: str | None = None,
     resource_alias: str | None = None,
+    model: str | None = None,
+    channel: Channel = None,
 ) -> SafetyResolution:
     """Resolve one resource selection against an explicit safety config."""
 
@@ -217,7 +224,8 @@ def resolve_safety_config(
         return SafetyResolution(
             resource=entry.resource,
             resource_alias=resource_alias,
-            limits=config.effective_limits_for_entry(entry),
+            limits=config.effective_limits_for_entry(entry, model=model, channel=channel),
+            sources=_resolution_sources(config, entry, model=model, channel=channel),
         )
 
     if resource is not None:
@@ -226,13 +234,24 @@ def resolve_safety_config(
             return SafetyResolution(
                 resource=resource,
                 resource_alias=None,
-                limits=config.effective_limits_for_entry(entry),
+                limits=config.effective_limits_for_entry(entry, model=model, channel=channel),
+                sources=_resolution_sources(config, entry, model=model, channel=channel),
             )
 
+    base_limits = config.global_or_empty_limits()
+    model_entry = config.model_limits_for(model)
+    if model_entry is not None:
+        base_limits = _merge_limits(base_limits, model_entry[0], model_entry[1])
     return SafetyResolution(
         resource=resource,
         resource_alias=None,
-        limits=config.global_or_empty_limits(),
+        limits=base_limits,
+        sources={
+            "global": "safety" if config.global_limits is not None else None,
+            "model": model.upper() if model_entry is not None and model is not None else None,
+            "resource": None,
+            "channel": None,
+        },
     )
 
 
@@ -268,14 +287,15 @@ def _config_from_mapping(config: dict[str, Any], config_path: Path) -> SafetyCon
         raise SafetyConfigError(f"unsupported safety config key: {keys}")
 
     global_limits = _global_limits_from_config(config, config_path)
+    model_limits = _model_limits_from_config(config)
     resources = _resource_entries_from_config(config)
 
-    if global_limits is None and not resources:
+    if global_limits is None and not model_limits and not resources:
         raise SafetyConfigError(
             f"safety config {config_path} must contain [safety] or [[resources]]"
         )
 
-    return SafetyConfig(global_limits=global_limits, resources=resources)
+    return SafetyConfig(global_limits=global_limits, model_limits=model_limits, resources=resources)
 
 
 def _global_limits_from_config(
@@ -340,16 +360,112 @@ def _resource_entries_from_config(config: dict[str, Any]) -> tuple[ResourceSafet
         resource_names.add(resource)
 
         limit_fields = frozenset(set(resource_config) & SUPPORTED_SAFETY_CONFIG_KEYS)
+        channel_limits = _channel_limits_from_resource(resource_config, alias)
         entries.append(
             ResourceSafetyEntry(
                 alias=alias,
                 resource=resource,
                 limits=_limits_from_supported_fields(resource_config),
                 limit_fields=limit_fields,
+                channel_limits=channel_limits,
             )
         )
 
     return tuple(entries)
+
+
+def _model_limits_from_config(
+    config: dict[str, Any],
+) -> dict[str, tuple[SafetyLimits, frozenset[str]]] | None:
+    models = config.get("models")
+    if models is None:
+        return None
+    if not isinstance(models, dict):
+        raise SafetyConfigError("[models] must be a table")
+
+    parsed: dict[str, tuple[SafetyLimits, frozenset[str]]] = {}
+    for model, model_config in models.items():
+        if not isinstance(model, str) or not model.strip():
+            raise SafetyConfigError("model names must be non-empty strings")
+        if not isinstance(model_config, dict):
+            raise SafetyConfigError(f"models.{model} must be a table")
+        unknown_keys = sorted(set(model_config) - SUPPORTED_SAFETY_CONFIG_KEYS)
+        if unknown_keys:
+            keys = ", ".join(unknown_keys)
+            raise SafetyConfigError(f"unsupported models.{model} key: {keys}")
+        if not model_config:
+            raise SafetyConfigError(f"models.{model} must define at least one supported field")
+        fields = frozenset(set(model_config) & SUPPORTED_SAFETY_CONFIG_KEYS)
+        parsed[model.upper()] = (_limits_from_supported_fields(model_config), fields)
+    return parsed
+
+
+def _channel_limits_from_resource(
+    resource_config: dict[str, Any],
+    alias: str,
+) -> dict[int, tuple[SafetyLimits, frozenset[str]]] | None:
+    channels = resource_config.get("channels")
+    if channels is None:
+        return None
+    if not isinstance(channels, dict):
+        raise SafetyConfigError(f"resources entry {alias} channels must be a table")
+    parsed: dict[int, tuple[SafetyLimits, frozenset[str]]] = {}
+    for channel_text, channel_config in channels.items():
+        try:
+            channel = int(channel_text)
+        except (TypeError, ValueError) as exc:
+            raise SafetyConfigError(f"resources entry {alias} channel keys must be positive integers") from exc
+        if channel < 1:
+            raise SafetyConfigError(f"resources entry {alias} channel keys must be positive integers")
+        if not isinstance(channel_config, dict):
+            raise SafetyConfigError(f"resources entry {alias} channel {channel} must be a table")
+        unknown_keys = sorted(set(channel_config) - SUPPORTED_SAFETY_CONFIG_KEYS)
+        if unknown_keys:
+            keys = ", ".join(unknown_keys)
+            raise SafetyConfigError(f"unsupported resources entry channel key: {keys}")
+        fields = frozenset(set(channel_config) & SUPPORTED_SAFETY_CONFIG_KEYS)
+        parsed[channel] = (_limits_from_supported_fields(channel_config), fields)
+    return parsed
+
+
+def _merge_limits(base: SafetyLimits, override: SafetyLimits, fields: frozenset[str]) -> SafetyLimits:
+    return SafetyLimits(
+        max_voltage=override.max_voltage if "max_voltage" in fields else base.max_voltage,
+        max_current=override.max_current if "max_current" in fields else base.max_current,
+        allowed_channels=(
+            override.allowed_channels
+            if "allowed_channels" in fields
+            else base.allowed_channels
+        ),
+    )
+
+
+def _channel_limits_for_entry(
+    entry: ResourceSafetyEntry,
+    channel: Channel,
+) -> tuple[SafetyLimits, frozenset[str]] | None:
+    if entry.channel_limits is None:
+        return None
+    if isinstance(channel, int):
+        return entry.channel_limits.get(channel)
+    return None
+
+
+def _resolution_sources(
+    config: SafetyConfig,
+    entry: ResourceSafetyEntry,
+    *,
+    model: str | None,
+    channel: Channel,
+) -> dict[str, str | None]:
+    model_entry = config.model_limits_for(model)
+    channel_entry = _channel_limits_for_entry(entry, channel)
+    return {
+        "global": "safety" if config.global_limits is not None else None,
+        "model": model.upper() if model_entry is not None and model is not None else None,
+        "resource": entry.alias,
+        "channel": str(channel) if channel_entry is not None else None,
+    }
 
 
 def _required_config_string(

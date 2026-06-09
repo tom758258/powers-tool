@@ -250,6 +250,68 @@ def assert_contract_envelope(payload: dict[str, object], *, command: str, ok: bo
                 SIM_E36312A_RESOURCE,
             ],
         ),
+        (
+            "log",
+            [
+                "log",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::EDU36311A::INSTR",
+                "--channel",
+                "2",
+                "--interval-sec",
+                "0.01",
+                "--samples",
+                "1",
+                "--csv",
+                ".tmp_tests/contract-log.csv",
+            ],
+        ),
+        (
+            "sequence",
+            [
+                "sequence",
+                "--dry-run",
+                "--json",
+                "--resource",
+                "USB0::SIM::EDU36311A::INSTR",
+                "--file",
+                "examples/sequence-readonly.yaml",
+            ],
+        ),
+        (
+            "doctor",
+            [
+                "doctor",
+                "--simulate",
+                "--json",
+            ],
+        ),
+        (
+            "capabilities",
+            [
+                "capabilities",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::EDU36311A::INSTR",
+            ],
+        ),
+        (
+            "safety inspect",
+            [
+                "safety",
+                "inspect",
+                "--json",
+                "--safety-config",
+                "examples/safety-config.toml",
+                "--resource-alias",
+                "sim-e36103b",
+                "--channel",
+                "1",
+            ],
+        ),
     ],
 )
 def test_safe_cli_json_commands_keep_contract(command, args, capsys) -> None:

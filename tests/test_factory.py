@@ -45,7 +45,7 @@ def test_first_target_drivers_expose_conservative_capabilities() -> None:
     edu36311a_expected = DriverCapabilities(
         channels=(1, 2, 3),
         simulated_measure_channels=(1, 2, 3),
-        real_measure_channels=(1,),
+        real_measure_channels=(1, 2, 3),
     )
 
     e36312a = select_driver("KEYSIGHT,E36312A,MY00000001,1.0")

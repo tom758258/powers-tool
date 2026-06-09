@@ -1,4 +1,5 @@
 import json
+import csv
 
 import pytest
 
@@ -888,6 +889,44 @@ def test_measure_real_e36312a_channel_two_and_three_use_channel_list_queries(
     assert "USB0::FAKE::E36312A::INSTR SCPI >> *IDN?" in captured.err
     assert f"USB0::FAKE::E36312A::INSTR SCPI >> MEAS:VOLT? (@{channel})" in captured.err
     assert f"USB0::FAKE::E36312A::INSTR SCPI >> MEAS:CURR? (@{channel})" in captured.err
+
+
+@pytest.mark.parametrize("channel", ["2", "3"])
+def test_measure_real_edu36311a_channel_two_and_three_use_channel_list_queries(
+    monkeypatch,
+    capsys,
+    channel,
+) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,EDU36311A,MY00000001,1.0",
+        query_responses={
+            f"MEAS:VOLT? (@{channel})": "1.234",
+            f"MEAS:CURR? (@{channel})": "0.056",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "measure",
+                "--json",
+                "--resource",
+                "USB0::FAKE::EDU36311A::INSTR",
+                "--channel",
+                channel,
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.queries == [
+        "*IDN?",
+        f"MEAS:VOLT? (@{channel})",
+        f"MEAS:CURR? (@{channel})",
+    ]
+    assert payload["data"]["measurements"] == {"voltage": 1.234, "current": 0.056}
 
 
 def test_measure_real_generic_channel_two_is_rejected_after_idn(
@@ -3364,6 +3403,32 @@ def test_output_state_real_non_e36312a_is_rejected(monkeypatch, capsys) -> None:
     assert payload["error"]["code"] == "unsupported_model_for_output_state"
 
 
+def test_output_state_real_edu36311a_reads_channel_state(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,EDU36311A,MY00000001,1.0",
+        query_responses={"OUTP? (@3)": "OFF"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "output-state",
+                "--json",
+                "--resource",
+                "USB0::FAKE::EDU36311A::INSTR",
+                "--channel",
+                "3",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.queries == ["*IDN?", "OUTP? (@3)"]
+    assert payload["data"]["output"]["enabled"] is False
+
+
 def test_cycle_output_real_invalid_duration_rejected(capsys) -> None:
     assert (
         cli.main(
@@ -3512,6 +3577,35 @@ def test_status_real_reads_errors_then_outputs(monkeypatch, capsys) -> None:
             {"channel": 3, "enabled": True},
         ],
     }
+
+
+def test_status_real_edu36311a_reads_errors_then_outputs(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,EDU36311A,MY00000001,1.0",
+        query_responses={
+            "SYST:ERR?": '0,"No error"',
+            "OUTP? (@1)": "OFF",
+            "OUTP? (@2)": "ON",
+            "OUTP? (@3)": "0",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["status", "--json", "--resource", "USB0::FAKE::EDU36311A::INSTR"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.queries == [
+        "*IDN?",
+        "SYST:ERR?",
+        "OUTP? (@1)",
+        "OUTP? (@2)",
+        "OUTP? (@3)",
+    ]
+    assert payload["data"]["outputs"] == [
+        {"channel": 1, "enabled": False},
+        {"channel": 2, "enabled": True},
+        {"channel": 3, "enabled": False},
+    ]
 
 
 def test_status_real_one_channel_text(monkeypatch, capsys) -> None:
@@ -3984,6 +4078,333 @@ def test_readback_real_e36312a_sends_expected_scpi(monkeypatch, capsys) -> None:
         {"channel": 1, "setpoints": {"voltage": 1.0, "current": 0.05}},
         {"channel": 2, "setpoints": {"voltage": 2.0, "current": 0.1}},
         {"channel": 3, "setpoints": {"voltage": 3.0, "current": 0.15}},
+    ]
+
+
+def test_readback_real_edu36311a_sends_expected_scpi(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,EDU36311A,MY00000001,1.0",
+        query_responses={
+            "VOLT? (@2)": "2.0",
+            "CURR? (@2)": "0.10",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "readback",
+                "--json",
+                "--resource",
+                "USB0::FAKE::EDU36311A::INSTR",
+                "--channel",
+                "2",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.queries == ["*IDN?", "VOLT? (@2)", "CURR? (@2)"]
+    assert payload["data"]["channels"] == [
+        {"channel": 2, "setpoints": {"voltage": 2.0, "current": 0.1}},
+    ]
+
+
+def test_log_simulate_json_writes_csv(tmp_path, capsys) -> None:
+    csv_path = tmp_path / "edu-log.csv"
+
+    assert (
+        cli.main(
+            [
+                "log",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::EDU36311A::INSTR",
+                "--channel",
+                "2",
+                "--interval-sec",
+                "0.01",
+                "--samples",
+                "2",
+                "--csv",
+                str(csv_path),
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+    assert payload["data"]["samples_written"] == 2
+    assert payload["data"]["stopped"] is False
+    assert rows[0].keys() == set(cli.LOG_CSV_FIELDS)
+    assert rows[0]["resource"] == "USB0::SIM::EDU36311A::INSTR"
+    assert rows[0]["model"] == "EDU36311A"
+    assert rows[0]["serial"] == "SIM000004"
+    assert rows[0]["channel"] == "2"
+    assert rows[0]["programmed_voltage"] == "2.0"
+    assert rows[0]["programmed_current"] == "0.1"
+    assert rows[0]["measured_voltage"] == "2.02"
+    assert rows[0]["measured_current"] == "0.202"
+    assert rows[0]["output_enabled"] == "False"
+
+
+def test_log_simulate_json_logs_scpi_to_stderr_only(tmp_path, capsys) -> None:
+    csv_path = tmp_path / "edu-log.csv"
+
+    assert (
+        cli.main(
+            [
+                "log",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::EDU36311A::INSTR",
+                "--channel",
+                "2",
+                "--interval-sec",
+                "0.01",
+                "--samples",
+                "1",
+                "--csv",
+                str(csv_path),
+                "--log-scpi",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    json.loads(captured.out)
+    assert captured.out.startswith("{")
+    assert "SCPI" not in captured.out
+    assert "USB0::SIM::EDU36311A::INSTR SCPI >> *IDN?" in captured.err
+    assert "USB0::SIM::EDU36311A::INSTR SCPI >> MEAS:VOLT? (@2)" in captured.err
+
+
+def test_log_simulate_all_channels_jsonl_and_append(tmp_path, capsys) -> None:
+    csv_path = tmp_path / "edu-log.csv"
+    jsonl_path = tmp_path / "edu-log.jsonl"
+
+    args = [
+        "log",
+        "--simulate",
+        "--json",
+        "--resource",
+        "USB0::SIM::EDU36311A::INSTR",
+        "--channel",
+        "all",
+        "--interval-sec",
+        "0.01",
+        "--samples",
+        "1",
+        "--csv",
+        str(csv_path),
+        "--jsonl",
+        str(jsonl_path),
+    ]
+    assert cli.main(args) == 0
+    first_payload = json.loads(capsys.readouterr().out)
+    assert first_payload["data"]["channels"] == [1, 2, 3]
+
+    assert cli.main([*args, "--append"]) == 0
+    json.loads(capsys.readouterr().out)
+
+    with csv_path.open(newline="", encoding="utf-8") as csv_file:
+        rows = list(csv.DictReader(csv_file))
+    assert len(rows) == 6
+    assert [row["channel"] for row in rows[:3]] == ["1", "2", "3"]
+    jsonl_lines = [json.loads(line) for line in jsonl_path.read_text(encoding="utf-8").splitlines()]
+    assert jsonl_lines[-1]["event"] == "summary"
+    assert jsonl_lines[-1]["channels"] == [1, 2, 3]
+
+
+def test_sequence_dry_run_does_not_open_resource(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("VISA resource should not be opened for sequence dry-run")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "sequence",
+                "--dry-run",
+                "--json",
+                "--resource",
+                "USB0::SIM::EDU36311A::INSTR",
+                "--file",
+                "examples/sequence-readonly.yaml",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["status"] == "planned"
+    assert [step["action"] for step in payload["data"]["plan"]["steps"]] == [
+        "log",
+        "measure",
+        "readback",
+        "output-state",
+        "wait",
+        "safe-off",
+    ]
+
+
+def test_sequence_simulate_executes_read_only_steps(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "sequence",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::EDU36311A::INSTR",
+                "--file",
+                "examples/sequence-readonly.yaml",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["status"] == "completed"
+    assert payload["data"]["completed_steps"] == 6
+    assert payload["data"]["results"][1]["measurements"] == {"voltage": 2.02, "current": 0.202}
+
+
+def test_doctor_capabilities_and_safety_inspect_json(capsys) -> None:
+    assert cli.main(["doctor", "--simulate", "--json"]) == 0
+    doctor_payload = json.loads(capsys.readouterr().out)
+    assert doctor_payload["data"]["simulator"]["available"] is True
+
+    assert (
+        cli.main(
+            [
+                "capabilities",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::EDU36311A::INSTR",
+            ]
+        )
+        == 0
+    )
+    capabilities_payload = json.loads(capsys.readouterr().out)
+    assert capabilities_payload["data"]["driver"]["class"] == "EDU36311APowerSupply"
+    assert capabilities_payload["data"]["channels"] == [1, 2, 3]
+
+    assert (
+        cli.main(
+            [
+                "safety",
+                "inspect",
+                "--json",
+                "--safety-config",
+                "examples/safety-config.toml",
+                "--resource-alias",
+                "sim-e36103b",
+                "--channel",
+                "1",
+            ]
+        )
+        == 0
+    )
+    safety_payload = json.loads(capsys.readouterr().out)
+    assert safety_payload["command"] == {"name": "safety inspect"}
+    assert safety_payload["data"]["limits"]["max_voltage"] == 3.3
+
+
+def test_log_connection_failure_uses_log_failed(monkeypatch, tmp_path, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,EDU36311A,MY00000001,1.0",
+        query_responses={
+            "VOLT? (@2)": "2.0",
+            "CURR? (@2)": "0.10",
+            "SYST:ERR?": '0,"No error"',
+            "MEAS:VOLT? (@2)": "2.02",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "log",
+                "--json",
+                "--resource",
+                "USB0::FAKE::EDU36311A::INSTR",
+                "--channel",
+                "2",
+                "--interval-sec",
+                "0.01",
+                "--samples",
+                "1",
+                "--csv",
+                str(tmp_path / "partial.csv"),
+            ]
+        )
+        == 1
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "log_failed"
+
+
+def test_log_interrupt_closes_session_without_stop_handler_io(monkeypatch, tmp_path, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,EDU36311A,MY00000001,1.0",
+        query_responses={
+            "SYST:ERR?": '0,"No error"',
+            "VOLT? (@2)": "2.0",
+            "CURR? (@2)": "0.10",
+            "MEAS:VOLT? (@2)": "2.02",
+            "MEAS:CURR? (@2)": "0.202",
+            "OUTP? (@2)": "OFF",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    def interrupting_sleep(seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli.time, "sleep", interrupting_sleep)
+
+    assert (
+        cli.main(
+            [
+                "log",
+                "--json",
+                "--resource",
+                "USB0::FAKE::EDU36311A::INSTR",
+                "--channel",
+                "2",
+                "--interval-sec",
+                "0.01",
+                "--samples",
+                "2",
+                "--csv",
+                str(tmp_path / "interrupted.csv"),
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["samples_written"] == 1
+    assert payload["data"]["stopped"] is True
+    assert payload["data"]["stop_reason"] == "interrupted"
+    assert session.closed is True
+    assert session.queries == [
+        "*IDN?",
+        "SYST:ERR?",
+        "VOLT? (@2)",
+        "CURR? (@2)",
+        "MEAS:VOLT? (@2)",
+        "MEAS:CURR? (@2)",
+        "OUTP? (@2)",
     ]
 
 
