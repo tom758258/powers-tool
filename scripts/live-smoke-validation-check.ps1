@@ -17,29 +17,31 @@ function Fail-Validation {
 }
 
 if ([string]::IsNullOrWhiteSpace($Target)) {
-    Fail-Validation "Missing required -Target. v1 supports only -Target E36312A."
+    Fail-Validation "Missing required -Target. Supported targets: E36312A, EDU36311A."
 }
 if ([string]::IsNullOrWhiteSpace($Connection)) {
-    Fail-Validation "Missing required -Connection. v1 supports only -Connection USB for live smoke."
+    Fail-Validation "Missing required -Connection. Supported names: USB/local or LAN/network."
 }
-if ($Target -eq "EDU36311A") {
-    Fail-Validation "EDU36311A live smoke is not supported in v1 because real output execution is not enabled for EDU36311A."
-}
-if ($Target -ne "E36312A") {
-    Fail-Validation "Live smoke validation v1 supports only Target E36312A."
+$normalizedTarget = $Target.Trim().ToUpperInvariant()
+if ($normalizedTarget -notin @("E36312A", "EDU36311A")) {
+    Fail-Validation "Live smoke validation supports only Target E36312A or EDU36311A."
 }
 
 $normalizedConnection = $Connection.Trim().ToUpperInvariant()
+$connectionLabel = $null
 if ($normalizedConnection -in @("LAN", "NETWORK", "TCPIP", "TCP/IP", "LAN-NETWORK")) {
-    Fail-Validation "LAN/network live smoke is blocked in v1. Use E36312A with a USB/local resource only."
+    $connectionLabel = "LAN"
 }
-if ($normalizedConnection -notin @("USB", "LOCAL", "USB-LOCAL")) {
-    Fail-Validation "Live smoke validation v1 supports only USB/local connection names. Received: $Connection"
+elseif ($normalizedConnection -in @("USB", "LOCAL", "USB-LOCAL")) {
+    $connectionLabel = "USB"
+}
+else {
+    Fail-Validation "Unsupported connection name. Received: $Connection"
 }
 if ([string]::IsNullOrWhiteSpace($Resource)) {
     Fail-Validation "Missing required -Resource. Pass the exact VISA resource explicitly; this script does not scan resources or read an environment default."
 }
-$connectionLabel = "USB"
+$isEduReadonly = $normalizedTarget -eq "EDU36311A"
 
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $TmpRoot = Join-Path $RepoRoot ".tmp_tests"
@@ -264,12 +266,13 @@ function Write-LiveArtifacts {
         restore = $Restore
         parameters = [pscustomobject]@{
             channel = 1
-            voltage = 1.0
-            current = 0.05
-            duration_ms = 500
+            voltage = if ($script:IsEduReadonly) { $null } else { 1.0 }
+            current = if ($script:IsEduReadonly) { $null } else { 0.05 }
+            duration_ms = if ($script:IsEduReadonly) { $null } else { 500 }
+            readonly = $script:IsEduReadonly
         }
         output_dir = ConvertTo-RepoRelativePath -Path $OutputDir
-        preflight_report = ".tmp_tests\smoke_validation_preflight\E36312A\report.json"
+        preflight_report = ".tmp_tests\smoke_validation_preflight\$Target\report.json"
         started_at = $StartedAt.ToUniversalTime().ToString("o")
         completed_at = $completedAt.ToUniversalTime().ToString("o")
         result = $Result
@@ -280,7 +283,8 @@ function Write-LiveArtifacts {
     $report | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $reportPath -Encoding UTF8
 
     $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add("# E36312A USB Live Smoke Validation")
+    $modeLabel = if ($script:IsEduReadonly) { "Read-Only Live Smoke Validation" } else { "Full Output Live Smoke Validation" }
+    $lines.Add("# $Target $connectionLabel $modeLabel")
     $lines.Add("")
     $lines.Add("Result: " + $Result.ToUpperInvariant())
     $lines.Add("")
@@ -346,76 +350,138 @@ if (-not [string]::IsNullOrWhiteSpace($Backend)) {
 }
 Write-Host ""
 Write-Host "This will open VISA for the selected resource and send SCPI commands."
-Write-Host "State-changing operations:"
-Write-Host "- Set CH1-CH3 current limits to 0.05 A and voltage setpoints to 1 V."
-Write-Host "- Turn CH1-CH3 outputs OFF."
-Write-Host "- Briefly turn CH1 output ON for about 500 ms, then turn it OFF."
+if ($isEduReadonly) {
+    Write-Host "State-changing operations: none. EDU36311A live smoke is read-only."
+}
+else {
+    Write-Host "State-changing operations:"
+    Write-Host "- Set CH1-CH3 current limits to 0.05 A and voltage setpoints to 1 V."
+    Write-Host "- Turn CH1-CH3 outputs OFF."
+    Write-Host "- Briefly turn CH1 output ON for about 500 ms, then turn it OFF."
+}
 Write-Host ""
 Write-Host "Possible final state changes:"
-Write-Host "- CH1, CH2, and CH3 outputs should be OFF."
-Write-Host "- CH1, CH2, and CH3 setpoints may remain at 1 V / 0.05 A."
-Write-Host "- The instrument error queue may be read and consumed."
+if ($isEduReadonly) {
+    Write-Host "- The instrument error queue may be read and consumed."
+    Write-Host "- No output, voltage, or current writes are sent."
+}
+else {
+    Write-Host "- CH1, CH2, and CH3 outputs should be OFF."
+    Write-Host "- CH1, CH2, and CH3 setpoints may remain at 1 V / 0.05 A."
+    Write-Host "- The instrument error queue may be read and consumed."
+}
 Write-Host ""
 Write-Host "Restore setting:"
-Write-Host "- Restore=$Restore means this script will attempt safe-off --channel all cleanup."
-Write-Host "- It does not restore original voltage/current/protection settings."
+if ($isEduReadonly) {
+    Write-Host "- Restore is ignored for EDU36311A read-only smoke."
+}
+else {
+    Write-Host "- Restore=$Restore means this script will attempt safe-off --channel all cleanup."
+    Write-Host "- It does not restore original voltage/current/protection settings."
+}
 Write-Host ""
 Write-Host "Physical instrument checks before pressing Enter:"
-Write-Host "- Confirm this is the target E36312A and the USB/local resource is expected."
-Write-Host "- Confirm CH1 has no DUT connected, or only a known safe load."
-Write-Host "- Confirm output indicators are currently OFF."
-Write-Host "- Confirm no OVP/OCP/error/protection abnormal indicators are shown."
+Write-Host "- Confirm this is the target $Target and the $connectionLabel resource is expected."
+if (-not $isEduReadonly) {
+    Write-Host "- Confirm CH1 has no DUT connected, or only a known safe load."
+    Write-Host "- Confirm output indicators are currently OFF."
+    Write-Host "- Confirm no OVP/OCP/error/protection abnormal indicators are shown."
+}
 Write-Host ""
 Write-Host "Expected observation during execution:"
-Write-Host "- CH1 output indicator should turn ON only briefly for about 0.5 seconds."
-Write-Host "- After execution, CH1/CH2/CH3 output indicators should all be OFF."
-Write-Host "- No new protection/error indicators should appear."
+if ($isEduReadonly) {
+    Write-Host "- Output indicators should not change."
+}
+else {
+    Write-Host "- CH1 output indicator should turn ON only briefly for about 0.5 seconds."
+    Write-Host "- After execution, CH1/CH2/CH3 output indicators should all be OFF."
+    Write-Host "- No new protection/error indicators should appear."
+}
 Write-Host ""
 Read-Host "Press Enter to run live smoke, or press Ctrl+C to abort"
 
 $OutputDir = Reset-OutputDirectory -Path $OutputDir -Root $TmpRoot
 $script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:IsEduReadonly = $isEduReadonly
 $failures = New-Object System.Collections.Generic.List[string]
 $startedAt = Get-Date
 $result = "passed"
 
 try {
-    Invoke-LiveCliJsonCommand `
-        -Name "before" `
-        -Arguments @("snapshot", "--json", "--resource", $Resource, "--log-scpi") `
-        -JsonFileName "before.json" | Out-Null
-
-    Invoke-LiveCliJsonCommand `
-        -Name "apply-no-output" `
-        -Arguments @("apply", "--json", "--resource", $Resource, "--channel", "all", "--voltage", "1", "--current", "0.05", "--no-output", "--log-scpi") `
-        -JsonFileName "apply-no-output.json" | Out-Null
-
-    Invoke-LiveCliJsonCommand `
-        -Name "safe-off-before" `
-        -Arguments @("safe-off", "--json", "--resource", $Resource, "--channel", "all", "--log-scpi") `
-        -JsonFileName "safe-off-before.json" | Out-Null
-
-    Invoke-LiveCliJsonCommand `
-        -Name "smoke-output" `
-        -Arguments @("smoke-output", "--json", "--resource", $Resource, "--channel", "1", "--voltage", "1", "--current", "0.05", "--duration-ms", "500", "--log-scpi") `
-        -JsonFileName "smoke-output.json" | Out-Null
-
-    if ($Restore) {
+    if ($isEduReadonly) {
         Invoke-LiveCliJsonCommand `
-            -Name "safe-off-cleanup" `
-            -Arguments @("safe-off", "--json", "--resource", $Resource, "--channel", "all", "--log-scpi") `
-            -JsonFileName "safe-off-cleanup.json" | Out-Null
-    }
+            -Name "verify" `
+            -Arguments @("verify", "--json", "--resource", $Resource, "--log-scpi") `
+            -JsonFileName "verify.json" | Out-Null
 
-    Invoke-LiveCliJsonCommand `
-        -Name "after" `
-        -Arguments @("snapshot", "--json", "--resource", $Resource, "--log-scpi") `
-        -JsonFileName "after.json" | Out-Null
+        Invoke-LiveCliJsonCommand `
+            -Name "identify" `
+            -Arguments @("identify", "--json", "--resource", $Resource, "--log-scpi") `
+            -JsonFileName "identify.json" | Out-Null
+
+        Invoke-LiveCliJsonCommand `
+            -Name "status" `
+            -Arguments @("status", "--json", "--resource", $Resource, "--all", "--log-scpi") `
+            -JsonFileName "status.json" | Out-Null
+
+        Invoke-LiveCliJsonCommand `
+            -Name "readback" `
+            -Arguments @("readback", "--json", "--resource", $Resource, "--all", "--log-scpi") `
+            -JsonFileName "readback.json" | Out-Null
+
+        Invoke-LiveCliJsonCommand `
+            -Name "validate-readonly" `
+            -Arguments @("validate-readonly", "--json", "--resource", $Resource, "--log-scpi") `
+            -JsonFileName "validate-readonly.json" | Out-Null
+
+        Invoke-LiveCliJsonCommand `
+            -Name "log" `
+            -Arguments @("log", "--json", "--resource", $Resource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--log-scpi") `
+            -JsonFileName "log.json" | Out-Null
+
+        Invoke-LiveCliJsonCommand `
+            -Name "capabilities" `
+            -Arguments @("capabilities", "--json", "--resource", $Resource, "--log-scpi") `
+            -JsonFileName "capabilities.json" | Out-Null
+    }
+    else {
+        Invoke-LiveCliJsonCommand `
+            -Name "before" `
+            -Arguments @("snapshot", "--json", "--resource", $Resource, "--log-scpi") `
+            -JsonFileName "before.json" | Out-Null
+
+        Invoke-LiveCliJsonCommand `
+            -Name "apply-no-output" `
+            -Arguments @("apply", "--json", "--resource", $Resource, "--channel", "all", "--voltage", "1", "--current", "0.05", "--no-output", "--log-scpi") `
+            -JsonFileName "apply-no-output.json" | Out-Null
+
+        Invoke-LiveCliJsonCommand `
+            -Name "safe-off-before" `
+            -Arguments @("safe-off", "--json", "--resource", $Resource, "--channel", "all", "--log-scpi") `
+            -JsonFileName "safe-off-before.json" | Out-Null
+
+        Invoke-LiveCliJsonCommand `
+            -Name "smoke-output" `
+            -Arguments @("smoke-output", "--json", "--resource", $Resource, "--channel", "1", "--voltage", "1", "--current", "0.05", "--duration-ms", "500", "--log-scpi") `
+            -JsonFileName "smoke-output.json" | Out-Null
+
+        if ($Restore) {
+            Invoke-LiveCliJsonCommand `
+                -Name "safe-off-cleanup" `
+                -Arguments @("safe-off", "--json", "--resource", $Resource, "--channel", "all", "--log-scpi") `
+                -JsonFileName "safe-off-cleanup.json" | Out-Null
+        }
+
+        Invoke-LiveCliJsonCommand `
+            -Name "after" `
+            -Arguments @("snapshot", "--json", "--resource", $Resource, "--log-scpi") `
+            -JsonFileName "after.json" | Out-Null
+    }
 }
 catch {
     $result = "failed"
     $failures.Add($_.Exception.Message)
-    if ($Restore) {
+    if ($Restore -and -not $isEduReadonly) {
         try {
             Invoke-SafeOffCleanup -Name "safe-off-failure-cleanup"
         }

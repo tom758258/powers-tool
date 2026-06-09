@@ -5,8 +5,9 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = "Stop"
 
-if ($Target -ne "E36312A") {
-    [Console]::Error.WriteLine("Smoke validation preflight v1 supports only Target E36312A.")
+$normalizedTarget = $Target.Trim().ToUpperInvariant()
+if ($normalizedTarget -notin @("E36312A", "EDU36311A")) {
+    [Console]::Error.WriteLine("Smoke validation preflight supports only Target E36312A or EDU36311A.")
     exit 2
 }
 
@@ -200,7 +201,7 @@ function Write-PreflightArtifacts {
         schema_version = "1.0"
         kind = "smoke_validation_preflight"
         target = $Target
-        resource = "USB0::SIM::E36312A::INSTR"
+        resource = $script:SimResource
         parameters = [pscustomobject]@{
             channel = 1
             voltage = 1.0
@@ -218,7 +219,7 @@ function Write-PreflightArtifacts {
     $report | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $reportPath -Encoding UTF8
 
     $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add("# E36312A Smoke Validation Preflight")
+    $lines.Add("# $Target Smoke Validation Preflight")
     $lines.Add("")
     $lines.Add("Result: " + $Result.ToUpperInvariant())
     $lines.Add("")
@@ -263,32 +264,46 @@ function Assert-PreflightArtifacts {
 
 $OutputDir = Reset-OutputDirectory -Path $OutputDir -Root $TmpRoot
 $startedAt = Get-Date
-$simResource = "USB0::SIM::E36312A::INSTR"
+$simResource = if ($normalizedTarget -eq "EDU36311A") { "USB0::SIM::EDU36311A::INSTR" } else { "USB0::SIM::E36312A::INSTR" }
+$script:SimResource = $simResource
 $records = New-Object System.Collections.Generic.List[object]
 $failures = New-Object System.Collections.Generic.List[string]
 
-$commands = @(
-    [pscustomobject]@{
-        Name = "smoke-output-dry-run"
-        Json = "smoke-output.json"
-        Args = @("smoke-output", "--dry-run", "--json", "--resource", $simResource, "--channel", "1", "--voltage", "1", "--current", "0.05", "--duration-ms", "500")
-    },
-    [pscustomobject]@{
-        Name = "apply-no-output-dry-run"
-        Json = "apply-no-output.json"
-        Args = @("apply", "--dry-run", "--json", "--resource", $simResource, "--channel", "all", "--voltage", "1", "--current", "0.05", "--no-output")
-    },
-    [pscustomobject]@{
-        Name = "safe-off-dry-run"
-        Json = "safe-off.json"
-        Args = @("safe-off", "--dry-run", "--json", "--resource", $simResource, "--channel", "all")
-    },
-    [pscustomobject]@{
-        Name = "snapshot-simulate"
-        Json = "snapshot.json"
-        Args = @("snapshot", "--simulate", "--json", "--resource", $simResource)
-    }
-)
+if ($normalizedTarget -eq "EDU36311A") {
+    $commands = @(
+        [pscustomobject]@{ Name = "verify-simulate"; Json = "verify.json"; Args = @("verify", "--simulate", "--json", "--resource", $simResource) },
+        [pscustomobject]@{ Name = "identify-simulate"; Json = "identify.json"; Args = @("identify", "--simulate", "--json", "--resource", $simResource) },
+        [pscustomobject]@{ Name = "status-simulate"; Json = "status.json"; Args = @("status", "--simulate", "--json", "--resource", $simResource, "--all") },
+        [pscustomobject]@{ Name = "readback-simulate"; Json = "readback.json"; Args = @("readback", "--simulate", "--json", "--resource", $simResource, "--all") },
+        [pscustomobject]@{ Name = "validate-readonly-simulate"; Json = "validate-readonly.json"; Args = @("validate-readonly", "--simulate", "--json", "--resource", $simResource) },
+        [pscustomobject]@{ Name = "log-simulate"; Json = "log.json"; Args = @("log", "--simulate", "--json", "--resource", $simResource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1") },
+        [pscustomobject]@{ Name = "capabilities-simulate"; Json = "capabilities.json"; Args = @("capabilities", "--simulate", "--json", "--resource", $simResource) }
+    )
+}
+else {
+    $commands = @(
+        [pscustomobject]@{
+            Name = "smoke-output-dry-run"
+            Json = "smoke-output.json"
+            Args = @("smoke-output", "--dry-run", "--json", "--resource", $simResource, "--channel", "1", "--voltage", "1", "--current", "0.05", "--duration-ms", "500")
+        },
+        [pscustomobject]@{
+            Name = "apply-no-output-dry-run"
+            Json = "apply-no-output.json"
+            Args = @("apply", "--dry-run", "--json", "--resource", $simResource, "--channel", "all", "--voltage", "1", "--current", "0.05", "--no-output")
+        },
+        [pscustomobject]@{
+            Name = "safe-off-dry-run"
+            Json = "safe-off.json"
+            Args = @("safe-off", "--dry-run", "--json", "--resource", $simResource, "--channel", "all")
+        },
+        [pscustomobject]@{
+            Name = "snapshot-simulate"
+            Json = "snapshot.json"
+            Args = @("snapshot", "--simulate", "--json", "--resource", $simResource)
+        }
+    )
+}
 
 foreach ($command in $commands) {
     $record = Invoke-CliJsonCommand -Name $command.Name -Arguments $command.Args -JsonFileName $command.Json

@@ -9,6 +9,12 @@ from keysight_power.errors import VisaConnectionError
 
 
 OUTPUT_RESOURCE = "USB0::SIM::E36103B::INSTR"
+WRITE_VERIFICATION_REQUEST_DEFAULTS = {
+    "settle_ms": 0,
+    "verify_after_write": False,
+    "setpoint_voltage_tolerance": 0.001,
+    "setpoint_current_tolerance": 0.001,
+}
 
 
 class FakeSession:
@@ -1444,6 +1450,7 @@ def test_set_dry_run_json_applies_explicit_safety_config(tmp_path, capsys) -> No
         "safety_config": safety_config,
         "backend": None,
         "timeout_ms": 5000,
+        **WRITE_VERIFICATION_REQUEST_DEFAULTS,
     }
     assert payload["data"]["plan"]["steps"][0]["action"] == "set_current_limit"
     assert payload["data"]["plan"]["steps"][1]["action"] == "set_voltage"
@@ -1628,6 +1635,7 @@ allowed_channels = [1]
         "safety_config": safety_config,
         "backend": None,
         "timeout_ms": 5000,
+        **WRITE_VERIFICATION_REQUEST_DEFAULTS,
     }
     assert payload["data"]["plan"]["target"]["resource"] == OUTPUT_RESOURCE
     assert captured.err == ""
@@ -2584,6 +2592,7 @@ allowed_channels = [2]
         "safety_config": safety_config,
         "backend": "@py",
         "timeout_ms": 1234,
+        **WRITE_VERIFICATION_REQUEST_DEFAULTS,
     }
     assert payload["execution"]["hardware_touched"] is True
     assert captured.err == ""
@@ -2884,6 +2893,7 @@ allowed_channels = [2]
         "safety_config": safety_config,
         "backend": "@py",
         "timeout_ms": 1234,
+        **WRITE_VERIFICATION_REQUEST_DEFAULTS,
     }
     assert payload["execution"]["hardware_touched"] is True
     assert captured.err == ""
@@ -3227,6 +3237,7 @@ allowed_channels = [2]
         "safety_config": safety_config,
         "backend": "@py",
         "timeout_ms": 1234,
+        **WRITE_VERIFICATION_REQUEST_DEFAULTS,
     }
     assert payload["execution"]["hardware_touched"] is True
     assert captured.err == ""
@@ -5123,6 +5134,69 @@ def test_snapshot_real_reads_full_state(monkeypatch, capsys) -> None:
     }
 
 
+def test_snapshot_compare_accepts_raw_baseline(tmp_path, capsys) -> None:
+    resource = "USB0::SIM::E36312A::INSTR"
+
+    assert cli.main(["snapshot", "--simulate", "--json", "--resource", resource]) == 0
+    baseline = json.loads(capsys.readouterr().out)["data"]
+    baseline_path = tmp_path / "snapshot-raw.json"
+    baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+
+    assert cli.main(["snapshot", "--simulate", "--json", "--resource", resource, "--compare", str(baseline_path)]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["data"]["comparison"]["passed"] is True
+    assert payload["data"]["comparison"]["differences"] == []
+
+
+def test_snapshot_compare_accepts_envelope_and_exits_3_on_mismatch(tmp_path, capsys) -> None:
+    resource = "USB0::SIM::E36312A::INSTR"
+
+    assert cli.main(["snapshot", "--simulate", "--json", "--resource", resource]) == 0
+    envelope = json.loads(capsys.readouterr().out)
+    envelope["data"]["idn"]["serial"] = "DIFFERENT"
+    baseline_path = tmp_path / "snapshot-envelope.json"
+    baseline_path.write_text(json.dumps(envelope), encoding="utf-8")
+
+    assert cli.main(["snapshot", "--simulate", "--json", "--resource", resource, "--compare", str(baseline_path)]) == 3
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["data"]["comparison"]["passed"] is False
+    assert payload["data"]["comparison"]["differences"][0]["path"] == "idn"
+
+
+def test_snapshot_compare_tolerance_override_allows_measurement_delta(tmp_path, capsys) -> None:
+    resource = "USB0::SIM::E36312A::INSTR"
+
+    assert cli.main(["snapshot", "--simulate", "--json", "--resource", resource]) == 0
+    baseline = json.loads(capsys.readouterr().out)["data"]
+    baseline["measurements"][0]["measurements"]["voltage"] += 0.5
+    baseline_path = tmp_path / "snapshot-tolerance.json"
+    baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+
+    assert (
+        cli.main(
+            [
+                "snapshot",
+                "--simulate",
+                "--json",
+                "--resource",
+                resource,
+                "--compare",
+                str(baseline_path),
+                "--measured-voltage-tolerance",
+                "0.6",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["comparison"]["passed"] is True
+
+
 @pytest.mark.parametrize(
     ("command", "extra_args", "code"),
     [
@@ -5175,6 +5249,220 @@ def test_new_e36312a_commands_simulate_without_real_visa(monkeypatch, capsys) ->
     for command in commands:
         assert cli.main(command) == 0
         assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_ramp_dry_run_json_plans_setpoint_only_steps(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "ramp",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--start-voltage",
+                "0",
+                "--stop-voltage",
+                "1",
+                "--step-voltage",
+                "0.5",
+                "--current",
+                "0.05",
+                "--delay-ms",
+                "10",
+                "--settle-ms",
+                "20",
+                "--verify-after-write",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    actions = [step["action"] for step in payload["data"]["plan"]["steps"]]
+    assert actions == [
+        "set_current_limit",
+        "set_voltage",
+        "sleep",
+        "set_voltage",
+        "sleep",
+        "set_voltage",
+        "sleep",
+        "programmed_voltage",
+        "programmed_current",
+    ]
+    assert "output_on" not in actions
+    assert "output_off" not in actions
+    assert payload["data"]["plan"]["steps"][5]["parameters"]["voltage"] == 1.0
+
+
+def test_ramp_simulate_json_does_not_open_resource(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("VISA resource should not be opened for simulate ramp")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "ramp",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::E36312A::INSTR",
+                "--channel",
+                "1",
+                "--start-voltage",
+                "0",
+                "--stop-voltage",
+                "1",
+                "--step-voltage",
+                "0.25",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_ramp_real_writes_current_voltage_steps_and_exact_stop(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "ramp",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--start-voltage",
+                "0",
+                "--stop-voltage",
+                "1",
+                "--step-voltage",
+                "0.4",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.writes == ["CURR 0.05,(@1)", "VOLT 0,(@1)", "VOLT 0.4,(@1)", "VOLT 0.8,(@1)", "VOLT 1,(@1)"]
+    assert all("OUTP" not in command for command in session.writes)
+    assert payload["data"]["voltages"] == [0.0, 0.4, 0.8, 1.0]
+
+
+def test_ramp_rejects_more_than_1000_voltage_writes(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "ramp",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--start-voltage",
+                "0",
+                "--stop-voltage",
+                "1000",
+                "--step-voltage",
+                "1",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+    assert "1000 voltage steps" in payload["error"]["message"]
+
+
+@pytest.mark.parametrize(
+    ("command", "args", "query_responses"),
+    [
+        ("set", ["--voltage", "1", "--current", "0.05"], {"VOLT? (@1)": "1.2", "CURR? (@1)": "0.05"}),
+        ("apply", ["--voltage", "1", "--current", "0.05", "--no-output"], {"VOLT? (@1)": "1.2", "CURR? (@1)": "0.05"}),
+        ("output-on", [], {"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05", "OUTP? (@1)": "OFF"}),
+        ("output-off", [], {"OUTP? (@1)": "ON"}),
+        (
+            "ramp",
+            ["--start-voltage", "0", "--stop-voltage", "1", "--step-voltage", "1", "--current", "0.05"],
+            {"VOLT? (@1)": "0.8", "CURR? (@1)": "0.05"},
+        ),
+    ],
+)
+def test_write_verification_failure_returns_exit_3(monkeypatch, capsys, command, args, query_responses) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0", query_responses=query_responses)
+    monkeypatch.setattr(cli, "open_resource", lambda *open_args, **open_kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                command,
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                *args,
+                "--verify-after-write",
+            ]
+        )
+        == 3
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "verification_failed"
+    assert payload["metadata"]["verification"]["passed"] is False
+
+
+def test_settle_ms_sleeps_before_verification(monkeypatch, capsys) -> None:
+    sleeps = []
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+    monkeypatch.setattr(cli.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    assert (
+        cli.main(
+            [
+                "set",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+                "--settle-ms",
+                "25",
+                "--verify-after-write",
+            ]
+        )
+        == 0
+    )
+
+    assert sleeps == [0.025]
+    assert json.loads(capsys.readouterr().out)["data"]["verification"]["passed"] is True
 
 
 def test_readback_log_scpi_to_stderr_without_corrupting_json(monkeypatch, capsys) -> None:

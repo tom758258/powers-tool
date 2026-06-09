@@ -28,6 +28,18 @@ measurement, error/output status, and rear digital trigger output pulses.
 `validate-readonly` is a one-shot read-only diagnostic for E36312A and
 EDU36311A.
 
+`snapshot --compare PATH` compares the current E36312A snapshot with either a
+saved JSON envelope or raw snapshot `data`. It ignores `resource` and
+`read_count`, uses default tolerances of 0.001 V/A for programmed setpoints,
+0.05 V measured voltage, and 0.01 A measured current, and exits `3` when
+differences are found.
+
+`ramp` is an E36312A setpoint-only command: it sets current limit first, then
+steps voltage from `--start-voltage` to the exact `--stop-voltage`. It does not
+turn output on or off. `set`, `apply`, `output-on`, `output-off`, and `ramp`
+accept `--settle-ms` and `--verify-after-write`; verification failures return
+JSON error code `verification_failed` and exit `3`.
+
 ## Development
 
 From PowerShell, change into the project directory, create or reuse the local
@@ -158,6 +170,12 @@ Capture an E36312A snapshot for hardware handoff:
 .\.venv\Scripts\python.exe -m keysight_power.cli snapshot --json --resource "USB0::...::INSTR" --log-scpi
 ```
 
+Compare against a saved E36312A snapshot:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli snapshot --json --resource "USB0::...::INSTR" --compare logs\e36312a-baseline.json
+```
+
 Preview or confirm clearing E36312A output protection:
 
 ```powershell
@@ -237,6 +255,12 @@ Apply the same setpoints to all E36312A channels, or skip output enable:
 ```powershell
 .\.venv\Scripts\python.exe -m keysight_power.cli apply --json --resource "USB0::...::INSTR" --channel all --voltage 1 --current 0.05 --log-scpi
 .\.venv\Scripts\python.exe -m keysight_power.cli apply --json --resource "USB0::...::INSTR" --channel all --voltage 1 --current 0.05 --no-output --log-scpi
+```
+
+Ramp E36312A voltage setpoints without changing output state:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power.cli ramp --json --resource "USB0::...::INSTR" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
 ```
 
 Add an explicit safety config to apply local global limits to output plans:

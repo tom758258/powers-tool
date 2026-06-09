@@ -65,6 +65,7 @@ COMMAND_NAMES = frozenset(
         "output-state",
         "cycle-output",
         "apply",
+        "ramp",
         "smoke-output",
         "trigger-pulse",
         "status",
@@ -287,6 +288,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     set_parser.add_argument("--voltage", required=True, type=float, help="Voltage setpoint.")
     set_parser.add_argument("--current", required=True, type=float, help="Current limit.")
+    _add_write_verification_arguments(set_parser)
     _add_json_argument(set_parser)
     _add_simulate_argument(set_parser)
     _add_dry_run_argument(set_parser)
@@ -317,6 +319,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_safety_config_argument(output_on_parser)
     _add_backend_argument(output_on_parser)
     _add_timeout_argument(output_on_parser)
+    _add_write_verification_arguments(output_on_parser)
     output_on_parser.add_argument(
         "--log-scpi",
         action="store_true",
@@ -341,6 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_safety_config_argument(output_off_parser)
     _add_backend_argument(output_off_parser)
     _add_timeout_argument(output_off_parser)
+    _add_write_verification_arguments(output_off_parser)
     output_off_parser.add_argument(
         "--log-scpi",
         action="store_true",
@@ -443,6 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Set voltage/current without enabling output.",
     )
+    _add_write_verification_arguments(apply_parser)
     _add_json_argument(apply_parser)
     _add_simulate_argument(apply_parser)
     _add_dry_run_argument(apply_parser)
@@ -455,6 +460,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print SCPI commands and responses to stderr.",
     )
     apply_parser.set_defaults(func=_run_output_plan)
+
+    ramp_parser = subparsers.add_parser(
+        "ramp",
+        help="Set current limit, then step voltage setpoints without changing output state.",
+    )
+    _add_output_resource_arguments(ramp_parser)
+    ramp_parser.add_argument("--channel", required=True, type=_positive_channel, help="Positive integer output channel.")
+    ramp_parser.add_argument("--start-voltage", required=True, type=float, help="Starting voltage setpoint.")
+    ramp_parser.add_argument("--stop-voltage", required=True, type=float, help="Final voltage setpoint.")
+    ramp_parser.add_argument("--step-voltage", required=True, type=_positive_float, help="Positive voltage step size.")
+    ramp_parser.add_argument("--current", required=True, type=float, help="Current limit.")
+    ramp_parser.add_argument("--delay-ms", type=_nonnegative_int, default=0, help="Delay between voltage steps.")
+    _add_json_argument(ramp_parser)
+    _add_simulate_argument(ramp_parser)
+    _add_dry_run_argument(ramp_parser)
+    _add_safety_config_argument(ramp_parser)
+    _add_backend_argument(ramp_parser)
+    _add_timeout_argument(ramp_parser)
+    _add_write_verification_arguments(ramp_parser)
+    ramp_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses to stderr.",
+    )
+    ramp_parser.set_defaults(func=_run_output_plan)
 
     smoke_output_parser = subparsers.add_parser(
         "smoke-output",
@@ -720,6 +750,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=20,
         help="Maximum error queue reads before stopping.",
     )
+    snapshot_parser.add_argument("--compare", help="Compare snapshot against a saved JSON envelope or raw data snapshot.")
+    snapshot_parser.add_argument("--setpoint-voltage-tolerance", type=float, default=0.001, help="Snapshot compare setpoint voltage tolerance in volts.")
+    snapshot_parser.add_argument("--setpoint-current-tolerance", type=float, default=0.001, help="Snapshot compare setpoint current tolerance in amps.")
+    snapshot_parser.add_argument("--measured-voltage-tolerance", type=float, default=0.05, help="Snapshot compare measured voltage tolerance in volts.")
+    snapshot_parser.add_argument("--measured-current-tolerance", type=float, default=0.01, help="Snapshot compare measured current tolerance in amps.")
     _add_json_argument(snapshot_parser)
     _add_simulate_argument(snapshot_parser)
     _add_safety_config_argument(snapshot_parser)
@@ -935,6 +970,13 @@ def _add_dry_run_argument(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Preview the logical operation without opening or writing to hardware.",
     )
+
+
+def _add_write_verification_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--settle-ms", type=_nonnegative_int, default=0, help="Milliseconds to wait after writes before optional readback verification.")
+    parser.add_argument("--verify-after-write", action="store_true", help="Read back state after writes and fail if verification differs.")
+    parser.add_argument("--setpoint-voltage-tolerance", type=float, default=0.001, help="Programmed voltage verification tolerance in volts.")
+    parser.add_argument("--setpoint-current-tolerance", type=float, default=0.001, help="Programmed current verification tolerance in amps.")
 
 
 def _add_duration_argument(parser: argparse.ArgumentParser) -> None:
@@ -2276,6 +2318,21 @@ def _run_snapshot(args: argparse.Namespace) -> int:
     exit_code, data = result
     if exit_code != 0:
         return exit_code
+    comparison = None
+    if args.compare:
+        try:
+            comparison = _compare_snapshot_data(data, args.compare, _snapshot_compare_tolerances(args))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            return _emit_cli_error(
+                args,
+                request=_request_for_args(args),
+                error_type="validation",
+                code="snapshot_compare_failed",
+                message=f"Could not compare snapshot: {exc}",
+                retryable=False,
+                hardware_intent=True,
+            )
+        data["comparison"] = comparison
     if args.json:
         emit_json_success(
             command=args.command,
@@ -2283,13 +2340,15 @@ def _run_snapshot(args: argparse.Namespace) -> int:
             request=_request_for_args(args),
             data=data,
         )
-        return 0
+        return 0 if comparison is None or comparison["passed"] else 3
     print(f"Resource: {data['resource']}")
     print(f"Model: {data['idn']['model']}")
     print(f"Errors: {len(data['errors'])}")
     for output in data["outputs"]:
         print(f"Channel {output['channel']}: Output enabled: {str(output['enabled']).lower()}")
-    return 0
+    if comparison is not None:
+        print(f"Snapshot comparison passed: {str(comparison['passed']).lower()}")
+    return 0 if comparison is None or comparison["passed"] else 3
 
 
 def _run_log(args: argparse.Namespace) -> int:
@@ -2906,6 +2965,7 @@ def _run_output_plan(args: argparse.Namespace) -> int:
             "output-state": _run_output_state_real,
             "cycle-output": _run_cycle_output_real,
             "apply": _run_apply_real,
+            "ramp": _run_ramp_real,
             "smoke-output": _run_smoke_output_real,
         }
         handler = real_handlers.get(args.command)
@@ -2917,7 +2977,7 @@ def _run_output_plan(args: argparse.Namespace) -> int:
         safety_limits = _safety_limits_for_args(args)
         request = _request_for_args(args)
         _validate_output_request(args, safety_limits)
-    except (SafetyConfigError, SafetyValidationError) as exc:
+    except (SafetyConfigError, SafetyValidationError, ValueError) as exc:
         return _emit_cli_error(
             args,
             request=request,
@@ -3529,6 +3589,107 @@ def _collect_snapshot(
     }
 
 
+def _snapshot_compare_tolerances(args: argparse.Namespace) -> dict[str, float]:
+    return {
+        "setpoint_voltage": args.setpoint_voltage_tolerance,
+        "setpoint_current": args.setpoint_current_tolerance,
+        "measured_voltage": args.measured_voltage_tolerance,
+        "measured_current": args.measured_current_tolerance,
+    }
+
+
+def _compare_snapshot_data(
+    current: dict[str, Any],
+    baseline_path: str,
+    tolerances: dict[str, float],
+) -> dict[str, Any]:
+    baseline_document = json.loads(Path(baseline_path).read_text(encoding="utf-8"))
+    baseline = baseline_document.get("data", baseline_document) if isinstance(baseline_document, dict) else baseline_document
+    if not isinstance(baseline, dict):
+        raise ValueError("baseline must be a JSON object or an envelope containing object data")
+    differences: list[dict[str, Any]] = []
+    _compare_exact(differences, "idn", baseline.get("idn"), current.get("idn"))
+    _compare_exact(differences, "errors", baseline.get("errors"), current.get("errors"))
+    _compare_exact(differences, "outputs", baseline.get("outputs"), current.get("outputs"))
+    _compare_exact(differences, "protection", baseline.get("protection"), current.get("protection"))
+    _compare_channel_measurements(
+        differences,
+        "readback",
+        baseline.get("readback", []),
+        current.get("readback", []),
+        {"voltage": tolerances["setpoint_voltage"], "current": tolerances["setpoint_current"]},
+        value_key="setpoints",
+    )
+    _compare_channel_measurements(
+        differences,
+        "measurements",
+        baseline.get("measurements", []),
+        current.get("measurements", []),
+        {"voltage": tolerances["measured_voltage"], "current": tolerances["measured_current"]},
+        value_key="measurements",
+    )
+    return {
+        "passed": not differences,
+        "baseline_path": baseline_path,
+        "differences": differences,
+        "tolerances": tolerances,
+    }
+
+
+def _compare_exact(differences: list[dict[str, Any]], path: str, expected: Any, actual: Any) -> None:
+    if expected != actual:
+        differences.append({"path": path, "expected": expected, "actual": actual})
+
+
+def _compare_channel_measurements(
+    differences: list[dict[str, Any]],
+    path: str,
+    expected_items: Any,
+    actual_items: Any,
+    tolerances: dict[str, float],
+    *,
+    value_key: str,
+) -> None:
+    if not isinstance(expected_items, list) or not isinstance(actual_items, list):
+        _compare_exact(differences, path, expected_items, actual_items)
+        return
+    expected_by_channel = {item.get("channel"): item for item in expected_items if isinstance(item, dict)}
+    actual_by_channel = {item.get("channel"): item for item in actual_items if isinstance(item, dict)}
+    if expected_by_channel.keys() != actual_by_channel.keys():
+        differences.append(
+            {
+                "path": path,
+                "expected_channels": sorted(expected_by_channel.keys()),
+                "actual_channels": sorted(actual_by_channel.keys()),
+            }
+        )
+        return
+    for channel, expected_item in expected_by_channel.items():
+        actual_item = actual_by_channel[channel]
+        expected_values = expected_item.get(value_key, {})
+        actual_values = actual_item.get(value_key, {})
+        for name, tolerance in tolerances.items():
+            expected_value = expected_values.get(name)
+            actual_value = actual_values.get(name)
+            if not _numbers_within_tolerance(expected_value, actual_value, tolerance):
+                differences.append(
+                    {
+                        "path": f"{path}[channel={channel}].{value_key}.{name}",
+                        "channel": channel,
+                        "expected": expected_value,
+                        "actual": actual_value,
+                        "tolerance": tolerance,
+                    }
+                )
+
+
+def _numbers_within_tolerance(expected: Any, actual: Any, tolerance: float) -> bool:
+    try:
+        return abs(float(actual) - float(expected)) <= tolerance
+    except (TypeError, ValueError):
+        return expected == actual
+
+
 def _protection_payload(power_supply: E36312APowerSupply) -> dict[str, bool]:
     return {
         "over_voltage_tripped": power_supply.over_voltage_protection_tripped(),
@@ -3824,6 +3985,10 @@ def _run_set_real(args: argparse.Namespace) -> int:
                 )
             power_supply.set_current_limit(channel=args.channel, current=args.current)
             power_supply.set_voltage(channel=args.channel, voltage=args.voltage)
+            _settle_after_write(args)
+            verification = _verify_setpoints_after_write(power_supply, args, channels=(args.channel,))
+            if not verification["passed"]:
+                return _emit_verification_error(args, request, execution, verification)
             _raise_on_instrument_errors(power_supply, "set")
     except _SetModelError as exc:
         return _emit_cli_error(
@@ -3865,6 +4030,7 @@ def _run_set_real(args: argparse.Namespace) -> int:
         )
 
     resource_data = _set_resource_payload(args, idn)
+    _attach_verification_if_requested(args, resource_data, verification)
     if args.json:
         emit_json_success(
             command=args.command,
@@ -4114,6 +4280,16 @@ def _run_apply_real(args: argparse.Namespace) -> int:
             if not args.no_output:
                 for channel in channels:
                     power_supply.output_on(channel=channel)
+            _settle_after_write(args)
+            verification = _verify_setpoints_after_write(power_supply, args, channels=channels)
+            if verification["passed"] and not args.no_output:
+                output_verifications = [
+                    _verify_output_state_after_write(power_supply, args, expected=True, channel=channel)
+                    for channel in channels
+                ]
+                verification = _combine_verifications("apply", verification, *output_verifications)
+            if not verification["passed"]:
+                return _emit_verification_error(args, request, execution, verification)
             _raise_on_instrument_errors(power_supply, "apply")
     except _ApplyModelError as exc:
         return _emit_cli_error(
@@ -4153,6 +4329,7 @@ def _run_apply_real(args: argparse.Namespace) -> int:
         )
 
     resource_data = _apply_resource_payload(args, idn, channels)
+    _attach_verification_if_requested(args, resource_data, verification)
     if args.json:
         emit_json_success(
             command=args.command,
@@ -4167,6 +4344,109 @@ def _run_apply_real(args: argparse.Namespace) -> int:
     print(f"Current limit: {_format_text_value(args.current)} A")
     print(f"Voltage: {_format_text_value(args.voltage)} V")
     print(f"Output enabled: {str(not args.no_output)}")
+    return 0
+
+
+def _run_ramp_real(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    backend = getattr(args, "backend", None)
+    timeout_ms = getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS)
+
+    try:
+        safety_limits = _safety_limits_for_args(args)
+        request = _request_for_args(args)
+        _validate_output_request(args, safety_limits)
+    except (SafetyConfigError, SafetyValidationError, ValueError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    voltages = _ramp_voltages(args.start_voltage, args.stop_voltage, args.step_voltage)
+    try:
+        with _open_resource(args.resource, manager, backend=backend, timeout_ms=timeout_ms) as instrument:
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _ApplyModelError(
+                    "ramp real execution is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            if args.channel not in power_supply.capabilities.channels:
+                raise _ApplyChannelError(
+                    f"channel {args.channel} is not supported for ramp; "
+                    f"supported: {power_supply.capabilities.channels}"
+                )
+            power_supply.set_current_limit(channel=args.channel, current=args.current)
+            for index, voltage in enumerate(voltages):
+                power_supply.set_voltage(channel=args.channel, voltage=voltage)
+                if args.delay_ms > 0 and index < len(voltages) - 1:
+                    time.sleep(args.delay_ms / 1000)
+            _settle_after_write(args)
+            verification = _verify_setpoints_after_write(
+                power_supply,
+                args,
+                channels=(args.channel,),
+                expected_voltage=args.stop_voltage,
+            )
+            if not verification["passed"]:
+                return _emit_verification_error(args, request, execution, verification)
+            _raise_on_instrument_errors(power_supply, "ramp")
+    except _ApplyModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_ramp",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _ApplyChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="connection_failed",
+            message=f"Could not open resource for ramp: {exc}",
+        )
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="ramp_failed",
+            message=f"ramp failed: {exc}",
+        )
+
+    resource_data = _ramp_resource_payload(args, idn, voltages)
+    _attach_verification_if_requested(args, resource_data, verification)
+    if args.json:
+        emit_json_success(command=args.command, execution=execution, request=request, data=resource_data)
+        return 0
+
+    print(f"Resource: {args.resource}")
+    print(f"Channel: {args.channel}")
+    print(f"Current limit: {_format_text_value(args.current)} A")
+    print(f"Voltage ramp: {_format_text_value(args.start_voltage)} V to {_format_text_value(args.stop_voltage)} V")
+    print("Output changed: false")
     return 0
 
 
@@ -4222,6 +4502,10 @@ def _run_output_on_real(args: argparse.Namespace) -> int:
             if safety_limits is not None:
                 _validate_readback_for_output_on(args.channel, readback["setpoints"], safety_limits)
             power_supply.output_on(channel=args.channel)
+            _settle_after_write(args)
+            verification = _verify_output_state_after_write(power_supply, args, expected=True)
+            if not verification["passed"]:
+                return _emit_verification_error(args, request, execution, verification)
             _raise_on_instrument_errors(power_supply, "output-on")
     except _OutputOnModelError as exc:
         return _emit_cli_error(
@@ -4277,6 +4561,7 @@ def _run_output_on_real(args: argparse.Namespace) -> int:
         )
 
     resource_data = _output_on_resource_payload(args, idn, readback)
+    _attach_verification_if_requested(args, resource_data, verification)
     if args.json:
         emit_json_success(
             command=args.command,
@@ -4333,6 +4618,10 @@ def _run_output_off_real(args: argparse.Namespace) -> int:
                     f"supported: {capabilities.channels}"
             )
             power_supply.output_off(channel=args.channel)
+            _settle_after_write(args)
+            verification = _verify_output_state_after_write(power_supply, args, expected=False)
+            if not verification["passed"]:
+                return _emit_verification_error(args, request, execution, verification)
             _raise_on_instrument_errors(power_supply, "output-off")
     except _OutputOffModelError as exc:
         return _emit_cli_error(
@@ -4372,6 +4661,7 @@ def _run_output_off_real(args: argparse.Namespace) -> int:
         )
 
     resource_data = _output_off_resource_payload(args, idn)
+    _attach_verification_if_requested(args, resource_data, verification)
     if args.json:
         emit_json_success(
             command=args.command,
@@ -4774,6 +5064,32 @@ def _apply_resource_payload(
     return payload
 
 
+def _ramp_resource_payload(
+    args: argparse.Namespace,
+    idn_raw: str,
+    voltages: Sequence[float],
+) -> dict[str, Any]:
+    return {
+        "resource": _resource_payload(
+            args.resource,
+            simulated=args.simulate,
+            reachable=True,
+            idn_raw=idn_raw,
+        ),
+        "channel": args.channel,
+        "setpoints": {
+            "current": _json_safe_number(args.current),
+            "start_voltage": _json_safe_number(args.start_voltage),
+            "stop_voltage": _json_safe_number(args.stop_voltage),
+            "step_voltage": _json_safe_number(args.step_voltage),
+        },
+        "delay_ms": args.delay_ms,
+        "steps": len(voltages),
+        "voltages": [_json_safe_number(voltage) for voltage in voltages],
+        "output": {"changed": False},
+    }
+
+
 def _output_on_resource_payload(
     args: argparse.Namespace,
     idn_raw: str,
@@ -4917,6 +5233,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **_write_verification_request_fields(args),
         }
     if args.command == "output-off":
         return {
@@ -4926,6 +5243,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **_write_verification_request_fields(args),
         }
     if args.command == "output-on":
         return {
@@ -4935,6 +5253,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **_write_verification_request_fields(args),
         }
     if args.command == "safe-off":
         return {
@@ -4973,6 +5292,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **_write_verification_request_fields(args),
         }
     if args.command == "smoke-output":
         return {
@@ -5073,9 +5393,25 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "max_errors": args.max_errors,
+            "compare": getattr(args, "compare", None),
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "ramp":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": args.channel,
+            "start_voltage": _json_safe_number(args.start_voltage),
+            "stop_voltage": _json_safe_number(args.stop_voltage),
+            "step_voltage": _json_safe_number(args.step_voltage),
+            "current": _json_safe_number(args.current),
+            "delay_ms": args.delay_ms,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **_write_verification_request_fields(args),
         }
     if args.command == "log":
         return {
@@ -5178,6 +5514,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
+            **_write_verification_request_fields_from_argv(argv),
         }
     if command == "output-off":
         return {
@@ -5187,6 +5524,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
+            **_write_verification_request_fields_from_argv(argv),
         }
     if command == "output-on":
         return {
@@ -5196,6 +5534,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
+            **_write_verification_request_fields_from_argv(argv),
         }
     if command == "safe-off":
         return {
@@ -5234,6 +5573,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
+            **_write_verification_request_fields_from_argv(argv),
         }
     if command == "smoke-output":
         return {
@@ -5265,6 +5605,21 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             request["pin"] = pin
             request["exclusive_pin"] = "--exclusive-pins" in argv or "--exclusive-pin" in argv
         return request
+    if command == "ramp":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "channel": _channel_from_argv(argv),
+            "start_voltage": _number_from_argv(argv, "--start-voltage"),
+            "stop_voltage": _number_from_argv(argv, "--stop-voltage"),
+            "step_voltage": _number_from_argv(argv, "--step-voltage"),
+            "current": _number_from_argv(argv, "--current"),
+            "delay_ms": _int_option_from_argv(argv, "--delay-ms", 0),
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+            **_write_verification_request_fields_from_argv(argv),
+        }
     if command == "status":
         channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")
         return {
@@ -5332,6 +5687,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "max_errors": _max_errors_from_argv(argv),
+            "compare": _option_value(argv, "--compare"),
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
@@ -5375,6 +5731,24 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
         }
     return {}
+
+
+def _write_verification_request_fields(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "settle_ms": getattr(args, "settle_ms", 0),
+        "verify_after_write": getattr(args, "verify_after_write", False),
+        "setpoint_voltage_tolerance": getattr(args, "setpoint_voltage_tolerance", 0.001),
+        "setpoint_current_tolerance": getattr(args, "setpoint_current_tolerance", 0.001),
+    }
+
+
+def _write_verification_request_fields_from_argv(argv: Sequence[str]) -> dict[str, Any]:
+    return {
+        "settle_ms": _int_option_from_argv(argv, "--settle-ms", 0),
+        "verify_after_write": "--verify-after-write" in argv,
+        "setpoint_voltage_tolerance": _number_from_argv(argv, "--setpoint-voltage-tolerance") or 0.001,
+        "setpoint_current_tolerance": _number_from_argv(argv, "--setpoint-current-tolerance") or 0.001,
+    }
 
 
 def _timeout_from_argv(argv: Sequence[str]) -> int | str:
@@ -5448,6 +5822,11 @@ def _int_from_argv(argv: Sequence[str], option: str) -> int | str | None:
         return int(value)
     except ValueError:
         return value
+
+
+def _int_option_from_argv(argv: Sequence[str], option: str, default: int) -> int | str:
+    value = _int_from_argv(argv, option)
+    return default if value is None else value
 
 
 def _channel_from_argv(argv: Sequence[str]) -> int | str | None:
@@ -5578,6 +5957,16 @@ def _positive_float(value: str) -> float:
     return parsed
 
 
+def _nonnegative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a non-negative integer") from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be a non-negative integer")
+    return parsed
+
+
 def _log_channel(value: str) -> int | str:
     if value.lower() == "all":
         return "all"
@@ -5679,6 +6068,11 @@ def _validate_output_request(
                 limits=safety_limits,
             )
         return
+    if args.command == "ramp":
+        _ramp_voltages(args.start_voltage, args.stop_voltage, args.step_voltage)
+        validate_setpoint(channel=args.channel, voltage=args.start_voltage, current=args.current, limits=safety_limits)
+        validate_setpoint(channel=args.channel, voltage=args.stop_voltage, current=args.current, limits=safety_limits)
+        return
     if args.command in {"output-on", "output-off", "output-state", "cycle-output"}:
         validate_channel(args.channel, safety_limits)
         return
@@ -5762,10 +6156,13 @@ def _output_plan_for_args(args: argparse.Namespace) -> dict[str, Any]:
                 voltage=_json_safe_number(args.voltage),
             ),
         ]
+        _append_write_followup_steps(args, plan["steps"], ("programmed_voltage", "programmed_current"))
     elif args.command == "output-on":
         plan["steps"] = [_driver_step(1, "output_on", channel=channel)]
+        _append_write_followup_steps(args, plan["steps"], ("output_state",))
     elif args.command == "output-off":
         plan["steps"] = [_driver_step(1, "output_off", channel=channel)]
+        _append_write_followup_steps(args, plan["steps"], ("output_state",))
     elif args.command == "safe-off":
         plan["steps"] = [_driver_step(1, "safe_off", channel=channel)]
     elif args.command == "output-state":
@@ -5804,6 +6201,27 @@ def _output_plan_for_args(args: argparse.Namespace) -> dict[str, Any]:
                 steps.append(_driver_step(index, "output_on", channel=selected_channel))
                 index += 1
         plan["steps"] = steps
+        _append_write_followup_steps(args, plan["steps"], ("programmed_voltage", "programmed_current"))
+    elif args.command == "ramp":
+        voltages = _ramp_voltages(args.start_voltage, args.stop_voltage, args.step_voltage)
+        steps = [
+            _driver_step(1, "set_current_limit", channel=channel, current=_json_safe_number(args.current))
+        ]
+        index = 2
+        for voltage_index, voltage in enumerate(voltages):
+            steps.append(_driver_step(index, "set_voltage", channel=channel, voltage=_json_safe_number(voltage)))
+            index += 1
+            if args.delay_ms > 0 and voltage_index < len(voltages) - 1:
+                steps.append(_driver_step(index, "sleep", duration_ms=args.delay_ms))
+                index += 1
+        if args.settle_ms > 0:
+            steps.append(_driver_step(index, "sleep", duration_ms=args.settle_ms))
+            index += 1
+        if args.verify_after_write:
+            steps.append(_driver_step(index, "programmed_voltage", channel=channel))
+            index += 1
+            steps.append(_driver_step(index, "programmed_current", channel=channel))
+        plan["steps"] = steps
     elif args.command == "smoke-output":
         plan["steps"] = [
             _driver_step(
@@ -5840,6 +6258,25 @@ def _driver_step(index: int, action: str, **parameters: Any) -> dict[str, Any]:
     }
 
 
+def _append_write_followup_steps(
+    args: argparse.Namespace,
+    steps: list[dict[str, Any]],
+    verification_actions: Sequence[str],
+) -> None:
+    channel = getattr(args, "channel", None)
+    next_index = len(steps) + 1
+    if getattr(args, "settle_ms", 0) > 0:
+        steps.append(_driver_step(next_index, "sleep", duration_ms=args.settle_ms))
+        next_index += 1
+    if not getattr(args, "verify_after_write", False):
+        return
+    channels = (1, 2, 3) if channel == "all" else (channel,)
+    for selected_channel in channels:
+        for action in verification_actions:
+            steps.append(_driver_step(next_index, action, channel=selected_channel))
+            next_index += 1
+
+
 def _output_plan_description(command: str) -> str:
     descriptions = {
         "set": "Preview setting current limit before voltage.",
@@ -5849,6 +6286,7 @@ def _output_plan_description(command: str) -> str:
         "output-state": "Preview reading the selected output channel state.",
         "cycle-output": "Preview briefly enabling then disabling the selected output channel.",
         "apply": "Preview setting current, voltage, then enabling output.",
+        "ramp": "Preview setting current, then stepping voltage setpoints without changing output state.",
         "smoke-output": "Preview a guarded set, output, measure, and safe-off sequence.",
     }
     return descriptions[command]
@@ -5886,6 +6324,148 @@ def _json_safe_number(value: float) -> float | str:
     if math.isfinite(numeric):
         return numeric
     return str(value)
+
+
+def _ramp_voltages(start: float, stop: float, step: float) -> list[float]:
+    if step <= 0:
+        raise ValueError("step-voltage must be greater than 0")
+    direction = 1.0 if stop >= start else -1.0
+    signed_step = direction * step
+    voltages = [float(start)]
+    current = float(start)
+    for _ in range(1000):
+        next_voltage = current + signed_step
+        if (direction > 0 and next_voltage >= stop) or (direction < 0 and next_voltage <= stop):
+            break
+        voltages.append(next_voltage)
+        current = next_voltage
+    else:
+        raise ValueError("ramp would exceed 1000 voltage steps")
+    if not math.isclose(voltages[-1], stop, rel_tol=0.0, abs_tol=1e-12):
+        voltages.append(float(stop))
+    if len(voltages) > 1000:
+        raise ValueError("ramp would exceed 1000 voltage steps")
+    return voltages
+
+
+def _settle_after_write(args: argparse.Namespace) -> None:
+    settle_ms = getattr(args, "settle_ms", 0)
+    if settle_ms > 0:
+        time.sleep(settle_ms / 1000)
+
+
+def _verify_setpoints_after_write(
+    power_supply: GenericScpiPowerSupply,
+    args: argparse.Namespace,
+    *,
+    channels: Sequence[int],
+    expected_voltage: float | None = None,
+) -> dict[str, Any]:
+    if not getattr(args, "verify_after_write", False):
+        return {"passed": True, "checks": [], "differences": []}
+    voltage = args.voltage if expected_voltage is None else expected_voltage
+    current = args.current
+    tolerances = {
+        "voltage": args.setpoint_voltage_tolerance,
+        "current": args.setpoint_current_tolerance,
+    }
+    checks = []
+    differences = []
+    for channel in channels:
+        actual_voltage = power_supply.programmed_voltage(channel=channel)
+        actual_current = power_supply.programmed_current(channel=channel)
+        check = {
+            "channel": channel,
+            "expected": {"voltage": _json_safe_number(voltage), "current": _json_safe_number(current)},
+            "actual": {"voltage": _json_safe_number(actual_voltage), "current": _json_safe_number(actual_current)},
+            "tolerances": tolerances,
+        }
+        checks.append(check)
+        if abs(actual_voltage - voltage) > args.setpoint_voltage_tolerance:
+            differences.append(_verification_difference("programmed_voltage", channel, voltage, actual_voltage, args.setpoint_voltage_tolerance))
+        if abs(actual_current - current) > args.setpoint_current_tolerance:
+            differences.append(_verification_difference("programmed_current", channel, current, actual_current, args.setpoint_current_tolerance))
+    return {"passed": not differences, "checks": checks, "differences": differences}
+
+
+def _verify_output_state_after_write(
+    power_supply: GenericScpiPowerSupply,
+    args: argparse.Namespace,
+    *,
+    expected: bool,
+    channel: int | None = None,
+) -> dict[str, Any]:
+    if not getattr(args, "verify_after_write", False):
+        return {"passed": True, "checks": [], "differences": []}
+    selected_channel = args.channel if channel is None else channel
+    actual = power_supply.output_state(channel=selected_channel)
+    differences = []
+    if actual is not expected:
+        differences.append(
+            {
+                "path": f"outputs[channel={selected_channel}].enabled",
+                "channel": selected_channel,
+                "expected": expected,
+                "actual": actual,
+            }
+        )
+    return {
+        "passed": not differences,
+        "checks": [{"channel": selected_channel, "expected": expected, "actual": actual}],
+        "differences": differences,
+    }
+
+
+def _verification_difference(path: str, channel: int, expected: float, actual: float, tolerance: float) -> dict[str, Any]:
+    return {
+        "path": f"{path}[channel={channel}]",
+        "channel": channel,
+        "expected": _json_safe_number(expected),
+        "actual": _json_safe_number(actual),
+        "tolerance": tolerance,
+        "delta": _json_safe_number(actual - expected),
+    }
+
+
+def _combine_verifications(label: str, *verifications: dict[str, Any]) -> dict[str, Any]:
+    checks = []
+    differences = []
+    for verification in verifications:
+        checks.extend(verification.get("checks", []))
+        differences.extend(verification.get("differences", []))
+    return {"operation": label, "passed": not differences, "checks": checks, "differences": differences}
+
+
+def _attach_verification_if_requested(
+    args: argparse.Namespace,
+    data: dict[str, Any],
+    verification: dict[str, Any],
+) -> None:
+    if getattr(args, "verify_after_write", False):
+        data["verification"] = verification
+
+
+def _emit_verification_error(
+    args: argparse.Namespace,
+    request: dict[str, Any],
+    execution: dict[str, Any],
+    verification: dict[str, Any],
+) -> int:
+    message = "write verification failed"
+    if args.json:
+        emit_json_error(
+            command=args.command,
+            execution=execution,
+            request=request,
+            error_type="verification",
+            code="verification_failed",
+            message=message,
+            retryable=False,
+            metadata={"verification": verification},
+        )
+    else:
+        print(message, file=sys.stderr)
+    return 3
 
 
 def _format_text_value(value: object) -> str:
