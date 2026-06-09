@@ -875,6 +875,15 @@ function eventSummary(event) {
 function successfulJobSummary(job) {
   const result = job?.result || {};
   const runtime = job?.runtime || {};
+  const command = job?.command;
+  if (command === "capabilities") return capabilitiesSummary(result);
+  if (command === "identify") return identifySummary(result);
+  if (command === "verify") return verifySummary(result);
+  if (command === "read-status") return readStatusSummary(result);
+  if (command === "readback") return readbackSummary(result);
+  if (command === "snapshot") return snapshotSummary(result);
+  if (command === "error") return errorQueueSummary(result, "instrument");
+  if (command === "safety inspect") return safetyInspectSummary(result);
   if (Array.isArray(result.resources)) {
     const count = result.resources.length;
     return `${count} resource${count === 1 ? "" : "s"} found`;
@@ -886,6 +895,109 @@ function successfulJobSummary(job) {
     return model ? `Connected to ${model}` : "Connected to resource";
   }
   return "Command completed successfully";
+}
+
+function capabilitiesSummary(result) {
+  const resource = result.resource;
+  const model = resource?.idn?.model || result.driver?.model;
+  const driver = result.driver?.class;
+  if (resource?.name || model || driver) {
+    return compactParts([
+      model ? `Connected to ${model}` : "Connected to resource",
+      driver
+    ]).join(" - ");
+  }
+  if (result.models && typeof result.models === "object") {
+    const count = Object.keys(result.models).length;
+    return `${count} available model${count === 1 ? "" : "s"}`;
+  }
+  return "Command completed successfully";
+}
+
+function identifySummary(result) {
+  const idn = result.idn || result.resource?.idn || {};
+  const parts = compactParts([
+    idn.model,
+    idn.serial ? `serial ${idn.serial}` : "",
+    idn.firmware ? `firmware ${idn.firmware}` : ""
+  ]);
+  return parts.length ? parts.join(" - ") : "Identification read";
+}
+
+function verifySummary(result) {
+  const resource = result.resource || {};
+  const model = resource.idn?.model;
+  if (model && resource.name) return `Reachable ${model} at ${resource.name}`;
+  if (model) return `Reachable ${model}`;
+  if (resource.name) return `Reachable resource ${resource.name}`;
+  return "Resource reachable";
+}
+
+function readStatusSummary(result) {
+  const outputText = outputStatesSummary(result.outputs);
+  return compactParts([outputText, errorQueueSummary(result, "")]).join(" - ") || "Status read";
+}
+
+function readbackSummary(result) {
+  const channels = Array.isArray(result.channels) ? result.channels : [];
+  const count = channels.length;
+  return compactParts([
+    `${count} channel${count === 1 ? "" : "s"}`,
+    setpointSummary(channels)
+  ]).join(" - ");
+}
+
+function snapshotSummary(result) {
+  const model = result.idn?.model;
+  const outputCount = Array.isArray(result.outputs) ? result.outputs.length : 0;
+  const channelCount = Array.isArray(result.readback) ? result.readback.length : outputCount;
+  const protection = result.protection || {};
+  const tripped = protection.over_voltage_tripped === true || protection.over_current_tripped === true;
+  return compactParts([
+    model,
+    `${channelCount} channel${channelCount === 1 ? "" : "s"}`,
+    outputCount ? `${outputCount} output${outputCount === 1 ? "" : "s"}` : "",
+    `protection ${tripped ? "tripped" : "OK"}`,
+    errorQueueSummary(result, "")
+  ]).join(" - ");
+}
+
+function safetyInspectSummary(result) {
+  return result.safety_config_loaded ? "Safety config loaded" : "Safety config not loaded";
+}
+
+function outputStatesSummary(outputs) {
+  if (!Array.isArray(outputs) || outputs.length === 0) return "";
+  return outputs
+    .map((item) => `CH${item.channel} ${item.enabled === true ? "ON" : item.enabled === false ? "OFF" : "--"}`)
+    .join(", ");
+}
+
+function setpointSummary(channels) {
+  if (!Array.isArray(channels) || channels.length === 0) return "";
+  return channels
+    .slice(0, 3)
+    .map((item) => {
+      const setpoints = item.setpoints || {};
+      return `CH${item.channel} ${formatSetpointValue(setpoints.voltage)}V/${formatSetpointValue(setpoints.current)}A`;
+    })
+    .join(", ");
+}
+
+function formatSetpointValue(value) {
+  if (value === null || value === undefined || value === "") return "--";
+  return String(value);
+}
+
+function errorQueueSummary(result, noun = "instrument") {
+  const errors = Array.isArray(result.errors) ? result.errors : [];
+  const label = noun ? `${noun} ` : "";
+  if (errors.length === 0) return `No ${label}errors`;
+  return `${errors.length} ${label}error${errors.length === 1 ? "" : "s"}`;
+}
+
+function compactParts(parts) {
+  return parts.filter((part) => part !== null && part !== undefined && part !== "");
 }
 
 function statusSummary(status) {

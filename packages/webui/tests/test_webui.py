@@ -267,6 +267,26 @@ def test_static_job_result_summary_helpers_exist():
     assert "function renderClientResult(command, status, summary, detail)" in app_js
     assert "function jobSummary(job, event = null)" in app_js
     assert "function successfulJobSummary(job)" in app_js
+    assert 'if (command === "capabilities") return capabilitiesSummary(result);' in app_js
+    assert 'if (command === "identify") return identifySummary(result);' in app_js
+    assert 'if (command === "verify") return verifySummary(result);' in app_js
+    assert 'if (command === "read-status") return readStatusSummary(result);' in app_js
+    assert 'if (command === "readback") return readbackSummary(result);' in app_js
+    assert 'if (command === "snapshot") return snapshotSummary(result);' in app_js
+    assert 'if (command === "error") return errorQueueSummary(result, "instrument");' in app_js
+    assert 'if (command === "safety inspect") return safetyInspectSummary(result);' in app_js
+    assert "function capabilitiesSummary(result)" in app_js
+    assert 'return `${count} available model${count === 1 ? "" : "s"}`;' in app_js
+    assert "function readStatusSummary(result)" in app_js
+    assert "function readbackSummary(result)" in app_js
+    assert "function snapshotSummary(result)" in app_js
+    assert "function errorQueueSummary(result, noun = \"instrument\")" in app_js
+    assert "function safetyInspectSummary(result)" in app_js
+    assert 'return result.safety_config_loaded ? "Safety config loaded" : "Safety config not loaded";' in app_js
+    assert "outputStatesSummary(result.outputs)" in app_js
+    assert "setpointSummary(channels)" in app_js
+    assert '`protection ${tripped ? "tripped" : "OK"}`' in app_js
+    assert 'return `No ${label}errors`;' in app_js
     assert "function statusLabel(status)" in app_js
     assert "function statusClass(status)" in app_js
     assert "result.resources.length" in app_js
