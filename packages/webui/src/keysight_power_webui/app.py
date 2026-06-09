@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from .jobs import job_manager, JobStatus
-from .commands import execute_job_command, MUTATING_COMMANDS, WEBUI_UNSUPPORTED_COMMANDS
+from .commands import execute_job_command, MUTATING_COMMANDS, WEBUI_UNSUPPORTED_COMMANDS, webui_command_support
 
 STATIC_DIR = Path(__file__).parent / "static"
 CACHE_CONTROL_NO_STORE = "no-store"
@@ -59,7 +59,7 @@ COMMAND_METADATA = {
     "output-state": {"description": "Check output state", "requires_confirm": False, "category": "output"},
     "cycle-output": {"description": "Cycle output on then off", "requires_confirm": True, "category": "output"},
     "ramp": {"description": "Ramp voltage", "requires_confirm": True, "category": "output"},
-    "smoke-output": {"description": "Guarded smoke test sequence", "requires_confirm": True, "category": "output"},
+    "smoke-output": {"description": "Run guarded output diagnostic", "requires_confirm": True, "category": "discovery"},
     "protection-set": {"description": "Set protection limits", "requires_confirm": True, "category": "output"},
     "clear-protection": {"description": "Clear protection latches", "requires_confirm": True, "category": "output"},
     "trigger-pulse": {"description": "Configure and fire trigger pulse", "requires_confirm": False, "category": "trigger"},
@@ -124,6 +124,7 @@ async def get_commands():
     }
     return {
         "commands": commands,
+        "command_support_by_model": webui_command_support(set(commands)),
         "output_affecting_commands": list(MUTATING_COMMANDS),
     }
 

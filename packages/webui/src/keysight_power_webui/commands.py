@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from keysight_power_core import capabilities as core_capabilities
 from keysight_power_core.command_runner import run_core_command
+from keysight_power_core.connection import open_resource
 from keysight_power_core.core import (
     ConfirmationRequiredError,
     CoreValidationError,
@@ -13,7 +15,11 @@ from keysight_power_core.core import (
     SequenceRequest,
     TriggerRequest,
 )
+from keysight_power_core.discovery import IDN_QUERY, resource_payload
+from keysight_power_core.errors import VisaConnectionError
+from keysight_power_core.factory import select_driver
 from keysight_power_core.readonly import run_live_panel_read
+from keysight_power_core.testing.simulator import SimulatedResourceManager
 
 from .jobs import Job
 
@@ -77,6 +83,8 @@ WEBUI_UNSUPPORTED_COMMANDS = {
     "log",
 }
 
+MODEL_INDEPENDENT_DIAGNOSTICS = {"verify", "clear", "error"}
+
 
 def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
     simulate = bool(runtime_dict.get("simulate", False))
@@ -100,7 +108,7 @@ def execute_job_command(job: Job) -> dict[str, Any]:
     runtime = build_runtime_options(job.runtime)
     command = job.command
     if command == "capabilities":
-        return _capabilities()
+        return _capabilities(runtime)
     if command == "safety inspect":
         return _safety_inspect(runtime)
     if command in WEBUI_UNSUPPORTED_COMMANDS:
@@ -138,6 +146,19 @@ def _request_for_job(command: str, runtime: RuntimeOptions, parameters: dict[str
     return OperationRequest(command=command, runtime=runtime, parameters=normalized_parameters)
 
 
+def webui_command_support(command_names: set[str]) -> dict[str, dict[str, dict[str, Any]]]:
+    """Return model-aware support metadata for visible WebUI commands."""
+
+    return {
+        model_key: _filtered_command_support(model, command_names)
+        for model_key, model in {
+            "E36312A": "E36312A",
+            "EDU36311A": "EDU36311A",
+            "GENERIC": None,
+        }.items()
+    }
+
+
 def _normalize_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(parameters)
     if "channel" in normalized:
@@ -160,9 +181,39 @@ def _requires_real_confirmation(command: str, runtime: RuntimeOptions) -> bool:
     return command in MUTATING_COMMANDS and not runtime.simulate and not runtime.dry_run and not runtime.confirm
 
 
-def _capabilities() -> dict[str, Any]:
+def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
     from keysight_power_core.drivers.e36312a import E36312APowerSupply
     from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
+
+    if runtime.resource:
+        manager = SimulatedResourceManager() if runtime.simulate else None
+        try:
+            with open_resource(runtime.resource, manager, backend=runtime.backend, timeout_ms=runtime.timeout_ms) as instrument:
+                idn_raw = instrument.query(IDN_QUERY)
+        except VisaConnectionError as exc:
+            raise CoreValidationError(f"capabilities failed: {exc}") from exc
+
+        selection = select_driver(idn_raw)
+        caps = selection.capabilities
+        return {
+            "resource": resource_payload(
+                runtime.resource,
+                simulated=runtime.simulate,
+                reachable=True,
+                idn_raw=idn_raw,
+            ),
+            "driver": {
+                "class": selection.driver_class.__name__,
+                "reason": selection.reason,
+            },
+            "channels": list(caps.channels),
+            "measure_channels": {
+                "simulate": list(caps.simulated_measure_channels),
+                "real": list(caps.real_measure_channels),
+            },
+            "hardware_validation": core_capabilities.hardware_validation_status(selection.idn.model),
+            "command_support": core_capabilities.command_support(selection.idn.model),
+        }
 
     return {
         "models": {
@@ -170,6 +221,24 @@ def _capabilities() -> dict[str, Any]:
             "EDU36311A": {"channels": list(EDU36311APowerSupply.capabilities.channels)},
         }
     }
+
+
+def _filtered_command_support(model: str | None, command_names: set[str]) -> dict[str, dict[str, Any]]:
+    support = core_capabilities.command_support(model)
+    filtered = {
+        command: dict(support[command])
+        for command in sorted(command_names)
+        if command in support
+    }
+    for command in sorted(command_names & MODEL_INDEPENDENT_DIAGNOSTICS):
+        filtered[command] = {
+            "real": True,
+            "simulate": True,
+            "dry_run": False,
+            "requires_confirm": False,
+            "hardware_validation": "model_independent",
+        }
+    return filtered
 
 
 def _safety_inspect(runtime: RuntimeOptions) -> dict[str, Any]:

@@ -212,6 +212,8 @@ def test_static_command_display_names_are_sorted_and_capitalized_without_renamin
     add_history = app_js[app_js.index("function addHistory"):app_js.index("function updateHistory")]
 
     assert 'const CATEGORIES = ["output", "trigger", "read-only", "artifact", "discovery"]' in render_commands
+    assert '"discovery": "Advanced Diagnostics"' in render_commands
+    assert '"discovery": "Discovery"' not in render_commands
     assert ".sort((a, b) => a[0].localeCompare(b[0]))" in render_commands
     assert "<span>${commandDisplayName(name)}</span>" in render_commands
     assert "button.addEventListener(\"click\", () => selectCommand(name));" in render_commands
@@ -221,6 +223,26 @@ def test_static_command_display_names_are_sorted_and_capitalized_without_renamin
     assert "if (name === \"capabilities\") return \"Capabilities\";" in display_name
     assert "return name.charAt(0).toUpperCase() + name.slice(1);" in display_name
     assert "selectCommand(commandDisplayName(name))" not in app_js
+
+
+def test_static_commands_disable_by_selected_resource_model():
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "commandSupportByModel: {}" in app_js
+    assert "resourceModels: {}" in app_js
+    assert "state.commandSupportByModel = payload.command_support_by_model || {};" in app_js
+    assert "updateResourceModels(resources);" in app_js
+    assert "function updateResourceModelFromJob(job)" in app_js
+    assert "function commandMeta(name)" in app_js
+    assert "function selectedCommandSupport(name)" in app_js
+    assert "function currentResourceModel()" in app_js
+    assert "function supportedModelKey(model)" in app_js
+    assert "support.real !== false" in app_js
+    assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
+    assert "document.getElementById(\"run\").disabled = Boolean(meta.disabled);" in app_js
+    assert 'error: "Command unavailable"' in app_js
+    assert "Not supported on ${model}" in app_js
+    assert "Planning only on ${model}" in app_js
 
 
 def test_static_channel_confirmation_and_job_detail_contracts():
@@ -261,7 +283,7 @@ def test_static_channel_confirmation_and_job_detail_contracts():
     assert 'if (value === "all") return value;' in app_js
     assert 'return /^[1-9]\\d*$/.test(value) ? Number(value) : value;' in app_js
 
-    assert "const meta = state.commands[state.selected] || {};" in app_js
+    assert "const meta = commandMeta(state.selected);" in app_js
     assert "if (meta.requires_confirm && !payload.runtime.confirm)" in app_js
     assert 'error: "Confirmation required"' in app_js
     assert "runtime: { confirm: false }" in app_js
@@ -328,6 +350,7 @@ def test_commands_metadata(client: TestClient):
     assert response.status_code == 200
     data = response.json()
     assert "commands" in data
+    assert "command_support_by_model" in data
     
     # Check a few expected commands
     cmds = data["commands"]
@@ -336,10 +359,31 @@ def test_commands_metadata(client: TestClient):
     assert "read-status" in cmds
     assert cmds["read-status"]["requires_confirm"] is False
     assert "list-resources" not in cmds
+    assert cmds["smoke-output"]["category"] == "discovery"
+    assert cmds["smoke-output"]["description"] == "Run guarded output diagnostic"
     
     # Check output-affecting commands are marked correctly
     assert cmds["output-on"]["requires_confirm"] is True
     assert cmds["output-off"]["requires_confirm"] is True
+    assert cmds["smoke-output"]["requires_confirm"] is True
+    assert "smoke-output" in data["output_affecting_commands"]
+
+
+def test_commands_metadata_includes_model_aware_support(client: TestClient):
+    response = client.get("/api/commands")
+    assert response.status_code == 200
+    data = response.json()
+    support = data["command_support_by_model"]
+
+    assert set(support) == {"E36312A", "EDU36311A", "GENERIC"}
+    assert support["E36312A"]["trigger-list"]["real"] is True
+    assert support["EDU36311A"]["trigger-list"]["real"] is False
+    assert support["EDU36311A"]["trigger-list"]["hardware_validation"] == "not_supported_by_model"
+    assert support["GENERIC"]["set"]["real"] is False
+    for model in ("E36312A", "EDU36311A", "GENERIC"):
+        assert support[model]["verify"]["real"] is True
+        assert support[model]["clear"]["real"] is True
+        assert support[model]["error"]["real"] is True
 
 
 def test_command_coverage(client: TestClient):
@@ -352,6 +396,8 @@ def test_command_coverage(client: TestClient):
     assert WEBUI_COMMAND_NAMES <= webui_commands
     assert "list-resources" not in webui_commands
     assert not (WEBUI_HIDDEN_UNSUPPORTED_COMMANDS & webui_commands)
+    for model_support in data["command_support_by_model"].values():
+        assert set(model_support) <= webui_commands
 
 
 def test_hidden_list_resources_direct_submit_succeeds(client: TestClient):
@@ -1104,6 +1150,34 @@ def test_webui_commands_simulate_mode(client: TestClient):
         
         job_data = client.get(f"/api/jobs/{job_id}").json()
         assert job_data["status"] == "finished", f"Command {cmd} failed: {job_data.get('error')}"
+
+
+def test_webui_capabilities_uses_selected_resource_model(client: TestClient):
+    payload = {
+        "command": "capabilities",
+        "runtime": {
+            "simulate": True,
+            "resource": "USB0::SIM::EDU36311A::INSTR",
+        },
+        "parameters": {},
+    }
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+
+    job_id = response.json()["job_id"]
+    for _ in range(20):
+        res = client.get(f"/api/jobs/{job_id}")
+        if res.json()["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.05)
+
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    assert job_data["status"] == "finished", job_data.get("error")
+    result = job_data["result"]
+    assert result["resource"]["idn"]["model"] == "EDU36311A"
+    assert result["driver"]["class"] == "EDU36311APowerSupply"
+    assert result["command_support"]["trigger-list"]["real"] is False
+    assert result["command_support"]["protection-set"]["real"] is True
 
 
 def test_readonly_commands_simulate_with_resource(client: TestClient):

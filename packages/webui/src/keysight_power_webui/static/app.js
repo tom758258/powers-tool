@@ -1,5 +1,7 @@
 const state = {
   commands: {},
+  commandSupportByModel: {},
+  resourceModels: {},
   selected: null,
   jobs: [],
   events: null,
@@ -111,6 +113,7 @@ async function refreshHealth() {
 async function loadCommands() {
   const payload = await fetchJson("/api/commands");
   state.commands = payload.commands || {};
+  state.commandSupportByModel = payload.command_support_by_model || {};
   renderCommands();
 }
 
@@ -125,7 +128,7 @@ function renderCommands() {
     "trigger": "Trigger",
     "read-only": "Read-Only",
     "artifact": "Artifact",
-    "discovery": "Discovery"
+    "discovery": "Advanced Diagnostics"
   };
 
   const columns = {};
@@ -156,10 +159,11 @@ function renderCommands() {
     .forEach(([name, meta]) => {
       const cat = meta.category || "discovery";
       if (columns[cat]) {
+        const effectiveMeta = commandMeta(name);
         const button = document.createElement("button");
         button.className = `command-button${state.selected === name ? " active" : ""}`;
-        button.disabled = Boolean(meta.disabled);
-        button.innerHTML = `<span>${commandDisplayName(name)}</span><small>${meta.disabled_reason || ""}</small>`;
+        button.disabled = Boolean(effectiveMeta.disabled);
+        button.innerHTML = `<span>${commandDisplayName(name)}</span><small>${effectiveMeta.disabled_reason || ""}</small>`;
         button.addEventListener("click", () => selectCommand(name));
         columns[cat].buttonsContainer.appendChild(button);
         columns[cat].hasVisibleCommands = true;
@@ -177,7 +181,7 @@ function renderCommands() {
 
 function selectCommand(name) {
   state.selected = name;
-  const meta = state.commands[name] || {};
+  const meta = commandMeta(name);
   document.getElementById("selected-command").textContent = commandDisplayName(name);
   document.getElementById("command-description").textContent = meta.description || "";
   document.getElementById("run").disabled = Boolean(meta.disabled);
@@ -235,12 +239,20 @@ async function scanResources() {
 
 async function runSelected() {
   if (!state.selected) return;
+  const meta = commandMeta(state.selected);
+  if (meta.disabled) {
+    renderResult({
+      error: "Command unavailable",
+      detail: meta.disabled_reason || "This command is not available for the selected resource.",
+      command: state.selected
+    });
+    return;
+  }
   const payload = {
     command: state.selected,
     runtime: runtimePayload(),
     parameters: parameterPayload()
   };
-  const meta = state.commands[state.selected] || {};
   if (meta.requires_confirm && !payload.runtime.confirm) {
     renderResult({
       error: "Confirmation required",
@@ -316,6 +328,7 @@ async function handleJobEvent(jobId, event) {
       healthState = await refreshHealth();
       startLivePreviewSnapshot(healthState, job.runtime.resource);
     }
+    if (event.type === "finished") updateResourceModelFromJob(job);
     closeEventSource("events");
     if (!healthState) refreshHealth();
   }
@@ -362,6 +375,7 @@ function populateResourceSelect(resources) {
   const select = document.getElementById("resource-select");
   const input = document.getElementById("resource");
   select.innerHTML = "";
+  updateResourceModels(resources);
   if (!Array.isArray(resources) || resources.length === 0) {
     const option = document.createElement("option");
     option.value = "";
@@ -383,6 +397,8 @@ function populateResourceSelect(resources) {
     select.selectedIndex = 0;
     input.value = select.value;
   }
+  if (state.selected) selectCommand(state.selected);
+  else renderCommands();
 }
 
 function resourceLabel(resource, name) {
@@ -395,6 +411,63 @@ function resourceLabel(resource, name) {
 function syncSelectedResource() {
   const value = document.getElementById("resource-select").value;
   if (value) document.getElementById("resource").value = value;
+  if (state.selected) selectCommand(state.selected);
+  else renderCommands();
+}
+
+function updateResourceModels(resources) {
+  if (!Array.isArray(resources)) return;
+  resources.forEach((resource) => {
+    if (!resource || typeof resource === "string") return;
+    const name = resource.name;
+    if (!name) return;
+    state.resourceModels[name] = supportedModelKey(resource.idn?.model);
+  });
+}
+
+function updateResourceModelFromJob(job) {
+  const resource = job?.result?.resource;
+  if (resource?.name) {
+    state.resourceModels[resource.name] = supportedModelKey(resource.idn?.model);
+    if (state.selected) selectCommand(state.selected);
+    else renderCommands();
+  }
+}
+
+function commandMeta(name) {
+  const meta = state.commands[name] || {};
+  const support = selectedCommandSupport(name);
+  if (!support || support.real !== false) return meta;
+  return {
+    ...meta,
+    disabled: true,
+    disabled_reason: meta.disabled_reason || commandDisabledReason(support, currentResourceModel())
+  };
+}
+
+function selectedCommandSupport(name) {
+  const model = currentResourceModel();
+  if (!model) return null;
+  return state.commandSupportByModel?.[model]?.[name] || null;
+}
+
+function currentResourceModel() {
+  const resource = valueOrNull("resource");
+  if (!resource) return null;
+  return state.resourceModels[resource] || null;
+}
+
+function supportedModelKey(model) {
+  const normalized = String(model || "").toUpperCase();
+  if (state.commandSupportByModel[normalized]) return normalized;
+  return "GENERIC";
+}
+
+function commandDisabledReason(support, model) {
+  const validation = support?.hardware_validation;
+  if (validation === "planning_only") return `Planning only on ${model}`;
+  if (validation === "not_supported_by_model") return `Not supported on ${model}`;
+  return `Unavailable on ${model}`;
 }
 
 function toggleResultPanel() {
