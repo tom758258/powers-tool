@@ -168,6 +168,22 @@ def assert_contract_envelope(payload: dict[str, object], *, command: str, ok: bo
             ],
         ),
         (
+            "smoke-output",
+            [
+                "smoke-output",
+                "--dry-run",
+                "--json",
+                "--resource",
+                SIM_E36312A_RESOURCE,
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ],
+        ),
+        (
             "readback",
             [
                 "readback",

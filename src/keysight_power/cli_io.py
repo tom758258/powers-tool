@@ -4,9 +4,20 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from typing import Any, TextIO
 
 SCHEMA_VERSION = "1.0"
+JSON_SAVE_PATH: str | None = None
+
+
+class JsonSaveError(OSError):
+    """Raised when a JSON envelope cannot be saved to disk."""
+
+
+def set_json_save_path(path: str | None) -> None:
+    global JSON_SAVE_PATH
+    JSON_SAVE_PATH = path
 
 
 def emit_json_success(
@@ -93,4 +104,13 @@ def _envelope(
 
 
 def _emit(payload: dict[str, Any], stream: TextIO) -> None:
-    print(json.dumps(payload, sort_keys=True), file=stream)
+    encoded = json.dumps(payload, sort_keys=True)
+    if JSON_SAVE_PATH is not None:
+        try:
+            path = Path(JSON_SAVE_PATH)
+            if path.parent != Path("."):
+                path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"{encoded}\n", encoding="utf-8")
+        except OSError as exc:
+            raise JsonSaveError(str(exc)) from exc
+    print(encoded, file=stream)

@@ -21,6 +21,7 @@ class FakeSession:
         self.query_responses = query_responses or {}
         self.writes: list[str] = []
         self.queries: list[str] = []
+        self.events: list[str] = []
         self.closed = False
 
     def __enter__(self) -> "FakeSession":
@@ -34,9 +35,11 @@ class FakeSession:
 
     def write(self, command: str) -> None:
         self.writes.append(command)
+        self.events.append(f"write:{command}")
 
     def query(self, command: str) -> str:
         self.queries.append(command)
+        self.events.append(f"query:{command}")
         if command == "*IDN?":
             return self.idn
         response = self.query_responses.get(command)
@@ -901,6 +904,163 @@ def test_measure_real_generic_channel_two_is_rejected_after_idn(
     assert captured.err == ""
 
 
+def test_safe_off_real_all_reads_back_each_channel(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={
+            "OUTP? (@1)": "0",
+            "OUTP? (@2)": "1",
+            "OUTP? (@3)": "OFF",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "safe-off",
+                "--json",
+                "--resource",
+                "USB0::FAKE::E36312A::INSTR",
+                "--channel",
+                "all",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.writes == ["OUTP OFF,(@1)", "OUTP OFF,(@2)", "OUTP OFF,(@3)"]
+    assert session.queries == ["*IDN?", "OUTP? (@1)", "OUTP? (@2)", "OUTP? (@3)"]
+    assert session.events == [
+        "query:*IDN?",
+        "write:OUTP OFF,(@1)",
+        "query:OUTP? (@1)",
+        "write:OUTP OFF,(@2)",
+        "query:OUTP? (@2)",
+        "write:OUTP OFF,(@3)",
+        "query:OUTP? (@3)",
+    ]
+    assert payload["data"]["outputs"] == [
+        {"channel": 1, "enabled": False},
+        {"channel": 2, "enabled": True},
+        {"channel": 3, "enabled": False},
+    ]
+
+
+def test_smoke_output_real_sends_safe_scpi_order_and_reads_final_state(
+    monkeypatch,
+    capsys,
+) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={
+            "MEAS:VOLT? (@1)": "1.001",
+            "MEAS:CURR? (@1)": "0.051",
+            "OUTP? (@1)": "0",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+    monkeypatch.setattr(cli.time, "sleep", lambda seconds: None)
+
+    assert (
+        cli.main(
+            [
+                "smoke-output",
+                "--json",
+                "--resource",
+                "USB0::FAKE::E36312A::INSTR",
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.writes == [
+        "CURR 0.05,(@1)",
+        "VOLT 1,(@1)",
+        "OUTP ON,(@1)",
+        "OUTP OFF,(@1)",
+    ]
+    assert session.queries == [
+        "*IDN?",
+        "MEAS:VOLT? (@1)",
+        "MEAS:CURR? (@1)",
+        "OUTP? (@1)",
+    ]
+    assert session.events == [
+        "query:*IDN?",
+        "write:CURR 0.05,(@1)",
+        "write:VOLT 1,(@1)",
+        "write:OUTP ON,(@1)",
+        "query:MEAS:VOLT? (@1)",
+        "query:MEAS:CURR? (@1)",
+        "write:OUTP OFF,(@1)",
+        "query:OUTP? (@1)",
+    ]
+    assert payload["data"]["setpoints"] == {"current": 0.05, "voltage": 1.0}
+    assert payload["data"]["measurements"] == {"voltage": 1.001, "current": 0.051}
+    assert payload["data"]["output"]["final_enabled"] is False
+    assert payload["data"]["safe_off_attempted"] is True
+
+
+def test_smoke_output_real_attempts_output_off_after_measurement_failure(
+    monkeypatch,
+    capsys,
+) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={"MEAS:VOLT? (@1)": "not-a-number"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+    monkeypatch.setattr(cli.time, "sleep", lambda seconds: None)
+
+    assert (
+        cli.main(
+            [
+                "smoke-output",
+                "--json",
+                "--resource",
+                "USB0::FAKE::E36312A::INSTR",
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 1
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.writes == [
+        "CURR 0.05,(@1)",
+        "VOLT 1,(@1)",
+        "OUTP ON,(@1)",
+        "OUTP OFF,(@1)",
+    ]
+    assert session.queries == ["*IDN?", "MEAS:VOLT? (@1)"]
+    assert session.events == [
+        "query:*IDN?",
+        "write:CURR 0.05,(@1)",
+        "write:VOLT 1,(@1)",
+        "write:OUTP ON,(@1)",
+        "query:MEAS:VOLT? (@1)",
+        "write:OUTP OFF,(@1)",
+    ]
+    assert payload["error"]["code"] == "smoke_output_failed"
+
+
 @pytest.mark.parametrize(
     ("args", "expected_code"),
     [
@@ -1047,6 +1207,162 @@ def test_apply_dry_run_json_includes_setpoints_and_output_on(capsys) -> None:
         "set_voltage",
         "output_on",
     ]
+
+
+def test_apply_all_no_output_dry_run_sets_each_channel_without_output(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "apply",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "all",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+                "--no-output",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    steps = payload["data"]["plan"]["steps"]
+    assert [(step["action"], step["parameters"]["channel"]) for step in steps] == [
+        ("set_current_limit", 1),
+        ("set_voltage", 1),
+        ("set_current_limit", 2),
+        ("set_voltage", 2),
+        ("set_current_limit", 3),
+        ("set_voltage", 3),
+    ]
+    assert all(step["action"] != "output_on" for step in steps)
+
+
+def test_smoke_output_dry_run_json_emits_guarded_plan(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "smoke-output",
+                "--dry-run",
+                "--json",
+                "--resource",
+                "USB0::SIM::E36312A::INSTR",
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["execution"] == {
+        "mode": "real",
+        "dry_run": True,
+        "hardware_touched": False,
+    }
+    assert [step["action"] for step in payload["data"]["plan"]["steps"]] == [
+        "set_current_limit",
+        "set_voltage",
+        "output_on",
+        "sleep",
+        "measure_voltage",
+        "measure_current",
+        "output_off",
+        "output_state",
+    ]
+
+
+def test_smoke_output_simulate_json_does_not_create_real_resource_manager(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fail_real_manager(backend=None):
+        raise AssertionError("real VISA manager should not be created")
+
+    monkeypatch.setattr(connection, "create_resource_manager", fail_real_manager)
+
+    assert (
+        cli.main(
+            [
+                "smoke-output",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::E36312A::INSTR",
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["execution"]["mode"] == "simulate"
+    assert payload["execution"]["hardware_touched"] is False
+    assert payload["data"]["plan"]["operation"] == {"name": "smoke-output"}
+
+
+def test_save_json_writes_same_envelope_as_stdout(tmp_path, capsys) -> None:
+    save_path = tmp_path / "nested" / "snapshot.json"
+
+    assert (
+        cli.main(
+            [
+                "snapshot",
+                "--simulate",
+                "--json",
+                "--resource",
+                "USB0::SIM::E36312A::INSTR",
+                "--save-json",
+                str(save_path),
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    stdout_payload = json.loads(captured.out)
+    saved_payload = json.loads(save_path.read_text(encoding="utf-8"))
+    assert saved_payload == stdout_payload
+
+
+def test_save_json_without_json_returns_argument_error(capsys, tmp_path) -> None:
+    assert (
+        cli.main(
+            [
+                "snapshot",
+                "--simulate",
+                "--resource",
+                "USB0::SIM::E36312A::INSTR",
+                "--save-json",
+                str(tmp_path / "snapshot.json"),
+            ]
+        )
+        == 2
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "validation"
+    assert payload["error"]["code"] == "argument_error"
+    assert "--save-json requires --json" in payload["error"]["message"]
 
 
 def test_set_dry_run_json_applies_explicit_safety_config(tmp_path, capsys) -> None:
@@ -1657,7 +1973,14 @@ def test_output_state_real_e36312a_reads_channel_state(monkeypatch, capsys, chan
 
 
 def test_safe_off_real_e36312a_expands_all_channels(monkeypatch, capsys) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36312A,MY00000001,1.0")
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,MY00000001,1.0",
+        query_responses={
+            "OUTP? (@1)": "0",
+            "OUTP? (@2)": "0",
+            "OUTP? (@3)": "0",
+        },
+    )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert (
@@ -1676,8 +1999,17 @@ def test_safe_off_real_e36312a_expands_all_channels(monkeypatch, capsys) -> None
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert session.queries == ["*IDN?"]
+    assert session.queries == ["*IDN?", "OUTP? (@1)", "OUTP? (@2)", "OUTP? (@3)"]
     assert session.writes == ["OUTP OFF,(@1)", "OUTP OFF,(@2)", "OUTP OFF,(@3)"]
+    assert session.events == [
+        "query:*IDN?",
+        "write:OUTP OFF,(@1)",
+        "query:OUTP? (@1)",
+        "write:OUTP OFF,(@2)",
+        "query:OUTP? (@2)",
+        "write:OUTP OFF,(@3)",
+        "query:OUTP? (@3)",
+    ]
     assert payload["data"]["outputs"] == [
         {"channel": 1, "enabled": False},
         {"channel": 2, "enabled": False},

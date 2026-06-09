@@ -9,7 +9,12 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from keysight_power.cli_io import emit_json_error, emit_json_success
+from keysight_power.cli_io import (
+    JsonSaveError,
+    emit_json_error,
+    emit_json_success,
+    set_json_save_path,
+)
 from keysight_power.connection import DEFAULT_TIMEOUT_MS, list_resources, open_resource
 from keysight_power.drivers.generic_scpi import GenericScpiPowerSupply
 from keysight_power.drivers.e36312a import E36312APowerSupply
@@ -51,6 +56,7 @@ COMMAND_NAMES = frozenset(
         "output-state",
         "cycle-output",
         "apply",
+        "smoke-output",
         "trigger-pulse",
         "status",
         "readback",
@@ -413,6 +419,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     apply_parser.set_defaults(func=_run_output_plan)
 
+    smoke_output_parser = subparsers.add_parser(
+        "smoke-output",
+        help="Run a guarded E36312A single-channel output smoke sequence.",
+    )
+    _add_output_resource_arguments(smoke_output_parser)
+    smoke_output_parser.add_argument(
+        "--channel",
+        required=True,
+        type=_e36312a_channel,
+        help="E36312A output channel: 1, 2, or 3.",
+    )
+    smoke_output_parser.add_argument("--voltage", required=True, type=float, help="Voltage setpoint.")
+    smoke_output_parser.add_argument("--current", required=True, type=float, help="Current limit.")
+    _add_json_argument(smoke_output_parser)
+    _add_simulate_argument(smoke_output_parser)
+    _add_dry_run_argument(smoke_output_parser)
+    _add_duration_argument(smoke_output_parser)
+    _add_safety_config_argument(smoke_output_parser)
+    _add_backend_argument(smoke_output_parser)
+    _add_timeout_argument(smoke_output_parser)
+    smoke_output_parser.add_argument(
+        "--log-scpi",
+        action="store_true",
+        help="Print SCPI commands and responses used for smoke output.",
+    )
+    smoke_output_parser.set_defaults(func=_run_output_plan)
+
     trigger_pulse_parser = subparsers.add_parser(
         "trigger-pulse",
         help="Configure a trigger output pin and emit a BUS trigger pulse.",
@@ -633,7 +666,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _exit_code(exc)
     finally:
         JsonCliArgumentParser.active_argv = ()
-    return int(args.func(args))
+    if getattr(args, "save_json", None) is not None and not args.json:
+        emit_json_error(
+            command=args.command,
+            execution=_execution_for_args(args, hardware_intent=False),
+            request=_request_for_args(args),
+            error_type="validation",
+            code="argument_error",
+            message="--save-json requires --json",
+            retryable=False,
+        )
+        return 2
+    set_json_save_path(getattr(args, "save_json", None))
+    try:
+        return int(args.func(args))
+    except JsonSaveError as exc:
+        set_json_save_path(None)
+        emit_json_error(
+            command=args.command,
+            execution=_execution_for_args(args, hardware_intent=False),
+            request=_request_for_args(args),
+            error_type="connection",
+            code="json_save_failed",
+            message=f"Could not save JSON: {exc}",
+            retryable=False,
+        )
+        return 1
+    finally:
+        set_json_save_path(None)
 
 
 def _add_backend_argument(parser: argparse.ArgumentParser) -> None:
@@ -654,6 +714,10 @@ def _add_json_argument(parser: argparse.ArgumentParser) -> None:
         "--json",
         action="store_true",
         help="Print machine-readable JSON to stdout.",
+    )
+    parser.add_argument(
+        "--save-json",
+        help="Write the same JSON envelope to a UTF-8 file. Requires --json.",
     )
 
 
@@ -1764,6 +1828,7 @@ def _run_output_plan(args: argparse.Namespace) -> int:
             "output-state": _run_output_state_real,
             "cycle-output": _run_cycle_output_real,
             "apply": _run_apply_real,
+            "smoke-output": _run_smoke_output_real,
         }
         handler = real_handlers.get(args.command)
         if handler is not None:
@@ -2301,6 +2366,14 @@ class _ApplyModelError(ValueError):
 
 class _ApplyChannelError(ValueError):
     """Raised when apply channel is outside E36312A capability (1,2,3)."""
+
+
+class _SmokeOutputModelError(ValueError):
+    """Raised when smoke-output is attempted on a non-E36312A model."""
+
+
+class _SmokeOutputChannelError(ValueError):
+    """Raised when smoke-output channel is outside E36312A capability (1,2,3)."""
 
 
 class _SetModelError(ValueError):
@@ -2996,7 +3069,12 @@ def _run_safe_off_real(args: argparse.Namespace) -> int:
                 outputs = []
                 for channel in (1, 2, 3):
                     power_supply.output_off(channel=channel)
-                    outputs.append({"channel": channel, "enabled": False})
+                    outputs.append(
+                        {
+                            "channel": channel,
+                            "enabled": power_supply.output_state(channel=channel),
+                        }
+                    )
             else:
                 if args.channel not in power_supply.capabilities.channels:
                     raise _SafeOffChannelError(
@@ -3004,7 +3082,12 @@ def _run_safe_off_real(args: argparse.Namespace) -> int:
                         f"supported: {power_supply.capabilities.channels}"
                     )
                 power_supply.output_off(channel=args.channel)
-                outputs = [{"channel": args.channel, "enabled": False}]
+                outputs = [
+                    {
+                        "channel": args.channel,
+                        "enabled": power_supply.output_state(channel=args.channel),
+                    }
+                ]
     except _SafeOffModelError as exc:
         return _emit_cli_error(
             args,
@@ -3055,7 +3138,118 @@ def _run_safe_off_real(args: argparse.Namespace) -> int:
     print(f"Resource: {args.resource}")
     print(f"Channel: {args.channel}")
     for output in outputs:
-        print(f"Channel {output['channel']}: Output enabled: False")
+        print(f"Channel {output['channel']}: Output enabled: {output['enabled']}")
+    return 0
+
+
+def _run_smoke_output_real(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    execution = _execution_for_args(args, hardware_intent=True)
+    manager = _resource_manager_for_args(args)
+    backend = getattr(args, "backend", None)
+    timeout_ms = getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS)
+    safe_off_attempted = False
+
+    try:
+        safety_limits = _safety_limits_for_args(args)
+        request = _request_for_args(args)
+        _validate_output_request(args, safety_limits)
+    except (SafetyConfigError, SafetyValidationError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+        )
+
+    opened = False
+    try:
+        with _open_resource(args.resource, manager, backend=backend, timeout_ms=timeout_ms) as instrument:
+            opened = True
+            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
+            idn = session.query(IDN_QUERY)
+            power_supply = create_power_supply(session, idn)
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise _SmokeOutputModelError(
+                    "smoke-output real execution is only supported for E36312A; "
+                    f"found {type(power_supply).__name__} from *IDN? response"
+                )
+            if args.channel not in power_supply.capabilities.channels:
+                raise _SmokeOutputChannelError(
+                    f"channel {args.channel} is not supported for smoke-output; "
+                    f"supported: {power_supply.capabilities.channels}"
+                )
+            output_was_enabled = False
+            try:
+                power_supply.set_current_limit(channel=args.channel, current=args.current)
+                power_supply.set_voltage(channel=args.channel, voltage=args.voltage)
+                power_supply.output_on(channel=args.channel)
+                output_was_enabled = True
+                time.sleep(args.duration_ms / 1000)
+                measurements = {
+                    "voltage": power_supply.measure_voltage(channel=args.channel),
+                    "current": power_supply.measure_current(channel=args.channel),
+                }
+            finally:
+                if output_was_enabled:
+                    safe_off_attempted = True
+                    power_supply.output_off(channel=args.channel)
+            final_enabled = power_supply.output_state(channel=args.channel)
+    except _SmokeOutputModelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_model_for_smoke_output",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except _SmokeOutputChannelError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except VisaConnectionError as exc:
+        code = "smoke_output_failed" if opened else "connection_failed"
+        message = (
+            f"smoke-output failed: {exc}"
+            if opened
+            else f"Could not open resource for smoke-output: {exc}"
+        )
+        return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=message)
+    except ValueError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="smoke_output_failed",
+            message=f"smoke-output failed: {exc}",
+        )
+
+    resource_data = _smoke_output_resource_payload(
+        args,
+        idn,
+        measurements=measurements,
+        final_enabled=final_enabled,
+        safe_off_attempted=safe_off_attempted,
+    )
+    if args.json:
+        emit_json_success(command=args.command, execution=execution, request=request, data=resource_data)
+        return 0
+
+    print(f"Resource: {args.resource}")
+    print(f"Channel: {args.channel}")
+    print(f"Measured voltage: {_format_text_value(measurements['voltage'])} V")
+    print(f"Measured current: {_format_text_value(measurements['current'])} A")
+    print(f"Final output enabled: {final_enabled}")
     return 0
 
 
@@ -3149,6 +3343,38 @@ def _cycle_output_resource_payload(
             "cycled": True,
             "final_enabled": False,
         },
+    }
+
+
+def _smoke_output_resource_payload(
+    args: argparse.Namespace,
+    idn_raw: str,
+    *,
+    measurements: dict[str, float],
+    final_enabled: bool,
+    safe_off_attempted: bool,
+) -> dict[str, Any]:
+    return {
+        "resource": _resource_payload(
+            args.resource,
+            simulated=args.simulate,
+            reachable=True,
+            idn_raw=idn_raw,
+        ),
+        "channel": args.channel,
+        "duration_ms": args.duration_ms,
+        "setpoints": {
+            "current": _json_safe_number(args.current),
+            "voltage": _json_safe_number(args.voltage),
+        },
+        "measurements": {
+            "voltage": _json_safe_number(measurements["voltage"]),
+            "current": _json_safe_number(measurements["current"]),
+        },
+        "output": {
+            "final_enabled": final_enabled,
+        },
+        "safe_off_attempted": safe_off_attempted,
     }
 
 
@@ -3370,6 +3596,18 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
+    if args.command == "smoke-output":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": args.channel,
+            "voltage": _json_safe_number(args.voltage),
+            "current": _json_safe_number(args.current),
+            "duration_ms": args.duration_ms,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+        }
     if args.command == "trigger-pulse":
         return {
             "resource": args.resource,
@@ -3552,6 +3790,18 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "voltage": _number_from_argv(argv, "--voltage"),
             "current": _number_from_argv(argv, "--current"),
             "no_output": "--no-output" in argv,
+            "safety_config": _option_value(argv, "--safety-config"),
+            "backend": _option_value(argv, "--backend"),
+            "timeout_ms": _timeout_from_argv(argv),
+        }
+    if command == "smoke-output":
+        return {
+            "resource": _option_value(argv, "--resource"),
+            "resource_alias": _option_value(argv, "--resource-alias"),
+            "channel": _channel_from_argv(argv),
+            "voltage": _number_from_argv(argv, "--voltage"),
+            "current": _number_from_argv(argv, "--current"),
+            "duration_ms": _duration_from_argv(argv),
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
@@ -3803,6 +4053,13 @@ def _apply_channel(value: str) -> int | str:
     return _positive_channel(value)
 
 
+def _e36312a_channel(value: str) -> int:
+    channel = _positive_channel(value)
+    if channel not in (1, 2, 3):
+        raise argparse.ArgumentTypeError("channel must be 1, 2, or 3")
+    return channel
+
+
 def _trigger_pin(value: str) -> int:
     pin = _positive_channel(value)
     if pin not in (1, 2, 3):
@@ -3830,7 +4087,7 @@ def _validate_output_request(
     args: argparse.Namespace,
     safety_limits: SafetyLimits | None,
 ) -> None:
-    if args.command in {"set", "apply"}:
+    if args.command in {"set", "apply", "smoke-output"}:
         channels = (1, 2, 3) if args.channel == "all" else (args.channel,)
         for channel in channels:
             validate_setpoint(
@@ -3965,6 +4222,27 @@ def _output_plan_for_args(args: argparse.Namespace) -> dict[str, Any]:
                 steps.append(_driver_step(index, "output_on", channel=selected_channel))
                 index += 1
         plan["steps"] = steps
+    elif args.command == "smoke-output":
+        plan["steps"] = [
+            _driver_step(
+                1,
+                "set_current_limit",
+                channel=channel,
+                current=_json_safe_number(args.current),
+            ),
+            _driver_step(
+                2,
+                "set_voltage",
+                channel=channel,
+                voltage=_json_safe_number(args.voltage),
+            ),
+            _driver_step(3, "output_on", channel=channel),
+            _driver_step(4, "sleep", duration_ms=args.duration_ms),
+            _driver_step(5, "measure_voltage", channel=channel),
+            _driver_step(6, "measure_current", channel=channel),
+            _driver_step(7, "output_off", channel=channel),
+            _driver_step(8, "output_state", channel=channel),
+        ]
     else:  # pragma: no cover - parser dispatch keeps this unreachable
         raise ValueError(f"Unsupported output command {args.command!r}")
 
@@ -3989,6 +4267,7 @@ def _output_plan_description(command: str) -> str:
         "output-state": "Preview reading the selected output channel state.",
         "cycle-output": "Preview briefly enabling then disabling the selected output channel.",
         "apply": "Preview setting current, voltage, then enabling output.",
+        "smoke-output": "Preview a guarded set, output, measure, and safe-off sequence.",
     }
     return descriptions[command]
 
