@@ -460,18 +460,18 @@ async function startLivePreviewSnapshot(healthState, resource = null) {
       if (handledFirstSample) return;
       handledFirstSample = true;
       renderLivePanel(JSON.parse(event.data).data);
-      setLiveState("Not monitoring");
       stopLivePreviewSnapshot();
     });
     state.previewEvents.addEventListener("failed", (event) => {
       const error = JSON.parse(event.data).data?.error || "Snapshot preview failed.";
       renderBlankLivePanel("error", error);
-      setLiveState("Not monitoring");
+      setLiveState(liveStateText("error", Date.now() / 1000, error));
       stopLivePreviewSnapshot();
     });
   } catch (error) {
-    renderBlankLivePanel("error", error.message || String(error));
-    setLiveState("Not monitoring");
+    const message = error.message || String(error);
+    renderBlankLivePanel("error", message);
+    setLiveState(liveStateText("error", Date.now() / 1000, message));
   }
 }
 
@@ -500,8 +500,7 @@ function renderLivePanel(data) {
   state.samples.push({ timestamp: next.timestamp, data: next });
   state.samples = state.samples.slice(-60);
 
-  const lastUpdate = next.timestamp ? new Date(next.timestamp * 1000).toLocaleTimeString() : "never";
-  setLiveState(`${next.status}${next.stale ? " stale" : ""} - last update ${lastUpdate}${next.message ? ` - ${next.message}` : ""}`);
+  setLiveState(liveStateText(next.status, next.timestamp, next.message, next.stale));
 
   next.channels.forEach((channel) => renderChannelCard(channel, next));
   drawTrend();
@@ -509,6 +508,11 @@ function renderLivePanel(data) {
 
 function setLiveState(text) {
   document.getElementById("live-state").textContent = text;
+}
+
+function liveStateText(status, timestamp, message = "", stale = false) {
+  const lastUpdate = timestamp ? new Date(timestamp * 1000).toLocaleTimeString() : "never";
+  return `${status}${stale ? " stale" : ""} - last update ${lastUpdate}${message ? ` - ${message}` : ""}`;
 }
 
 function renderBlankLivePanel(status = "ok", message = "") {

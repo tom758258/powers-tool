@@ -116,6 +116,10 @@ def test_static_finished_real_command_refreshes_live_snapshot():
     assert "!state.liveEvents" in refresh_guard
     assert "async function startLivePreviewSnapshot(healthState, resource = null)" in app_js
     assert "if (resource) payload.runtime.resource = resource;" in preview
+    assert "renderLivePanel(JSON.parse(event.data).data);\n      setLiveState(\"Not monitoring\");" not in preview
+    assert "renderBlankLivePanel(\"error\", error);\n      setLiveState(\"Not monitoring\");" not in preview
+    assert "renderBlankLivePanel(\"error\", message);\n    setLiveState(\"Not monitoring\");" not in preview
+    assert "setLiveState(liveStateText(\"error\", Date.now() / 1000, error));" in preview
 
 
 def test_static_live_data_uses_three_channel_panel_contract():
