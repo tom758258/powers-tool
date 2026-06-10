@@ -29,6 +29,7 @@ Instrument/domain commands include:
 - `safe-off`
 - `cycle-output`
 - `ramp`
+- `ramp-list`
 - `smoke-output`
 - `protection-set`
 - `clear-protection`
@@ -122,4 +123,6 @@ Selected data mappings:
   selected channels, true per-channel protection flags, and output state.
 - `snapshot`: errors, outputs, readback, measurements, and protection settings.
 - `sequence`: lint/plan/execution status, step results, and stop/failure details.
+- `ramp-list`: version, segment count, completed segment count, ordered segment
+  plans/results, and failed segment details when execution stops or fails.
 - `restore-from-snapshot`: restored channels and restore plan.

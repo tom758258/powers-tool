@@ -18,7 +18,7 @@ WEBUI_COMMAND_NAMES = {
     "verify", "clear", "error", "capabilities", "safety inspect",
     "readback", "identify",
     "set", "apply", "output-on", "output-off", "safe-off", "cycle-output",
-    "ramp", "smoke-output", "protection-set", "clear-protection", "trigger-pulse",
+    "ramp", "ramp-list", "smoke-output", "protection-set", "clear-protection", "trigger-pulse",
     "trigger-status", "trigger-step", "trigger-list", "trigger-fire", "trigger-abort",
     "sequence", "snapshot", "restore-from-snapshot",
 }
@@ -265,6 +265,44 @@ def test_result_panel_is_light_and_collapsible():
     assert ".result-panel.collapsed pre { display: none; }" in styles_css
 
 
+def test_job_result_is_expanded_collapsible_and_clearable():
+    index_html, app_js, styles_css = read_static_texts()
+
+    assert 'id="job-result-panel" class="job-result-panel"' in index_html
+    assert 'id="job-result-clear"' in index_html
+    assert 'id="job-result-toggle"' in index_html
+    assert 'aria-expanded="true"' in index_html
+    assert "jobResultCollapsed: false" in app_js
+    assert 'document.getElementById("job-result-toggle").addEventListener("click", toggleJobResultPanel);' in app_js
+    assert 'document.getElementById("job-result-clear").addEventListener("click", clearJobResults);' in app_js
+    clear_block = app_js[app_js.index("function clearJobResults()"):app_js.index("async function startLive")]
+    assert "state.jobs = [];" in clear_block
+    assert 'document.getElementById("result").textContent' not in clear_block
+    assert ".job-result-panel.collapsed .history { display: none; }" in styles_css
+
+
+def test_static_ramp_list_editor_contract():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    assert '"ramp-list": []' in app_js
+    for label in ("Load Ramp List", "Save Ramp List", "Add Ramp Segment"):
+        assert label in app_js
+    for field in ("channel", "current", "start_voltage", "stop_voltage", "step_voltage", "delay_ms", "hold_ms"):
+        assert f'name: "{field}"' in app_js
+    assert "state.rampListSegments.length >= 10" in app_js
+    assert "if (state.rampListSegments.length <= 1) return;" in app_js
+    assert "start_voltage: previous.stop_voltage" in app_js
+    assert "stop_voltage: previous.stop_voltage" in app_js
+    assert 'kind: "keysight-power-ramp-list"' in app_js
+    assert "window.showOpenFilePicker" in app_js
+    assert "window.showSaveFilePicker" in app_js
+    assert "const segments = validateRampListDocument(JSON.parse(text));" in app_js
+    assert "state.rampListSegments = segments;" in app_js
+    assert 'if (state.selected === "ramp-list") return { document: rampListDocument() };' in app_js
+    assert 'command === "ramp-list"' in app_js
+    assert ".ramp-segment-card" in styles_css
+
+
 def test_static_job_result_summary_helpers_exist():
     _index_html, app_js, styles_css = read_static_texts()
 
@@ -341,7 +379,7 @@ def test_static_trip_guard_and_clear_protection_recovery_contract():
     clear_block = extract_param_block(app_js, "clear-protection")
     assert_param_contract(clear_block, "channel", "select", ["", "all", "1", "2", "3"])
     assert 'value: ""' in clear_block
-    assert 'const TRIP_GUARDED_COMMANDS = new Set(["output-on", "cycle-output", "ramp", "smoke-output", "apply"]);' in app_js
+    assert 'const TRIP_GUARDED_COMMANDS = new Set(["output-on", "cycle-output", "ramp", "ramp-list", "smoke-output", "apply"]);' in app_js
     assert 'if (command === "apply" && parameters.no_output === true) return "";' in app_js
     assert "if (!panel || panel.stale || !resource || panel.resource !== resource) return [];" in app_js
     assert 'selectCommand("clear-protection");' in app_js
@@ -533,6 +571,7 @@ def test_commands_metadata(client: TestClient):
     assert cmds["output-off"]["requires_confirm"] is True
     assert cmds["smoke-output"]["requires_confirm"] is True
     assert "smoke-output" in data["output_affecting_commands"]
+    assert "ramp-list" in data["output_affecting_commands"]
 
 
 def test_commands_metadata_includes_model_aware_support(client: TestClient):
@@ -923,6 +962,44 @@ def test_sequence_lint_dry_run(client: TestClient):
     job_data = client.get(f"/api/jobs/{job_id}").json()
     assert job_data["status"] == "finished"
     assert job_data["result"]["status"] == "valid"
+
+
+def test_ramp_list_lint_dry_run(client: TestClient):
+    payload = {
+        "command": "ramp-list",
+        "runtime": {"simulate": True, "dry_run": True},
+        "parameters": {
+            "lint": True,
+            "document": {
+                "kind": "keysight-power-ramp-list",
+                "version": 1,
+                "segments": [
+                    {
+                        "channel": 1,
+                        "current": 0.1,
+                        "start_voltage": 0,
+                        "stop_voltage": 1,
+                        "step_voltage": 0.5,
+                        "delay_ms": 100,
+                        "hold_ms": 0,
+                    }
+                ],
+            },
+        },
+    }
+
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+    job_id = response.json()["job_id"]
+    for _ in range(20):
+        job_data = client.get(f"/api/jobs/{job_id}").json()
+        if job_data["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.1)
+
+    assert job_data["status"] == "finished"
+    assert job_data["result"]["status"] == "valid"
+    assert job_data["result"]["segment_count"] == 1
 
 
 def test_sse_event_order(client: TestClient):

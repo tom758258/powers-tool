@@ -9,6 +9,7 @@ from keysight_power_core.discovery import run_discovery
 from keysight_power_core.instrument_io import run_instrument_io
 from keysight_power_core.operations import run_operation
 from keysight_power_core.protection import run_protection
+from keysight_power_core.ramp_list import run_ramp_list
 from keysight_power_core.readonly import run_readonly
 from keysight_power_core.restore import run_restore
 from keysight_power_core.sequence import run_sequence
@@ -39,6 +40,11 @@ def run_core_command(
         if opener is not None:
             kwargs["opener"] = opener
         return run_sequence(request, **kwargs)
+    if command == "ramp-list":
+        kwargs = {"stop_requested": stop_requested, "scpi_logger": scpi_logger}
+        if opener is not None:
+            kwargs["opener"] = opener
+        return run_ramp_list(request, **kwargs)
     if isinstance(request, TriggerRequest) or command.startswith("trigger-"):
         kwargs = {"stop_requested": stop_requested, "scpi_logger": scpi_logger}
         if opener is not None:

@@ -93,8 +93,14 @@
     </div>
 
     <!-- 4. Job Result -->
-    <section id="job-result-panel">
-      <div class="section-head"><strong>Job Result</strong></div>
+    <section id="job-result-panel" class="job-result-panel">
+      <div class="section-head">
+        <strong>Job Result</strong>
+        <div class="button-row">
+          <button id="job-result-clear" class="secondary" type="button">Clear</button>
+          <button id="job-result-toggle" class="secondary icon-button" type="button" aria-label="Collapse job result" aria-expanded="true">-</button>
+        </div>
+      </div>
       <div id="job-history" class="history"></div>
     </section>
 

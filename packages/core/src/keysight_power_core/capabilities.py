@@ -26,6 +26,7 @@ OUTPUT_COMMANDS = frozenset(
         "cycle-output",
         "apply",
         "ramp",
+        "ramp-list",
         "smoke-output",
     }
 )
@@ -125,6 +126,7 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
                 "output-on",
                 "cycle-output",
                 "apply",
+                "ramp-list",
                 "smoke-output",
                 "protection-set",
                 "clear-protection",
@@ -203,6 +205,6 @@ def capabilities_static_groups() -> dict[str, list[str]]:
 
     return {
         "read_only_commands": ["identify", "measure", "output-state", "readback", "read-status", "log", "sequence"],
-        "output_commands": ["set", "output-on", "output-off", "safe-off", "cycle-output", "apply", "ramp", "smoke-output"],
+        "output_commands": ["set", "output-on", "output-off", "safe-off", "cycle-output", "apply", "ramp", "ramp-list", "smoke-output"],
         "e36312a_only_commands": list(E36312A_ONLY_COMMANDS),
     }

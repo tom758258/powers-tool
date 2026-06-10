@@ -9,7 +9,9 @@ from keysight_power_core import capabilities as core_capabilities
 from keysight_power_core.command_runner import run_core_command
 from keysight_power_core.connection import open_resource
 from keysight_power_core.core import (
+    CommandCancelled,
     ConfirmationRequiredError,
+    CoreExecutionError,
     CoreValidationError,
     OperationRequest,
     RuntimeOptions,
@@ -33,6 +35,7 @@ MUTATING_COMMANDS = {
     "safe-off",
     "cycle-output",
     "ramp",
+    "ramp-list",
     "smoke-output",
     "sequence",
     "protection-set",
@@ -66,6 +69,7 @@ SHARED_CORE_COMMANDS = {
     "output-state",
     "cycle-output",
     "ramp",
+    "ramp-list",
     "smoke-output",
     "protection-status",
     "protection-set",
@@ -130,7 +134,14 @@ def execute_job_command(job: Job) -> dict[str, Any]:
     kwargs: dict[str, Any] = {"stop_requested": lambda: job.cancel_requested}
     if "cleanup_reporter" in inspect.signature(run_core_command).parameters:
         kwargs["cleanup_reporter"] = report_cleanup
-    return run_core_command(request, **kwargs)
+    result = run_core_command(request, **kwargs)
+    if command == "ramp-list" and result.get("status") == "stopped":
+        failed = result.get("failed_segment") or {}
+        raise CommandCancelled(f"ramp-list stopped at segment {failed.get('index')}")
+    if command == "ramp-list" and result.get("status") == "failed":
+        failed = result.get("failed_segment") or {}
+        raise CoreExecutionError(f"ramp-list segment {failed.get('index')} failed: {failed.get('message', 'segment failed')}")
+    return result
 
 
 def execute_live_readonly(command: str, runtime: RuntimeOptions, parameters: dict[str, Any]) -> dict[str, Any]:

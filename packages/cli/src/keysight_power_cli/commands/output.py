@@ -16,6 +16,7 @@ OUTPUT_COMMANDS = frozenset(
         "cycle-output",
         "apply",
         "ramp",
+        "ramp-list",
         "smoke-output",
     }
 )

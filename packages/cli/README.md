@@ -221,6 +221,17 @@ options. `set`, `apply`, `output-on`, `output-off`, and `ramp` accept
 `--settle-ms` and `--verify-after-write`; verification failures return JSON
 error code `verification_failed` and exit `3`.
 
+`ramp-list` runs 1 to 10 ordered software-setpoint ramp segments through one
+VISA session. It validates the complete versioned JSON document and all
+generated setpoints before the first hardware write. It does not enable or
+disable output, use native LIST, or perform automatic safe-off on failure.
+
+```powershell
+uv run keysight-power ramp-list --lint --json --file example.ramp-list.json
+uv run keysight-power ramp-list --dry-run --json --file example.ramp-list.json --resource "USB0::...::INSTR"
+uv run keysight-power ramp-list --json --resource "USB0::...::INSTR" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
+```
+
 ## Power Worker Daemon
 
 The Keysight Power Supply Worker is a local background service that listens on

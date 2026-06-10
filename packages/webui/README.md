@@ -62,6 +62,10 @@ The static UI is a three-panel dashboard:
 - right panel for live trend canvas, live table, job history, and result JSON.
 
 The frontend keeps one job SSE controller and one live-data SSE controller.
+Ramp List uses a dedicated segment-card editor with versioned JSON Load/Save,
+up to 10 ordered segments, and full-list trip guarding before submission.
+Job Result history is expanded by default and can be collapsed or cleared
+without changing Result Detail.
 Live Data samples include parsed model identity and channel-local OVP/OCP trip
 state. A valid Live Data model can repair the selected resource's command
 support cache; results without a model do not replace an already known model.

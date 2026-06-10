@@ -60,6 +60,7 @@ COMMAND_METADATA = {
     "output-state": {"description": "Check output state", "requires_confirm": False, "category": "output"},
     "cycle-output": {"description": "Cycle output on then off", "requires_confirm": True, "category": "output"},
     "ramp": {"description": "Ramp voltage", "requires_confirm": True, "category": "output"},
+    "ramp-list": {"description": "Run a versioned list of software voltage ramps", "requires_confirm": True, "category": "output"},
     "smoke-output": {"description": "Run guarded output diagnostic", "requires_confirm": True, "category": "discovery"},
     "protection-set": {"description": "Set protection limits", "requires_confirm": True, "category": "output"},
     "clear-protection": {"description": "Clear OVP/OCP protection latches for selected channels", "requires_confirm": True, "category": "discovery"},

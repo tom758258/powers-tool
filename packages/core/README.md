@@ -26,7 +26,7 @@ script from `keysight-power-cli`.
 - `keysight_power_core.drivers`: model-specific driver implementations and
   shared SCPI channel strategies.
 - `keysight_power_core.operations`: output and setpoint operations such as
-  `set`, `apply`, `output-on`, `output-off`, `safe-off`, `ramp`, and
+  `set`, `apply`, `output-on`, `output-off`, `safe-off`, `ramp`, `ramp-list`, and
   readback/snapshot helpers.
 - `keysight_power_core.readonly`: read-only `status`, `readback`,
   `measure-all`, log, and validation flows, including dry-run plans that do
@@ -35,6 +35,8 @@ script from `keysight-power-cli`.
   native LIST-backed ramp support.
 - `keysight_power_core.sequence`: parser-neutral sequence document loading,
   linting, dry-run planning, and execution.
+- `keysight_power_core.ramp_list`: versioned JSON Ramp List loading, full
+  prevalidation, planning, and ordered software-setpoint execution.
 - `keysight_power_core.discovery`, `instrument_io`, `protection`, and
   `snapshot`: adapter-neutral runners for discovery, safe instrument I/O,
   protection, and snapshot commands shared by CLI and WebUI.

@@ -110,6 +110,7 @@ Output/setpoint:
 - `safe-off`
 - `cycle-output`
 - `ramp`
+- `ramp-list`
 - `smoke-output`
 
 Protection/restore/sequencing:
@@ -141,7 +142,13 @@ Command-specific fields match the CLI/core names, including `channel`,
 options, and sequence options. `channel` accepts a positive integer or `"all"`;
 for output commands, `"all"` is supported by `apply`, `safe-off`,
 `output-on`, `output-off`, `output-state`, and `cycle-output`. `set`, `ramp`,
-and `smoke-output` remain single-channel commands.
+and `smoke-output` remain single-channel commands. `ramp-list` accepts `file`
+or `document`; each segment selects one positive integer channel.
+
+Ramp List documents are JSON objects with `kind: "keysight-power-ramp-list"`,
+`version: 1`, and 1 to 10 ordered `segments`. Each segment contains `channel`,
+`current`, `start_voltage`, `stop_voltage`, `step_voltage`, `delay_ms`, and
+`hold_ms`.
 
 ## Safety
 

@@ -12,7 +12,9 @@ const state = {
   previewJobId: null,
   samples: [],
   livePanel: null,
-  resultCollapsed: true
+  resultCollapsed: true,
+  jobResultCollapsed: false,
+  rampListSegments: [defaultRampSegment()]
 };
 
 const COMMAND_CATEGORIES = ["output", "trigger", "artifact", "discovery"];
@@ -22,7 +24,7 @@ const COMMAND_CATEGORY_LABELS = {
   artifact: "Workflows & State",
   discovery: "Advanced Diagnostics"
 };
-const TRIP_GUARDED_COMMANDS = new Set(["output-on", "cycle-output", "ramp", "smoke-output", "apply"]);
+const TRIP_GUARDED_COMMANDS = new Set(["output-on", "cycle-output", "ramp", "ramp-list", "smoke-output", "apply"]);
 const TRIP_WARNING_COMMANDS = new Set([
   "sequence",
   "restore-from-snapshot",
@@ -52,6 +54,7 @@ const PARAMS = {
     { name: "step_voltage", type: "number", label: "Step voltage(V)", value: 0.1 },
     { name: "delay_ms", type: "number", label: "Delay(ms)", value: 0 }
   ],
+  "ramp-list": [],
   "smoke-output": smokeOutputParams(),
   "protection-set": [
     { name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" },
@@ -105,6 +108,18 @@ function smokeOutputParams() {
     { name: "current", type: "number", label: "Current(A)", value: 0.1 },
     { name: "duration_ms", type: "number", label: "Duration(ms)", value: 100 }
   ];
+}
+
+function defaultRampSegment() {
+  return {
+    channel: 1,
+    current: 0.1,
+    start_voltage: 0,
+    stop_voltage: 1,
+    step_voltage: 0.1,
+    delay_ms: 100,
+    hold_ms: 0
+  };
 }
 
 function triggerStepParams() {
@@ -161,6 +176,8 @@ function bind() {
   document.getElementById("live-start").addEventListener("click", startLive);
   document.getElementById("live-stop").addEventListener("click", stopLive);
   document.getElementById("result-toggle").addEventListener("click", toggleResultPanel);
+  document.getElementById("job-result-toggle").addEventListener("click", toggleJobResultPanel);
+  document.getElementById("job-result-clear").addEventListener("click", clearJobResults);
 }
 
 async function refreshHealth() {
@@ -234,6 +251,10 @@ function selectCommand(name) {
 function renderForm(command) {
   const form = document.getElementById("command-form");
   form.innerHTML = "";
+  if (command === "ramp-list") {
+    renderRampListForm(form);
+    return;
+  }
   (PARAMS[command] || []).forEach((param) => {
     const label = document.createElement("label");
     if (param.type === "checkbox") label.classList.add("checkbox-field");
@@ -259,6 +280,226 @@ function renderForm(command) {
     label.appendChild(input);
     form.appendChild(label);
   });
+}
+
+function renderRampListForm(form) {
+  const editor = document.createElement("div");
+  editor.className = "ramp-list-editor";
+  const toolbar = document.createElement("div");
+  toolbar.className = "ramp-list-toolbar";
+  [
+    ["Load Ramp List", loadRampList],
+    ["Save Ramp List", saveRampList],
+    ["Add Ramp Segment", addRampSegment]
+  ].forEach(([text, handler]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    button.disabled = text === "Add Ramp Segment" && state.rampListSegments.length >= 10;
+    button.addEventListener("click", handler);
+    toolbar.appendChild(button);
+  });
+  editor.appendChild(toolbar);
+  state.rampListSegments.forEach((segment, index) => editor.appendChild(rampSegmentCard(segment, index)));
+  form.appendChild(editor);
+}
+
+function rampSegmentCard(segment, index) {
+  const card = document.createElement("div");
+  card.className = "ramp-segment-card";
+  card.dataset.rampSegmentIndex = String(index);
+  const head = document.createElement("div");
+  head.className = "ramp-segment-head";
+  const title = document.createElement("strong");
+  title.textContent = `Ramp Segment ${index + 1}`;
+  const actions = document.createElement("div");
+  actions.className = "ramp-segment-actions";
+  [
+    ["Up", () => moveRampSegment(index, -1), index === 0],
+    ["Down", () => moveRampSegment(index, 1), index === state.rampListSegments.length - 1],
+    ["Remove", () => removeRampSegment(index), state.rampListSegments.length === 1]
+  ].forEach(([text, handler, disabled]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    button.disabled = disabled;
+    button.addEventListener("click", handler);
+    actions.appendChild(button);
+  });
+  head.append(title, actions);
+  card.appendChild(head);
+  const fields = document.createElement("div");
+  fields.className = "ramp-segment-fields";
+  rampSegmentDefinitions().forEach((definition) => {
+    const label = document.createElement("label");
+    label.textContent = definition.label;
+    const input = document.createElement(definition.name === "channel" ? "select" : "input");
+    if (definition.name === "channel") {
+      ["1", "2", "3"].forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        input.appendChild(option);
+      });
+    } else {
+      input.type = "number";
+    }
+    input.value = String(segment[definition.name]);
+    input.dataset.rampField = definition.name;
+    input.addEventListener("input", () => {
+      state.rampListSegments[index][definition.name] = Number(input.value);
+      updateSelectedCommandState();
+    });
+    label.appendChild(input);
+    fields.appendChild(label);
+  });
+  card.appendChild(fields);
+  return card;
+}
+
+function rampSegmentDefinitions() {
+  return [
+    { name: "channel", label: "Channel" },
+    { name: "current", label: "Current(A)" },
+    { name: "start_voltage", label: "Start voltage(V)" },
+    { name: "stop_voltage", label: "Stop voltage(V)" },
+    { name: "step_voltage", label: "Step voltage(V)" },
+    { name: "delay_ms", label: "Delay(ms)" },
+    { name: "hold_ms", label: "Hold(ms)" }
+  ];
+}
+
+function addRampSegment() {
+  if (state.rampListSegments.length >= 10) return;
+  const previous = state.rampListSegments[state.rampListSegments.length - 1];
+  state.rampListSegments.push({
+    channel: previous.channel,
+    current: previous.current,
+    start_voltage: previous.stop_voltage,
+    stop_voltage: previous.stop_voltage,
+    step_voltage: previous.step_voltage,
+    delay_ms: previous.delay_ms,
+    hold_ms: previous.hold_ms
+  });
+  renderForm("ramp-list");
+  updateSelectedCommandState();
+}
+
+function removeRampSegment(index) {
+  if (state.rampListSegments.length <= 1) return;
+  state.rampListSegments.splice(index, 1);
+  renderForm("ramp-list");
+  updateSelectedCommandState();
+}
+
+function moveRampSegment(index, offset) {
+  const target = index + offset;
+  if (target < 0 || target >= state.rampListSegments.length) return;
+  [state.rampListSegments[index], state.rampListSegments[target]] = [state.rampListSegments[target], state.rampListSegments[index]];
+  renderForm("ramp-list");
+  updateSelectedCommandState();
+}
+
+function rampListDocument() {
+  return {
+    kind: "keysight-power-ramp-list",
+    version: 1,
+    segments: state.rampListSegments.map((segment) => ({ ...segment }))
+  };
+}
+
+function validateRampListDocument(document) {
+  if (!document || document.kind !== "keysight-power-ramp-list" || document.version !== 1) {
+    throw new Error("Invalid Ramp List kind or version.");
+  }
+  if (Object.keys(document).some((field) => !["kind", "version", "segments"].includes(field))) {
+    throw new Error("Ramp List contains unsupported fields.");
+  }
+  if (!Array.isArray(document.segments) || document.segments.length < 1 || document.segments.length > 10) {
+    throw new Error("Ramp List requires 1 to 10 segments.");
+  }
+  const fields = rampSegmentDefinitions().map((item) => item.name);
+  return document.segments.map((segment, index) => {
+    if (!segment || Object.keys(segment).some((field) => !fields.includes(field)) || fields.some((field) => typeof segment[field] !== "number" || !Number.isFinite(segment[field]))) {
+      throw new Error(`Ramp Segment ${index + 1} contains invalid fields.`);
+    }
+    const voltageCount = Math.ceil(Math.abs(segment.stop_voltage - segment.start_voltage) / segment.step_voltage) + 1;
+    if (!Number.isInteger(segment.channel) || segment.channel < 1 || segment.channel > 3
+      || segment.current < 0 || segment.start_voltage < 0 || segment.stop_voltage < 0 || segment.step_voltage <= 0
+      || !Number.isInteger(segment.delay_ms) || !Number.isInteger(segment.hold_ms)
+      || segment.delay_ms < 0 || segment.hold_ms < 0 || voltageCount > 1000) {
+      throw new Error(`Ramp Segment ${index + 1} contains invalid limits.`);
+    }
+    return Object.fromEntries(fields.map((field) => [field, segment[field]]));
+  });
+}
+
+async function loadRampList() {
+  try {
+    let text;
+    if (window.showOpenFilePicker) {
+      const [handle] = await window.showOpenFilePicker({
+        types: [{ description: "Ramp List JSON", accept: { "application/json": [".json"] } }],
+        multiple: false
+      });
+      text = await (await handle.getFile()).text();
+    } else {
+      text = await chooseRampListFile();
+    }
+    const segments = validateRampListDocument(JSON.parse(text));
+    state.rampListSegments = segments;
+    renderForm("ramp-list");
+    updateSelectedCommandState();
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      renderClientResult("ramp-list", "failed", error.message || String(error), { error: "Ramp List load failed", detail: error.message || String(error) });
+    }
+  }
+}
+
+function chooseRampListFile() {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".ramp-list.json,.json,application/json";
+    input.addEventListener("change", async () => {
+      try {
+        if (!input.files?.[0]) throw new Error("No Ramp List file selected.");
+        resolve(await input.files[0].text());
+      } catch (error) {
+        reject(error);
+      }
+    });
+    input.click();
+  });
+}
+
+async function saveRampList() {
+  const documentText = `${JSON.stringify(rampListDocument(), null, 2)}\n`;
+  try {
+    if (window.showSaveFilePicker) {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: "ramp-list.ramp-list.json",
+        types: [{ description: "Ramp List JSON", accept: { "application/json": [".json"] } }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(documentText);
+      await writable.close();
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([documentText], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "ramp-list.ramp-list.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      renderClientResult("ramp-list", "failed", error.message || String(error), { error: "Ramp List save failed", detail: error.message || String(error) });
+    }
+  }
 }
 
 async function scanResources() {
@@ -333,6 +574,7 @@ function runtimePayload() {
 }
 
 function parameterPayload() {
+  if (state.selected === "ramp-list") return { document: rampListDocument() };
   const payload = {};
   (PARAMS[state.selected] || []).forEach((param) => {
     const input = document.getElementById(`param-${param.name}`);
@@ -571,6 +813,21 @@ function toggleResultPanel() {
   button.textContent = state.resultCollapsed ? "+" : "-";
   button.setAttribute("aria-label", state.resultCollapsed ? "Expand result" : "Collapse result");
   button.setAttribute("aria-expanded", String(!state.resultCollapsed));
+}
+
+function toggleJobResultPanel() {
+  state.jobResultCollapsed = !state.jobResultCollapsed;
+  const panel = document.getElementById("job-result-panel");
+  const button = document.getElementById("job-result-toggle");
+  panel.classList.toggle("collapsed", state.jobResultCollapsed);
+  button.textContent = state.jobResultCollapsed ? "+" : "-";
+  button.setAttribute("aria-label", state.jobResultCollapsed ? "Expand job result" : "Collapse job result");
+  button.setAttribute("aria-expanded", String(!state.jobResultCollapsed));
+}
+
+function clearJobResults() {
+  state.jobs = [];
+  renderHistory();
 }
 
 async function startLive() {
@@ -850,7 +1107,12 @@ function tripGuardReason(command, parameters) {
   const tripped = currentTripChannels();
   if (!tripped.length) return "";
   const selected = parameters.channel;
-  const blocked = selected === "all" ? tripped : tripped.filter((channel) => channel === Number(selected));
+  const rampListChannels = command === "ramp-list"
+    ? [...new Set((parameters.document?.segments || []).map((segment) => Number(segment.channel)))]
+    : [];
+  const blocked = command === "ramp-list"
+    ? tripped.filter((channel) => rampListChannels.includes(channel))
+    : selected === "all" ? tripped : tripped.filter((channel) => channel === Number(selected));
   if (!blocked.length) return "";
   return `Protection TRIP active on ${blocked.map((channel) => `CH${channel}`).join(", ")}. Clear protection before running ${command}.`;
 }

@@ -84,7 +84,7 @@ def test_known_capability_commands_include_cli_queryable_commands() -> None:
 def test_capabilities_static_groups_preserve_json_lists() -> None:
     assert capabilities.capabilities_static_groups() == {
         "read_only_commands": ["identify", "measure", "output-state", "readback", "read-status", "log", "sequence"],
-        "output_commands": ["set", "output-on", "output-off", "safe-off", "cycle-output", "apply", "ramp", "smoke-output"],
+        "output_commands": ["set", "output-on", "output-off", "safe-off", "cycle-output", "apply", "ramp", "ramp-list", "smoke-output"],
         "e36312a_only_commands": [
             "measure-all",
             "snapshot",

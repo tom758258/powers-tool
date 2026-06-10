@@ -29,6 +29,7 @@ from keysight_power_core.core import (
     StopCleanupError,
 )
 from keysight_power_core.command_runner import run_core_command
+from keysight_power_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
 from keysight_power_core.sequence import load_sequence_document, sequence_plan
 from keysight_power_core.stop_cleanup import StopCleanupResult
 
@@ -51,6 +52,7 @@ OUTPUT_COMMANDS = {
     "safe-off",
     "cycle-output",
     "ramp",
+    "ramp-list",
     "smoke-output",
 }
 PROTECTION_COMMANDS = {"protection-set", "clear-protection", "restore-from-snapshot", "sequence"}
@@ -195,6 +197,24 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "measure-all always reads all channels and does not accept channel"})
     if command == "sequence" and "file" not in arguments and "document" not in arguments:
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "sequence requires file or document argument"})
+    if command == "ramp-list" and "file" not in arguments and "document" not in arguments:
+        return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "ramp-list requires file or document argument"})
+    if command == "ramp-list":
+        settings = state.config.get("settings", {})
+        validation_request = OperationRequest(
+            command="ramp-list",
+            runtime=RuntimeOptions(
+                resource=settings.get("resource"),
+                resource_alias=settings.get("resource_alias"),
+                safety_config=settings.get("safety_config"),
+                dry_run=True,
+            ),
+            parameters={key: value for key, value in arguments.items() if key not in {"dry_run", "confirm_output"}},
+        )
+        try:
+            ramp_list_plan(validation_request, ramp_list_document_for_request(validation_request))
+        except (CoreValidationError, OSError, ValueError) as exc:
+            return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": str(exc)})
     if command == "restore-from-snapshot" and "snapshot" not in arguments and "document" not in arguments:
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "restore-from-snapshot requires snapshot or document argument"})
     dry_run = bool(arguments.get("dry_run", False))
@@ -552,6 +572,13 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
                 failed_step = result_data.get("failed_step") or {}
                 msg = failed_step.get("message", "step failed")
                 raise ValueError(f"sequence step failed: {msg}")
+        if cmd == "ramp-list":
+            if result_data.get("status") == "stopped":
+                raise KeyboardInterrupt("ramp-list execution interrupted")
+            if result_data.get("status") == "failed":
+                failed_segment = result_data.get("failed_segment") or {}
+                msg = failed_segment.get("message", "segment failed")
+                raise ValueError(f"ramp-list segment {failed_segment.get('index')} failed: {msg}")
 
     except (Exception, KeyboardInterrupt) as exc:
         ok = False
@@ -601,6 +628,8 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
     hardware_touched = False
     if config["mode"] == "live" and not runtime.dry_run:
         if ok:
+            hardware_touched = True
+        elif cmd == "ramp-list" and result_data is not None:
             hardware_touched = True
         elif exc_obj is not None:
             # Touched hardware only if we opened the VISA connection successfully

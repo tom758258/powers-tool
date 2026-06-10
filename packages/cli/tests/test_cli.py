@@ -6379,6 +6379,186 @@ def test_ramp_rejects_more_than_1000_voltage_writes(capsys) -> None:
     assert "1000 voltage steps" in payload["error"]["message"]
 
 
+def test_ramp_list_lint_inline_does_not_open_resource(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("VISA resource should not be opened for ramp-list lint")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "ramp-list",
+                "--lint",
+                "--json",
+                "--segment",
+                "1",
+                "0.1",
+                "0",
+                "1",
+                "0.5",
+                "100",
+                "0",
+                "--segment",
+                "2",
+                "0.05",
+                "1",
+                "2",
+                "0.5",
+                "50",
+                "250",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["status"] == "valid"
+    assert payload["data"]["segment_count"] == 2
+    assert payload["data"]["segments"][1]["hold_ms"] == 250
+
+
+def test_ramp_list_dry_run_file_uses_versioned_document(tmp_path, capsys) -> None:
+    ramp_file = tmp_path / "example.ramp-list.json"
+    ramp_file.write_text(
+        json.dumps(
+            {
+                "kind": "keysight-power-ramp-list",
+                "version": 1,
+                "segments": [
+                    {
+                        "channel": 1,
+                        "current": 0.1,
+                        "start_voltage": 0,
+                        "stop_voltage": 1,
+                        "step_voltage": 0.4,
+                        "delay_ms": 0,
+                        "hold_ms": 0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        cli.main(
+            [
+                "ramp-list",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--file",
+                str(ramp_file),
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["status"] == "planned"
+    assert payload["data"]["plan"]["segments"][0]["voltages"] == [0.0, 0.4, 0.8, 1.0]
+
+
+def test_ramp_list_simulate_inline_does_not_open_resource(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("VISA resource should not be opened for ramp-list simulate")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "ramp-list",
+                "--simulate",
+                "--json",
+                "--segment",
+                "1",
+                "0.1",
+                "0",
+                "1",
+                "0.5",
+                "0",
+                "0",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["data"]["status"] == "planned"
+
+
+def test_ramp_list_file_and_segment_are_mutually_exclusive(tmp_path, capsys) -> None:
+    ramp_file = tmp_path / "example.ramp-list.json"
+    ramp_file.write_text("{}", encoding="utf-8")
+
+    assert (
+        cli.main(
+            [
+                "ramp-list",
+                "--json",
+                "--file",
+                str(ramp_file),
+                "--segment",
+                "1",
+                "0.1",
+                "0",
+                "1",
+                "0.5",
+                "0",
+                "0",
+            ]
+        )
+        == 2
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+
+
+def test_ramp_list_real_executes_segments_in_order(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "ramp-list",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--segment",
+                "1",
+                "0.1",
+                "0",
+                "1",
+                "1",
+                "0",
+                "0",
+                "--segment",
+                "2",
+                "0.05",
+                "2",
+                "1",
+                "1",
+                "0",
+                "0",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["completed_segments"] == 2
+    assert session.writes == [
+        "CURR 0.1,(@1)",
+        "VOLT 0,(@1)",
+        "VOLT 1,(@1)",
+        "CURR 0.05,(@2)",
+        "VOLT 2,(@2)",
+        "VOLT 1,(@2)",
+    ]
+
+
 def _trigger_snapshot_query_responses() -> dict[str, str]:
     return {
         "DIG:PIN1:FUNC?": "TOUT",

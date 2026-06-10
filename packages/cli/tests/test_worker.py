@@ -673,3 +673,115 @@ def test_sequence_stop_wait_interrupt(running_worker):
     assert result_data["ok"] is False
     assert result_data["status"] == "cancelled"
     assert result_data["error"]["code"] == "stopped"
+
+
+def test_worker_ramp_list_requires_document_or_file():
+    config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
+    state = WorkerState(config, 0)
+
+    status, payload = worker_mod._validate_command_body(
+        {"command": "ramp-list", "arguments": {}},
+        state,
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "argument_error"
+
+
+def test_worker_ramp_list_rejects_invalid_document_before_enqueue():
+    config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
+    state = WorkerState(config, 0)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "command": "ramp-list",
+            "arguments": {
+                "document": {
+                    "kind": "keysight-power-ramp-list",
+                    "version": 1,
+                    "segments": [],
+                }
+            },
+        },
+        state,
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "argument_error"
+    assert state.next_job is None
+
+
+def test_worker_live_ramp_list_requires_output_confirmation():
+    config = {
+        "mode": "live",
+        "settings": {"allow_output_writes": True},
+        "id": "test",
+        "artifacts_dir": ".",
+    }
+    state = WorkerState(config, 0)
+    status, payload = worker_mod._validate_command_body(
+        {
+            "command": "ramp-list",
+            "arguments": {
+                "document": {
+                    "kind": "keysight-power-ramp-list",
+                    "version": 1,
+                    "segments": [
+                        {
+                            "channel": 1,
+                            "current": 0.1,
+                            "start_voltage": 0,
+                            "stop_voltage": 1,
+                            "step_voltage": 0.5,
+                            "delay_ms": 0,
+                            "hold_ms": 0,
+                        }
+                    ],
+                }
+            },
+        },
+        state,
+    )
+
+    assert status == 409
+    assert payload["reason"] == "output_confirmation_required"
+
+
+def test_worker_simulate_ramp_list_document(running_worker):
+    port = running_worker["port"]
+    artifacts_dir = running_worker["artifacts_dir"]
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/command",
+        data=json.dumps(
+            {
+                "command": "ramp-list",
+                "arguments": {
+                    "document": {
+                        "kind": "keysight-power-ramp-list",
+                        "version": 1,
+                        "segments": [
+                            {
+                                "channel": 1,
+                                "current": 0.1,
+                                "start_voltage": 0,
+                                "stop_voltage": 1,
+                                "step_voltage": 0.5,
+                                "delay_ms": 0,
+                                "hold_ms": 0,
+                            }
+                        ],
+                    }
+                },
+            }
+        ).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request) as response:
+        worker_job_id = json.loads(response.read().decode("utf-8"))["worker_job_id"]
+
+    result = _wait_for_json_file(artifacts_dir / "jobs" / worker_job_id / "result.json")
+
+    assert result["ok"] is True
+    assert result["command"] == {"name": "ramp-list"}
+    assert result["data"]["status"] == "planned"
+    assert result["data"]["segment_count"] == 1

@@ -24,6 +24,7 @@ import keysight_power_core.discovery as discovery_core
 import keysight_power_core.instrument_io as instrument_io_core
 import keysight_power_core.operations as operations
 import keysight_power_core.protection as protection_core
+import keysight_power_core.ramp_list as ramp_list_core
 import keysight_power_core.restore as restore_core
 import keysight_power_core.sequence as sequence
 import keysight_power_core.snapshot as snapshot_core
@@ -95,6 +96,7 @@ COMMAND_NAMES = frozenset(
         "cycle-output",
         "apply",
         "ramp",
+        "ramp-list",
         "smoke-output",
         "trigger-pulse",
         "trigger-status",
@@ -656,8 +658,10 @@ def build_parser() -> argparse.ArgumentParser:
     log_parser.set_defaults(func=_run_log)
 
     from keysight_power_cli.commands import sequence as sequence_command
+    from keysight_power_cli.commands import ramp_list as ramp_list_command
 
     sequence_command.register_commands(subparsers, sys.modules[__name__])
+    ramp_list_command.register_commands(subparsers, sys.modules[__name__])
 
     doctor_parser = subparsers.add_parser(
         "doctor",
@@ -3759,6 +3763,72 @@ def _run_sequence(args: argparse.Namespace) -> int:
             print(f"Steps: {data['step_count']}")
         else:
             _print_sequence_summary(data)
+    return 0
+
+
+def _run_ramp_list(args: argparse.Namespace) -> int:
+    request = _request_for_args(args)
+    try:
+        _resolve_optional_resource_alias(args)
+        request = _request_for_args(args)
+        core_request = _ramp_list_request_for_args(args)
+        data = ramp_list_core.run_ramp_list(
+            core_request,
+            opener=_core_opener_for_args(args),
+            sleep=time.sleep,
+            scpi_logger=_log_scpi,
+        )
+    except (CoreValidationError, SafetyConfigError, SafetyValidationError, ValueError, OSError) as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=not getattr(args, "lint", False),
+        )
+    except CoreIoError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=_execution_for_args(args, hardware_intent=True),
+            code="ramp_list_failed" if exc.opened else "connection_failed",
+            message=str(exc),
+        )
+
+    if data["status"] in {"failed", "stopped"}:
+        failed = data.get("failed_segment") or {}
+        message = (
+            f"ramp-list stopped at segment {failed.get('index')}"
+            if data["status"] == "stopped"
+            else f"ramp-list segment {failed.get('index')} failed: {failed.get('message', 'segment failed')}"
+        )
+        if args.json:
+            emit_json_error(
+                command=args.command,
+                execution=_execution_for_args(args, hardware_intent=True),
+                request=request,
+                error_type="execution",
+                code="stopped" if data["status"] == "stopped" else "ramp_list_failed",
+                message=message,
+                retryable=True,
+            )
+        else:
+            print(message, file=sys.stderr)
+        return 3
+    if args.json:
+        emit_json_success(
+            command=args.command,
+            execution=_execution_for_args(args, hardware_intent=not args.lint),
+            request=request,
+            data=data,
+        )
+    else:
+        print(f"Status: {data['status']}")
+        print(f"Ramp list version: {data['ramp_list_version']}")
+        print(f"Segments: {data['segment_count']}")
+        print(f"Completed segments: {data['completed_segments']}")
     return 0
 
 
@@ -8312,6 +8382,10 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
         from keysight_power_cli.commands import sequence as sequence_command
 
         return sequence_command.request_for_args(args, sys.modules[__name__])
+    if args.command == "ramp-list":
+        from keysight_power_cli.commands import ramp_list as ramp_list_command
+
+        return ramp_list_command.request_for_args(args, sys.modules[__name__])
     if args.command == "doctor":
         return {
             "resource": getattr(args, "resource", None),
@@ -8699,6 +8773,10 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
         from keysight_power_cli.commands import sequence as sequence_command
 
         return sequence_command.request_from_argv(argv, sys.modules[__name__])
+    if command == "ramp-list":
+        from keysight_power_cli.commands import ramp_list as ramp_list_command
+
+        return ramp_list_command.request_from_argv(argv, sys.modules[__name__])
     if command == "doctor":
         return {
             "resource": _option_value(argv, "--resource"),
@@ -9297,6 +9375,12 @@ def _sequence_request_for_args(args: argparse.Namespace) -> SequenceRequest:
     from keysight_power_cli.commands import sequence as sequence_command
 
     return sequence_command.core_request_for_args(args, sys.modules[__name__])
+
+
+def _ramp_list_request_for_args(args: argparse.Namespace) -> OperationRequest:
+    from keysight_power_cli.commands import ramp_list as ramp_list_command
+
+    return ramp_list_command.core_request_for_args(args, sys.modules[__name__])
 
 
 def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
