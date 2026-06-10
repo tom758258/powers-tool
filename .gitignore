@@ -16,6 +16,7 @@ htmlcov/
 pytest-cache-files-*/
 .tmp_pytest/
 .tmp_pytest_run/
+PATH/
 
 # IDE files
 .vscode/
