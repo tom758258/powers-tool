@@ -106,6 +106,8 @@ def test_e36312a_simulator_supports_protection_and_identity_queries() -> None:
 
     assert session.query("VOLT:PROT:TRIP?") == "0"
     assert session.query("CURR:PROT:TRIP?") == "0"
+    assert session.query("VOLT:PROT:TRIP? (@2)") == "0"
+    assert session.query("CURR:PROT:TRIP? (@2)") == "0"
     assert session.query("*OPT?") == "0"
     assert session.query("SYST:VERS?") == "1999.0"
     assert session.query("SYST:COMM:RLST?") == "RWLock"

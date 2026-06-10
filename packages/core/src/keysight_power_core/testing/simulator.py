@@ -73,8 +73,16 @@ SIMULATED_REMOTE_LOCKOUT = {
 }
 
 SIMULATED_PROTECTION_TRIPS = {
-    "USB0::SIM::E36312A::INSTR": {"voltage": False, "current": False},
-    "USB0::SIM::EDU36311A::INSTR": {"voltage": False, "current": False},
+    "USB0::SIM::E36312A::INSTR": {
+        1: {"voltage": False, "current": False},
+        2: {"voltage": False, "current": False},
+        3: {"voltage": False, "current": False},
+    },
+    "USB0::SIM::EDU36311A::INSTR": {
+        1: {"voltage": False, "current": False},
+        2: {"voltage": False, "current": False},
+        3: {"voltage": False, "current": False},
+    },
 }
 
 SIMULATED_PROTECTION_SETTINGS = {
@@ -297,10 +305,9 @@ class SimulatedResource:
             return SIMULATED_SCPI_VERSION.get(self.resource_name, "1999.0")
         if command == "SYST:COMM:RLST?":
             return SIMULATED_REMOTE_LOCKOUT.get(self.resource_name, "RWLock")
-        if command == "VOLT:PROT:TRIP?":
-            return "1" if SIMULATED_PROTECTION_TRIPS.get(self.resource_name, {}).get("voltage") else "0"
-        if command == "CURR:PROT:TRIP?":
-            return "1" if SIMULATED_PROTECTION_TRIPS.get(self.resource_name, {}).get("current") else "0"
+        protection_trip = _simulated_protection_trip(self.resource_name, command)
+        if protection_trip is not None:
+            return "1" if protection_trip else "0"
         if command == "*OPC?":
             return "1"
         if command == "*ESR?":
@@ -497,6 +504,28 @@ def _simulated_protection_setting(command: str) -> tuple[str, int] | None:
         return ("ocp_delay", _parse_channel_list(command, "CURR:PROT:DEL? (@"))
     if command.startswith("CURR:PROT:DEL:STAR? (@") and command.endswith(")"):
         return ("ocp_delay_trigger", _parse_channel_list(command, "CURR:PROT:DEL:STAR? (@"))
+    return None
+
+
+def _simulated_protection_trip(resource_name: str, command: str) -> bool | None:
+    trip_key = None
+    query = None
+    if command.startswith("VOLT:PROT:TRIP?"):
+        trip_key = "voltage"
+        query = "VOLT:PROT:TRIP?"
+    elif command.startswith("CURR:PROT:TRIP?"):
+        trip_key = "current"
+        query = "CURR:PROT:TRIP?"
+    if trip_key is None or query is None:
+        return None
+
+    channel_trips = SIMULATED_PROTECTION_TRIPS.get(resource_name, {})
+    if command == query:
+        return any(state.get(trip_key, False) for state in channel_trips.values())
+    prefix = f"{query} (@"
+    if command.startswith(prefix) and command.endswith(")"):
+        channel = _parse_channel_list(command, prefix)
+        return bool(channel_trips.get(channel, {}).get(trip_key, False))
     return None
 
 

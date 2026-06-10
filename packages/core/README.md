@@ -115,6 +115,11 @@ Channel-list SCPI, snapshot/readback parsing, protection state handling,
 sequence loading/planning, safety validation, simulator behavior, and
 output-operation planning are covered by no-hardware tests.
 
+E36312A and EDU36311A protection trip reads use channel-list queries. Shared
+Core protection status preserves aggregate flags while calculating them from
+the selected channels, and the WebUI live-panel read returns parsed model
+identity plus channel-local OVP/OCP trip state.
+
 E36312A native trigger/LIST behavior has no-hardware coverage and live USB
 validation for channel 1 trigger-list, arm/fire, trigger-fire, and native
 LIST-backed ramp. EDU36311A STEP trigger commands remain simulator/dry-run

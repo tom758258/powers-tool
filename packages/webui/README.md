@@ -62,6 +62,18 @@ The static UI is a three-panel dashboard:
 - right panel for live trend canvas, live table, job history, and result JSON.
 
 The frontend keeps one job SSE controller and one live-data SSE controller.
+Live Data samples include parsed model identity and channel-local OVP/OCP trip
+state. A valid Live Data model can repair the selected resource's command
+support cache; results without a model do not replace an already known model.
+
+Fresh, explicit channel trip state adds a WebUI soft guard for direct output
+commands targeting that channel. Stale or unknown trip state does not add a
+guard. Safe/off and recovery commands remain available.
+
+Clear Protection is under Advanced Diagnostics and still requires explicit
+confirmation. A tripped channel card can open and prefill the form without
+executing it. Clear Status / Errors is separate and does not clear OVP/OCP
+protection latches.
 
 ## Limits
 

@@ -33,6 +33,13 @@ def run_snapshot(
             )
         channels = power_supply.capabilities.channels
         errors, read_count = _read_errors(power_supply, int(request.parameters.get("max_errors", 20)))
+        protection_by_channel = [
+            {
+                "over_voltage_tripped": power_supply.over_voltage_protection_tripped(channel=channel),
+                "over_current_tripped": power_supply.over_current_protection_tripped(channel=channel),
+            }
+            for channel in channels
+        ]
         return {
             "resource": request.runtime.resource,
             "idn": parse_idn(idn).to_dict(),
@@ -63,8 +70,8 @@ def run_snapshot(
                 for channel in channels
             ],
             "protection": {
-                "over_voltage_tripped": power_supply.over_voltage_protection_tripped(),
-                "over_current_tripped": power_supply.over_current_protection_tripped(),
+                key: any(protection[key] for protection in protection_by_channel)
+                for key in ("over_voltage_tripped", "over_current_tripped")
             },
             "protection_settings": [
                 {

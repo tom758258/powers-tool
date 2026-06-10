@@ -315,6 +315,13 @@ canvas { display: block; width: 100%; height: 180px; background: #fbfcfd; border
 }
 .protection-badge.ok { border-color: #8cc9ad; background: #e9f7f0; color: var(--ok); }
 .protection-badge.trip { border-color: #e5a29a; background: #fdecea; color: var(--danger); }
+.clear-protection-shortcut {
+  width: 100%;
+  background: #fdecea;
+  border-color: #e5a29a;
+  color: var(--danger);
+}
+.clear-protection-shortcut:hover { background: #f9d9d5; }
 .protection-settings {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -46,6 +46,8 @@ command-level facts:
   sources remain dry-run/simulator only until hardware validation.
 - EDU36311A USB-local read-only/output/protection commands are enabled; LAN
   remains read-only pending a separate live pass.
+- E36312A and EDU36311A OVP/OCP trip status is queried per channel. Aggregate
+  `protection-status` flags are the OR of the selected channel results.
 - EDU36311A real trigger commands remain disabled. `capabilities --json`
   reports STEP trigger planning as `hardware_validation=planning_only` and
   native LIST as `not_supported_by_model`.

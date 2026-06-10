@@ -22,6 +22,15 @@ const COMMAND_CATEGORY_LABELS = {
   artifact: "Workflows & State",
   discovery: "Advanced Diagnostics"
 };
+const TRIP_GUARDED_COMMANDS = new Set(["output-on", "cycle-output", "ramp", "smoke-output", "apply"]);
+const TRIP_WARNING_COMMANDS = new Set([
+  "sequence",
+  "restore-from-snapshot",
+  "trigger-pulse",
+  "trigger-step",
+  "trigger-list",
+  "trigger-fire"
+]);
 
 const PARAMS = {
   "list-resources": [{ name: "live_only", type: "checkbox", label: "Live only" }],
@@ -51,7 +60,7 @@ const PARAMS = {
     { name: "ocp_delay", type: "number", label: "OCP delay(s)", optional: true },
     { name: "ocp_delay_trigger", type: "select", label: "OCP delay trigger", options: ["", "setting-change", "cc-transition"], value: "" }
   ],
-  "clear-protection": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
+  "clear-protection": [{ name: "channel", type: "select", label: "Channel", options: ["", "all", "1", "2", "3"], value: "" }],
   "trigger-pulse": [
     { name: "pins", type: "text", label: "Pins", value: "1", parser: "intList" },
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
@@ -215,12 +224,10 @@ function renderCommands() {
 
 function selectCommand(name) {
   state.selected = name;
-  const meta = commandMeta(name);
   document.getElementById("selected-command").textContent = commandDisplayName(name);
-  document.getElementById("command-description").textContent = meta.description || "";
-  document.getElementById("run").disabled = Boolean(meta.disabled);
-  document.getElementById("confirm-banner").classList.toggle("visible", Boolean(meta.requires_confirm));
   renderForm(name);
+  prefillClearProtectionChannel();
+  updateSelectedCommandState();
   renderCommands();
 }
 
@@ -248,6 +255,7 @@ function renderForm(command) {
     }
     input.id = `param-${param.name}`;
     if (param.value !== undefined) input.value = param.value;
+    input.addEventListener("change", updateSelectedCommandState);
     label.appendChild(input);
     form.appendChild(label);
   });
@@ -288,6 +296,16 @@ async function runSelected() {
     runtime: runtimePayload(),
     parameters: parameterPayload()
   };
+  const tripGuard = tripGuardReason(state.selected, payload.parameters);
+  if (tripGuard) {
+    renderClientResult(state.selected, "failed", tripGuard, {
+      error: "Protection trip active",
+      detail: tripGuard,
+      command: state.selected,
+      parameters: payload.parameters
+    });
+    return;
+  }
   if (meta.requires_confirm && !payload.runtime.confirm) {
     renderClientResult(state.selected, "failed", "This command affects real hardware output. Check confirmation before running.", {
       error: "Confirmation required",
@@ -355,6 +373,7 @@ function parseDelimitedNumbers(value, integerOnly) {
 function commandDisplayName(name) {
   if (!name) return "";
   if (name === "capabilities") return "Capabilities";
+  if (name === "clear") return "Clear Status / Errors";
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
@@ -485,17 +504,27 @@ function updateResourceModels(resources) {
     if (!resource || typeof resource === "string") return;
     const name = resource.name;
     if (!name) return;
-    state.resourceModels[name] = supportedModelKey(resource.idn?.model);
+    updateResourceModel(name, resource.idn?.model);
   });
 }
 
 function updateResourceModelFromJob(job) {
-  const resource = job?.result?.resource;
-  if (resource?.name) {
-    state.resourceModels[resource.name] = supportedModelKey(resource.idn?.model);
+  const result = job?.result || {};
+  const resultResource = result.resource;
+  const resourceName = resultResource?.name || (typeof resultResource === "string" ? resultResource : job?.runtime?.resource);
+  const model = resultResource?.idn?.model || result.idn?.model || result.model || result.driver?.model;
+  if (updateResourceModel(resourceName, model)) {
     if (state.selected) selectCommand(state.selected);
     else renderCommands();
   }
+}
+
+function updateResourceModel(resource, model) {
+  if (!resource || typeof model !== "string" || !model.trim()) return false;
+  const next = supportedModelKey(model);
+  if (state.resourceModels[resource] === next) return false;
+  state.resourceModels[resource] = next;
+  return true;
 }
 
 function commandMeta(name) {
@@ -522,7 +551,7 @@ function currentResourceModel() {
 }
 
 function supportedModelKey(model) {
-  const normalized = String(model || "").toUpperCase();
+  const normalized = String(model || "").trim().toUpperCase();
   if (state.commandSupportByModel[normalized]) return normalized;
   return "GENERIC";
 }
@@ -638,21 +667,31 @@ function stopLivePreviewSnapshot() {
 
 function renderLivePanel(data) {
   const previous = state.livePanel;
+  const resource = data.resource || previous?.resource || "";
+  const sameResource = previous?.resource === resource;
   const next = {
     timestamp: data.timestamp || previous?.timestamp || Date.now() / 1000,
-    resource: data.resource || previous?.resource || "",
+    resource,
+    model: data.model || (sameResource ? previous?.model : null),
     stale: Boolean(data.stale),
     status: data.status || "ok",
     message: data.message || data.error || "",
-    channels: mergeLiveChannels(data.channels, previous?.channels, Boolean(data.stale))
+    channels: mergeLiveChannels(
+      data.channels,
+      sameResource ? previous?.channels : [],
+      Boolean(data.stale && sameResource)
+    )
   };
   state.livePanel = next;
   state.samples.push({ timestamp: next.timestamp, data: next });
   state.samples = state.samples.slice(-60);
+  const modelChanged = !next.stale && updateResourceModel(next.resource, next.model);
 
   setLiveState(liveStateText(next.status, next.timestamp, next.message, next.stale));
 
   next.channels.forEach((channel) => renderChannelCard(channel, next));
+  if (modelChanged) renderCommands();
+  if (state.selected) updateSelectedCommandState();
   drawTrend();
 }
 
@@ -669,6 +708,7 @@ function renderBlankLivePanel(status = "ok", message = "") {
   const panel = {
     timestamp: Date.now() / 1000,
     resource: valueOrNull("resource") || "",
+    model: null,
     stale: false,
     status,
     message,
@@ -753,13 +793,73 @@ function renderChannelCard(channel, sample) {
       <div><span>${formatProtectionVoltage(channel.over_voltage_protection_level)}</span><small>OVP</small></div>
       <div><span>${formatProtectionState(channel.over_current_protection_enabled)}</span><small>OCP</small></div>
     </div>
+    ${channel.protection_tripped === true && !sample.stale
+      ? `<button type="button" class="clear-protection-shortcut" data-clear-protection-channel="${channel.channel}">Clear Protection</button>`
+      : ""}
   `;
+  const shortcut = card.querySelector("[data-clear-protection-channel]");
+  if (shortcut) shortcut.addEventListener("click", () => openClearProtection(channel.channel));
 }
 
 function protectionBadge(label, tripped) {
   const stateClass = tripped === true ? "trip" : tripped === false ? "ok" : "unknown";
-  const stateText = tripped === true ? "TRIP" : tripped === false ? "OK" : "--";
+  const stateText = tripped === true ? "TRIP" : tripped === false ? "CLEAR" : "--";
   return `<span class="protection-badge ${stateClass}">${label} ${stateText}</span>`;
+}
+
+function openClearProtection(channel) {
+  state.activeCategory = "discovery";
+  selectCommand("clear-protection");
+  const input = document.getElementById("param-channel");
+  if (input) input.value = String(channel);
+  updateSelectedCommandState();
+}
+
+function prefillClearProtectionChannel() {
+  if (state.selected !== "clear-protection") return;
+  const input = document.getElementById("param-channel");
+  if (!input) return;
+  const channels = currentTripChannels();
+  input.value = channels.length === 1 ? String(channels[0]) : "";
+}
+
+function updateSelectedCommandState() {
+  if (!state.selected) return;
+  const meta = commandMeta(state.selected);
+  const parameters = parameterPayload();
+  const tripGuard = tripGuardReason(state.selected, parameters);
+  const tripWarning = tripContextWarning(state.selected);
+  document.getElementById("command-description").textContent = [meta.description, tripGuard || tripWarning].filter(Boolean).join(" ");
+  document.getElementById("run").disabled = Boolean(meta.disabled || tripGuard);
+  document.getElementById("confirm-banner").classList.toggle("visible", Boolean(meta.requires_confirm));
+}
+
+function currentTripChannels() {
+  const panel = state.livePanel;
+  const resource = valueOrNull("resource");
+  if (!panel || panel.stale || !resource || panel.resource !== resource) return [];
+  return panel.channels
+    .filter((channel) => channel.protection_tripped === true)
+    .map((channel) => Number(channel.channel))
+    .filter((channel) => Number.isInteger(channel));
+}
+
+function tripGuardReason(command, parameters) {
+  if (!TRIP_GUARDED_COMMANDS.has(command)) return "";
+  if (command === "apply" && parameters.no_output === true) return "";
+  const tripped = currentTripChannels();
+  if (!tripped.length) return "";
+  const selected = parameters.channel;
+  const blocked = selected === "all" ? tripped : tripped.filter((channel) => channel === Number(selected));
+  if (!blocked.length) return "";
+  return `Protection TRIP active on ${blocked.map((channel) => `CH${channel}`).join(", ")}. Clear protection before running ${command}.`;
+}
+
+function tripContextWarning(command) {
+  if (!TRIP_WARNING_COMMANDS.has(command)) return "";
+  const tripped = currentTripChannels();
+  if (!tripped.length) return "";
+  return `Warning: protection TRIP active on ${tripped.map((channel) => `CH${channel}`).join(", ")}.`;
 }
 
 function formatProtectionVoltage(value) {

@@ -5556,8 +5556,8 @@ def test_protection_status_real_reads_flags_then_outputs(monkeypatch, capsys) ->
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
         query_responses={
-            "VOLT:PROT:TRIP?": "1",
-            "CURR:PROT:TRIP?": "0",
+            "VOLT:PROT:TRIP? (@2)": "1",
+            "CURR:PROT:TRIP? (@2)": "0",
             "OUTP? (@2)": "OFF",
         },
     )
@@ -5578,7 +5578,7 @@ def test_protection_status_real_reads_flags_then_outputs(monkeypatch, capsys) ->
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert session.queries == ["*IDN?", "VOLT:PROT:TRIP?", "CURR:PROT:TRIP?", "OUTP? (@2)"]
+    assert session.queries == ["*IDN?", "VOLT:PROT:TRIP? (@2)", "CURR:PROT:TRIP? (@2)", "OUTP? (@2)"]
     assert payload["data"]["protection"] == {
         "over_voltage_tripped": True,
         "over_current_tripped": False,
@@ -5592,8 +5592,12 @@ def test_protection_status_real_edu36311a_includes_by_channel(monkeypatch, capsy
     session = FakeSession(
         idn="KEYSIGHT,EDU36311A,SERIAL0000,1.0",
         query_responses={
-            "VOLT:PROT:TRIP?": "0",
-            "CURR:PROT:TRIP?": "1",
+            "VOLT:PROT:TRIP? (@1)": "0",
+            "CURR:PROT:TRIP? (@1)": "1",
+            "VOLT:PROT:TRIP? (@2)": "0",
+            "CURR:PROT:TRIP? (@2)": "0",
+            "VOLT:PROT:TRIP? (@3)": "1",
+            "CURR:PROT:TRIP? (@3)": "0",
             "OUTP? (@1)": "OFF",
             "OUTP? (@2)": "ON",
             "OUTP? (@3)": "OFF",
@@ -5617,14 +5621,18 @@ def test_protection_status_real_edu36311a_includes_by_channel(monkeypatch, capsy
     payload = json.loads(capsys.readouterr().out)
     assert session.queries == [
         "*IDN?",
-        "VOLT:PROT:TRIP?",
-        "CURR:PROT:TRIP?",
+        "VOLT:PROT:TRIP? (@1)",
+        "CURR:PROT:TRIP? (@1)",
+        "VOLT:PROT:TRIP? (@2)",
+        "CURR:PROT:TRIP? (@2)",
+        "VOLT:PROT:TRIP? (@3)",
+        "CURR:PROT:TRIP? (@3)",
         "OUTP? (@1)",
         "OUTP? (@2)",
         "OUTP? (@3)",
     ]
     assert payload["data"]["protection"] == {
-        "over_voltage_tripped": False,
+        "over_voltage_tripped": True,
         "over_current_tripped": True,
     }
     assert payload["data"]["protection_by_channel"] == [
@@ -5639,14 +5647,14 @@ def test_protection_status_real_edu36311a_includes_by_channel(monkeypatch, capsy
             "channel": 2,
             "protection": {
                 "over_voltage_tripped": False,
-                "over_current_tripped": True,
+                "over_current_tripped": False,
             },
         },
         {
             "channel": 3,
             "protection": {
-                "over_voltage_tripped": False,
-                "over_current_tripped": True,
+                "over_voltage_tripped": True,
+                "over_current_tripped": False,
             },
         },
     ]
@@ -6021,8 +6029,12 @@ def test_snapshot_real_reads_full_state(monkeypatch, capsys) -> None:
             "MEAS:CURR? (@2)": "0.22",
             "MEAS:VOLT? (@3)": "3.3",
             "MEAS:CURR? (@3)": "0.33",
-            "VOLT:PROT:TRIP?": "0",
-            "CURR:PROT:TRIP?": "0",
+            "VOLT:PROT:TRIP? (@1)": "0",
+            "CURR:PROT:TRIP? (@1)": "0",
+            "VOLT:PROT:TRIP? (@2)": "0",
+            "CURR:PROT:TRIP? (@2)": "0",
+            "VOLT:PROT:TRIP? (@3)": "0",
+            "CURR:PROT:TRIP? (@3)": "0",
             "VOLT:PROT? (@1)": "5.0",
             "CURR:PROT:STAT? (@1)": "1",
             "CURR:PROT:DEL? (@1)": "0.1",

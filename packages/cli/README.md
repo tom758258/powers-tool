@@ -322,6 +322,10 @@ uv run keysight-power readback --json --resource "USB0::...::INSTR" --log-scpi
 uv run keysight-power protection-status --json --resource "USB0::...::INSTR" --log-scpi
 ```
 
+For E36312A and EDU36311A, `protection-status` reads OVP/OCP trip flags per
+channel. The existing aggregate flags remain available and are calculated as
+the OR of the selected channel results.
+
 Capture and compare E36312A snapshots:
 
 ```powershell

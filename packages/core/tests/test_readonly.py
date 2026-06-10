@@ -84,7 +84,8 @@ def test_live_panel_read_returns_only_panel_fields():
 
     res = run_live_panel_read(req, opener=sim_opener)
 
-    assert set(res) == {"resource", "idn_raw", "channels"}
+    assert set(res) == {"resource", "idn_raw", "idn", "channels"}
+    assert res["idn"]["model"] == "E36312A"
     assert len(res["channels"]) == 3
     assert set(res["channels"][0]) == {
         "channel",
@@ -107,3 +108,20 @@ def test_live_panel_read_returns_only_panel_fields():
     assert "protection_settings" not in res
     assert "errors" not in res
     assert "read_count" not in res
+
+
+def test_live_panel_read_reports_protection_by_channel():
+    from keysight_power_core.testing import simulator
+
+    resource = "USB0::SIM::E36312A::INSTR"
+    runtime = RuntimeOptions(resource=resource, simulate=True)
+    req = OperationRequest(command="live-panel", runtime=runtime)
+
+    def trip_opener(resource_name, manager, backend=None, timeout_ms=5000):
+        simulator.SIMULATED_PROTECTION_TRIPS[resource_name][2]["current"] = True
+        return open_resource(resource_name, manager, backend=backend, timeout_ms=timeout_ms)
+
+    res = run_live_panel_read(req, opener=trip_opener)
+
+    assert [channel["over_current_tripped"] for channel in res["channels"]] == [False, True, False]
+    assert [channel["protection_tripped"] for channel in res["channels"]] == [False, True, False]

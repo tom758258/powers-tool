@@ -50,6 +50,14 @@ class PowerSupply(Protocol):
         """Measure output current for the selected channel."""
         ...
 
+    def over_voltage_protection_tripped(self, *, channel: Channel = None) -> bool:
+        """Return whether over-voltage protection is tripped."""
+        ...
+
+    def over_current_protection_tripped(self, *, channel: Channel = None) -> bool:
+        """Return whether over-current protection is tripped."""
+        ...
+
     def clear_status(self) -> None:
         """Clear instrument status."""
         ...

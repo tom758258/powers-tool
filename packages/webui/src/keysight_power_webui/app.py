@@ -39,7 +39,7 @@ if STATIC_DIR.exists():
 COMMAND_METADATA = {
     "list-resources": {"description": "Discover available VISA resources", "requires_confirm": False, "category": "discovery"},
     "verify": {"description": "Verify connection and basic communication", "requires_confirm": False, "category": "discovery"},
-    "clear": {"description": "Clear instrument error queue", "requires_confirm": False, "category": "discovery"},
+    "clear": {"description": "Clear status and errors; does not clear OVP/OCP protection latches", "requires_confirm": False, "category": "discovery"},
     "error": {"description": "Read instrument error queue", "requires_confirm": False, "category": "discovery"},
     "doctor": {"description": "Run diagnostic checks", "requires_confirm": False, "category": "discovery"},
     "capabilities": {"description": "Get instrument capabilities", "requires_confirm": False, "category": "discovery"},
@@ -62,7 +62,7 @@ COMMAND_METADATA = {
     "ramp": {"description": "Ramp voltage", "requires_confirm": True, "category": "output"},
     "smoke-output": {"description": "Run guarded output diagnostic", "requires_confirm": True, "category": "discovery"},
     "protection-set": {"description": "Set protection limits", "requires_confirm": True, "category": "output"},
-    "clear-protection": {"description": "Clear protection latches", "requires_confirm": True, "category": "output"},
+    "clear-protection": {"description": "Clear OVP/OCP protection latches for selected channels", "requires_confirm": True, "category": "discovery"},
     "trigger-pulse": {"description": "Configure rear trigger output pins and emit a BUS trigger pulse", "requires_confirm": False, "category": "trigger"},
     "trigger-status": {"description": "Read digital pin, trigger source, STEP, and LIST state", "requires_confirm": False, "category": "trigger"},
     "trigger-step": {"description": "Configure a STEP transient trigger and optionally fire it", "requires_confirm": False, "category": "trigger"},
@@ -379,6 +379,7 @@ def _live_panel_sample_from_reading(reading: dict[str, Any], runtime: dict[str, 
     sample = {
         "timestamp": time.time(),
         "resource": reading.get("resource") or runtime.get("resource"),
+        "model": _model_from_reading(reading),
         "stale": not has_panel_records,
         "status": "ok" if has_panel_records else "error",
         "mode": "live",
@@ -431,6 +432,7 @@ def _stale_live_panel_sample(
     return {
         "timestamp": previous.get("timestamp") if previous else time.time(),
         "resource": (previous or {}).get("resource") or runtime.get("resource"),
+        "model": (previous or {}).get("model"),
         "stale": True,
         "status": status,
         "message": message,
@@ -470,6 +472,14 @@ def _records_by_channel(records: Any) -> dict[int, dict[str, Any]]:
             continue
         by_channel[channel] = record
     return by_channel
+
+
+def _model_from_reading(reading: dict[str, Any]) -> str | None:
+    idn = reading.get("idn")
+    model = idn.get("model") if isinstance(idn, dict) else reading.get("model")
+    if not isinstance(model, str) or not model.strip():
+        return None
+    return model.strip()
 
 
 def _protection_fields(record: dict[str, Any]) -> dict[str, bool | float | int | None]:

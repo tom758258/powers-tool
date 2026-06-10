@@ -18,6 +18,7 @@ from keysight_power_core.factory import create_power_supply
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
+from keysight_power_core.models import parse_idn
 from keysight_power_core.testing.simulator import SimulatedResourceManager
 from keysight_power_core.transport import dry_run_plan
 
@@ -165,31 +166,12 @@ def run_live_panel_read(
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
 
-            over_voltage_tripped = power_supply.over_voltage_protection_tripped()
-            over_current_tripped = power_supply.over_current_protection_tripped()
-            protection_tripped = over_voltage_tripped or over_current_tripped
-
             return {
                 "resource": request.runtime.resource,
                 "idn_raw": idn_raw,
+                "idn": parse_idn(idn_raw).to_dict(),
                 "channels": [
-                    {
-                        "channel": channel,
-                        "output_enabled": power_supply.output_state(channel=channel),
-                        "over_voltage_tripped": over_voltage_tripped,
-                        "over_current_tripped": over_current_tripped,
-                        "protection_tripped": protection_tripped,
-                        "over_voltage_protection_level": power_supply.over_voltage_protection_level(channel=channel),
-                        "over_current_protection_enabled": power_supply.over_current_protection_enabled(channel=channel),
-                        "setpoints": {
-                            "voltage": power_supply.programmed_voltage(channel=channel),
-                            "current": power_supply.programmed_current(channel=channel),
-                        },
-                        "measurements": {
-                            "voltage": power_supply.measure_voltage(channel=channel),
-                            "current": power_supply.measure_current(channel=channel),
-                        },
-                    }
+                    _live_channel_payload(power_supply, channel)
                     for channel in power_supply.capabilities.channels
                 ],
             }
@@ -236,32 +218,58 @@ def live_panel_plan(request: OperationRequest) -> dict[str, object]:
         resource=request.runtime.resource,
         scpi=(
             IDN_QUERY,
+            "VOLT:PROT:TRIP? (@1)",
+            "CURR:PROT:TRIP? (@1)",
             "OUTP? (@1)",
+            "VOLT:PROT? (@1)",
+            "CURR:PROT:STAT? (@1)",
             "VOLT? (@1)",
             "CURR? (@1)",
             "MEAS:VOLT? (@1)",
             "MEAS:CURR? (@1)",
-            "VOLT:PROT:TRIP?",
-            "CURR:PROT:TRIP?",
-            "VOLT:PROT? (@1)",
-            "CURR:PROT:STAT? (@1)",
+            "VOLT:PROT:TRIP? (@2)",
+            "CURR:PROT:TRIP? (@2)",
             "OUTP? (@2)",
+            "VOLT:PROT? (@2)",
+            "CURR:PROT:STAT? (@2)",
             "VOLT? (@2)",
             "CURR? (@2)",
             "MEAS:VOLT? (@2)",
             "MEAS:CURR? (@2)",
-            "VOLT:PROT? (@2)",
-            "CURR:PROT:STAT? (@2)",
+            "VOLT:PROT:TRIP? (@3)",
+            "CURR:PROT:TRIP? (@3)",
             "OUTP? (@3)",
+            "VOLT:PROT? (@3)",
+            "CURR:PROT:STAT? (@3)",
             "VOLT? (@3)",
             "CURR? (@3)",
             "MEAS:VOLT? (@3)",
             "MEAS:CURR? (@3)",
-            "VOLT:PROT? (@3)",
-            "CURR:PROT:STAT? (@3)",
         ),
         description="Preview reading WebUI live panel output state, setpoints, measurements, and protection settings.",
     )
+
+
+def _live_channel_payload(power_supply: Any, channel: int) -> dict[str, Any]:
+    over_voltage_tripped = power_supply.over_voltage_protection_tripped(channel=channel)
+    over_current_tripped = power_supply.over_current_protection_tripped(channel=channel)
+    return {
+        "channel": channel,
+        "output_enabled": power_supply.output_state(channel=channel),
+        "over_voltage_tripped": over_voltage_tripped,
+        "over_current_tripped": over_current_tripped,
+        "protection_tripped": over_voltage_tripped or over_current_tripped,
+        "over_voltage_protection_level": power_supply.over_voltage_protection_level(channel=channel),
+        "over_current_protection_enabled": power_supply.over_current_protection_enabled(channel=channel),
+        "setpoints": {
+            "voltage": power_supply.programmed_voltage(channel=channel),
+            "current": power_supply.programmed_current(channel=channel),
+        },
+        "measurements": {
+            "voltage": power_supply.measure_voltage(channel=channel),
+            "current": power_supply.measure_current(channel=channel),
+        },
+    }
 
 
 def _open_readonly_resource(request: OperationRequest, opener: Callable[..., Any]) -> Any:

@@ -157,7 +157,8 @@ def test_static_live_data_uses_three_channel_panel_contract():
     assert 'channel: "all"' not in start_live
     assert 'if (!payload.runtime.resource)' in start_live
     assert 'simulate: true' not in start_live
-    assert 'mergeLiveChannels(data.channels, previous?.channels, Boolean(data.stale))' in app_js
+    assert "sameResource ? previous?.channels : []" in app_js
+    assert "Boolean(data.stale && sameResource)" in app_js
     for field in (
         "output_enabled",
         "measured_voltage",
@@ -326,10 +327,29 @@ def test_static_commands_disable_by_selected_resource_model():
     assert "updateResourceModels(resources);" in app_js
     assert "resource.idn?.model" in app_js
     assert "state.commandSupportByModel?.[model]?.[name]" in app_js
+    assert 'if (!resource || typeof model !== "string" || !model.trim()) return false;' in app_js
+    assert "!next.stale && updateResourceModel(next.resource, next.model)" in app_js
     assert "support.real !== false" in app_js
     assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
-    assert "document.getElementById(\"run\").disabled = Boolean(meta.disabled);" in app_js
+    assert 'document.getElementById("run").disabled = Boolean(meta.disabled || tripGuard);' in app_js
     assert 'error: "Command unavailable"' in app_js
+
+
+def test_static_trip_guard_and_clear_protection_recovery_contract():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    clear_block = extract_param_block(app_js, "clear-protection")
+    assert_param_contract(clear_block, "channel", "select", ["", "all", "1", "2", "3"])
+    assert 'value: ""' in clear_block
+    assert 'const TRIP_GUARDED_COMMANDS = new Set(["output-on", "cycle-output", "ramp", "smoke-output", "apply"]);' in app_js
+    assert 'if (command === "apply" && parameters.no_output === true) return "";' in app_js
+    assert "if (!panel || panel.stale || !resource || panel.resource !== resource) return [];" in app_js
+    assert 'selectCommand("clear-protection");' in app_js
+    assert 'data-clear-protection-channel="${channel.channel}"' in app_js
+    assert 'input.value = channels.length === 1 ? String(channels[0]) : "";' in app_js
+    assert 'const stateText = tripped === true ? "TRIP" : tripped === false ? "CLEAR" : "--";' in app_js
+    assert 'if (name === "clear") return "Clear Status / Errors";' in app_js
+    assert ".clear-protection-shortcut" in styles_css
 
 
 def test_static_channel_confirmation_and_job_detail_contracts():
@@ -498,6 +518,9 @@ def test_commands_metadata(client: TestClient):
     assert cmds["identify"]["category"] == "discovery"
     assert cmds["identify"]["description"] == "Read instrument identification information"
     assert cmds["readback"]["category"] == "discovery"
+    assert cmds["clear-protection"]["category"] == "discovery"
+    assert cmds["clear-protection"]["requires_confirm"] is True
+    assert "does not clear OVP/OCP protection latches" in cmds["clear"]["description"]
     assert cmds["trigger-pulse"]["description"] == "Configure rear trigger output pins and emit a BUS trigger pulse"
     assert cmds["trigger-status"]["description"] == "Read digital pin, trigger source, STEP, and LIST state"
     assert cmds["trigger-step"]["description"] == "Configure a STEP transient trigger and optionally fire it"
@@ -1009,6 +1032,7 @@ def test_live_data_live_panel_emits_three_channel_panel_sample(client: TestClien
     assert sample["status"] == "ok"
     assert sample["stale"] is False
     assert sample["resource"] == "USB0::FAKE::E36312A::INSTR"
+    assert sample["model"] == "E36312A"
     assert sample["mode"] == "live"
     assert [channel["channel"] for channel in sample["channels"]] == [1, 2, 3]
     assert [channel["measured_voltage"] for channel in sample["channels"]] == [1.1, 2.2, 3.3]
@@ -1017,8 +1041,8 @@ def test_live_data_live_panel_emits_three_channel_panel_sample(client: TestClien
     assert [channel["set_current"] for channel in sample["channels"]] == [0.1, 0.2, 0.3]
     assert [channel["output_enabled"] for channel in sample["channels"]] == [True, False, True]
     assert [channel["over_voltage_tripped"] for channel in sample["channels"]] == [False, False, False]
-    assert [channel["over_current_tripped"] for channel in sample["channels"]] == [True, True, True]
-    assert [channel["protection_tripped"] for channel in sample["channels"]] == [True, True, True]
+    assert [channel["over_current_tripped"] for channel in sample["channels"]] == [True, False, False]
+    assert [channel["protection_tripped"] for channel in sample["channels"]] == [True, False, False]
     assert [channel["over_voltage_protection_level"] for channel in sample["channels"]] == [5.0, 6.0, 7.0]
     assert [channel["over_current_protection_enabled"] for channel in sample["channels"]] == [True, False, True]
     assert calls
@@ -1107,6 +1131,7 @@ def test_live_data_panel_sample_normalizes_numeric_values():
     sample = _live_panel_sample_from_reading(
         {
             "resource": "USB0::FAKE::E36312A::INSTR",
+            "idn": {"model": "E36312A"},
             "outputs": [{"channel": 1, "enabled": True}],
             "readback": [
                 {"channel": 1, "setpoints": {"voltage": "1", "current": "0.1"}},
@@ -1139,6 +1164,7 @@ def test_live_data_panel_sample_normalizes_numeric_values():
 
     assert sample["status"] == "ok"
     assert sample["stale"] is False
+    assert sample["model"] == "E36312A"
     assert sample["channels"][0]["measured_voltage"] == 1.000237
     assert sample["channels"][0]["measured_current"] == 0.000019
     assert sample["channels"][0]["set_voltage"] == 1.0
@@ -1323,6 +1349,7 @@ def _patch_live_panel(monkeypatch: pytest.MonkeyPatch) -> None:
 def _fake_live_panel(resource: str) -> dict[str, Any]:
     return {
         "resource": resource,
+        "idn": {"model": "E36312A"},
         "outputs": [
             {"channel": 1, "enabled": True},
             {"channel": 2, "enabled": False},
@@ -1349,14 +1376,14 @@ def _fake_live_panel(resource: str) -> dict[str, Any]:
             {
                 "channel": 2,
                 "over_voltage_tripped": False,
-                "over_current_tripped": True,
+                "over_current_tripped": False,
                 "over_voltage_protection_level": 6.0,
                 "over_current_protection_enabled": False,
             },
             {
                 "channel": 3,
                 "over_voltage_tripped": False,
-                "over_current_tripped": True,
+                "over_current_tripped": False,
                 "over_voltage_protection_level": 7.0,
                 "over_current_protection_enabled": True,
             },
@@ -1367,6 +1394,7 @@ def _fake_live_panel(resource: str) -> dict[str, Any]:
 def _fake_e36312a_live_panel(resource: str) -> dict[str, Any]:
     return {
         "resource": resource,
+        "idn": {"model": "E36312A"},
         "outputs": [
             {"channel": 1, "enabled": True},
             {"channel": 2, "enabled": False},

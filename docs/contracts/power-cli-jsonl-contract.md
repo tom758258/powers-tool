@@ -118,7 +118,8 @@ Selected data mappings:
   `channel: "all"`, responses keep `channel: "all"` and add `outputs[]` entries
   keyed by `channel`. `cycle-output` enables all channels, waits once for
   `duration_ms`, then disables all channels.
-- `protection-status`: aggregate protection, per-channel protection, and output state.
+- `protection-status`: aggregate protection flags calculated as the OR of the
+  selected channels, true per-channel protection flags, and output state.
 - `snapshot`: errors, outputs, readback, measurements, and protection settings.
 - `sequence`: lint/plan/execution status, step results, and stop/failure details.
 - `restore-from-snapshot`: restored channels and restore plan.

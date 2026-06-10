@@ -114,11 +114,21 @@ class GenericScpiPowerSupply:
     def programmed_current(self, *, channel: Channel = None) -> float:
         return _parse_float(self._query("CURR?", channel=channel), "current setpoint")
 
-    def over_voltage_protection_tripped(self) -> bool:
-        return _parse_bool(self._session.query("VOLT:PROT:TRIP?"), "over-voltage protection")
+    def over_voltage_protection_tripped(self, *, channel: Channel = None) -> bool:
+        response = (
+            self._session.query("VOLT:PROT:TRIP?")
+            if channel is None
+            else self._query("VOLT:PROT:TRIP?", channel=channel)
+        )
+        return _parse_bool(response, "over-voltage protection")
 
-    def over_current_protection_tripped(self) -> bool:
-        return _parse_bool(self._session.query("CURR:PROT:TRIP?"), "over-current protection")
+    def over_current_protection_tripped(self, *, channel: Channel = None) -> bool:
+        response = (
+            self._session.query("CURR:PROT:TRIP?")
+            if channel is None
+            else self._query("CURR:PROT:TRIP?", channel=channel)
+        )
+        return _parse_bool(response, "over-current protection")
 
     def over_voltage_protection_level(self, *, channel: Channel = None) -> float:
         return _parse_float(self._query("VOLT:PROT?", channel=channel), "over-voltage protection level")

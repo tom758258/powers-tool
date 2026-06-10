@@ -56,27 +56,31 @@ def _run_status(request: OperationRequest, *, opener: Callable[..., Any], scpi_l
         power_supply = create_power_supply(instrument.session, idn)
         _require_supported(power_supply, request.command)
         channels = _channels(selected, power_supply.capabilities.channels)
-        protection = _protection_payload(power_supply)
-        tripped = protection["over_voltage_tripped"] or protection["over_current_tripped"]
+        protection_by_channel = [
+            {
+                "channel": channel,
+                "protection": _protection_payload(power_supply, channel=channel),
+            }
+            for channel in channels
+        ]
+        protection = _aggregate_protection(protection_by_channel)
+        channel_trips = {
+            item["channel"]: (
+                item["protection"]["over_voltage_tripped"]
+                or item["protection"]["over_current_tripped"]
+            )
+            for item in protection_by_channel
+        }
         return {
             "resource": request.runtime.resource,
             "idn": parse_idn(idn).to_dict(),
             "protection": protection,
-            "protection_by_channel": [
-                {
-                    "channel": channel,
-                    "protection": {
-                        "over_voltage_tripped": protection["over_voltage_tripped"],
-                        "over_current_tripped": protection["over_current_tripped"],
-                    },
-                }
-                for channel in channels
-            ],
+            "protection_by_channel": protection_by_channel,
             "outputs": [
                 {
                     "channel": channel,
                     "enabled": (enabled := power_supply.output_state(channel=channel)),
-                    "disabled_with_protection": (not enabled) and tripped,
+                    "disabled_with_protection": (not enabled) and channel_trips[channel],
                 }
                 for channel in channels
             ],
@@ -216,10 +220,17 @@ def _channels(selected: int | str | None, supported: tuple[int, ...]) -> tuple[i
         raise CoreValidationError(str(exc)) from exc
 
 
-def _protection_payload(power_supply: Any) -> dict[str, bool]:
+def _protection_payload(power_supply: Any, *, channel: int) -> dict[str, bool]:
     return {
-        "over_voltage_tripped": power_supply.over_voltage_protection_tripped(),
-        "over_current_tripped": power_supply.over_current_protection_tripped(),
+        "over_voltage_tripped": power_supply.over_voltage_protection_tripped(channel=channel),
+        "over_current_tripped": power_supply.over_current_protection_tripped(channel=channel),
+    }
+
+
+def _aggregate_protection(protection_by_channel: list[dict[str, Any]]) -> dict[str, bool]:
+    return {
+        key: any(item["protection"][key] for item in protection_by_channel)
+        for key in ("over_voltage_tripped", "over_current_tripped")
     }
 
 

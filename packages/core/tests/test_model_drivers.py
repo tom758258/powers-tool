@@ -106,6 +106,27 @@ def test_e36312a_driver_sets_protection_with_channel_list_scpi() -> None:
 
 
 @pytest.mark.parametrize(
+    "driver_class",
+    [E36312APowerSupply, EDU36311APowerSupply],
+)
+def test_first_target_drivers_read_channel_protection_trip_flags(driver_class) -> None:
+    session = FakeSession(
+        {
+            "VOLT:PROT:TRIP? (@2)": "1",
+            "CURR:PROT:TRIP? (@2)": "0",
+        }
+    )
+    power_supply = driver_class(session)
+
+    assert power_supply.over_voltage_protection_tripped(channel=2) is True
+    assert power_supply.over_current_protection_tripped(channel=2) is False
+    assert session.commands == [
+        "VOLT:PROT:TRIP? (@2)",
+        "CURR:PROT:TRIP? (@2)",
+    ]
+
+
+@pytest.mark.parametrize(
     ("response", "expected"),
     [
         ("SCH", "setting-change"),
