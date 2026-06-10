@@ -14,7 +14,15 @@ const state = {
   livePanel: null,
   resultCollapsed: true,
   jobResultCollapsed: false,
-  rampListSegments: [defaultRampSegment()]
+  rampListSegments: [defaultRampSegment()],
+  latestSnapshotDocument: null,
+  latestSnapshotMetadata: null,
+  loadedSnapshotDocument: null,
+  loadedSnapshotFilename: "",
+  sequenceFilename: "",
+  sequenceTextareaValue: undefined,
+  restoreChannel: "all",
+  restoreOutputState: false
 };
 
 const COMMAND_CATEGORIES = ["output", "trigger", "artifact", "discovery"];
@@ -255,6 +263,18 @@ function renderForm(command) {
     renderRampListForm(form);
     return;
   }
+  if (command === "snapshot") {
+    renderSnapshotForm(form);
+    return;
+  }
+  if (command === "restore-from-snapshot") {
+    renderRestoreForm(form);
+    return;
+  }
+  if (command === "sequence") {
+    renderSequenceForm(form);
+    return;
+  }
   (PARAMS[command] || []).forEach((param) => {
     const label = document.createElement("label");
     if (param.type === "checkbox") label.classList.add("checkbox-field");
@@ -438,68 +458,690 @@ function validateRampListDocument(document) {
 
 async function loadRampList() {
   try {
-    let text;
-    if (window.showOpenFilePicker) {
-      const [handle] = await window.showOpenFilePicker({
-        types: [{ description: "Ramp List JSON", accept: { "application/json": [".json"] } }],
-        multiple: false
-      });
-      text = await (await handle.getFile()).text();
-    } else {
-      text = await chooseRampListFile();
-    }
+    const { text } = await openJsonFile({
+      description: "Ramp List JSON",
+      extensions: RAMP_LIST_JSON_EXTENSIONS
+    });
     const segments = validateRampListDocument(JSON.parse(text));
     state.rampListSegments = segments;
     renderForm("ramp-list");
     updateSelectedCommandState();
   } catch (error) {
-    if (error?.name !== "AbortError") {
-      renderClientResult("ramp-list", "failed", error.message || String(error), { error: "Ramp List load failed", detail: error.message || String(error) });
-    }
+    if (isAbortError(error)) return;
+    renderClientResult("ramp-list", "failed", error.message || String(error), { error: "Ramp List load failed", detail: error.message || String(error) });
   }
-}
-
-function chooseRampListFile() {
-  return new Promise((resolve, reject) => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".ramp-list.json,.json,application/json";
-    input.addEventListener("change", async () => {
-      try {
-        if (!input.files?.[0]) throw new Error("No Ramp List file selected.");
-        resolve(await input.files[0].text());
-      } catch (error) {
-        reject(error);
-      }
-    });
-    input.click();
-  });
 }
 
 async function saveRampList() {
   const documentText = `${JSON.stringify(rampListDocument(), null, 2)}\n`;
   try {
-    if (window.showSaveFilePicker) {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: "ramp-list.ramp-list.json",
-        types: [{ description: "Ramp List JSON", accept: { "application/json": [".json"] } }]
-      });
-      const writable = await handle.createWritable();
-      await writable.write(documentText);
-      await writable.close();
+    await saveJsonFile(documentText, {
+      description: "Ramp List JSON",
+      extensions: RAMP_LIST_JSON_EXTENSIONS,
+      suggestedName: "ramp-list.ramp-list.json"
+    });
+  } catch (error) {
+    if (isAbortError(error)) return;
+    renderClientResult("ramp-list", "failed", error.message || String(error), { error: "Ramp List save failed", detail: error.message || String(error) });
+  }
+}
+
+/* ==========================================
+   Shared JSON File Helpers
+   ========================================== */
+
+const JSON_MIME_TYPE = "application/json";
+const SNAPSHOT_JSON_EXTENSIONS = [".snapshot.json", ".json"];
+const SEQUENCE_JSON_EXTENSIONS = [".sequence.json", ".json"];
+const RAMP_LIST_JSON_EXTENSIONS = [".ramp-list.json", ".json"];
+
+async function openJsonFile({ description, extensions }) {
+  let text = "";
+  let filename = "";
+  const acceptMap = { [JSON_MIME_TYPE]: extensions };
+  if (window.showOpenFilePicker) {
+    const [handle] = await window.showOpenFilePicker({
+      types: [{ description, accept: acceptMap }],
+      multiple: false
+    });
+    const file = await handle.getFile();
+    text = await file.text();
+    filename = file.name;
+  } else {
+    const fileInfo = await chooseJsonFile(buildJsonFileAccept(extensions));
+    text = fileInfo.text;
+    filename = fileInfo.name;
+  }
+  return { text, filename };
+}
+
+function buildJsonFileAccept(extensions) {
+  return [...extensions, JSON_MIME_TYPE].join(",");
+}
+
+function chooseJsonFile(accept) {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    let settled = false;
+    let focusTimer = null;
+
+    const cleanup = () => {
+      window.clearTimeout(focusTimer);
+      input.removeEventListener("change", onChange);
+      input.removeEventListener("cancel", abort);
+      window.removeEventListener("focus", onWindowFocus);
+      input.remove();
+    };
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+    const abort = () => settle(reject, abortError("File selection cancelled."));
+    const onWindowFocus = () => {
+      window.clearTimeout(focusTimer);
+      focusTimer = window.setTimeout(() => {
+        if (!settled && (!input.files || input.files.length === 0)) abort();
+      }, 0);
+    };
+    const onChange = async () => {
+      try {
+        if (!input.files?.[0]) {
+          abort();
+          return;
+        }
+        const file = input.files[0];
+        const text = await file.text();
+        settle(resolve, { text, name: file.name });
+      } catch (error) {
+        settle(reject, error);
+      }
+    };
+
+    input.type = "file";
+    input.accept = accept;
+    input.style.display = "none";
+    input.addEventListener("change", onChange);
+    input.addEventListener("cancel", abort);
+    window.addEventListener("focus", onWindowFocus, { once: true });
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+async function saveJsonFile(text, { description, extensions, suggestedName }) {
+  const acceptMap = { [JSON_MIME_TYPE]: extensions };
+  if (window.showSaveFilePicker) {
+    const handle = await window.showSaveFilePicker({
+      suggestedName,
+      types: [{ description, accept: acceptMap }]
+    });
+    const writable = await handle.createWritable();
+    await writable.write(text);
+    await writable.close();
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = suggestedName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function abortError(message) {
+  if (typeof DOMException === "function") {
+    return new DOMException(message, "AbortError");
+  }
+  const error = new Error(message);
+  error.name = "AbortError";
+  return error;
+}
+
+function isAbortError(error) {
+  return error?.name === "AbortError";
+}
+
+/* ==========================================
+   Snapshot Feature
+   ========================================== */
+
+function renderSnapshotForm(form) {
+  const editor = document.createElement("div");
+  editor.className = "artifact-editor";
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "artifact-toolbar";
+
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "secondary";
+  saveBtn.id = "btn-save-snapshot";
+  saveBtn.textContent = "Save Snapshot";
+  saveBtn.disabled = !state.latestSnapshotDocument;
+  saveBtn.addEventListener("click", saveSnapshot);
+  toolbar.appendChild(saveBtn);
+
+  const statusNote = document.createElement("span");
+  statusNote.id = "snapshot-status-note";
+  statusNote.className = "artifact-file-status";
+
+  const snapshotJob = state.jobs.find(j => j.command === "snapshot" && (j.status === "accepted" || j.status === "started" || j.status === "progress"));
+  const inProgress = Boolean(snapshotJob);
+
+  if (state.latestSnapshotDocument) {
+    const meta = state.latestSnapshotMetadata;
+    const timeStr = meta && meta.savedAt ? new Date(meta.savedAt).toLocaleTimeString() : "";
+    if (inProgress) {
+      statusNote.textContent = `Previous successful snapshot available while a new snapshot is running. (${meta?.model || "unknown"}, ${timeStr})`;
+    } else {
+      statusNote.textContent = `Latest successful snapshot available (${meta?.model || "unknown"}, ${timeStr})`;
+    }
+  } else {
+    statusNote.textContent = inProgress ? "Snapshot in progress..." : "No successful snapshot captured in this session.";
+  }
+  toolbar.appendChild(statusNote);
+  editor.appendChild(toolbar);
+
+  (PARAMS["snapshot"] || []).forEach((param) => {
+    const label = document.createElement("label");
+    label.textContent = param.label;
+    const input = document.createElement("input");
+    input.type = param.type;
+    input.id = `param-${param.name}`;
+    if (param.value !== undefined) input.value = param.value;
+    input.addEventListener("change", updateSelectedCommandState);
+    label.appendChild(input);
+    editor.appendChild(label);
+  });
+
+  form.appendChild(editor);
+}
+
+function refreshSnapshotFormIfVisible(jobId = null) {
+  if (state.selected !== "snapshot") return;
+
+  if (jobId !== null && jobCommand(jobId) !== "snapshot") {
+    return;
+  }
+
+  renderForm("snapshot");
+  updateSelectedCommandState();
+}
+
+async function saveSnapshot() {
+  if (!state.latestSnapshotDocument) {
+    renderClientResult("snapshot", "failed", "No snapshot available to save.", { error: "Snapshot save failed", detail: "No snapshot available to save." });
+    return;
+  }
+  try {
+    validateSnapshotDocument(state.latestSnapshotDocument);
+    const documentText = `${JSON.stringify(state.latestSnapshotDocument, null, 2)}\n`;
+    const suggestedName = getSnapshotSuggestedName();
+    await saveJsonFile(documentText, {
+      description: "Keysight Power Snapshot JSON",
+      extensions: SNAPSHOT_JSON_EXTENSIONS,
+      suggestedName
+    });
+  } catch (error) {
+    if (isAbortError(error)) return;
+    renderClientResult(
+      "snapshot",
+      "failed",
+      error.message || String(error),
+      {
+        error: "Snapshot save failed",
+        detail: error.message || String(error),
+        command: "snapshot"
+      }
+    );
+  }
+}
+
+function getSnapshotSuggestedName() {
+  const doc = state.latestSnapshotDocument;
+  const meta = state.latestSnapshotMetadata;
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+  let model = meta?.model || doc?.idn?.model;
+  let serial = meta?.serial || doc?.idn?.serial;
+
+  const clean = (str) => {
+    if (!str) return "";
+    return String(str).replace(/[<>:"/\\|?*]/g, "").trim();
+  };
+
+  model = clean(model);
+  serial = clean(serial);
+
+  if (model && serial) {
+    return `keysight-power-${model}-${serial}-${timestamp}.snapshot.json`;
+  }
+  return `keysight-power-snapshot-${timestamp}.snapshot.json`;
+}
+
+function validateSnapshotDocument(doc) {
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+    throw new Error("Snapshot document must be a JSON object.");
+  }
+  if (!doc.idn || typeof doc.idn !== "object" || Array.isArray(doc.idn)) {
+    throw new Error("Snapshot must contain a valid 'idn' object.");
+  }
+  if (!Array.isArray(doc.readback)) {
+    throw new Error("Snapshot 'readback' must be an array.");
+  }
+  if (!Array.isArray(doc.outputs)) {
+    throw new Error("Snapshot 'outputs' must be an array.");
+  }
+}
+
+/* ==========================================
+   Restore from Snapshot Feature
+   ========================================== */
+
+function renderRestoreForm(form) {
+  const editor = document.createElement("div");
+  editor.className = "artifact-editor";
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "artifact-toolbar";
+
+  const loadBtn = document.createElement("button");
+  loadBtn.type = "button";
+  loadBtn.className = "secondary";
+  loadBtn.id = "btn-load-snapshot";
+  loadBtn.textContent = "Load Snapshot";
+  loadBtn.addEventListener("click", loadRestoreSnapshot);
+  toolbar.appendChild(loadBtn);
+
+  const fileStatus = document.createElement("span");
+  fileStatus.id = "restore-file-status";
+  fileStatus.className = "artifact-file-status";
+  fileStatus.textContent = state.loadedSnapshotFilename
+    ? `Loaded file: ${state.loadedSnapshotFilename}`
+    : "No snapshot loaded";
+  toolbar.appendChild(fileStatus);
+  editor.appendChild(toolbar);
+
+  // Channel Select
+  const channelLabel = document.createElement("label");
+  channelLabel.textContent = "Channel";
+  const channelSelect = document.createElement("select");
+  channelSelect.id = "param-channel";
+  ["all", "1", "2", "3"].forEach((ch) => {
+    const opt = document.createElement("option");
+    opt.value = ch;
+    opt.textContent = ch;
+    channelSelect.appendChild(opt);
+  });
+  channelSelect.value = state.restoreChannel;
+  channelSelect.addEventListener("change", (e) => {
+    state.restoreChannel = e.target.value;
+    updateSelectedCommandState();
+  });
+  channelLabel.appendChild(channelSelect);
+  editor.appendChild(channelLabel);
+
+  // Restore previous output state Checkbox
+  const restoreStateLabel = document.createElement("label");
+  restoreStateLabel.className = "checkbox-field";
+  const restoreStateCheck = document.createElement("input");
+  restoreStateCheck.type = "checkbox";
+  restoreStateCheck.id = "param-restore_output_state";
+  restoreStateCheck.checked = state.restoreOutputState;
+  restoreStateCheck.addEventListener("change", (e) => {
+    state.restoreOutputState = e.target.checked;
+    updateSelectedCommandState();
+  });
+
+  restoreStateLabel.appendChild(restoreStateCheck);
+  restoreStateLabel.appendChild(document.createTextNode(" Restore previous output ON/OFF state"));
+  editor.appendChild(restoreStateLabel);
+
+  const warningNote = document.createElement("div");
+  warningNote.style.color = "var(--muted)";
+  warningNote.style.fontSize = "0.9em";
+  warningNote.style.marginBottom = "8px";
+  warningNote.textContent = "When enabled, channels that were ON in the snapshot may be turned ON after restoring settings.";
+  editor.appendChild(warningNote);
+
+  const previewLabel = document.createElement("label");
+  previewLabel.textContent = "Snapshot JSON Preview";
+  const previewArea = document.createElement("textarea");
+  previewArea.id = "restore-preview";
+  previewArea.className = "artifact-preview";
+  previewArea.readOnly = true;
+  previewArea.placeholder = "Select and load a snapshot file to preview here...";
+  if (state.loadedSnapshotDocument) {
+    previewArea.value = JSON.stringify(state.loadedSnapshotDocument, null, 2);
+  }
+  previewLabel.appendChild(previewArea);
+  editor.appendChild(previewLabel);
+
+  form.appendChild(editor);
+}
+
+async function loadRestoreSnapshot() {
+  try {
+    const { text, filename } = await openJsonFile({
+      description: "Keysight Power Snapshot JSON",
+      extensions: SNAPSHOT_JSON_EXTENSIONS
+    });
+    const rawDoc = JSON.parse(text);
+    const unwrapped = unwrapSnapshot(rawDoc);
+    validateRestoreSnapshot(unwrapped);
+
+    state.loadedSnapshotDocument = unwrapped;
+    state.loadedSnapshotFilename = filename;
+
+    renderForm("restore-from-snapshot");
+    updateSelectedCommandState();
+  } catch (error) {
+    if (isAbortError(error)) return;
+    renderClientResult(
+      "restore-from-snapshot",
+      "failed",
+      error.message || String(error),
+      {
+        error: "Snapshot load failed",
+        detail: error.message || String(error),
+        command: "restore-from-snapshot"
+      }
+    );
+  }
+}
+
+function unwrapSnapshot(doc) {
+  if (!doc || typeof doc !== "object") {
+    throw new Error("Invalid Snapshot format.");
+  }
+  if (doc.command === "snapshot" && doc.result && typeof doc.result === "object" && !Array.isArray(doc.result)) {
+    return doc.result;
+  }
+  if (doc.data && typeof doc.data === "object" && !Array.isArray(doc.data)) {
+    return doc.data;
+  }
+  return doc;
+}
+
+function validateRestoreSnapshot(doc) {
+  validateSnapshotDocument(doc);
+  if (!doc.idn.model) {
+    throw new Error("Snapshot must contain a valid 'idn' object with 'model'.");
+  }
+  if (doc.readback.length === 0) {
+    throw new Error("Snapshot must contain at least one channel in readback.");
+  }
+  if (doc.outputs.length === 0) {
+    throw new Error("Snapshot must contain at least one channel in outputs.");
+  }
+  if (doc.protection_settings && !Array.isArray(doc.protection_settings)) {
+    throw new Error("Snapshot 'protection_settings' must be an array.");
+  }
+
+  // Validate readback channels and setpoints.
+  const readbackChannels = new Set();
+  doc.readback.forEach((item, index) => {
+    if (!item || typeof item !== "object") {
+      throw new Error(`Snapshot readback item at index ${index} must be an object.`);
+    }
+    const channel = item.channel;
+    if (channel === undefined || !Number.isInteger(channel) || channel < 1 || channel > 3) {
+      throw new Error(`Snapshot readback item at index ${index} must have a valid 'channel' (1, 2, or 3).`);
+    }
+    if (readbackChannels.has(channel)) {
+      throw new Error(`Snapshot readback contains duplicate channel ${channel}.`);
+    }
+    readbackChannels.add(channel);
+
+    if (!item.setpoints || typeof item.setpoints !== "object") {
+      throw new Error(`Snapshot readback item at channel ${channel} is missing a valid 'setpoints' object.`);
+    }
+    const { voltage, current } = item.setpoints;
+    if (voltage === undefined || current === undefined || typeof voltage !== "number" || typeof current !== "number" || !Number.isFinite(voltage) || !Number.isFinite(current)) {
+      throw new Error(`Snapshot readback item at channel ${channel} 'setpoints' must contain finite numbers for 'voltage' and 'current'.`);
+    }
+  });
+
+  // Validate outputs channels and enabled state.
+  const outputsChannels = new Set();
+  doc.outputs.forEach((item, index) => {
+    if (!item || typeof item !== "object") {
+      throw new Error(`Snapshot outputs item at index ${index} must be an object.`);
+    }
+    const channel = item.channel;
+    if (channel === undefined || !Number.isInteger(channel) || channel < 1 || channel > 3) {
+      throw new Error(`Snapshot outputs item at index ${index} must have a valid 'channel' (1, 2, or 3).`);
+    }
+    if (outputsChannels.has(channel)) {
+      throw new Error(`Snapshot outputs contains duplicate channel ${channel}.`);
+    }
+    outputsChannels.add(channel);
+
+    if (item.enabled === undefined || typeof item.enabled !== "boolean") {
+      throw new Error(`Snapshot outputs item at channel ${channel} must contain a boolean 'enabled' property.`);
+    }
+  });
+
+  if (doc.idn.model !== "E36312A") {
+    throw new Error(`Snapshot model '${doc.idn.model}' is not supported. Only 'E36312A' is supported for restore.`);
+  }
+}
+
+/* ==========================================
+   Sequence Feature
+   ========================================== */
+
+function renderSequenceForm(form) {
+  const editor = document.createElement("div");
+  editor.className = "artifact-editor";
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "artifact-toolbar";
+
+  const loadBtn = document.createElement("button");
+  loadBtn.type = "button";
+  loadBtn.className = "secondary";
+  loadBtn.id = "btn-load-sequence";
+  loadBtn.textContent = "Load Sequence";
+  loadBtn.addEventListener("click", loadSequenceFile);
+  toolbar.appendChild(loadBtn);
+
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "secondary";
+  saveBtn.id = "btn-save-sequence";
+  saveBtn.textContent = "Save Sequence";
+  saveBtn.addEventListener("click", saveSequenceFile);
+  toolbar.appendChild(saveBtn);
+
+  const fileStatus = document.createElement("span");
+  fileStatus.id = "sequence-file-status";
+  fileStatus.className = "artifact-file-status";
+  fileStatus.textContent = state.sequenceFilename
+    ? `Loaded: ${state.sequenceFilename}`
+    : "";
+  toolbar.appendChild(fileStatus);
+  editor.appendChild(toolbar);
+
+  const textLabel = document.createElement("label");
+  textLabel.textContent = "Sequence document";
+  const textarea = document.createElement("textarea");
+  textarea.id = "param-document";
+  textarea.className = "artifact-preview";
+
+  const paramDef = PARAMS["sequence"][0];
+  textarea.value = state.sequenceTextareaValue !== undefined ? state.sequenceTextareaValue : paramDef.value;
+
+  const onInput = (e) => {
+    state.sequenceTextareaValue = e.target.value;
+    updateSelectedCommandState();
+  };
+  textarea.addEventListener("input", onInput);
+  textarea.addEventListener("change", onInput);
+
+  textLabel.appendChild(textarea);
+  editor.appendChild(textLabel);
+
+  form.appendChild(editor);
+}
+
+async function loadSequenceFile() {
+  try {
+    const { text, filename } = await openJsonFile({
+      description: "Keysight Power Sequence JSON",
+      extensions: SEQUENCE_JSON_EXTENSIONS
+    });
+    const rawDoc = JSON.parse(text);
+    validateSequenceDocument(rawDoc);
+
+    state.sequenceTextareaValue = JSON.stringify(rawDoc, null, 2);
+    state.sequenceFilename = filename;
+
+    renderForm("sequence");
+    updateSelectedCommandState();
+  } catch (error) {
+    if (isAbortError(error)) return;
+    renderClientResult(
+      "sequence",
+      "failed",
+      error.message || String(error),
+      {
+        error: "Sequence load failed",
+        detail: error.message || String(error),
+        command: "sequence"
+      }
+    );
+  }
+}
+
+async function saveSequenceFile() {
+  const rawVal = document.getElementById("param-document")?.value || "{}";
+  try {
+    const rawDoc = JSON.parse(rawVal);
+    validateSequenceDocument(rawDoc);
+
+    const prettyDocument = JSON.stringify(rawDoc, null, 2);
+    state.sequenceTextareaValue = prettyDocument;
+    const textarea = document.getElementById("param-document");
+    if (textarea) textarea.value = prettyDocument;
+    const documentText = `${prettyDocument}\n`;
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const suggestedName = `keysight-power-sequence-${timestamp}.sequence.json`;
+
+    await saveJsonFile(documentText, {
+      description: "Keysight Power Sequence JSON",
+      extensions: SEQUENCE_JSON_EXTENSIONS,
+      suggestedName
+    });
+  } catch (error) {
+    if (isAbortError(error)) return;
+    renderClientResult(
+      "sequence",
+      "failed",
+      error.message || String(error),
+      {
+        error: "Sequence save failed",
+        detail: error.message || String(error),
+        command: "sequence"
+      }
+    );
+  }
+}
+
+function validateSequenceDocument(doc) {
+  const allowedActions = new Set([
+    "measure",
+    "readback",
+    "output-state",
+    "log",
+    "wait",
+    "safe-off",
+    "set",
+    "output-on",
+    "output-off",
+    "cycle-output",
+    "apply"
+  ]);
+
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+    throw new Error("Sequence document must be a JSON object.");
+  }
+  if (doc.version !== undefined && doc.version !== 1 && doc.version !== "1") {
+    throw new Error("Sequence version must be 1.");
+  }
+  if (!doc.steps || !Array.isArray(doc.steps) || doc.steps.length === 0) {
+    throw new Error("Sequence document must contain a non-empty 'steps' array.");
+  }
+
+  doc.steps.forEach((step, index) => {
+    if (!step) {
+      throw new Error(`Sequence step at index ${index} is null or empty.`);
+    }
+
+    // 1. String action format.
+    if (typeof step === "string") {
+      if (!allowedActions.has(step)) {
+        if (step === "delay") {
+          throw new Error(`Unsupported sequence action "delay" at step ${index + 1}. Did you mean "wait"?`);
+        }
+        throw new Error(`Unsupported sequence action string "${step}" at step ${index + 1}.`);
+      }
       return;
     }
-    const url = URL.createObjectURL(new Blob([documentText], { type: "application/json" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "ramp-list.ramp-list.json";
-    link.click();
-    URL.revokeObjectURL(url);
-  } catch (error) {
-    if (error?.name !== "AbortError") {
-      renderClientResult("ramp-list", "failed", error.message || String(error), { error: "Ramp List save failed", detail: error.message || String(error) });
+
+    // 2. Object action/type format.
+    if (typeof step === "object" && !Array.isArray(step)) {
+      const keys = Object.keys(step);
+
+      const hasAction = "action" in step;
+      const hasType = "type" in step;
+
+      if (hasAction || hasType) {
+        if (hasAction && hasType && step.action !== step.type) {
+          throw new Error(`Step ${index + 1} has conflicting 'action' ("${step.action}") and 'type' ("${step.type}") values.`);
+        }
+        const action = step.action ?? step.type;
+        if (!allowedActions.has(action)) {
+          if (action === "delay") {
+            throw new Error(`Unsupported sequence action "delay" at step ${index + 1}. Did you mean "wait"?`);
+          }
+          throw new Error(`Unsupported sequence action "${action}" at step ${index + 1}.`);
+        }
+        return;
+      }
+
+      // Shorthand format.
+      if (keys.length === 1) {
+        const key = keys[0];
+        if (allowedActions.has(key)) {
+          return;
+        }
+        if (key === "delay") {
+          throw new Error(`Unsupported sequence action "delay" at step ${index + 1}. Did you mean "wait"?`);
+        }
+        throw new Error(`Unsupported shorthand sequence action "${key}" at step ${index + 1}.`);
+      }
+
+      throw new Error(`Step ${index + 1} is invalid. Objects with multiple keys must contain an 'action' or 'type' property.`);
     }
-  }
+
+    throw new Error(`Invalid step format at index ${index + 1}.`);
+  });
+}
+
+function sequenceDocumentFromEditor() {
+  const rawVal = document.getElementById("param-document")?.value || "{}";
+  const parsed = JSON.parse(rawVal);
+  validateSequenceDocument(parsed);
+  return parsed;
 }
 
 async function scanResources() {
@@ -523,6 +1165,59 @@ async function scanResources() {
 
 async function runSelected() {
   if (!state.selected) return;
+
+  let validatedSequenceDocument = null;
+  if (state.selected === "sequence") {
+    try {
+      validatedSequenceDocument = sequenceDocumentFromEditor();
+    } catch (error) {
+      renderClientResult(
+        "sequence",
+        "failed",
+        error.message || String(error),
+        {
+          error: "Sequence validation failed",
+          detail: error.message || String(error),
+          command: "sequence"
+        }
+      );
+      return;
+    }
+  }
+
+  let validatedRestoreDocument = null;
+  if (state.selected === "restore-from-snapshot") {
+    if (!state.loadedSnapshotDocument) {
+      renderClientResult(
+        "restore-from-snapshot",
+        "failed",
+        "Load a snapshot before running restore.",
+        {
+          error: "Snapshot validation failed",
+          detail: "Load a snapshot before running restore.",
+          command: "restore-from-snapshot"
+        }
+      );
+      return;
+    }
+    try {
+      validateRestoreSnapshot(state.loadedSnapshotDocument);
+      validatedRestoreDocument = state.loadedSnapshotDocument;
+    } catch (error) {
+      renderClientResult(
+        "restore-from-snapshot",
+        "failed",
+        error.message || String(error),
+        {
+          error: "Snapshot validation failed",
+          detail: error.message || String(error),
+          command: "restore-from-snapshot"
+        }
+      );
+      return;
+    }
+  }
+
   const meta = commandMeta(state.selected);
   if (meta.disabled) {
     renderClientResult(state.selected, "failed", meta.disabled_reason || "This command is not available for the selected resource.", {
@@ -535,7 +1230,11 @@ async function runSelected() {
   const payload = {
     command: state.selected,
     runtime: runtimePayload(),
-    parameters: parameterPayload()
+    parameters: state.selected === "sequence"
+      ? { document: validatedSequenceDocument }
+      : state.selected === "restore-from-snapshot"
+        ? restoreSnapshotParameters(validatedRestoreDocument)
+      : parameterPayload()
   };
   const tripGuard = tripGuardReason(state.selected, payload.parameters);
   if (tripGuard) {
@@ -558,6 +1257,9 @@ async function runSelected() {
   }
   const response = await submitJob(payload);
   addHistory(response.job_id, state.selected, "accepted");
+  if (state.selected === "snapshot") {
+    refreshSnapshotFormIfVisible(response.job_id);
+  }
   subscribeToJob(response.job_id, "/api/events");
 }
 
@@ -575,6 +1277,14 @@ function runtimePayload() {
 
 function parameterPayload() {
   if (state.selected === "ramp-list") return { document: rampListDocument() };
+  if (state.selected === "restore-from-snapshot") {
+    return restoreSnapshotParameters(state.loadedSnapshotDocument);
+  }
+  if (state.selected === "sequence") {
+    return {
+      document: sequenceDocumentFromEditor()
+    };
+  }
   const payload = {};
   (PARAMS[state.selected] || []).forEach((param) => {
     const input = document.getElementById(`param-${param.name}`);
@@ -583,6 +1293,18 @@ function parameterPayload() {
     if (parsed !== undefined) payload[param.name] = parsed;
   });
   return payload;
+}
+
+function restoreSnapshotParameters(document) {
+  return {
+    document,
+    channel: normalizeRestoreChannel(state.restoreChannel),
+    restore_output_state: state.restoreOutputState
+  };
+}
+
+function normalizeRestoreChannel(value) {
+  return value === "all" ? "all" : normalizeChannelValue(value);
 }
 
 function parameterValue(param, input) {
@@ -633,6 +1355,9 @@ function subscribeToJob(jobId, baseUrl) {
 
 async function handleJobEvent(jobId, event) {
   updateHistory(jobId, event.type);
+  if (jobCommand(jobId) === "snapshot" && (event.type === "accepted" || event.type === "started" || event.type === "progress")) {
+    refreshSnapshotFormIfVisible(jobId);
+  }
   if (event.type === "finished" || event.type === "failed" || event.type === "cancelled") {
     const job = await renderJobDetail(jobId, event);
     let healthState = null;
@@ -644,10 +1369,35 @@ async function handleJobEvent(jobId, event) {
       healthState = await refreshHealth();
       startLivePreviewSnapshot(healthState, job.runtime.resource);
     }
+    if (event.type === "finished" && job) {
+      captureLatestSnapshotDocument(job);
+    }
+    if (jobCommand(jobId) === "snapshot") {
+      refreshSnapshotFormIfVisible(jobId);
+    }
     if (event.type === "finished") updateResourceModelFromJob(job);
     closeEventSource("events");
     if (!healthState) refreshHealth();
   }
+}
+
+function captureLatestSnapshotDocument(job) {
+  if (!job || job.command !== "snapshot" || job.status !== "finished" || !job.result) {
+    return false;
+  }
+  try {
+    validateSnapshotDocument(job.result);
+  } catch (error) {
+    return false;
+  }
+  state.latestSnapshotDocument = job.result;
+  state.latestSnapshotMetadata = {
+    savedAt: Date.now(),
+    model: job.result.idn?.model || null,
+    serial: job.result.idn?.serial || null,
+    resource: job.result.resource || job.runtime?.resource || null
+  };
+  return true;
 }
 
 async function renderJobDetail(jobId, event) {
@@ -1083,11 +1833,31 @@ function prefillClearProtectionChannel() {
 function updateSelectedCommandState() {
   if (!state.selected) return;
   const meta = commandMeta(state.selected);
-  const parameters = parameterPayload();
+  let parameters = {};
+  try {
+    parameters = parameterPayload();
+  } catch (e) {
+    // Keep the form responsive while artifact editors contain invalid JSON.
+  }
   const tripGuard = tripGuardReason(state.selected, parameters);
   const tripWarning = tripContextWarning(state.selected);
+  const runButton = document.getElementById("run");
   document.getElementById("command-description").textContent = [meta.description, tripGuard || tripWarning].filter(Boolean).join(" ");
-  document.getElementById("run").disabled = Boolean(meta.disabled || tripGuard);
+  runButton.disabled = Boolean(meta.disabled || tripGuard);
+  if (state.selected === "restore-from-snapshot") {
+    try {
+      validateRestoreSnapshot(state.loadedSnapshotDocument);
+    } catch (e) {
+      runButton.disabled = true;
+    }
+  }
+  if (state.selected === "sequence") {
+    try {
+      sequenceDocumentFromEditor();
+    } catch (e) {
+      runButton.disabled = true;
+    }
+  }
   document.getElementById("confirm-banner").classList.toggle("visible", Boolean(meta.requires_confirm));
 }
 

@@ -473,3 +473,41 @@ pre {
   }
   .ramp-segment-fields { grid-template-columns: 1fr 1fr; }
 }
+
+
+/* ==========================================
+   Artifact Editors & Toolbars Style
+   ========================================== */
+
+.artifact-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+}
+
+.artifact-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.artifact-file-status {
+  font-size: 0.9em;
+  color: var(--muted, #627080);
+  margin-left: 8px;
+}
+
+.artifact-preview {
+  font-family: var(--monospace, monospace);
+  font-size: 11px;
+  line-height: 1.4;
+  width: 100%;
+  height: 250px;
+  resize: vertical;
+  background: var(--panel-soft, #f7f9fb);
+  color: var(--text, #18202a);
+  border: 1px solid var(--border, #d7dee6);
+  border-radius: var(--radius, 6px);
+  padding: 8px;
+}

@@ -74,6 +74,82 @@ def assert_param_label(block: str, name: str, label: str) -> None:
     )
 
 
+def extract_js_function(app_js: str, function_name: str) -> str:
+    match = re.search(
+        rf"(?:async\s+)?function\s+{re.escape(function_name)}\s*\(",
+        app_js,
+    )
+    if not match:
+        raise AssertionError(f"Missing function {function_name}")
+    parameter_depth = 1
+    index = match.end()
+    while index < len(app_js):
+        if app_js[index] == "(":
+            parameter_depth += 1
+        elif app_js[index] == ")":
+            parameter_depth -= 1
+            if parameter_depth == 0:
+                break
+        index += 1
+    if parameter_depth != 0:
+        raise AssertionError(f"Could not parse signature for {function_name}")
+    brace = app_js.index("{", index)
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    line_comment = False
+    block_comment = False
+    index = brace
+    while index < len(app_js):
+        char = app_js[index]
+        next_char = app_js[index + 1] if index + 1 < len(app_js) else ""
+
+        if line_comment:
+            if char == "\n":
+                line_comment = False
+            index += 1
+            continue
+
+        if block_comment:
+            if char == "*" and next_char == "/":
+                block_comment = False
+                index += 2
+            else:
+                index += 1
+            continue
+
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+
+        if char == "/" and next_char == "/":
+            line_comment = True
+            index += 2
+            continue
+        if char == "/" and next_char == "*":
+            block_comment = True
+            index += 2
+            continue
+        if char in {"'", '"', "`"}:
+            quote = char
+            index += 1
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return app_js[match.start():index + 1]
+        index += 1
+    raise AssertionError(f"Could not extract function {function_name}")
+
+
 # Guard test: Ensure webui does not import keysight_power_cli
 def test_guard_no_cli_import():
     assert "keysight_power_cli" not in sys.modules
@@ -369,7 +445,7 @@ def test_static_commands_disable_by_selected_resource_model():
     assert "!next.stale && updateResourceModel(next.resource, next.model)" in app_js
     assert "support.real !== false" in app_js
     assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
-    assert 'document.getElementById("run").disabled = Boolean(meta.disabled || tripGuard);' in app_js
+    assert "runButton.disabled = Boolean(meta.disabled || tripGuard);" in app_js
     assert 'error: "Command unavailable"' in app_js
 
 
@@ -1689,3 +1765,377 @@ def test_running_cancel_keeps_hardware_lock_until_cleanup_completes():
         assert manager.active_job_id is None
 
     asyncio.run(check_lifecycle())
+
+
+def test_static_json_artifact_file_helpers_have_cancel_and_accept_contracts():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    open_json = extract_js_function(app_js, "openJsonFile")
+    choose_json = extract_js_function(app_js, "chooseJsonFile")
+    save_json = extract_js_function(app_js, "saveJsonFile")
+    build_accept = extract_js_function(app_js, "buildJsonFileAccept")
+
+    assert 'const JSON_MIME_TYPE = "application/json";' in app_js
+    assert 'const SNAPSHOT_JSON_EXTENSIONS = [".snapshot.json", ".json"];' in app_js
+    assert 'const SEQUENCE_JSON_EXTENSIONS = [".sequence.json", ".json"];' in app_js
+    assert 'const RAMP_LIST_JSON_EXTENSIONS = [".ramp-list.json", ".json"];' in app_js
+    assert "const acceptMap = { [JSON_MIME_TYPE]: extensions };" in open_json
+    assert "const acceptMap = { [JSON_MIME_TYPE]: extensions };" in save_json
+    assert "chooseJsonFile(buildJsonFileAccept(extensions))" in open_json
+    assert 'return [...extensions, JSON_MIME_TYPE].join(",");' in build_accept
+    assert 'input.addEventListener("cancel", abort);' in choose_json
+    assert 'window.addEventListener("focus", onWindowFocus, { once: true });' in choose_json
+    assert 'abortError("File selection cancelled.")' in choose_json
+    assert "document.body.appendChild(link);" in save_json
+    assert "window.setTimeout(() => URL.revokeObjectURL(url), 0);" in save_json
+
+    assert ".artifact-editor" in styles_css
+    assert ".artifact-toolbar" in styles_css
+    assert ".artifact-file-status" in styles_css
+    assert ".artifact-preview" in styles_css
+
+
+def test_static_json_artifact_abort_errors_do_not_render_client_failures():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    for function_name in (
+        "loadRampList",
+        "saveRampList",
+        "saveSnapshot",
+        "loadRestoreSnapshot",
+        "loadSequenceFile",
+        "saveSequenceFile",
+    ):
+        block = extract_js_function(app_js, function_name)
+        assert "catch (error)" in block
+        catch_block = block[block.index("catch (error)"):]
+        assert "if (isAbortError(error)) return;" in catch_block
+        assert catch_block.index("if (isAbortError(error)) return;") < catch_block.index("renderClientResult(")
+
+
+def test_static_snapshot_completion_validates_finished_result_before_saving_state():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    handle_job_event = extract_js_function(app_js, "handleJobEvent")
+    capture_snapshot = extract_js_function(app_js, "captureLatestSnapshotDocument")
+
+    assert "captureLatestSnapshotDocument(job);" in handle_job_event
+    assert "state.latestSnapshotDocument = job.result;" not in handle_job_event
+    assert 'job.command !== "snapshot"' in capture_snapshot
+    assert 'job.status !== "finished"' in capture_snapshot
+    assert "!job.result" in capture_snapshot
+    assert "validateSnapshotDocument(job.result);" in capture_snapshot
+    assert capture_snapshot.index("validateSnapshotDocument(job.result);") < capture_snapshot.index("state.latestSnapshotDocument = job.result;")
+    assert "return false;" in capture_snapshot
+
+
+def test_static_snapshot_save_validator_is_independent_from_restore_validator():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    snapshot_validator = extract_js_function(app_js, "validateSnapshotDocument")
+    restore_validator = extract_js_function(app_js, "validateRestoreSnapshot")
+    save_snapshot = extract_js_function(app_js, "saveSnapshot")
+
+    assert "validateRestoreSnapshot" not in snapshot_validator
+    assert "Array.isArray(doc)" in snapshot_validator
+    assert "doc.idn" in snapshot_validator
+    assert "doc.readback" in snapshot_validator
+    assert "doc.outputs" in snapshot_validator
+    assert "setpoints" not in snapshot_validator
+    assert "E36312A" not in snapshot_validator
+
+    assert "validateSnapshotDocument(doc);" in restore_validator
+    assert "setpoints" in restore_validator
+    assert "E36312A" in restore_validator
+    assert "JSON.stringify(state.latestSnapshotDocument, null, 2)" in save_snapshot
+
+
+def test_static_restore_payload_preflights_and_normalizes_channel():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    run_selected = extract_js_function(app_js, "runSelected")
+    parameter_payload = extract_js_function(app_js, "parameterPayload")
+    restore_parameters = extract_js_function(app_js, "restoreSnapshotParameters")
+    normalize_restore_channel = extract_js_function(app_js, "normalizeRestoreChannel")
+    update_selected = extract_js_function(app_js, "updateSelectedCommandState")
+
+    assert "let validatedRestoreDocument = null;" in run_selected
+    assert 'state.selected === "restore-from-snapshot"' in run_selected
+    assert "validateRestoreSnapshot(state.loadedSnapshotDocument);" in run_selected
+    assert "restoreSnapshotParameters(validatedRestoreDocument)" in run_selected
+    assert run_selected.index('state.selected === "restore-from-snapshot"') < run_selected.index("const response = await submitJob(payload);")
+    assert "restoreSnapshotParameters(state.loadedSnapshotDocument)" in parameter_payload
+    assert "channel: normalizeRestoreChannel(state.restoreChannel)" in restore_parameters
+    assert "file:" not in restore_parameters
+    assert "snapshot:" not in restore_parameters
+    assert 'return value === "all" ? "all" : normalizeChannelValue(value);' in normalize_restore_channel
+    assert "validateRestoreSnapshot(state.loadedSnapshotDocument);" in update_selected
+
+
+def test_static_restore_load_unwrap_contract():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    load_restore = extract_js_function(app_js, "loadRestoreSnapshot")
+    unwrap_snapshot = extract_js_function(app_js, "unwrapSnapshot")
+
+    assert "extensions: SNAPSHOT_JSON_EXTENSIONS" in load_restore
+    assert "const rawDoc = JSON.parse(text);" in load_restore
+    assert "const unwrapped = unwrapSnapshot(rawDoc);" in load_restore
+    assert "validateRestoreSnapshot(unwrapped);" in load_restore
+    assert 'doc.command === "snapshot"' in unwrap_snapshot
+    assert "doc.result" in unwrap_snapshot
+    assert "!Array.isArray(doc.result)" in unwrap_snapshot
+    assert "doc.data" in unwrap_snapshot
+    assert "!Array.isArray(doc.data)" in unwrap_snapshot
+
+
+def test_static_sequence_json_artifact_flow_contracts():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    load_sequence = extract_js_function(app_js, "loadSequenceFile")
+    save_sequence = extract_js_function(app_js, "saveSequenceFile")
+    validate_sequence = extract_js_function(app_js, "validateSequenceDocument")
+    run_selected = extract_js_function(app_js, "runSelected")
+    parameter_payload = extract_js_function(app_js, "parameterPayload")
+
+    assert "extensions: SEQUENCE_JSON_EXTENSIONS" in load_sequence
+    assert "const rawDoc = JSON.parse(text);" in load_sequence
+    assert "validateSequenceDocument(rawDoc);" in load_sequence
+    assert "const rawDoc = JSON.parse(rawVal);" in save_sequence
+    assert save_sequence.index("const rawDoc = JSON.parse(rawVal);") < save_sequence.index("validateSequenceDocument(rawDoc);")
+    assert save_sequence.index("validateSequenceDocument(rawDoc);") < save_sequence.index("const prettyDocument = JSON.stringify(rawDoc, null, 2);")
+    assert "state.sequenceTextareaValue = prettyDocument;" in save_sequence
+    assert "extensions: SEQUENCE_JSON_EXTENSIONS" in save_sequence
+    assert "validatedSequenceDocument = sequenceDocumentFromEditor();" in run_selected
+    assert "? { document: validatedSequenceDocument }" in run_selected
+    assert "document: sequenceDocumentFromEditor()" in parameter_payload
+    assert 'step.action ?? step.type' in validate_sequence
+    assert 'step.action !== step.type' in validate_sequence
+    assert 'keys.length === 1' in validate_sequence
+    assert 'Unsupported shorthand sequence action' in validate_sequence
+    assert 'Did you mean "wait"?' in validate_sequence
+
+
+def test_api_restore_from_snapshot_dry_run(client: TestClient):
+    """Test restore-from-snapshot API validation and simulator execution using real Core snapshot schema."""
+
+    snapshot_doc = {
+        "resource": "USB0::SIM::E36312A::INSTR",
+        "idn": {
+            "raw": "KEYSIGHT,E36312A,MY12345678,3.0.0",
+            "manufacturer": "KEYSIGHT",
+            "model": "E36312A",
+            "serial": "MY12345678",
+            "firmware": "3.0.0",
+            "parse_ok": True
+        },
+        "outputs": [
+            {"channel": 1, "enabled": True},
+            {"channel": 2, "enabled": False},
+            {"channel": 3, "enabled": False}
+        ],
+        "readback": [
+            {
+                "channel": 1,
+                "setpoints": {
+                    "voltage": 5.0,
+                    "current": 1.0
+                }
+            },
+            {
+                "channel": 2,
+                "setpoints": {
+                    "voltage": 3.3,
+                    "current": 0.5
+                }
+            },
+            {
+                "channel": 3,
+                "setpoints": {
+                    "voltage": 12.0,
+                    "current": 2.0
+                }
+            }
+        ],
+        "measurements": [],
+        "protection": {
+            "over_voltage_tripped": False,
+            "over_current_tripped": False
+        },
+        "protection_settings": []
+    }
+
+    payload = {
+        "command": "restore-from-snapshot",
+        "runtime": {
+            "resource": "USB0::SIM::E36312A::INSTR",
+            "simulate": True,
+            "dry_run": True,
+            "confirm": True
+        },
+        "parameters": {
+            "document": snapshot_doc,
+            "channel": "all",
+            "restore_output_state": False
+        }
+    }
+
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+    job_id = response.json()["job_id"]
+
+    for _ in range(20):
+        res = client.get(f"/api/jobs/{job_id}")
+        if res.json()["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.05)
+
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    assert job_data["status"] == "finished"
+    assert "error" not in job_data or job_data["error"] is None
+
+    result = job_data["result"]
+    assert "plan" in result
+    assert result["restored_channels"] == [1, 2, 3]
+
+
+def test_api_sequence_execution(client: TestClient):
+    """Test sequence execution with valid steps and verify non-existent action rejection."""
+
+    valid_sequence = {
+        "version": 1,
+        "steps": [
+            {
+                "action": "set",
+                "channel": 1,
+                "voltage": 2.5,
+                "current": 0.5
+            },
+            {
+                "action": "wait",
+                "seconds": 0.1
+            },
+            {
+                "action": "output-off",
+                "channel": 1
+            }
+        ]
+    }
+
+    payload = {
+        "command": "sequence",
+        "runtime": {
+            "resource": "USB0::SIM::E36312A::INSTR",
+            "simulate": True,
+            "dry_run": True,
+            "confirm": True
+        },
+        "parameters": {
+            "document": valid_sequence
+        }
+    }
+
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+    job_id = response.json()["job_id"]
+
+    for _ in range(20):
+        res = client.get(f"/api/jobs/{job_id}")
+        if res.json()["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.05)
+
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    assert job_data["status"] == "finished"
+    assert "plan" in job_data["result"]
+
+
+def test_api_sequence_rejects_delay_action(client: TestClient):
+    """Verify that sequence submission rejects unsupported 'delay' action on the API level."""
+    invalid_sequence = {
+        "version": 1,
+        "steps": [
+            {
+                "action": "delay",
+                "duration_ms": 100
+            }
+        ]
+    }
+    payload = {
+        "command": "sequence",
+        "runtime": {
+            "resource": "USB0::SIM::E36312A::INSTR",
+            "simulate": True,
+            "dry_run": True,
+            "confirm": True
+        },
+        "parameters": {
+            "document": invalid_sequence
+        }
+    }
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200 # Submitted
+    job_id = response.json()["job_id"]
+
+    # Wait for job to fail
+    import time
+    for _ in range(20):
+        res = client.get(f"/api/jobs/{job_id}").json()
+        if res["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.05)
+
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    assert job_data["status"] == "failed"
+    assert "unsupported" in job_data["error"].lower() or "validation" in job_data["error"].lower()
+
+
+def test_api_restore_from_snapshot_rejects_missing_setpoints(client: TestClient):
+    """Verify that restore rejects snapshot document missing required setpoints on the API level."""
+    invalid_snapshot = {
+        "resource": "USB0::SIM::E36312A::INSTR",
+        "idn": {
+            "raw": "KEYSIGHT,E36312A,MY12345678,3.0.0",
+            "manufacturer": "KEYSIGHT",
+            "model": "E36312A",
+            "serial": "MY12345678",
+            "firmware": "3.0.0",
+            "parse_ok": True
+        },
+        "outputs": [
+            {"channel": 1, "enabled": True}
+        ],
+        "readback": [
+            # ?? setpoints!
+            {
+                "channel": 1
+            }
+        ]
+    }
+    payload = {
+        "command": "restore-from-snapshot",
+        "runtime": {
+            "resource": "USB0::SIM::E36312A::INSTR",
+            "simulate": True,
+            "dry_run": True,
+            "confirm": True
+        },
+        "parameters": {
+            "document": invalid_snapshot,
+            "channel": "all"
+        }
+    }
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+    job_id = response.json()["job_id"]
+
+    import time
+    for _ in range(20):
+        res = client.get(f"/api/jobs/{job_id}").json()
+        if res["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.05)
+
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    assert job_data["status"] == "failed"
+    assert "setpoints" in job_data["error"].lower()
