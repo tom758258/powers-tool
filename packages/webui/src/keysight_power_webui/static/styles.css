@@ -229,6 +229,14 @@ button.icon-button {
   padding: 0;
   margin: 0;
 }
+.field-description {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+}
 .ramp-list-editor {
   grid-column: 1 / -1;
   display: grid;
@@ -508,6 +516,26 @@ pre {
   display: grid;
   gap: 12px;
 }
+.restore-plan-explanation {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.restore-plan-preview {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+.restore-plan-preview.finished { border-color: #8cc9ad; background: #f3fbf7; color: var(--text); }
+.restore-plan-preview.failed { border-color: #e5a29a; background: #fff7f6; color: var(--danger); }
+.restore-plan-preview p { margin: 0; }
+.restore-plan-preview ol { display: grid; gap: 7px; margin: 0; padding-left: 24px; }
+.restore-plan-preview li span { display: block; text-transform: capitalize; }
+.restore-plan-preview code { display: block; margin-top: 2px; color: var(--text); overflow-wrap: anywhere; }
 
 .artifact-toolbar {
   display: flex;

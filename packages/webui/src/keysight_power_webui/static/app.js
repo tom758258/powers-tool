@@ -22,7 +22,9 @@ const state = {
   sequenceFilename: "",
   sequenceTextareaValue: undefined,
   restoreChannel: "all",
-  restoreOutputState: false
+  restoreOutputState: false,
+  restorePlanPreview: null,
+  restorePlanPreviewStatus: "idle"
 };
 
 const COMMAND_CATEGORIES = ["output", "trigger", "artifact", "discovery"];
@@ -91,7 +93,13 @@ const PARAMS = {
     { name: "max_errors", type: "number", label: "Max errors", value: 20 }
   ],
   identify: [],
-  snapshot: [{ name: "max_errors", type: "number", label: "Max errors", value: 20 }],
+  snapshot: [{
+    name: "max_errors",
+    type: "number",
+    label: "Max errors",
+    value: 20,
+    description: "Limits how many times the snapshot reads the instrument error queue. Reading stops early when the instrument reports no error. Each reported error is removed from the instrument queue."
+  }],
   sequence: [{ name: "document", type: "textarea", label: "Sequence document", value: "{}" }]
 };
 
@@ -234,8 +242,8 @@ function renderCommands() {
 
   Object.entries(state.commands)
     .filter(([name, meta]) => (meta.category || "discovery") === state.activeCategory)
-    .filter(([name]) => !filter || name.includes(filter))
-    .sort((a, b) => a[0].localeCompare(b[0]))
+    .filter(([name]) => !filter || name.includes(filter) || commandDisplayName(name).toLowerCase().includes(filter))
+    .sort((a, b) => commandDisplayName(a[0]).localeCompare(commandDisplayName(b[0])))
     .forEach(([name]) => {
       const effectiveMeta = commandMeta(name);
       const button = document.createElement("button");
@@ -298,8 +306,17 @@ function renderForm(command) {
     if (param.value !== undefined) input.value = param.value;
     input.addEventListener("change", updateSelectedCommandState);
     label.appendChild(input);
+    appendFieldDescription(label, param);
     form.appendChild(label);
   });
+}
+
+function appendFieldDescription(label, param) {
+  if (!param.description) return;
+  const description = document.createElement("small");
+  description.className = "field-description";
+  description.textContent = param.description;
+  label.appendChild(description);
 }
 
 function renderRampListForm(form) {
@@ -659,6 +676,7 @@ function renderSnapshotForm(form) {
     if (param.value !== undefined) input.value = param.value;
     input.addEventListener("change", updateSelectedCommandState);
     label.appendChild(input);
+    appendFieldDescription(label, param);
     editor.appendChild(label);
   });
 
@@ -786,6 +804,8 @@ function renderRestoreForm(form) {
   channelSelect.value = state.restoreChannel;
   channelSelect.addEventListener("change", (e) => {
     state.restoreChannel = e.target.value;
+    clearRestorePlanPreview();
+    renderForm("restore-from-snapshot");
     updateSelectedCommandState();
   });
   channelLabel.appendChild(channelSelect);
@@ -800,6 +820,8 @@ function renderRestoreForm(form) {
   restoreStateCheck.checked = state.restoreOutputState;
   restoreStateCheck.addEventListener("change", (e) => {
     state.restoreOutputState = e.target.checked;
+    clearRestorePlanPreview();
+    renderForm("restore-from-snapshot");
     updateSelectedCommandState();
   });
 
@@ -814,18 +836,25 @@ function renderRestoreForm(form) {
   warningNote.textContent = "When enabled, channels that were ON in the snapshot may be turned ON after restoring settings.";
   editor.appendChild(warningNote);
 
-  const previewLabel = document.createElement("label");
-  previewLabel.textContent = "Snapshot JSON Preview";
-  const previewArea = document.createElement("textarea");
-  previewArea.id = "restore-preview";
-  previewArea.className = "artifact-preview";
-  previewArea.readOnly = true;
-  previewArea.placeholder = "Select and load a snapshot file to preview here...";
-  if (state.loadedSnapshotDocument) {
-    previewArea.value = JSON.stringify(state.loadedSnapshotDocument, null, 2);
-  }
-  previewLabel.appendChild(previewArea);
-  editor.appendChild(previewLabel);
+  const previewPlanBtn = document.createElement("button");
+  previewPlanBtn.type = "button";
+  previewPlanBtn.className = "secondary";
+  previewPlanBtn.id = "btn-preview-restore-plan";
+  previewPlanBtn.textContent = "Preview restore plan";
+  previewPlanBtn.disabled = !isLoadedRestoreSnapshotValid() || state.restorePlanPreviewStatus === "running";
+  previewPlanBtn.addEventListener("click", previewRestorePlan);
+  editor.appendChild(previewPlanBtn);
+
+  const planExplanation = document.createElement("p");
+  planExplanation.className = "restore-plan-explanation";
+  planExplanation.textContent = "Shows the exact restore steps without opening VISA, locking hardware, or changing the instrument.";
+  editor.appendChild(planExplanation);
+
+  const planPreview = document.createElement("div");
+  planPreview.id = "restore-plan-preview";
+  planPreview.className = `restore-plan-preview ${state.restorePlanPreviewStatus}`;
+  renderRestorePlanPreview(planPreview);
+  editor.appendChild(planPreview);
 
   form.appendChild(editor);
 }
@@ -842,6 +871,7 @@ async function loadRestoreSnapshot() {
 
     state.loadedSnapshotDocument = unwrapped;
     state.loadedSnapshotFilename = filename;
+    clearRestorePlanPreview();
 
     renderForm("restore-from-snapshot");
     updateSelectedCommandState();
@@ -857,6 +887,88 @@ async function loadRestoreSnapshot() {
         command: "restore-from-snapshot"
       }
     );
+  }
+}
+
+async function previewRestorePlan() {
+  try {
+    validateRestoreSnapshot(state.loadedSnapshotDocument);
+    state.restorePlanPreviewStatus = "running";
+    state.restorePlanPreview = null;
+    renderForm("restore-from-snapshot");
+    updateSelectedCommandState();
+    const payload = {
+      command: "restore-from-snapshot",
+      runtime: {
+        ...runtimePayload(),
+        dry_run: true,
+        confirm: true
+      },
+      parameters: restoreSnapshotParameters(state.loadedSnapshotDocument)
+    };
+    const response = await submitJob(payload);
+    addHistory(response.job_id, "restore-from-snapshot", "accepted", "Restore plan preview");
+    subscribeToJob(response.job_id, "/api/events");
+  } catch (error) {
+    state.restorePlanPreviewStatus = "failed";
+    state.restorePlanPreview = { error: error.message || String(error) };
+    if (state.selected === "restore-from-snapshot") renderForm("restore-from-snapshot");
+    renderClientResult(
+      "Restore plan preview",
+      "failed",
+      error.message || String(error),
+      {
+        error: "Restore plan preview failed",
+        detail: error.message || String(error),
+        command: "restore-from-snapshot"
+      }
+    );
+  }
+}
+
+function renderRestorePlanPreview(container) {
+  if (state.restorePlanPreviewStatus === "running") {
+    container.textContent = "Generating restore plan...";
+    return;
+  }
+  if (state.restorePlanPreviewStatus === "failed") {
+    container.textContent = `Could not generate restore plan: ${state.restorePlanPreview?.error || "Unknown error"}`;
+    return;
+  }
+  const plan = state.restorePlanPreview?.plan;
+  if (!plan || !Array.isArray(plan.steps)) {
+    container.textContent = "No restore plan generated yet.";
+    return;
+  }
+  const heading = document.createElement("strong");
+  heading.textContent = `Restore plan: ${plan.steps.length} steps (preview only)`;
+  const safety = document.createElement("p");
+  safety.textContent = "No VISA connection was opened and no instrument settings were changed.";
+  const list = document.createElement("ol");
+  plan.steps.forEach((step) => {
+    const item = document.createElement("li");
+    const action = String(step.action || "action").replace(/_/g, " ");
+    const actionLabel = document.createElement("span");
+    actionLabel.textContent = action;
+    const command = document.createElement("code");
+    command.textContent = step.command || "";
+    item.append(actionLabel, command);
+    list.appendChild(item);
+  });
+  container.append(heading, safety, list);
+}
+
+function clearRestorePlanPreview() {
+  state.restorePlanPreviewStatus = "idle";
+  state.restorePlanPreview = null;
+}
+
+function isLoadedRestoreSnapshotValid() {
+  try {
+    validateRestoreSnapshot(state.loadedSnapshotDocument);
+    return true;
+  } catch (error) {
+    return false;
   }
 }
 
@@ -1340,9 +1452,14 @@ function parseDelimitedNumbers(value, integerOnly) {
 
 function commandDisplayName(name) {
   if (!name) return "";
-  if (name === "capabilities") return "Capabilities";
-  if (name === "clear") return "Clear Status / Errors";
-  return name.charAt(0).toUpperCase() + name.slice(1);
+  const overrides = {
+    snapshot: "Create snapshot",
+    "restore-from-snapshot": "Restore snapshot",
+    clear: "Clear Status / Errors"
+  };
+  if (overrides[name]) return overrides[name];
+  const spaced = name.replace(/-/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 function submitJob(payload) {
@@ -1380,6 +1497,13 @@ async function handleJobEvent(jobId, event) {
       refreshSnapshotFormIfVisible(jobId);
     }
     if (event.type === "finished") updateResourceModelFromJob(job);
+    if (jobLabel(jobId) === "Restore plan preview") {
+      captureRestorePlanPreview(job);
+      if (state.selected === "restore-from-snapshot") {
+        renderForm("restore-from-snapshot");
+        updateSelectedCommandState();
+      }
+    }
     closeEventSource("events");
     if (!healthState) refreshHealth();
   }
@@ -1448,6 +1572,20 @@ function renderClientResult(command, status, summary, detail) {
 
 function jobCommand(jobId) {
   return state.jobs.find((item) => item.jobId === jobId)?.command || null;
+}
+
+function captureRestorePlanPreview(job) {
+  if (job?.status === "finished" && job.result?.plan) {
+    state.restorePlanPreviewStatus = "finished";
+    state.restorePlanPreview = job.result;
+    return;
+  }
+  state.restorePlanPreviewStatus = "failed";
+  state.restorePlanPreview = { error: job?.error || "Restore plan preview did not finish." };
+}
+
+function jobLabel(jobId) {
+  return state.jobs.find((item) => item.jobId === jobId)?.label || null;
 }
 
 function populateResourceSelect(resources) {
@@ -1561,6 +1699,15 @@ function commandDisabledReason(support, model) {
 
 function toggleResultPanel() {
   state.resultCollapsed = !state.resultCollapsed;
+  syncResultPanelState();
+}
+
+function expandResultPanel() {
+  state.resultCollapsed = false;
+  syncResultPanelState();
+}
+
+function syncResultPanelState() {
   const panel = document.getElementById("result-panel");
   const button = document.getElementById("result-toggle");
   panel.classList.toggle("collapsed", state.resultCollapsed);
@@ -1852,11 +1999,10 @@ function updateSelectedCommandState() {
   commandDescription.title = descriptionText;
   runButton.disabled = Boolean(meta.disabled || tripGuard);
   if (state.selected === "restore-from-snapshot") {
-    try {
-      validateRestoreSnapshot(state.loadedSnapshotDocument);
-    } catch (e) {
-      runButton.disabled = true;
-    }
+    const restoreValid = isLoadedRestoreSnapshotValid();
+    runButton.disabled ||= !restoreValid;
+    const previewButton = document.getElementById("btn-preview-restore-plan");
+    if (previewButton) previewButton.disabled = !restoreValid || state.restorePlanPreviewStatus === "running";
   }
   if (state.selected === "sequence") {
     try {

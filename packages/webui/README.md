@@ -61,6 +61,9 @@ The static UI is a three-panel dashboard:
 - main generated command form with typed controls and sequence-document JSON input;
 - right panel for live trend canvas, live table, job history, and result JSON.
 
+Machine-facing command IDs remain kebab-case. Human-facing WebUI command names
+use spaces and sentence case.
+
 The frontend keeps one job SSE controller and one live-data SSE controller.
 Ramp List uses a dedicated segment-card editor with versioned JSON Load/Save,
 up to 10 ordered segments, and full-list trip guarding before submission.

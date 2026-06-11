@@ -455,6 +455,20 @@ def test_static_command_keys_are_used_for_selection_and_submission():
     assert "selectCommand(commandDisplayName(name))" not in app_js
 
 
+def test_static_command_display_names_filter_and_sort_by_human_label():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    render_commands = app_js[app_js.index("function renderCommands()"):app_js.index("function selectCommand")]
+    display_name = extract_js_function(app_js, "commandDisplayName")
+
+    assert 'name.includes(filter) || commandDisplayName(name).toLowerCase().includes(filter)' in render_commands
+    assert 'commandDisplayName(a[0]).localeCompare(commandDisplayName(b[0]))' in render_commands
+    assert 'snapshot: "Create snapshot"' in display_name
+    assert '"restore-from-snapshot": "Restore snapshot"' in display_name
+    assert 'clear: "Clear Status / Errors"' in display_name
+    assert 'name.replace(/-/g, " ")' in display_name
+
+
 def test_static_commands_disable_by_selected_resource_model():
     _index_html, app_js, _styles_css = read_static_texts()
 
@@ -485,7 +499,7 @@ def test_static_trip_guard_and_clear_protection_recovery_contract():
     assert 'data-clear-protection-channel="${channel.channel}"' in app_js
     assert 'input.value = channels.length === 1 ? String(channels[0]) : "";' in app_js
     assert 'const stateText = tripped === true ? "TRIP" : tripped === false ? "CLEAR" : "--";' in app_js
-    assert 'if (name === "clear") return "Clear Status / Errors";' in app_js
+    assert 'clear: "Clear Status / Errors"' in app_js
     assert ".clear-protection-shortcut" in styles_css
 
 
@@ -1896,7 +1910,69 @@ def test_static_restore_payload_preflights_and_normalizes_channel():
     assert "file:" not in restore_parameters
     assert "snapshot:" not in restore_parameters
     assert 'return value === "all" ? "all" : normalizeChannelValue(value);' in normalize_restore_channel
-    assert "validateRestoreSnapshot(state.loadedSnapshotDocument);" in update_selected
+    assert "isLoadedRestoreSnapshotValid();" in update_selected
+
+
+def test_static_restore_plan_preview_reuses_dry_run_job():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    render_restore = extract_js_function(app_js, "renderRestoreForm")
+    preview_restore = extract_js_function(app_js, "previewRestorePlan")
+    handle_job_event = extract_js_function(app_js, "handleJobEvent")
+    update_selected = extract_js_function(app_js, "updateSelectedCommandState")
+
+    assert 'previewPlanBtn.id = "btn-preview-restore-plan";' in render_restore
+    assert 'previewPlanBtn.textContent = "Preview restore plan";' in render_restore
+    assert 'previewPlanBtn.disabled = !isLoadedRestoreSnapshotValid() || state.restorePlanPreviewStatus === "running";' in render_restore
+    assert "Loaded snapshot JSON" not in render_restore
+    assert "Snapshot JSON Preview" not in render_restore
+    assert "restore-preview" not in render_restore
+    assert 'command: "restore-from-snapshot"' in preview_restore
+    assert "dry_run: true" in preview_restore
+    assert "confirm: true" in preview_restore
+    assert "parameters: restoreSnapshotParameters(state.loadedSnapshotDocument)" in preview_restore
+    assert 'addHistory(response.job_id, "restore-from-snapshot", "accepted", "Restore plan preview");' in preview_restore
+    assert "subscribeToJob(response.job_id, \"/api/events\");" in preview_restore
+    assert 'jobLabel(jobId) === "Restore plan preview"' in handle_job_event
+    assert "captureRestorePlanPreview(job);" in handle_job_event
+    assert 'document.getElementById("btn-preview-restore-plan")' in update_selected
+
+
+def test_static_restore_plan_preview_is_visible_and_human_readable():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    render_restore = extract_js_function(app_js, "renderRestoreForm")
+    render_preview = extract_js_function(app_js, "renderRestorePlanPreview")
+    capture_preview = extract_js_function(app_js, "captureRestorePlanPreview")
+
+    assert 'planExplanation.className = "restore-plan-explanation";' in render_restore
+    assert "without opening VISA, locking hardware, or changing the instrument" in render_restore
+    assert 'planPreview.id = "restore-plan-preview";' in render_restore
+    assert 'container.textContent = "Generating restore plan...";' in render_preview
+    assert "Restore plan: ${plan.steps.length} steps (preview only)" in render_preview
+    assert "No VISA connection was opened and no instrument settings were changed." in render_preview
+    assert "plan.steps.forEach((step)" in render_preview
+    assert "step.command" in render_preview
+    assert "command.textContent = step.command || \"\";" in render_preview
+    assert "innerHTML" not in render_preview
+    assert 'state.restorePlanPreviewStatus = "finished";' in capture_preview
+    assert ".restore-plan-preview.finished" in styles_css
+    assert ".restore-plan-preview.failed" in styles_css
+
+
+def test_static_snapshot_max_errors_explains_error_queue_reads():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    render_snapshot = extract_js_function(app_js, "renderSnapshotForm")
+    append_description = extract_js_function(app_js, "appendFieldDescription")
+
+    assert "Limits how many times the snapshot reads the instrument error queue." in app_js
+    assert "Reading stops early when the instrument reports no error." in app_js
+    assert "Each reported error is removed from the instrument queue." in app_js
+    assert "appendFieldDescription(label, param);" in render_snapshot
+    assert 'description.className = "field-description";' in append_description
+    assert "description.textContent = param.description;" in append_description
+    assert ".field-description" in styles_css
 
 
 def test_static_restore_load_unwrap_contract():
@@ -1944,7 +2020,7 @@ def test_static_sequence_json_artifact_flow_contracts():
 
 
 def test_api_restore_from_snapshot_dry_run(client: TestClient):
-    """Test restore-from-snapshot API validation and simulator execution using real Core snapshot schema."""
+    """Test restore preview dry-run produces the complete plan without taking the hardware lock."""
 
     snapshot_doc = {
         "resource": "USB0::SIM::E36312A::INSTR",
@@ -1996,20 +2072,21 @@ def test_api_restore_from_snapshot_dry_run(client: TestClient):
         "command": "restore-from-snapshot",
         "runtime": {
             "resource": "USB0::SIM::E36312A::INSTR",
-            "simulate": True,
+            "simulate": False,
             "dry_run": True,
             "confirm": True
         },
         "parameters": {
             "document": snapshot_doc,
             "channel": "all",
-            "restore_output_state": False
+            "restore_output_state": True
         }
     }
 
     response = client.post("/api/jobs", json=payload)
     assert response.status_code == 200
     job_id = response.json()["job_id"]
+    assert client.get("/api/health").json()["hardware_locked"] is False
 
     for _ in range(20):
         res = client.get(f"/api/jobs/{job_id}")
@@ -2023,6 +2100,8 @@ def test_api_restore_from_snapshot_dry_run(client: TestClient):
 
     result = job_data["result"]
     assert "plan" in result
+    assert "OUTP ON,(@1)" in [step["command"] for step in result["plan"]["steps"]]
+    assert client.get("/api/health").json()["hardware_locked"] is False
     assert result["restored_channels"] == [1, 2, 3]
 
 
