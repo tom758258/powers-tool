@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -242,8 +243,8 @@ def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> No
             raise CoreValidationError("trigger-pulse leave_trigger_configured must be boolean")
     if action == "wait":
         seconds = float(parameters.get("seconds", parameters.get("duration_sec", 0)))
-        if seconds < 0:
-            raise CoreValidationError("wait seconds must be non-negative")
+        if not math.isfinite(seconds) or seconds < 0:
+            raise CoreValidationError("wait seconds must be a finite non-negative number")
     if action in {"set", "apply"}:
         channel = sequence_channel(parameters.get("channel", 1), allow_all=(action == "apply"))
         voltage = float(parameters["voltage"])
@@ -258,8 +259,8 @@ def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> No
     elif action in {"output-on", "output-off", "cycle-output"}:
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
         duration_ms = int(parameters.get("duration_ms", 500))
-        if action == "cycle-output" and duration_ms < 0:
-            raise CoreValidationError("cycle-output duration_ms must be non-negative")
+        if action == "cycle-output" and duration_ms < 1:
+            raise CoreValidationError("cycle-output duration_ms must be at least 1")
         try:
             for selected_channel in sequence_preview_channels(channel):
                 validate_channel(selected_channel, _safety_limits(request))

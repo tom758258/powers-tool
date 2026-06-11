@@ -346,19 +346,20 @@ def test_ramp_step_completion_pulses_after_every_write_including_last(monkeypatc
 
 
 @pytest.mark.parametrize("delay_ms", [0, 5000])
-def test_ramp_step_completion_pulse_rejects_short_delay(delay_ms) -> None:
-    with pytest.raises(CoreValidationError, match="greater than 5000"):
-        output_plan(
-            request(
-                "ramp",
-                start_voltage=0,
-                stop_voltage=1,
-                step_voltage=1,
-                delay_ms=delay_ms,
-                completion_pulse_pins=(1,),
-                completion_pulse_timing="step",
-            )
+def test_ramp_step_completion_pulse_accepts_nonnegative_delay(delay_ms) -> None:
+    plan = output_plan(
+        request(
+            "ramp",
+            start_voltage=0,
+            stop_voltage=1,
+            step_voltage=1,
+            delay_ms=delay_ms,
+            completion_pulse_pins=(1,),
+            completion_pulse_timing="step",
         )
+    )
+
+    assert len([step for step in plan["steps"] if step["action"] == "completion_pulse"]) == 2
 
 
 def _trigger_snapshot_responses() -> dict[str, str]:

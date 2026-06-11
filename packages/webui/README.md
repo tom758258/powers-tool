@@ -76,16 +76,14 @@ Job Result history is expanded by default and can be collapsed or cleared
 without changing Result Detail.
 
 Cycle Output exposes an optional finished pulse. Ramp exposes mutually
-exclusive Segment complete and Every-step pulse controls; Every-step requires
-Delay(ms) greater than 5000. Ramp List Load/Save preserves its global pulse
+exclusive Segment complete and Every-step pulse controls. Ramp List Load/Save preserves its global pulse
 configuration, and Sequence includes a Trigger pulse action. Pulse rear pins
 are independent of output channels and are E36312A-only. Controls are disabled
 when the selected resource is known to be another model.
 Pulse detail fields in Cycle Output and Ramp appear only after a pulse option
 is enabled. Rear-pin fields use a selector for every valid pin combination,
-including All. Ramp List disables Every-step pulse when any segment delay is
-5000 ms or less and points users to the built-in Segment complete pulse, which
-supports those shorter delays.
+including All. Ramp and Ramp List Every-step pulse accept a zero millisecond
+additional delay.
 Workflow completion pulses are software-scheduled post-action `*TRG` pulses,
 not native LIST execution. They temporarily modify and restore trigger/rear-pin
 settings, and global `*TRG` may affect other armed BUS behavior.
@@ -120,3 +118,6 @@ run from this package by default.
 ```powershell
 uv run python -m pytest packages/webui/tests -q -p no:cacheprovider
 ```
+
+Numeric field limits come from the shared
+[Commands parameter contract](../../docs/contracts/commands-parameter-contract.md).

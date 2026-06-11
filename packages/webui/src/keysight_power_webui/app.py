@@ -12,9 +12,10 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from keysight_power_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions, StopCleanupError
+from keysight_power_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, StopCleanupError
 from keysight_power_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
-from keysight_power_core.sequence import load_sequence_document
+from keysight_power_core.parameter_constraints import parameter_constraints_metadata, validate_request_parameters
+from keysight_power_core.sequence import load_sequence_document, sequence_plan
 from keysight_power_core.workflow_validation import validate_general_workflow_parameters
 
 from .jobs import job_manager, JobStatus
@@ -144,6 +145,7 @@ async def get_commands():
     return {
         "commands": commands,
         "command_support_by_model": webui_command_support(set(commands)),
+        "parameter_constraints": parameter_constraints_metadata(),
         "output_affecting_commands": list(MUTATING_COMMANDS),
     }
 
@@ -157,11 +159,32 @@ async def create_job(request: Request):
     parameters = payload.get("parameters", {})
     artifacts = payload.get("artifacts")
     try:
-        validate_general_workflow_parameters(OperationRequest(command=command, parameters=parameters))
+        validation_request = OperationRequest(command=command, parameters=parameters)
+        validate_general_workflow_parameters(validation_request)
+        validate_request_parameters(validation_request)
     except CoreValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if command == "sequence":
         _validate_webui_sequence_size(parameters)
+        try:
+            document = parameters.get("document")
+            if document is None and parameters.get("file"):
+                document = load_sequence_document(str(parameters["file"]))
+            if document is None:
+                raise CoreValidationError("sequence requires file or document")
+            sequence_plan(
+                SequenceRequest(
+                    runtime=RuntimeOptions(
+                        resource=runtime.get("resource"),
+                        safety_config=runtime.get("safety_config"),
+                        dry_run=True,
+                    ),
+                    parameters=parameters,
+                ),
+                document,
+            )
+        except (CoreValidationError, OSError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     if command == "ramp-list":
         try:
             validation_request = OperationRequest(

@@ -25,7 +25,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="append",
         nargs=7,
         metavar=("CHANNEL", "CURRENT", "START", "STOP", "STEP", "DELAY_MS", "HOLD_MS"),
-        help="Repeatable segment: channel current start stop step delay-ms hold-ms.",
+        help="Repeatable segment: channel current start stop step additional-delay-ms hold-ms.",
     )
     parser.add_argument("--completion-pulse-timing", choices=("segment", "step"), help="Emit a pulse after each segment or voltage step.")
     parser.add_argument("--completion-pulse-pins", type=runtime._trigger_pins_list, help="Comma-separated E36312A rear digital pulse pins.")

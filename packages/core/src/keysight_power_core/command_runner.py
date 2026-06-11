@@ -8,6 +8,7 @@ from keysight_power_core.core import CoreValidationError, OperationRequest, Sequ
 from keysight_power_core.discovery import run_discovery
 from keysight_power_core.instrument_io import run_instrument_io
 from keysight_power_core.operations import run_operation
+from keysight_power_core.parameter_constraints import validate_request_parameters
 from keysight_power_core.protection import run_protection
 from keysight_power_core.ramp_list import run_ramp_list
 from keysight_power_core.readonly import run_readonly
@@ -29,6 +30,7 @@ def run_core_command(
     cleanup_reporter: CleanupReporter | None = None,
 ) -> dict[str, Any]:
     command = request.command
+    validate_request_parameters(request)
     if isinstance(request, OperationRequest):
         validate_general_workflow_parameters(request)
     if stop_requested is not None:

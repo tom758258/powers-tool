@@ -23,6 +23,7 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
+from keysight_power_core.parameter_constraints import validate_request_parameters
 from keysight_power_core.safety import (
     SafetyConfigError,
     SafetyLimits,
@@ -99,6 +100,7 @@ def run_operation(
 def output_plan(request: OperationRequest) -> dict[str, Any]:
     """Build the dry-run/simulation output plan without opening hardware."""
 
+    validate_request_parameters(request)
     command = request.command
     p = request.parameters
     channel = p.get("channel")
@@ -775,10 +777,6 @@ def _validate_ramp_completion_pulse(request: OperationRequest) -> None:
     timing = request.parameters.get("completion_pulse_timing", "segment")
     if timing not in {"segment", "step"}:
         raise CoreValidationError("completion-pulse-timing must be segment or step")
-    if timing != "step":
-        return
-    if _completion_pulse_requested(request) and int(request.parameters.get("delay_ms", 0)) <= 5000:
-        raise CoreValidationError("step completion pulses require delay_ms greater than 5000")
 
 
 def _validate_completion_pulse_power_supply(power_supply: Any) -> None:

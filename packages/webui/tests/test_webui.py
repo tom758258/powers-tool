@@ -341,9 +341,9 @@ def test_static_ramp_list_editor_contract():
     assert '"trigger-pulse": [channel()' in app_js
     assert 'const REAR_PIN_OPTIONS = ["1", "2", "3", "1,2", "1,3", "2,3", "1,2,3"];' in app_js
     assert 'option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);' in app_js
-    assert 'definition.name === "timing" && value === "step" && stepPulseBlocked' in app_js
-    assert "Use the built-in Segment complete pulse instead" in app_js
-    assert "rampListStepPulseBlocked()" in app_js
+    assert 'definition.name === "timing" && value === "step" && stepPulseBlocked' not in app_js
+    assert "Use the built-in Segment complete pulse instead" not in app_js
+    assert "rampListStepPulseBlocked()" not in app_js
     assert ".ramp-list-pulse-hint { grid-column: 1 / -1; }" in styles_css
     assert 'if (state.selected === "ramp-list") return { document: rampListDocument() };' in app_js
     assert 'command === "ramp-list"' in app_js
@@ -603,6 +603,8 @@ def test_commands_metadata(client: TestClient):
     data = response.json()
     assert "commands" in data
     assert "command_support_by_model" in data
+    assert data["parameter_constraints"]["delay_ms"]["min"] == 0
+    assert data["parameter_constraints"]["poll_ms"]["min"] == 50
     
     # Check a few expected commands
     cmds = data["commands"]
@@ -648,6 +650,24 @@ def test_commands_metadata(client: TestClient):
     assert cmds["smoke-output"]["requires_confirm"] is True
     assert "smoke-output" in data["output_affecting_commands"]
     assert "ramp-list" in data["output_affecting_commands"]
+
+
+def test_api_rejects_invalid_static_parameter_before_creating_job(client: TestClient):
+    from keysight_power_webui.jobs import job_manager
+
+    jobs_before = len(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "set",
+            "runtime": {"simulate": True},
+            "parameters": {"channel": 1, "voltage": -1, "current": 0.1},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "voltage" in response.json()["detail"]
+    assert len(job_manager.jobs) == jobs_before
 
 
 def test_commands_metadata_includes_model_aware_support(client: TestClient):
@@ -1081,10 +1101,7 @@ def test_ramp_list_lint_dry_run(client: TestClient):
     assert job_data["result"]["segment_count"] == 1
 
 
-def test_api_rejects_invalid_ramp_list_pulse_before_creating_job(client: TestClient):
-    from keysight_power_webui.jobs import job_manager
-
-    jobs_before = len(job_manager.jobs)
+def test_api_accepts_zero_delay_ramp_list_step_pulse(client: TestClient):
     payload = {
         "command": "ramp-list",
         "runtime": {"simulate": True, "dry_run": True},
@@ -1095,7 +1112,7 @@ def test_api_rejects_invalid_ramp_list_pulse_before_creating_job(client: TestCli
                 "completion_pulse": {"timing": "step", "pins": [1], "polarity": "positive"},
                 "segments": [{
                     "channel": 1, "current": 0.1, "start_voltage": 0, "stop_voltage": 1,
-                    "step_voltage": 0.5, "delay_ms": 5000, "hold_ms": 0,
+                    "step_voltage": 0.5, "delay_ms": 0, "hold_ms": 0,
                 }],
             },
         },
@@ -1103,8 +1120,7 @@ def test_api_rejects_invalid_ramp_list_pulse_before_creating_job(client: TestCli
 
     response = client.post("/api/jobs", json=payload)
 
-    assert response.status_code == 400
-    assert len(job_manager.jobs) == jobs_before
+    assert response.status_code == 200
 
 
 @pytest.mark.parametrize("field", ["completion_pulse_mode", "completion_pulse_dwell_ms", "wait_timeout_ms", "poll_ms"])
@@ -2242,20 +2258,8 @@ def test_api_sequence_rejects_delay_action(client: TestClient):
         }
     }
     response = client.post("/api/jobs", json=payload)
-    assert response.status_code == 200 # Submitted
-    job_id = response.json()["job_id"]
-
-    # Wait for job to fail
-    import time
-    for _ in range(20):
-        res = client.get(f"/api/jobs/{job_id}").json()
-        if res["status"] in ("finished", "failed"):
-            break
-        time.sleep(0.05)
-
-    job_data = client.get(f"/api/jobs/{job_id}").json()
-    assert job_data["status"] == "failed"
-    assert "unsupported" in job_data["error"].lower() or "validation" in job_data["error"].lower()
+    assert response.status_code == 400
+    assert "unsupported sequence step" in response.json()["detail"]
 
 
 def test_api_restore_from_snapshot_rejects_missing_setpoints(client: TestClient):

@@ -125,12 +125,6 @@ def ramp_list_plan(request: OperationRequest, document: dict[str, Any]) -> dict[
         for index, raw_segment in enumerate(raw_segments, start=1)
     ]
     completion_pulse = normalize_completion_pulse(document.get("completion_pulse"))
-    if completion_pulse and completion_pulse["timing"] == "step":
-        invalid = [segment["index"] for segment in segments if segment["delay_ms"] <= 5000]
-        if invalid:
-            raise CoreValidationError(
-                f"ramp-list step completion pulses require delay_ms greater than 5000 for every segment; invalid segment(s): {invalid}"
-            )
     return {
         "kind": RAMP_LIST_KIND,
         "version": RAMP_LIST_VERSION,

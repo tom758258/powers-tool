@@ -2,6 +2,9 @@
 
 This contract extends `common-cli-jsonl-contract.md` with Power command names and payload shapes.
 
+Numeric command fields follow the shared
+[Commands parameter contract](commands-parameter-contract.md).
+
 ## CLI Commands
 
 Lifecycle clients:

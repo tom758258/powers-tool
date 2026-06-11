@@ -110,6 +110,7 @@ commands, state-changing behavior, and report locations are documented in the
 - CLI JSON contract that consumes core envelopes: `../../docs/contracts/power-cli-jsonl-contract.md`
 - Workspace overview: `../../docs/workspace.md`
 - Release checklist: `../../docs/release-checklist.md`
+- Commands parameter contract: `../../docs/contracts/commands-parameter-contract.md`
 
 ## Status
 
@@ -141,11 +142,10 @@ own transport envelopes.
 Completion pulses use E36312A rear digital pins; rear pins are separate from
 the selected output channel. Ramp supports `segment` timing for one completion
 pulse and `step` timing for a software post-action pulse after every voltage
-write, including the final write. Step timing requires `delay_ms > 5000`.
+write, including the final write. Every-step timing accepts `delay_ms = 0`.
 
 Ramp List version 1 optionally accepts a document-level `completion_pulse`
-object with `timing`, `pins`, and `polarity`. Step timing requires every
-segment to use `delay_ms > 5000`. Sequence documents accept the canonical
+object with `timing`, `pins`, and `polarity`. Sequence documents accept the canonical
 `trigger-pulse` action. Software pulses snapshot and restore trigger/digital
 pin settings unless `leave_trigger_configured` is explicitly requested.
 They send global `*TRG`, which may also trigger other armed BUS behavior.

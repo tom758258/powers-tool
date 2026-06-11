@@ -149,10 +149,9 @@ Ramp List documents are JSON objects with `kind: "keysight-power-ramp-list"`,
 `version: 1`, and 1 to 10 ordered `segments`. Each segment contains `channel`,
 `current`, `start_voltage`, `stop_voltage`, `step_voltage`, `delay_ms`, and
 `hold_ms`. An optional global `completion_pulse` contains `timing`
-(`segment` or `step`), E36312A rear digital `pins`, and `polarity`. Step timing
-requires every segment `delay_ms` to be strictly greater than `5000`.
+(`segment` or `step`), E36312A rear digital `pins`, and `polarity`.
 
-Ramp accepts `completion_pulse_timing`; step timing requires `delay_ms > 5000`
+Ramp accepts `completion_pulse_timing`; step timing accepts `delay_ms = 0`
 and uses software post-action pulses. Sequence accepts canonical
 `trigger-pulse` actions with `channel`, `pins`, `polarity`, and optional
 `leave_trigger_configured`. Rear pulse pins and output channels are separate.

@@ -231,12 +231,13 @@ def test_ramp_list_rejects_invalid_documents(doc, message) -> None:
         run_ramp_list(request(doc, dry_run=True))
 
 
-def test_ramp_list_step_pulse_requires_every_segment_delay_over_5000() -> None:
-    doc = document(segment(delay_ms=5001), segment(channel=2, delay_ms=5000))
+def test_ramp_list_step_pulse_accepts_zero_delay() -> None:
+    doc = document(segment(delay_ms=0), segment(channel=2, delay_ms=0))
     doc["completion_pulse"] = {"timing": "step", "pins": [1], "polarity": "positive"}
 
-    with pytest.raises(CoreValidationError, match="invalid segment"):
-        run_ramp_list(request(doc, dry_run=True))
+    data = run_ramp_list(request(doc, dry_run=True))
+
+    assert data["plan"]["completion_pulse"]["timing"] == "step"
 
 
 def test_ramp_list_segment_pulse_uses_each_segment_channel(monkeypatch) -> None:

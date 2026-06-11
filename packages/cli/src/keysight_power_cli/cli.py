@@ -8947,9 +8947,6 @@ def _validate_output_request(
         stop_voltage=getattr(args, "stop_voltage", None),
         step_voltage=getattr(args, "step_voltage", None),
     )
-    if args.command == "ramp" and getattr(args, "completion_pulse_timing", "segment") == "step":
-        if _completion_pulse_requested(args) and getattr(args, "delay_ms", 0) <= 5000:
-            raise ValueError("step completion pulses require delay_ms greater than 5000")
 
 
 def _emit_cli_error(

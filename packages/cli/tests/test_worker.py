@@ -713,6 +713,20 @@ def test_worker_ramp_list_requires_document_or_file():
     assert payload["error"]["code"] == "argument_error"
 
 
+def test_worker_rejects_invalid_static_parameter_before_enqueue():
+    config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
+    state = WorkerState(config, 0)
+
+    status, payload = worker_mod._validate_command_body(
+        {"command": "set", "arguments": {"channel": 1, "voltage": -1, "current": 0.1}},
+        state,
+    )
+
+    assert status == 400
+    assert "voltage" in payload["error"]["message"]
+    assert state.next_job is None
+
+
 def test_worker_ramp_list_rejects_invalid_document_before_enqueue():
     config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
     state = WorkerState(config, 0)

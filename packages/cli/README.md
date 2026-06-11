@@ -229,7 +229,7 @@ disable output, use native LIST, or perform automatic safe-off on failure.
 
 Ramp `--completion-pulse-timing segment` preserves one completion pulse.
 `--completion-pulse-timing step` emits a software post-action pulse after
-every voltage write and requires `--delay-ms` strictly greater than `5000`.
+every voltage write and accepts `--delay-ms 0`.
 Rear pulse pins are not output channels. Pulse workflows are E36312A-only, and
 `*TRG` may affect other already armed BUS-triggered behavior.
 
@@ -561,6 +561,7 @@ stays parseable. Every JSON success and error envelope includes
 - Supported models: `../core/docs/supported-models.md`
 - Workspace overview: `../../docs/workspace.md`
 - Release checklist: `../../docs/release-checklist.md`
+- Commands parameter contract: `../../docs/contracts/commands-parameter-contract.md`
 
 ## Status
 

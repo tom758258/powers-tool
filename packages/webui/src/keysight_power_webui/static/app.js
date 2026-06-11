@@ -1,6 +1,7 @@
 const state = {
   commands: {},
   commandSupportByModel: {},
+  parameterConstraints: {},
   resourceModels: {},
   activeCategory: "output",
   selected: null,
@@ -84,7 +85,7 @@ const PARAMS = {
     { name: "step_voltage", type: "number", label: "Step voltage(V)", value: 0.1 },
     { name: "delay_ms", type: "number", label: "Delay(ms)", value: 0 },
     { name: "completion_pulse_segment", type: "checkbox", label: "Segment complete pulse", pulseToggle: true },
-    { name: "completion_pulse_step", type: "checkbox", label: "Every-step pulse", description: "Requires Delay(ms) greater than 5000.", pulseToggle: true },
+    { name: "completion_pulse_step", type: "checkbox", label: "Every-step pulse", pulseToggle: true },
     { name: "completion_pulse_pins", type: "select", label: "Rear pins", options: REAR_PIN_OPTIONS, value: "1", parser: "intList", pulseChild: true },
     { name: "completion_pulse_polarity", type: "select", label: "Polarity", options: ["positive", "negative"], value: "positive", pulseChild: true }
   ],
@@ -242,6 +243,7 @@ async function loadCommands() {
   const payload = await fetchJson("/api/commands");
   state.commands = payload.commands || {};
   state.commandSupportByModel = payload.command_support_by_model || {};
+  state.parameterConstraints = payload.parameter_constraints || {};
   renderCommands();
 }
 
@@ -331,11 +333,7 @@ function renderForm(command) {
     }
     input.id = `param-${param.name}`;
     if (param.value !== undefined) input.value = param.value;
-    if (command === "ramp" && param.name === "completion_pulse_step") {
-      const delay = Number(document.getElementById("param-delay_ms")?.value || 0);
-      input.disabled = delay <= 5000;
-      input.title = input.disabled ? "Every-step pulse requires Delay(ms) greater than 5000." : "";
-    }
+    applyParameterConstraint(input, param.name);
     if (param.name.includes("completion_pulse") && pulseControlsUnavailableReason()) {
       input.disabled = true;
       input.title = pulseControlsUnavailableReason();
@@ -395,7 +393,6 @@ function renderRampListForm(form) {
   editor.appendChild(toolbar);
   const pulseFields = document.createElement("div");
   pulseFields.className = "ramp-segment-fields";
-  const stepPulseBlocked = rampListStepPulseBlocked();
   [
     { name: "timing", label: "Pulse timing", type: "select", options: ["", "segment", "step"] },
     { name: "pins", label: "Rear pins", type: "select", options: REAR_PIN_OPTIONS },
@@ -409,7 +406,6 @@ function renderRampListForm(form) {
         const option = document.createElement("option");
         option.value = value;
         option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);
-        if (definition.name === "timing" && value === "step" && stepPulseBlocked) option.disabled = true;
         input.appendChild(option);
       });
     } else {
@@ -430,12 +426,6 @@ function renderRampListForm(form) {
     label.appendChild(input);
     pulseFields.appendChild(label);
   });
-  if (stepPulseBlocked) {
-    const hint = document.createElement("small");
-    hint.className = "field-description ramp-list-pulse-hint";
-    hint.textContent = "Every-step pulse requires every Delay(ms) to be greater than 5000. Use the built-in Segment complete pulse instead; it supports Delay(ms) of 5000 or less.";
-    pulseFields.appendChild(hint);
-  }
   editor.appendChild(pulseFields);
   state.rampListSegments.forEach((segment, index) => editor.appendChild(rampSegmentCard(segment, index)));
   form.appendChild(editor);
@@ -484,17 +474,11 @@ function rampSegmentCard(segment, index) {
     }
     input.value = String(segment[definition.name]);
     input.dataset.rampField = definition.name;
+    applyParameterConstraint(input, definition.name);
     input.addEventListener("input", () => {
       state.rampListSegments[index][definition.name] = Number(input.value);
-      if (definition.name === "delay_ms" && rampListStepPulseBlocked() && state.rampListCompletionPulse?.timing === "step") {
-        state.rampListCompletionPulse = null;
-        renderForm("ramp-list");
-      }
       updateSelectedCommandState();
     });
-    if (definition.name === "delay_ms") {
-      input.addEventListener("change", () => renderForm("ramp-list"));
-    }
     label.appendChild(input);
     fields.appendChild(label);
   });
@@ -555,10 +539,6 @@ function rampListDocument() {
   return document;
 }
 
-function rampListStepPulseBlocked() {
-  return state.rampListSegments.some((segment) => Number(segment.delay_ms) <= 5000);
-}
-
 function validateRampListDocument(document) {
   if (!document || document.kind !== "keysight-power-ramp-list" || document.version !== 1) {
     throw new Error("Invalid Ramp List kind or version.");
@@ -589,9 +569,6 @@ function validateRampListDocument(document) {
     if (!pulse || !["segment", "step"].includes(pulse.timing) || !Array.isArray(pulse.pins) || !pulse.pins.length
       || pulse.pins.some((pin) => ![1, 2, 3].includes(pin)) || !["positive", "negative"].includes(pulse.polarity)) {
       throw new Error("Ramp List completion_pulse is invalid.");
-    }
-    if (pulse.timing === "step" && segments.some((segment) => segment.delay_ms <= 5000)) {
-      throw new Error("Ramp List every-step pulse requires every Delay(ms) to be greater than 5000.");
     }
     completionPulse = { timing: pulse.timing, pins: [...pulse.pins], polarity: pulse.polarity };
   }
@@ -1339,6 +1316,7 @@ function sequenceStepFields(step, index, card, title, summary) {
       ? pinsSelectValue(step[definition.name] ?? definition.value)
       : String(step[definition.name] ?? definition.value);
     input.dataset.sequenceField = definition.name;
+    applyParameterConstraint(input, definition.name);
     if (step.action === "trigger-pulse" && pulseControlsUnavailableReason()) {
       input.disabled = true;
       input.title = pulseControlsUnavailableReason();
@@ -1732,15 +1710,31 @@ function enforcePulseFormRules(command, name, input) {
     const other = document.getElementById("param-completion_pulse_segment");
     if (other) other.checked = false;
   }
-  if (name === "delay_ms") {
-    const step = document.getElementById("param-completion_pulse_step");
-    if (step) {
-      step.disabled = Number(input.value) <= 5000;
-      step.title = step.disabled ? "Every-step pulse requires Delay(ms) greater than 5000." : "";
-      if (step.disabled) step.checked = false;
-    }
-  }
   updatePulseChildVisibility(command);
+}
+
+function applyParameterConstraint(input, name) {
+  if (input.type !== "number") return;
+  const constraint = state.parameterConstraints[name];
+  if (!constraint) return;
+  if (constraint.min !== undefined) input.min = String(constraint.min);
+  if (constraint.max !== undefined) input.max = String(constraint.max);
+  input.step = String(constraint.step ?? "any");
+  if (constraint.exclusive_min !== undefined) input.dataset.exclusiveMin = String(constraint.exclusive_min);
+  if (constraint.description) input.title = constraint.description;
+}
+
+function validateConstrainedInputs() {
+  let valid = true;
+  document.querySelectorAll("#command-form input[type=number]").forEach((input) => {
+    input.setCustomValidity("");
+    const exclusiveMin = input.dataset.exclusiveMin;
+    if (exclusiveMin !== undefined && input.value !== "" && Number(input.value) <= Number(exclusiveMin)) {
+      input.setCustomValidity(`Value must be greater than ${exclusiveMin}.`);
+    }
+    valid &&= input.checkValidity();
+  });
+  return valid;
 }
 
 function updateRampListPulse(name, value) {
@@ -2488,6 +2482,7 @@ function updateSelectedCommandState() {
   commandDescription.textContent = descriptionText;
   commandDescription.title = descriptionText;
   runButton.disabled = Boolean(meta.disabled || tripGuard);
+  runButton.disabled ||= !validateConstrainedInputs();
   if (state.selected === "restore-from-snapshot") {
     const restoreValid = isLoadedRestoreSnapshotValid();
     runButton.disabled ||= !restoreValid;
