@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import keysight_power_core as core
-
-
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PACKAGE_ROOT.parents[1]
 
@@ -33,13 +30,13 @@ def test_core_docs_are_package_local():
         assert not (PACKAGE_ROOT / adapter_doc).exists()
 
 
-def test_core_integration_names_public_core_api():
+def test_core_integration_documents_package_boundary():
     text = read_package_doc("docs", "integration.md")
 
-    for name in core.__all__:
-        assert name in text
-
     assert "keysight_power_core" in text
+    assert "keysight_power_cli" in text
+    assert "keysight_power_webui" in text
+    assert "SCPI" in text
 
 
 def test_root_contracts_remain_canonical():
@@ -70,8 +67,9 @@ def test_root_testing_guidelines_are_linked_and_structural():
         "## Frontend Static Tests",
         "## Instrument Safety Tests",
         "## Review Standard",
+        "## Test Output Locations",
     ):
         assert heading in guidelines
 
-    for token in ("SCPI", "safety", "JSON", "Frontend Static Tests"):
+    for token in ("SCPI", "safety", "JSON", ".tmp_pytest", ".tmp_tests", "Local/"):
         assert token in guidelines

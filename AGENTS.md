@@ -66,6 +66,9 @@ Do not change stop/release/local behavior without explicit confirmation.
 
 - Run the narrowest relevant tests first, then broader tests when practical.
 - On Windows, run the uv/pytest no-hardware gates from an Administrator PowerShell.
+- Run pytest from the repository root. Use the default `.tmp_pytest` basetemp,
+  or place intentional per-run output under `.tmp_tests/<purpose>`.
+- Never use `Local/` as a pytest basetemp or test-artifact output directory.
 - Default tests must run without hardware.
 - Hardware tests should live under an integration path or require a marker such as `hardware`.
 - Do not hide failed or skipped verification. State exactly what ran and what did not.

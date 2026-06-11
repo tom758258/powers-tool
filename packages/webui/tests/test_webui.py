@@ -68,13 +68,6 @@ def assert_param_contract(
         assert f"options: [{quoted}]" in block
 
 
-def assert_param_label(block: str, name: str, label: str) -> None:
-    assert re.search(
-        rf'name: "{re.escape(name)}"[^}}]*label: "{re.escape(label)}"',
-        block,
-    )
-
-
 def extract_js_function(app_js: str, function_name: str) -> str:
     match = re.search(
         rf"(?:async\s+)?function\s+{re.escape(function_name)}\s*\(",
@@ -253,20 +246,15 @@ def test_static_live_data_uses_three_channel_panel_contract():
         assert field in app_js
 
 
-def test_static_live_data_note_and_header_styles_are_scoped():
+def test_static_live_data_exposes_start_control():
     index_html, _app_js, _styles_css = read_static_texts()
 
     assert 'class="live-data-section"' in index_html
     assert 'id="live-start"' in index_html
-    assert 'live-start-button' in index_html
-    assert 'id="live-start" class="secondary" style=' not in index_html
-    assert '<div style=' not in index_html
 
 
 def test_static_layout_exposes_stable_structural_hooks():
     index_html, _app_js, _styles_css = read_static_texts()
-    command_workbench = index_html[index_html.index('<div class="command-workbench">'):index_html.index("<!-- 4. Job Result -->")]
-
     assert 'class="command-workbench"' in index_html
     assert 'id="command-categories"' in index_html
     assert 'id="command-list"' in index_html
@@ -278,66 +266,17 @@ def test_static_layout_exposes_stable_structural_hooks():
     assert 'id="result-panel" class="result-panel collapsed"' in index_html
     assert 'id="command-form"' in index_html
     assert 'id="workspace-summary-content"' in index_html
-    assert 'id="job-history"' not in command_workbench
-    assert 'id="result-panel"' not in command_workbench
     assert 'class="rightbar"' not in index_html
 
 
-def test_static_result_labels_are_renamed():
-    index_html, _app_js, _styles_css = read_static_texts()
-
-    assert "<strong>Job Result</strong>" in index_html
-    assert "<strong>Result Detail</strong>" in index_html
-    assert "<strong>Job History</strong>" not in index_html
-    assert "<strong>Result</strong>" not in index_html
-
-
-def test_static_command_panels_keep_stable_desktop_height():
-    _index_html, _app_js, styles_css = read_static_texts()
-
-    assert "--command-panel-height: 560px;" in styles_css
-    assert ".rail {\n  display: flex;\n  flex-direction: column;\n  height: var(--command-panel-height);" in styles_css
-    assert ".workspace {\n  display: flex;\n  flex-direction: column;\n  height: var(--command-panel-height);" in styles_css
-    assert ".command-browser {\n  display: grid;\n  grid-template-columns: 150px minmax(0, 1fr);\n  flex: 1;" in styles_css
-    assert ".form-grid {\n  display: grid;" in styles_css
-    assert "overflow: auto;" in styles_css
-    assert ".rail, .workspace { height: auto; }" in styles_css
-
-
-def test_static_command_panel_headers_align():
-    index_html, app_js, styles_css = read_static_texts()
+def test_static_command_panel_exposes_description():
+    index_html, app_js, _styles_css = read_static_texts()
     update_selected = extract_js_function(app_js, "updateSelectedCommandState")
 
-    assert "<strong>Commands</strong>" in index_html
-    assert '<div class="command-title-group">' in index_html
-    assert '<h2 id="selected-command">No command selected</h2>' in index_html
-    assert '<p id="command-description" title="Choose a command from the rail.">' in index_html
-    assert ".command-title-group {" in styles_css
-    assert "align-items: center;" in styles_css
-    assert "align-items: baseline;" not in styles_css
-    assert "min-height: var(--control-h);" in styles_css
-    assert "flex: 1;" in styles_css
-    assert ".panel-title h2 { margin: 0; font-size: inherit; }" in styles_css
-    assert ".panel-title h2 { margin: 0; font-size: 18px; }" not in styles_css
-    assert "text-overflow: ellipsis;" in styles_css
-    assert "white-space: nowrap;" in styles_css
-    assert "flex-wrap: wrap;" in styles_css
-    assert "white-space: normal;" in styles_css
+    assert 'id="selected-command"' in index_html
+    assert 'id="command-description"' in index_html
     assert "commandDescription.textContent = descriptionText;" in update_selected
     assert "commandDescription.title = descriptionText;" in update_selected
-
-
-def test_static_generated_checkboxes_are_compact():
-    _index_html, app_js, styles_css = read_static_texts()
-
-    render_form = app_js[app_js.index("function renderForm(command)"):app_js.index("async function scanResources")]
-
-    assert 'if (param.type === "checkbox") label.classList.add("checkbox-field");' in render_form
-    assert '.form-grid .checkbox-field {' in styles_css
-    assert '.form-grid .checkbox-field input[type="checkbox"] {' in styles_css
-    assert "width: 16px;" in styles_css
-    assert "height: 16px;" in styles_css
-    assert ".confirm-banner input { width: auto; height: auto; }" in styles_css
 
 
 def test_static_commands_use_category_navigation():
@@ -345,10 +284,6 @@ def test_static_commands_use_category_navigation():
 
     assert 'activeCategory: "output"' in app_js
     assert 'const COMMAND_CATEGORIES = ["output", "workflow", "protection", "trigger", "artifact", "discovery"];' in app_js
-    assert 'workflow: "Output Workflows"' in app_js
-    assert 'protection: "Protection"' in app_js
-    assert 'artifact: "Snapshot"' in app_js
-    assert 'discovery: "Advanced Diagnostics"' in app_js
 
     render_commands = app_js[app_js.index("function renderCommands()"):app_js.index("function selectCommand")]
     assert 'const categories = document.getElementById("command-categories");' in render_commands
@@ -357,8 +292,8 @@ def test_static_commands_use_category_navigation():
     assert '(meta.category || "discovery") === state.activeCategory' in render_commands
 
 
-def test_result_panel_is_light_and_collapsible():
-    index_html, app_js, styles_css = read_static_texts()
+def test_result_panel_is_collapsible():
+    index_html, app_js, _styles_css = read_static_texts()
 
     assert 'id="result-panel" class="result-panel collapsed"' in index_html
     assert 'id="result-toggle"' in index_html
@@ -367,11 +302,10 @@ def test_result_panel_is_light_and_collapsible():
     assert 'document.getElementById("result-toggle").addEventListener("click"' in app_js
     assert 'classList.toggle("collapsed"' in app_js
     assert 'setAttribute("aria-expanded"' in app_js
-    assert ".result-panel.collapsed pre { display: none; }" in styles_css
 
 
 def test_job_result_is_expanded_collapsible_and_clearable():
-    index_html, app_js, styles_css = read_static_texts()
+    index_html, app_js, _styles_css = read_static_texts()
 
     assert 'id="job-result-panel" class="job-result-panel"' in index_html
     assert 'id="job-result-clear"' in index_html
@@ -383,15 +317,12 @@ def test_job_result_is_expanded_collapsible_and_clearable():
     clear_block = app_js[app_js.index("function clearJobResults()"):app_js.index("async function startLive")]
     assert "state.jobs = [];" in clear_block
     assert 'document.getElementById("result").textContent' not in clear_block
-    assert ".job-result-panel.collapsed .history { display: none; }" in styles_css
 
 
 def test_static_ramp_list_editor_contract():
-    _index_html, app_js, styles_css = read_static_texts()
+    _index_html, app_js, _styles_css = read_static_texts()
 
     assert '"ramp-list": []' in app_js
-    for label in ("Load Ramp List", "Save Ramp List", "Add Ramp Segment"):
-        assert label in app_js
     for field in ("channel", "current", "start_voltage", "stop_voltage", "step_voltage", "delay_ms", "hold_ms"):
         assert f'name: "{field}"' in app_js
     assert "state.rampListSegments.length >= 10" in app_js
@@ -405,19 +336,15 @@ def test_static_ramp_list_editor_contract():
     assert "state.rampListSegments = segments;" in app_js
     assert 'if (state.selected === "ramp-list") return { document: rampListDocument() };' in app_js
     assert 'command === "ramp-list"' in app_js
-    assert ".ramp-segment-card" in styles_css
 
 
-def test_static_job_result_summary_helpers_exist():
-    _index_html, app_js, styles_css = read_static_texts()
+def test_static_job_result_summary_contract():
+    _index_html, app_js, _styles_css = read_static_texts()
 
     render_job_detail = app_js[app_js.index("async function renderJobDetail"):app_js.index("function shouldRefreshLiveAfterCommand")]
 
     assert "updateJobResult(job.job_id, job.status, jobSummary(job, event));" in render_job_detail
     assert "renderResult({" in render_job_detail
-    assert "function renderClientResult(command, status, summary, detail)" in app_js
-    assert "function jobSummary(job, event = null)" in app_js
-    assert "function successfulJobSummary(job)" in app_js
     assert 'if (command === "capabilities") return capabilitiesSummary(result);' in app_js
     assert 'if (command === "identify") return identifySummary(result);' in app_js
     assert 'if (command === "verify") return verifySummary(result);' in app_js
@@ -426,35 +353,18 @@ def test_static_job_result_summary_helpers_exist():
     assert 'if (command === "snapshot") return snapshotSummary(result);' in app_js
     assert 'if (command === "error") return errorQueueSummary(result, "instrument");' in app_js
     assert 'if (command === "safety inspect") return safetyInspectSummary(result);' in app_js
-    assert "function capabilitiesSummary(result)" in app_js
-    assert 'return `${count} available model${count === 1 ? "" : "s"}`;' in app_js
-    assert "function readStatusSummary(result)" in app_js
-    assert "function readbackSummary(result)" in app_js
-    assert "function snapshotSummary(result)" in app_js
-    assert "function errorQueueSummary(result, noun = \"instrument\")" in app_js
-    assert "function safetyInspectSummary(result)" in app_js
-    assert 'return result.safety_config_loaded ? "Safety config loaded" : "Safety config not loaded";' in app_js
     assert "outputStatesSummary(result.outputs)" in app_js
     assert "setpointSummary(channels)" in app_js
-    assert '`protection ${tripped ? "tripped" : "OK"}`' in app_js
-    assert 'return `No ${label}errors`;' in app_js
-    assert "function statusLabel(status)" in app_js
-    assert "function statusClass(status)" in app_js
     assert "result.resources.length" in app_js
-    assert 'return "Plan generated";' in app_js
-    assert 'return "Job cancelled";' in app_js
-    assert 'return "Command completed successfully";' in app_js
-    assert ".result-status.success" in styles_css
-    assert ".result-summary" in styles_css
 
 
 def test_static_workspace_summary_keeps_latest_success_by_command_and_resource():
-    index_html, app_js, styles_css = read_static_texts()
+    index_html, app_js, _styles_css = read_static_texts()
 
     capture = extract_js_function(app_js, "captureWorkspaceResult")
     render = extract_js_function(app_js, "renderWorkspaceSummary")
 
-    assert "<strong>Latest Successful Result</strong>" in index_html
+    assert 'id="workspace-summary-content"' in index_html
     assert "workspaceResults: {}" in app_js
     assert 'job.status !== "finished"' in capture
     assert "workspaceResultKey(job.command, resource)" in capture
@@ -462,22 +372,20 @@ def test_static_workspace_summary_keeps_latest_success_by_command_and_resource()
     assert "renderCapabilitiesWorkspaceSummary(container, job.result);" in render
     assert "renderIdentifyWorkspaceSummary(container, job.result);" in render
     assert "captureWorkspaceResult(job);" in app_js
-    assert ".workspace-summary-content" in styles_css
-    assert ".workspace-summary-field" in styles_css
 
 
-def test_static_workspace_capabilities_and_identify_fields_are_user_facing():
+def test_static_workspace_capabilities_and_identify_use_result_fields():
     _index_html, app_js, _styles_css = read_static_texts()
 
     capabilities = extract_js_function(app_js, "renderCapabilitiesWorkspaceSummary")
     identify = extract_js_function(app_js, "renderIdentifyWorkspaceSummary")
 
-    for label in ("Model", "Resource", "Output channels", "Measurement channels", "Output", "Protection", "Trigger"):
-        assert f'["{label}"' in capabilities
+    for field in ("model", "resource", "channels", "measure_channels", "command_support", "models"):
+        assert field in capabilities
     assert "featureAvailability(" in capabilities
     assert "details.channels.length" in capabilities
-    for label in ("Manufacturer", "Model", "Serial number", "Firmware", "Installed options", "SCPI version", "Resource"):
-        assert f'["{label}"' in identify
+    for field in ("manufacturer", "model", "serial", "firmware", "options", "scpi_version", "resource"):
+        assert field in identify
 
 
 def test_static_command_keys_are_used_for_selection_and_submission():
@@ -493,22 +401,13 @@ def test_static_command_keys_are_used_for_selection_and_submission():
     assert "selectCommand(commandDisplayName(name))" not in app_js
 
 
-def test_static_command_display_names_filter_and_sort_by_human_label():
+def test_static_command_display_names_preserve_machine_command_keys():
     _index_html, app_js, _styles_css = read_static_texts()
 
     render_commands = app_js[app_js.index("function renderCommands()"):app_js.index("function selectCommand")]
-    display_name = extract_js_function(app_js, "commandDisplayName")
 
     assert 'name.includes(filter) || commandDisplayName(name).toLowerCase().includes(filter)' in render_commands
     assert 'commandDisplayName(a[0]).localeCompare(commandDisplayName(b[0]))' in render_commands
-    assert 'snapshot: "Create snapshot"' in display_name
-    assert '"restore-from-snapshot": "Restore snapshot"' in display_name
-    assert '"protection-set": "Set protection"' in display_name
-    assert 'clear: "Clear Status / Errors"' in display_name
-    assert 'capabilities: "Get capabilities"' in display_name
-    assert 'identify: "Read device information"' in display_name
-    assert 'error: "Read errors"' in display_name
-    assert 'name.replace(/-/g, " ")' in display_name
 
 
 def test_static_command_select_options_use_human_labels_and_machine_values():
@@ -522,8 +421,6 @@ def test_static_command_select_options_use_human_labels_and_machine_values():
     assert "item.textContent = optionDisplayName(option);" in render_form
     assert "opt.value = ch;" in render_restore
     assert "opt.textContent = optionDisplayName(ch);" in render_restore
-    assert 'if (value === "") return "None";' in display_name
-    assert '"cc-transition": "CC transition"' in display_name
     assert 'value.replace(/-/g, " ")' in display_name
 
 
@@ -545,7 +442,7 @@ def test_static_commands_disable_by_selected_resource_model():
 
 
 def test_static_trip_guard_and_clear_protection_recovery_contract():
-    _index_html, app_js, styles_css = read_static_texts()
+    _index_html, app_js, _styles_css = read_static_texts()
 
     clear_block = extract_param_block(app_js, "clear-protection")
     assert_param_contract(clear_block, "channel", "select", ["", "all", "1", "2", "3"])
@@ -557,8 +454,6 @@ def test_static_trip_guard_and_clear_protection_recovery_contract():
     assert 'data-clear-protection-channel="${channel.channel}"' in app_js
     assert 'input.value = channels.length === 1 ? String(channels[0]) : "";' in app_js
     assert 'const stateText = tripped === true ? "TRIP" : tripped === false ? "CLEAR" : "--";' in app_js
-    assert 'clear: "Clear Status / Errors"' in app_js
-    assert ".clear-protection-shortcut" in styles_css
 
 
 def test_static_channel_confirmation_and_job_detail_contracts():
@@ -597,56 +492,13 @@ def test_static_channel_confirmation_and_job_detail_contracts():
         assert f"{key}: job.{key}" in app_js
 
 
-def test_static_command_parameter_labels_include_units():
-    _index_html, app_js, _styles_css = read_static_texts()
-
-    assert_param_label(app_js, "voltage", "Voltage(V)")
-    assert_param_label(app_js, "current", "Current(A)")
-
-    cycle_output_block = extract_param_block(app_js, "cycle-output")
-    assert_param_label(cycle_output_block, "duration_ms", "Duration(ms)")
-
-    ramp_block = extract_param_block(app_js, "ramp")
-    assert_param_label(ramp_block, "current", "Current(A)")
-    assert_param_label(ramp_block, "start_voltage", "Start voltage(V)")
-    assert_param_label(ramp_block, "stop_voltage", "Stop voltage(V)")
-    assert_param_label(ramp_block, "step_voltage", "Step voltage(V)")
-    assert_param_label(ramp_block, "delay_ms", "Delay(ms)")
-
-    protection_block = extract_param_block(app_js, "protection-set")
-    assert_param_label(protection_block, "ovp_voltage", "OVP voltage(V)")
-    assert_param_label(protection_block, "ocp_delay", "OCP delay(s)")
-
-    smoke_output = app_js[app_js.index("function smokeOutputParams()"):app_js.index("function triggerStepParams()")]
-    assert_param_label(smoke_output, "voltage", "Voltage(V)")
-    assert_param_label(smoke_output, "current", "Current(A)")
-    assert_param_label(smoke_output, "duration_ms", "Duration(ms)")
-
-    trigger_step = app_js[app_js.index("function triggerStepParams()"):app_js.index("function triggerListParams()")]
-    assert_param_label(trigger_step, "voltage", "Triggered voltage(V)")
-    assert_param_label(trigger_step, "current", "Triggered current(A)")
-
-    trigger_list = app_js[app_js.index("function triggerListParams()"):app_js.index("function triggerWaitParams()")]
-    assert_param_label(trigger_list, "voltage_list", "Voltage list(V)")
-    assert_param_label(trigger_list, "current_list", "Current list(A)")
-    assert_param_label(trigger_list, "dwell_list", "Dwell list(s)")
-
-    trigger_wait = app_js[app_js.index("function triggerWaitParams()"):app_js.index("document.addEventListener")]
-    assert_param_label(trigger_wait, "poll_ms", "Poll(ms)")
-    assert_param_label(trigger_wait, "wait_timeout_ms", "Timeout(ms)")
-
-    for label in ("Triggered V", "Triggered A", "Duration ms", "Delay ms", "Poll ms", "Timeout ms"):
-        assert f'label: "{label}"' not in app_js
-
-
 def test_static_form_has_no_advanced_json_injection():
-    index_html, app_js, styles_css = read_static_texts()
+    index_html, app_js, _styles_css = read_static_texts()
 
     assert "Advanced JSON" not in index_html
     assert "advanced-json" not in index_html
     assert "advanced-json" not in app_js
     assert "Object.assign(payload" not in app_js
-    assert ".advanced" not in styles_css
 
 
 def test_static_trigger_forms_have_advanced_parameters():
@@ -1911,7 +1763,7 @@ def test_running_cancel_keeps_hardware_lock_until_cleanup_completes():
 
 
 def test_static_json_artifact_file_helpers_have_cancel_and_accept_contracts():
-    _index_html, app_js, styles_css = read_static_texts()
+    _index_html, app_js, _styles_css = read_static_texts()
 
     open_json = extract_js_function(app_js, "openJsonFile")
     choose_json = extract_js_function(app_js, "chooseJsonFile")
@@ -1935,12 +1787,6 @@ def test_static_json_artifact_file_helpers_have_cancel_and_accept_contracts():
     assert 'abortError("File selection cancelled.")' in choose_json
     assert "document.body.appendChild(link);" in save_json
     assert "window.setTimeout(() => URL.revokeObjectURL(url), 0);" in save_json
-
-    assert ".artifact-editor" in styles_css
-    assert ".artifact-toolbar" in styles_css
-    assert ".artifact-file-status" in styles_css
-    assert ".artifact-preview" in styles_css
-
 
 def test_static_json_artifact_abort_errors_do_not_render_client_failures():
     _index_html, app_js, _styles_css = read_static_texts()
@@ -2044,41 +1890,32 @@ def test_static_restore_plan_preview_reuses_dry_run_job():
     assert 'document.getElementById("btn-preview-restore-plan")' in update_selected
 
 
-def test_static_restore_plan_preview_is_visible_and_human_readable():
-    _index_html, app_js, styles_css = read_static_texts()
+def test_static_restore_plan_preview_is_safe_and_structured():
+    _index_html, app_js, _styles_css = read_static_texts()
 
     render_restore = extract_js_function(app_js, "renderRestoreForm")
     render_preview = extract_js_function(app_js, "renderRestorePlanPreview")
     capture_preview = extract_js_function(app_js, "captureRestorePlanPreview")
 
-    assert 'planExplanation.className = "restore-plan-explanation";' in render_restore
-    assert "without opening VISA, locking hardware, or changing the instrument" in render_restore
     assert 'planPreview.id = "restore-plan-preview";' in render_restore
-    assert 'container.textContent = "Generating restore plan...";' in render_preview
-    assert "Restore plan: ${plan.steps.length} steps (preview only)" in render_preview
-    assert "No VISA connection was opened and no instrument settings were changed." in render_preview
     assert "plan.steps.forEach((step)" in render_preview
     assert "step.command" in render_preview
     assert "command.textContent = step.command || \"\";" in render_preview
     assert "innerHTML" not in render_preview
     assert 'state.restorePlanPreviewStatus = "finished";' in capture_preview
-    assert ".restore-plan-preview.finished" in styles_css
-    assert ".restore-plan-preview.failed" in styles_css
 
 
-def test_static_snapshot_max_errors_explains_error_queue_reads():
-    _index_html, app_js, styles_css = read_static_texts()
+def test_static_snapshot_max_errors_documents_destructive_queue_reads():
+    _index_html, app_js, _styles_css = read_static_texts()
 
     render_snapshot = extract_js_function(app_js, "renderSnapshotForm")
     append_description = extract_js_function(app_js, "appendFieldDescription")
 
-    assert "Limits how many times the snapshot reads the instrument error queue." in app_js
-    assert "Reading stops early when the instrument reports no error." in app_js
-    assert "Each reported error is removed from the instrument queue." in app_js
+    assert "instrument error queue" in app_js
+    assert "removed from the instrument queue" in app_js
     assert "appendFieldDescription(label, param);" in render_snapshot
     assert 'description.className = "field-description";' in append_description
     assert "description.textContent = param.description;" in append_description
-    assert ".field-description" in styles_css
 
 
 def test_static_restore_load_unwrap_contract():

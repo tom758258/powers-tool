@@ -74,3 +74,12 @@ contract, safety boundary, instrument behavior, or documentation ownership rule.
 If the failure only reflects wording, styling, helper names, or local layout,
 prefer loosening the test instead of forcing the implementation back to an old
 shape.
+
+## Test Output Locations
+
+Run pytest from the repository root. The default pytest basetemp is the ignored
+repository-local `.tmp_pytest` directory. When a separate per-run location is
+needed, use `.tmp_tests/<purpose>`.
+
+Do not use `Local/` for pytest basetemp directories or generated test artifacts.
+`Local/` is reserved for private notes and local reference material.

@@ -87,7 +87,9 @@ Focused suites are useful when changing specific layers:
 
 Pytest uses the ignored repository-local `.tmp_pytest` directory by default,
 so tests do not depend on access to the Windows system temporary directory.
-Pass `--basetemp PATH` to override it for a specific run.
+Run pytest from the repository root. For an intentional per-run override, use
+`--basetemp .tmp_tests/<purpose>`. Do not use `Local/` for pytest temporary
+data or generated test artifacts.
 
 The repository-level validation scripts also exercise core behavior through
 the CLI adapter. Run the no-hardware gate before live validation:

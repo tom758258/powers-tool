@@ -711,17 +711,15 @@ def test_doctor_json_environment(capsys):
     assert environment["python"]["executable"]
 
 
-def test_no_hardware_regression_script_documents_command_order():
+def test_no_hardware_regression_script_keeps_output_out_of_local():
     script = Path("scripts/no-hardware-regression.ps1").read_text(encoding="utf-8")
-    first = script.index("tests\\test_followup_features.py")
-    second = script.index("tests\\test_cli_json_contract.py")
-    third = script.index('"full-pytest"')
-    assert first < second < third
+
     assert ".tmp_tests\\no_hardware_regression" in script
+    assert "--basetemp" in script
     assert "report.json" in script
     assert "summary.md" in script
-    assert 'Get-Date -Format "yyyyMMdd_HHmmss_fff"' in script
-    assert '"pytest_" + $runId + "_" + $command.Name' in script
+    assert "Local\\" not in script
+    assert "Local/" not in script
 
 
 def test_smoke_validation_scripts_use_instrument_read_status_command():

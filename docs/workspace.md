@@ -26,7 +26,9 @@ protects a durable contract or freezes an implementation detail.
 
 Pytest uses the ignored repository-local `.tmp_pytest` directory by default,
 so the no-hardware test gates do not require access to the system temporary
-directory. Pass `--basetemp PATH` to override it for a specific run.
+directory. Run pytest from the repository root. If a specific run needs a
+separate basetemp, use `--basetemp .tmp_tests/<purpose>`. Do not write pytest
+temporary data or generated test artifacts under `Local/`.
 
 The tested Python range is 3.10 through 3.12. Package metadata constrains
 `requires-python` to `>=3.10,<3.13` until CI validates newer versions.

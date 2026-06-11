@@ -76,7 +76,9 @@ Focused suites:
 
 Pytest uses the ignored repository-local `.tmp_pytest` directory by default,
 so tests do not depend on access to the Windows system temporary directory.
-Pass `--basetemp PATH` to override it for a specific run.
+Run pytest from the repository root. For an intentional per-run override, use
+`--basetemp .tmp_tests/<purpose>`. Do not use `Local/` for pytest temporary
+data or generated test artifacts.
 
 Run the bundled no-hardware regression checklist:
 

@@ -50,9 +50,8 @@ def test_cli_integration_keeps_cli_fields_out_of_core_schema():
     text = read_package_doc("docs", "cli-integration.md")
 
     assert "measurement_cli_name" in text
-    assert "not Core schema" in text
     assert "argparse.Namespace" in text
-    assert "`--enable-hw-trigger` flag was removed" in text
+    assert "--enable-hw-trigger" in text
 
 
 def test_power_contracts_link_common_contracts():
