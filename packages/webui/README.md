@@ -121,3 +121,7 @@ uv run python -m pytest packages/webui/tests -q -p no:cacheprovider
 
 Numeric field limits come from the shared
 [Commands parameter contract](../../docs/contracts/commands-parameter-contract.md).
+After a resource model is identified, the UI applies verified official
+independent-channel DC output ratings and disables Run for known over-rating
+requests. Unknown models do not receive invented limits; Core remains
+authoritative.

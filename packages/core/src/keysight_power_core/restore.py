@@ -14,6 +14,7 @@ from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
 from keysight_power_core.operations import IDN_QUERY, ScpiLoggingSession
+from keysight_power_core.setpoint_limits import validate_effective_setpoint
 from keysight_power_core.testing.simulator import SimulatedResourceManager
 
 
@@ -61,6 +62,7 @@ def run_restore(
                     "restore-from-snapshot real execution is only supported for E36312A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
+            _validate_restore_setpoints(power_supply, plan)
             _execute_restore_plan(power_supply, plan, stop_requested=stop_requested)
             _raise_on_instrument_errors(power_supply)
     except CoreValidationError:
@@ -196,6 +198,28 @@ def _execute_restore_plan(
             power_supply.output_on(channel=channel)
         else:
             raise CoreValidationError(f"unsupported restore action: {action}")
+
+
+def _validate_restore_setpoints(power_supply: E36312APowerSupply, plan: dict[str, Any]) -> None:
+    pending: dict[int, dict[str, float]] = {}
+    for step in plan["steps"]:
+        parameters = step["parameters"]
+        channel = parameters.get("channel")
+        if not isinstance(channel, int):
+            continue
+        values = pending.setdefault(channel, {})
+        if step["action"] == "set_current_limit":
+            values["current"] = float(parameters["current"])
+        elif step["action"] == "set_voltage":
+            values["voltage"] = float(parameters["voltage"])
+    for channel, values in pending.items():
+        validate_effective_setpoint(
+            model="E36312A",
+            channel=channel,
+            electrical_ratings=power_supply.capabilities.electrical_ratings,
+            voltage=values.get("voltage"),
+            current=values.get("current"),
+        )
 
 
 def _validate_restore_identity(idn: Any, expected_idn: dict[str, Any]) -> None:

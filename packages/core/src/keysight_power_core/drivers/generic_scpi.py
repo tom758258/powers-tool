@@ -8,6 +8,7 @@ from typing import Protocol
 
 from keysight_power_core.drivers.base import Channel, DriverCapabilities
 from keysight_power_core.safety import SafetyLimits, validate_setpoint
+from keysight_power_core.setpoint_limits import validate_effective_setpoint
 from keysight_power_core.transport import SessionLike
 
 
@@ -85,11 +86,11 @@ class GenericScpiPowerSupply:
         self.close()
 
     def set_voltage(self, *, channel: Channel = None, voltage: float) -> None:
-        validate_setpoint(channel=channel, voltage=voltage, limits=self._safety_limits)
+        self._validate_driver_setpoint(channel=channel, voltage=voltage)
         self._write(f"VOLT {_format_number(voltage)}", channel=channel)
 
     def set_current_limit(self, *, channel: Channel = None, current: float) -> None:
-        validate_setpoint(channel=channel, current=current, limits=self._safety_limits)
+        self._validate_driver_setpoint(channel=channel, current=current)
         self._write(f"CURR {_format_number(current)}", channel=channel)
 
     def output_on(self, *, channel: Channel = None) -> None:
@@ -192,6 +193,24 @@ class GenericScpiPowerSupply:
     def _write(self, command: str, *, channel: Channel) -> None:
         for prepared_command in self._channel_strategy.commands(command, channel=channel):
             self._session.write(prepared_command)
+
+    def _validate_driver_setpoint(
+        self,
+        *,
+        channel: Channel,
+        voltage: float | None = None,
+        current: float | None = None,
+    ) -> None:
+        validate_setpoint(channel=channel, voltage=voltage, current=current, limits=self._safety_limits)
+        if isinstance(channel, int):
+            validate_effective_setpoint(
+                model=self.capabilities.electrical_ratings.model if self.capabilities.electrical_ratings else None,
+                channel=channel,
+                electrical_ratings=self.capabilities.electrical_ratings,
+                safety_limits=self._safety_limits,
+                voltage=voltage,
+                current=current,
+            )
 
     def _query(self, command: str, *, channel: Channel) -> str:
         commands = self._channel_strategy.commands(command, channel=channel)

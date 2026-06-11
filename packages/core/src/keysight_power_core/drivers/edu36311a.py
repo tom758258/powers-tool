@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from keysight_power_core.drivers.base import DriverCapabilities
+from keysight_power_core.electrical_ratings import EDU36311A_ELECTRICAL_RATINGS
 from keysight_power_core.drivers.generic_scpi import (
     ChannelListStrategy,
     ChannelStrategy,
@@ -19,6 +20,7 @@ class EDU36311APowerSupply(GenericScpiPowerSupply):
         channels=(1, 2, 3),
         simulated_measure_channels=(1, 2, 3),
         real_measure_channels=(1, 2, 3),
+        electrical_ratings=EDU36311A_ELECTRICAL_RATINGS,
     )
 
     def __init__(
@@ -36,10 +38,12 @@ class EDU36311APowerSupply(GenericScpiPowerSupply):
 
     def set_triggered_voltage(self, *, channel: int, voltage: float) -> None:
         self._require_output_channel(channel)
+        self._validate_driver_setpoint(channel=channel, voltage=voltage)
         self._session.write(f"VOLT:TRIG {_format_number(voltage)},(@{channel})")
 
     def set_triggered_current(self, *, channel: int, current: float) -> None:
         self._require_output_channel(channel)
+        self._validate_driver_setpoint(channel=channel, current=current)
         self._session.write(f"CURR:TRIG {_format_number(current)},(@{channel})")
 
     def set_voltage_trigger_mode_step(self, channel: int) -> None:

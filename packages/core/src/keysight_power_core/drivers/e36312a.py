@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from keysight_power_core.drivers.base import DriverCapabilities
+from keysight_power_core.electrical_ratings import E36312A_ELECTRICAL_RATINGS
 from keysight_power_core.drivers.generic_scpi import (
     ChannelListStrategy,
     ChannelStrategy,
@@ -22,6 +23,7 @@ class E36312APowerSupply(GenericScpiPowerSupply):
         channels=(1, 2, 3),
         simulated_measure_channels=(1, 2, 3),
         real_measure_channels=(1, 2, 3),
+        electrical_ratings=E36312A_ELECTRICAL_RATINGS,
     )
 
     def __init__(
@@ -109,12 +111,14 @@ class E36312APowerSupply(GenericScpiPowerSupply):
         """Program a triggered voltage level for one channel."""
 
         self._require_output_channel(channel)
+        self._validate_driver_setpoint(channel=channel, voltage=voltage)
         self._session.write(f"VOLT:TRIG {_format_number(voltage)},(@{channel})")
 
     def set_triggered_current(self, *, channel: int, current: float) -> None:
         """Program a triggered current level for one channel."""
 
         self._require_output_channel(channel)
+        self._validate_driver_setpoint(channel=channel, current=current)
         self._session.write(f"CURR:TRIG {_format_number(current)},(@{channel})")
 
     def set_voltage_trigger_mode_step(self, channel: int) -> None:
@@ -235,11 +239,15 @@ class E36312APowerSupply(GenericScpiPowerSupply):
     def configure_voltage_list(self, *, channel: int, values: tuple[float, ...]) -> None:
         self._require_output_channel(channel)
         _validate_list_values(values, "voltage")
+        for value in values:
+            self._validate_driver_setpoint(channel=channel, voltage=value)
         self._session.write(f"LIST:VOLT {_format_number_list(values)},(@{channel})")
 
     def configure_current_list(self, *, channel: int, values: tuple[float, ...]) -> None:
         self._require_output_channel(channel)
         _validate_list_values(values, "current")
+        for value in values:
+            self._validate_driver_setpoint(channel=channel, current=value)
         self._session.write(f"LIST:CURR {_format_number_list(values)},(@{channel})")
 
     def configure_dwell_list(self, *, channel: int, values: tuple[float, ...]) -> None:

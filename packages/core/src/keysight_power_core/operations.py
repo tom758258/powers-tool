@@ -32,6 +32,7 @@ from keysight_power_core.safety import (
     validate_channel,
     validate_setpoint,
 )
+from keysight_power_core.setpoint_limits import validate_effective_setpoint
 from keysight_power_core.trigger import run_post_action_completion_pulse
 from keysight_power_core.workflow_validation import validate_general_workflow_parameters
 
@@ -101,6 +102,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
     """Build the dry-run/simulation output plan without opening hardware."""
 
     validate_request_parameters(request)
+    _validate_known_simulated_model_setpoints(request)
     command = request.command
     p = request.parameters
     channel = p.get("channel")
@@ -446,12 +448,10 @@ def _execute_output_write(
     if command == "cycle-output":
         channels = _channels_from_selection(channel, power_supply.capabilities.channels, command=command)
         for selected_channel in channels:
-            limits = _safety_limits(request, channel=selected_channel, model=parse_idn(idn).model)
-            if limits is not None:
-                voltage = power_supply.programmed_voltage(channel=selected_channel)
-                current = power_supply.programmed_current(channel=selected_channel)
-                _validate_setpoint_for_request(request, idn, selected_channel, voltage=voltage, current=current)
-                _require_confirmation_if_needed(request, voltage, current, selected_channel, idn)
+            voltage = power_supply.programmed_voltage(channel=selected_channel)
+            current = power_supply.programmed_current(channel=selected_channel)
+            _validate_setpoint_for_request(request, idn, selected_channel, voltage=voltage, current=current)
+            _require_confirmation_if_needed(request, voltage, current, selected_channel, idn)
         enabled_channels: list[int] = []
         try:
             for selected_channel in channels:
@@ -483,7 +483,8 @@ def _execute_output_write(
         _require_channel(power_supply, channel, command)
         voltages = ramp_voltages(p["start_voltage"], p["stop_voltage"], p["step_voltage"])
         _validate_ramp_completion_pulse(request)
-        _validate_setpoint_for_request(request, idn, channel, voltage=p["stop_voltage"], current=p["current"])
+        for voltage in voltages:
+            _validate_setpoint_for_request(request, idn, channel, voltage=voltage, current=p["current"])
         trigger: dict[str, Any] | None = None
         verification = {"passed": True, "checks": [], "differences": []}
         if _completion_pulse_requested(request):
@@ -581,8 +582,62 @@ def _validate_setpoint_for_request(
             current=p["current"] if current is None else current,
             limits=limits,
         )
+        validate_effective_setpoint(
+            model=parse_idn(idn).model,
+            channel=channel,
+            electrical_ratings=power_supply_ratings_for_idn(idn),
+            safety_limits=limits,
+            voltage=p["voltage"] if voltage is None else voltage,
+            current=p["current"] if current is None else current,
+        )
     except (SafetyConfigError, SafetyValidationError) as exc:
         raise CoreValidationError(str(exc)) from exc
+
+
+def power_supply_ratings_for_idn(idn: str) -> Any:
+    from keysight_power_core.electrical_ratings import ratings_for_model
+
+    return ratings_for_model(parse_idn(idn).model)
+
+
+def _validate_known_simulated_model_setpoints(request: OperationRequest) -> None:
+    if not request.runtime.simulate or not request.runtime.resource:
+        return
+    from keysight_power_core.electrical_ratings import ratings_for_model
+    from keysight_power_core.testing.simulator import SIMULATED_IDN
+
+    idn = SIMULATED_IDN.get(request.runtime.resource)
+    if idn is None:
+        return
+    model = parse_idn(idn).model
+    ratings = ratings_for_model(model)
+    if ratings is None:
+        return
+    p = request.parameters
+    channels = ratings.channels.keys() if p.get("channel") == "all" else (p.get("channel"),)
+    for channel in channels:
+        if not isinstance(channel, int):
+            continue
+        values: list[float | None]
+        if request.command == "ramp":
+            values = ramp_voltages(p["start_voltage"], p["stop_voltage"], p["step_voltage"])
+        elif request.command in {"set", "apply", "smoke-output"}:
+            values = [p.get("voltage")]
+        else:
+            continue
+        limits = _safety_limits(request, channel=channel, model=model)
+        try:
+            for voltage in values:
+                validate_effective_setpoint(
+                    model=model,
+                    channel=channel,
+                    electrical_ratings=ratings,
+                    safety_limits=limits,
+                    voltage=voltage,
+                    current=p.get("current"),
+                )
+        except SafetyValidationError as exc:
+            raise CoreValidationError(str(exc)) from exc
 
 
 def _require_confirmation_if_needed(

@@ -18,6 +18,7 @@ from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
 from keysight_power_core.operations import ScpiLoggingSession, ramp_voltages
 from keysight_power_core.safety import SafetyConfigError, SafetyValidationError, resolve_safety_config, validate_setpoint
+from keysight_power_core.setpoint_limits import validate_effective_setpoint
 from keysight_power_core.trigger import run_post_action_completion_pulse
 
 RAMP_LIST_KIND = "keysight-power-ramp-list"
@@ -49,6 +50,8 @@ def run_ramp_list(
 
     document = ramp_list_document_for_request(request)
     plan = ramp_list_plan(request, document)
+    if request.runtime.simulate:
+        _validate_known_simulated_plan(request, plan)
     if request.parameters.get("lint", False):
         return {
             "status": "valid",
@@ -379,6 +382,14 @@ def _validate_plan_for_power_supply(
         try:
             for voltage in segment["voltages"]:
                 validate_setpoint(channel=channel, voltage=voltage, current=segment["current"], limits=limits)
+                validate_effective_setpoint(
+                    model=model,
+                    channel=channel,
+                    electrical_ratings=power_supply.capabilities.electrical_ratings,
+                    safety_limits=limits,
+                    voltage=voltage,
+                    current=segment["current"],
+                )
         except (SafetyConfigError, SafetyValidationError) as exc:
             raise CoreValidationError(f"ramp-list segment {segment['index']}: {exc}") from exc
 
@@ -402,3 +413,28 @@ def _strict_integer(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError("value must be an integer")
     return value
+
+
+def _validate_known_simulated_plan(request: OperationRequest, plan: dict[str, Any]) -> None:
+    from keysight_power_core.electrical_ratings import ratings_for_model
+    from keysight_power_core.testing.simulator import SIMULATED_IDN
+
+    idn = SIMULATED_IDN.get(request.runtime.resource or "")
+    model = parse_idn(idn).model if idn else None
+    ratings = ratings_for_model(model)
+    if ratings is None:
+        return
+    for segment in plan["segments"]:
+        limits = _safety_limits(request, channel=segment["channel"], model=model)
+        try:
+            for voltage in segment["voltages"]:
+                validate_effective_setpoint(
+                    model=model,
+                    channel=segment["channel"],
+                    electrical_ratings=ratings,
+                    safety_limits=limits,
+                    voltage=voltage,
+                    current=segment["current"],
+                )
+        except SafetyValidationError as exc:
+            raise CoreValidationError(f"ramp-list segment {segment['index']}: {exc}") from exc

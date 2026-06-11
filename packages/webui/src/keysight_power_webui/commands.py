@@ -236,12 +236,19 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
             },
             "hardware_validation": core_capabilities.hardware_validation_status(selection.idn.model),
             "command_support": core_capabilities.command_support(selection.idn.model),
+            "electrical_ratings": caps.electrical_ratings.to_dict() if caps.electrical_ratings else None,
         }
 
     return {
         "models": {
-            "E36312A": {"channels": list(E36312APowerSupply.capabilities.channels)},
-            "EDU36311A": {"channels": list(EDU36311APowerSupply.capabilities.channels)},
+            "E36312A": {
+                "channels": list(E36312APowerSupply.capabilities.channels),
+                "electrical_ratings": E36312APowerSupply.capabilities.electrical_ratings.to_dict(),
+            },
+            "EDU36311A": {
+                "channels": list(EDU36311APowerSupply.capabilities.channels),
+                "electrical_ratings": EDU36311APowerSupply.capabilities.electrical_ratings.to_dict(),
+            },
         }
     }
 

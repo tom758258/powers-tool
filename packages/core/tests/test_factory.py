@@ -2,6 +2,7 @@ from keysight_power_core.drivers.base import DriverCapabilities
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
+from keysight_power_core.electrical_ratings import E36312A_ELECTRICAL_RATINGS, EDU36311A_ELECTRICAL_RATINGS
 from keysight_power_core.factory import create_power_supply, select_driver
 from keysight_power_core.models import parse_idn
 
@@ -41,11 +42,13 @@ def test_first_target_drivers_expose_conservative_capabilities() -> None:
         channels=(1, 2, 3),
         simulated_measure_channels=(1, 2, 3),
         real_measure_channels=(1, 2, 3),
+        electrical_ratings=E36312A_ELECTRICAL_RATINGS,
     )
     edu36311a_expected = DriverCapabilities(
         channels=(1, 2, 3),
         simulated_measure_channels=(1, 2, 3),
         real_measure_channels=(1, 2, 3),
+        electrical_ratings=EDU36311A_ELECTRICAL_RATINGS,
     )
 
     e36312a = select_driver("KEYSIGHT,E36312A,SERIAL0000,1.0")

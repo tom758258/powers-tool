@@ -47,6 +47,8 @@ script from `keysight-power-cli`.
   stop cleanup results shared by Worker and WebUI.
 - `keysight_power_core.safety`: explicit local safety-config loading and plan
   validation.
+- `keysight_power_core.electrical_ratings` and `setpoint_limits`: verified
+  independent-channel DC output ratings and effective safety limits.
 - `keysight_power_core.capabilities`: command and model capability reporting.
 - `keysight_power_core.testing`: no-hardware simulator used by tests and CLI
   simulation mode.

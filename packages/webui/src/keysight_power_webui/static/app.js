@@ -2,6 +2,7 @@ const state = {
   commands: {},
   commandSupportByModel: {},
   parameterConstraints: {},
+  electricalRatingsByModel: {},
   resourceModels: {},
   activeCategory: "output",
   selected: null,
@@ -244,6 +245,7 @@ async function loadCommands() {
   state.commands = payload.commands || {};
   state.commandSupportByModel = payload.command_support_by_model || {};
   state.parameterConstraints = payload.parameter_constraints || {};
+  state.electricalRatingsByModel = payload.electrical_ratings_by_model || {};
   renderCommands();
 }
 
@@ -334,12 +336,14 @@ function renderForm(command) {
     input.id = `param-${param.name}`;
     if (param.value !== undefined) input.value = param.value;
     applyParameterConstraint(input, param.name);
+    applyElectricalRatingConstraint(input, param.name);
     if (param.name.includes("completion_pulse") && pulseControlsUnavailableReason()) {
       input.disabled = true;
       input.title = pulseControlsUnavailableReason();
     }
     input.addEventListener("change", () => {
       enforcePulseFormRules(command, param.name, input);
+      refreshElectricalRatingConstraints();
       updateSelectedCommandState();
     });
     input.addEventListener("input", () => {
@@ -1724,6 +1728,34 @@ function applyParameterConstraint(input, name) {
   if (constraint.description) input.title = constraint.description;
 }
 
+function applyElectricalRatingConstraint(input, name) {
+  if (input.type !== "number" || !["voltage", "start_voltage", "stop_voltage", "current"].includes(name)) return;
+  const rating = selectedChannelRating();
+  if (!rating) return;
+  input.max = String(name === "current" ? rating.max_current : rating.max_voltage);
+  input.title = `Official independent-channel DC output rating: maximum ${input.max} ${name === "current" ? "A" : "V"}.`;
+}
+
+function selectedChannelRating() {
+  const model = currentResourceModel();
+  const ratings = state.electricalRatingsByModel?.[model]?.channels;
+  if (!Array.isArray(ratings)) return null;
+  const selected = document.getElementById("param-channel")?.value || "1";
+  const channels = selected === "all" ? ratings : ratings.filter((rating) => String(rating.channel) === String(selected));
+  if (!channels.length) return null;
+  return {
+    max_voltage: Math.min(...channels.map((rating) => Number(rating.max_voltage))),
+    max_current: Math.min(...channels.map((rating) => Number(rating.max_current)))
+  };
+}
+
+function refreshElectricalRatingConstraints() {
+  document.querySelectorAll("#command-form input[type=number]").forEach((input) => {
+    applyParameterConstraint(input, input.id.replace("param-", ""));
+    applyElectricalRatingConstraint(input, input.id.replace("param-", ""));
+  });
+}
+
 function validateConstrainedInputs() {
   let valid = true;
   document.querySelectorAll("#command-form input[type=number]").forEach((input) => {
@@ -2475,13 +2507,14 @@ function updateSelectedCommandState() {
     // Keep the form responsive while artifact editors contain invalid JSON.
   }
   const tripGuard = tripGuardReason(state.selected, parameters);
+  const ratingGuard = electricalRatingGuardReason(state.selected, parameters);
   const tripWarning = tripContextWarning(state.selected);
   const runButton = document.getElementById("run");
   const commandDescription = document.getElementById("command-description");
-  const descriptionText = [meta.description, tripGuard || tripWarning].filter(Boolean).join(" ");
+  const descriptionText = [meta.description, ratingGuard, tripGuard || tripWarning].filter(Boolean).join(" ");
   commandDescription.textContent = descriptionText;
   commandDescription.title = descriptionText;
-  runButton.disabled = Boolean(meta.disabled || tripGuard);
+  runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard);
   runButton.disabled ||= !validateConstrainedInputs();
   if (state.selected === "restore-from-snapshot") {
     const restoreValid = isLoadedRestoreSnapshotValid();
@@ -2508,6 +2541,28 @@ function updateSelectedCommandState() {
     commandDescription.textContent = [descriptionText, pulseControlsUnavailableReason()].filter(Boolean).join(" ");
   }
   document.getElementById("confirm-banner").classList.toggle("visible", Boolean(meta.requires_confirm));
+}
+
+function electricalRatingGuardReason(command, parameters) {
+  const model = currentResourceModel();
+  const ratings = state.electricalRatingsByModel?.[model]?.channels;
+  if (!Array.isArray(ratings)) return "";
+  const check = (channel, voltage, current) => {
+    const selected = channel === "all" ? ratings : ratings.filter((rating) => String(rating.channel) === String(channel));
+    for (const rating of selected) {
+      if (voltage !== undefined && voltage !== null && Number(voltage) > Number(rating.max_voltage)) return `Voltage ${voltage} exceeds official DC output rating ${rating.max_voltage} V for ${model} channel ${rating.channel}.`;
+      if (current !== undefined && current !== null && Number(current) > Number(rating.max_current)) return `Current ${current} exceeds official DC output rating ${rating.max_current} A for ${model} channel ${rating.channel}.`;
+    }
+    return "";
+  };
+  if (["set", "apply", "smoke-output"].includes(command)) return check(parameters.channel, parameters.voltage, parameters.current);
+  if (command === "ramp") return check(parameters.channel, Math.max(Number(parameters.start_voltage), Number(parameters.stop_voltage)), parameters.current);
+  if (command === "ramp-list") for (const segment of state.rampListSegments) { const reason = check(segment.channel, Math.max(Number(segment.start_voltage), Number(segment.stop_voltage)), segment.current); if (reason) return reason; }
+  if (command === "trigger-step") return check(parameters.channel, parameters.voltage, parameters.current);
+  if (command === "trigger-list") for (const voltage of parameters.voltage_list || []) for (const current of parameters.current_list || []) { const reason = check(parameters.channel, voltage, current); if (reason) return reason; }
+  if (command === "sequence") for (const step of state.sequenceSteps) if (["set", "apply"].includes(step.action)) { const reason = check(step.channel ?? 1, step.voltage, step.current); if (reason) return reason; }
+  if (command === "restore-from-snapshot" && state.loadedSnapshotDocument) for (const record of state.loadedSnapshotDocument.readback || []) { if (state.restoreChannel !== "all" && String(record.channel) !== String(state.restoreChannel)) continue; const reason = check(record.channel, record.setpoints?.voltage, record.setpoints?.current); if (reason) return reason; }
+  return "";
 }
 
 function pulseControlsUnavailableReason() {

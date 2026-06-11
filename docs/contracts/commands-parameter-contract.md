@@ -32,8 +32,25 @@ Every-step pulses accept `delay_ms = 0`.
 
 ## Effective Electrical Limits
 
-Safety config limits are explicit local limits and may only make an operation
-more restrictive. Model/channel electrical ratings must be added only after
-verification against the relevant official Keysight programming or data
-sheet. Until verified ratings are present, the project does not invent an
-electrical maximum.
+The verified independent-channel `DC output rating (0 to 40 C)` is a hard
+setpoint maximum:
+
+| Model | Channel | Maximum voltage | Maximum current |
+|---|---:|---:|---:|
+| E36312A | 1 | 6 V | 5 A |
+| E36312A | 2, 3 | 25 V | 1 A |
+| EDU36311A | 1 | 6 V | 5 A |
+| EDU36311A | 2, 3 | 30 V | 1 A |
+
+Sources are Keysight `E36300 Series Triple Output Bench Power Supply`,
+publication `5992-2124EN`, dated `2023-08-25`, and `EDU36311A Triple-Output
+Bench Power Supply`, publication `3121-1003.ZHTW`, dated `2021-01-11`.
+
+Official ratings and safety config remain separate. The effective maximum is
+the smaller value. A more permissive safety config never widens an official
+rating. Confirmation thresholds remain safety-config policy only.
+
+These ratings are not claims about SCPI maximum programmable values. Unknown
+models have no invented rating. Plain dry-run without a confirmed model uses
+fixed and safety-config validation only. OVP values are not constrained by the
+DC output rating. Auto-series and parallel combined ratings are unsupported.

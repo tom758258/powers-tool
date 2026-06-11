@@ -25,6 +25,10 @@ class FakeSession:
             "MEAS:CURR? (@1)": "0.1",
             "VOLT? (@1)": "1.0",
             "CURR? (@1)": "0.1",
+            "VOLT? (@2)": "1.0",
+            "CURR? (@2)": "0.1",
+            "VOLT? (@3)": "1.0",
+            "CURR? (@3)": "0.1",
             "OUTP? (@1)": "0",
         }
         return responses.get(command, '0,"No error"')

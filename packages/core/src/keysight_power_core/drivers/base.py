@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from keysight_power_core.electrical_ratings import ModelElectricalRatings
+
 Channel = int | str | None
 
 
@@ -15,6 +17,7 @@ class DriverCapabilities:
     channels: tuple[int, ...]
     simulated_measure_channels: tuple[int, ...]
     real_measure_channels: tuple[int, ...]
+    electrical_ratings: ModelElectricalRatings | None = None
 
 
 class PowerSupply(Protocol):

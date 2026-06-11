@@ -473,7 +473,7 @@ def test_static_commands_disable_by_selected_resource_model():
     assert "!next.stale && updateResourceModel(next.resource, next.model)" in app_js
     assert "support.real !== false" in app_js
     assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
-    assert "runButton.disabled = Boolean(meta.disabled || tripGuard);" in app_js
+    assert "runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard);" in app_js
     assert 'error: "Command unavailable"' in app_js
 
 
@@ -603,6 +603,11 @@ def test_commands_metadata(client: TestClient):
     data = response.json()
     assert "commands" in data
     assert "command_support_by_model" in data
+    assert data["electrical_ratings_by_model"]["E36312A"]["channels"][0] == {
+        "channel": 1,
+        "max_voltage": 6.0,
+        "max_current": 5.0,
+    }
     assert data["parameter_constraints"]["delay_ms"]["min"] == 0
     assert data["parameter_constraints"]["poll_ms"]["min"] == 50
     

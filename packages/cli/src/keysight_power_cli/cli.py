@@ -4171,6 +4171,7 @@ def _run_capabilities(args: argparse.Namespace) -> int:
         **static_groups,
         "hardware_validation": capabilities.hardware_validation_status(selection.idn.model),
         "command_support": capabilities.command_support(selection.idn.model),
+        "electrical_ratings": caps.electrical_ratings.to_dict() if caps.electrical_ratings else None,
     }
     if selected_command:
         support = data["command_support"]
@@ -4216,6 +4217,23 @@ def _run_safety_inspect(args: argparse.Namespace) -> int:
         "sources": resolution.sources or {},
         "output_affecting_allowed": _output_affecting_allowed(args.channel, limits),
     }
+    from keysight_power_core.electrical_ratings import ratings_for_model
+    from keysight_power_core.setpoint_limits import effective_setpoint_limits
+
+    ratings = ratings_for_model(args.model)
+    official = ratings.channel(args.channel) if ratings is not None and isinstance(args.channel, int) else None
+    effective = (
+        effective_setpoint_limits(
+            model=args.model,
+            channel=args.channel,
+            electrical_ratings=ratings,
+            safety_limits=limits,
+        )
+        if isinstance(args.channel, int)
+        else None
+    )
+    data["official_rating"] = official.to_dict() if official else None
+    data["effective_limits"] = effective.to_dict() if effective else None
     if args.explain:
         data["explanation"] = _safety_explanation_for_args(args, limits, resolution.sources or {})
     if args.json:

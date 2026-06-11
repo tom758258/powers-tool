@@ -21,6 +21,7 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.transport import dry_run_plan
+from keysight_power_core.setpoint_limits import validate_effective_setpoint
 
 IDN_QUERY = "*IDN?"
 
@@ -142,6 +143,15 @@ def run_post_action_completion_pulse(
     selected_pins = tuple(pins)
     if not selected_pins:
         return None
+    current = power_supply.programmed_current(channel=channel)
+    voltage = power_supply.programmed_voltage(channel=channel)
+    validate_effective_setpoint(
+        model="E36312A",
+        channel=channel,
+        electrical_ratings=power_supply.capabilities.electrical_ratings,
+        voltage=voltage,
+        current=current,
+    )
     snapshot = power_supply.trigger_snapshot(channel)
     restored: bool | None = None
     restore_errors: list[str] = []
@@ -150,8 +160,6 @@ def run_post_action_completion_pulse(
     try:
         power_supply.abort_output_trigger(channel)
         configure_completion_output_pins(power_supply, selected_pins, polarity)
-        current = power_supply.programmed_current(channel=channel)
-        voltage = power_supply.programmed_voltage(channel=channel)
         power_supply.set_triggered_current(channel=channel, current=current)
         power_supply.set_triggered_voltage(channel=channel, voltage=voltage)
         power_supply.set_current_trigger_mode_step(channel)
@@ -843,13 +851,20 @@ def _native_step(
     sleep: Callable[[float], None],
     stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
+    selected_voltage = power_supply.programmed_voltage(channel=channel) if voltage is None else voltage
+    selected_current = power_supply.programmed_current(channel=channel) if current is None else current
+    validate_effective_setpoint(
+        model="E36312A",
+        channel=channel,
+        electrical_ratings=power_supply.capabilities.electrical_ratings,
+        voltage=selected_voltage,
+        current=selected_current,
+    )
     snapshot = power_supply.trigger_snapshot(channel)
     try:
         raise_if_cancelled(stop_requested)
         power_supply.abort_output_trigger(channel)
         configure_completion_output_pins(power_supply, pins, polarity)
-        selected_voltage = power_supply.programmed_voltage(channel=channel) if voltage is None else voltage
-        selected_current = power_supply.programmed_current(channel=channel) if current is None else current
         power_supply.set_triggered_current(channel=channel, current=selected_current)
         power_supply.set_triggered_voltage(channel=channel, voltage=selected_voltage)
         power_supply.set_current_trigger_mode_step(channel)
@@ -916,6 +931,14 @@ def _native_list(
     stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
     validate_trigger_list_limits(voltages=voltages, currents=currents, dwell=dwell, count=count)
+    for voltage, current in zip(voltages, currents):
+        validate_effective_setpoint(
+            model="E36312A",
+            channel=channel,
+            electrical_ratings=power_supply.capabilities.electrical_ratings,
+            voltage=voltage,
+            current=current,
+        )
     snapshot = power_supply.trigger_snapshot(channel)
     try:
         raise_if_cancelled(stop_requested)

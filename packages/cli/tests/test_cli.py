@@ -2099,7 +2099,10 @@ def test_safe_off_real_e36312a_expands_all_channels(monkeypatch, capsys) -> None
 
 
 def test_cycle_output_real_e36312a_cycles_output_without_delay(monkeypatch, capsys) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0")
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
+        query_responses={"VOLT? (@2)": "1.0", "CURR? (@2)": "0.1"},
+    )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
     monkeypatch.setattr(cli.time, "sleep", lambda seconds: None)
 

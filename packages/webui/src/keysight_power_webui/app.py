@@ -142,9 +142,12 @@ async def get_commands():
         for name, metadata in COMMAND_METADATA.items()
         if name not in WEBUI_UNSUPPORTED_COMMANDS and name not in WEBUI_HIDDEN_COMMANDS
     }
+    from keysight_power_core.electrical_ratings import electrical_ratings_by_model_metadata
+
     return {
         "commands": commands,
         "command_support_by_model": webui_command_support(set(commands)),
+        "electrical_ratings_by_model": electrical_ratings_by_model_metadata(),
         "parameter_constraints": parameter_constraints_metadata(),
         "output_affecting_commands": list(MUTATING_COMMANDS),
     }

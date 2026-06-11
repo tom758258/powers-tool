@@ -547,6 +547,8 @@ stays parseable. Every JSON success and error envelope includes
   `*CLS` and clears status/error state, while `error` and `measure` only query.
 - `--safety-config` is explicit only and applies local plan validation limits;
   it does not enable real hardware output.
+- E36312A and EDU36311A setpoints are also bounded by verified official
+  independent-channel DC output ratings. Safety config may only lower them.
 - Real VISA resources must not be hard-coded in committed files.
 - Hardware tests must require a user-provided resource.
 - Examples that enable output must set current limit before voltage and turn

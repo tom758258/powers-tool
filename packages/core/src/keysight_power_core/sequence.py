@@ -16,6 +16,7 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.safety import SafetyConfigError, SafetyLimits, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
+from keysight_power_core.setpoint_limits import validate_effective_setpoint
 from keysight_power_core.trigger import run_post_action_completion_pulse, trigger_pulse_scpi
 
 IDN_QUERY = "*IDN?"
@@ -290,6 +291,7 @@ def execute_sequence(
                 instrument = ScpiLoggingSession(str(request.runtime.resource), instrument, scpi_logger)
             idn_raw = instrument.query(IDN_QUERY)
             power_supply = create_power_supply(instrument, idn_raw)
+            _preflight_sequence(request, power_supply, plan, model=_model_from_idn(idn_raw))
             for step in plan["steps"]:
                 try:
                     raise_if_cancelled(stop_requested)
@@ -476,6 +478,74 @@ def sequence_cleanup_safe_off(power_supply: Any) -> dict[str, Any]:
         except Exception as exc:
             errors.append({"channel": channel, "message": str(exc)})
     return {"safe_off_attempted": attempted, "errors": errors}
+
+
+def _preflight_sequence(request: SequenceRequest, power_supply: Any, plan: dict[str, Any], *, model: str | None) -> None:
+    state: dict[int, dict[str, float]] = {}
+    enable_channels: set[int] = set()
+    for step in plan["steps"]:
+        if step["action"] in {"output-on", "cycle-output"} or (
+            step["action"] == "apply" and not step["parameters"].get("no_output", False)
+        ):
+            selected = sequence_channel(step["parameters"].get("channel", 1), allow_all=True)
+            enable_channels.update(sequence_channels(selected, power_supply.capabilities.channels))
+    for channel in sorted(enable_channels):
+        state[channel] = {
+            "voltage": power_supply.programmed_voltage(channel=channel),
+            "current": power_supply.programmed_current(channel=channel),
+        }
+    for step in plan["steps"]:
+        action = step["action"]
+        parameters = step["parameters"]
+        if action in {"set", "apply"}:
+            selected = sequence_channel(parameters.get("channel", 1), allow_all=(action == "apply"))
+            for channel in sequence_channels(selected, power_supply.capabilities.channels):
+                state[channel] = {"voltage": float(parameters["voltage"]), "current": float(parameters["current"])}
+                _validate_sequence_effective(request, power_supply, model, channel, state[channel])
+        if action in {"output-on", "cycle-output"} or (action == "apply" and not parameters.get("no_output", False)):
+            selected = sequence_channel(parameters.get("channel", 1), allow_all=True)
+            for channel in sequence_channels(selected, power_supply.capabilities.channels):
+                values = state[channel]
+                _validate_sequence_effective(request, power_supply, model, channel, values)
+
+
+def _validate_sequence_effective(
+    request: SequenceRequest,
+    power_supply: Any,
+    model: str | None,
+    channel: int,
+    values: dict[str, float],
+) -> None:
+    limits = _safety_limits_for_channel(request, model=model, channel=channel)
+    try:
+        validate_effective_setpoint(
+            model=model,
+            channel=channel,
+            electrical_ratings=power_supply.capabilities.electrical_ratings,
+            safety_limits=limits,
+            voltage=values["voltage"],
+            current=values["current"],
+        )
+    except SafetyValidationError as exc:
+        raise CoreValidationError(str(exc)) from exc
+
+
+def _safety_limits_for_channel(request: SequenceRequest, *, model: str | None, channel: int) -> SafetyLimits | None:
+    if request.runtime.safety_config is None:
+        return None
+    return resolve_safety_config(
+        request.runtime.safety_config,
+        resource=None if request.runtime.resource_alias else request.runtime.resource,
+        resource_alias=request.runtime.resource_alias,
+        model=model,
+        channel=channel,
+    ).limits
+
+
+def _model_from_idn(idn: str) -> str | None:
+    from keysight_power_core.models import parse_idn
+
+    return parse_idn(idn).model
 
 
 def sequence_channel(value: Any, *, allow_all: bool = False) -> int | str:
