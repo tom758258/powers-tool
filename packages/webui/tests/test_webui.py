@@ -15,8 +15,7 @@ from fastapi.testclient import TestClient
 
 
 WEBUI_COMMAND_NAMES = {
-    "verify", "clear", "error", "capabilities", "safety inspect",
-    "readback", "identify",
+    "clear", "error", "capabilities", "identify",
     "set", "apply", "output-on", "output-off", "safe-off", "cycle-output",
     "ramp", "ramp-list", "smoke-output", "protection-set", "clear-protection", "trigger-pulse",
     "trigger-status", "trigger-step", "trigger-list", "trigger-fire", "trigger-abort",
@@ -30,6 +29,8 @@ WEBUI_HIDDEN_UNSUPPORTED_COMMANDS = {
 WEBUI_HIDDEN_LIVE_DATA_COMMANDS = {
     "measure", "measure-all", "read-status", "protection-status", "output-state",
 }
+
+WEBUI_HIDDEN_DIAGNOSTIC_COMMANDS = {"verify", "readback", "safety inspect"}
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "src" / "keysight_power_webui" / "static"
 
@@ -276,6 +277,7 @@ def test_static_layout_exposes_stable_structural_hooks():
     assert 'id="job-history"' in index_html
     assert 'id="result-panel" class="result-panel collapsed"' in index_html
     assert 'id="command-form"' in index_html
+    assert 'id="workspace-summary-content"' in index_html
     assert 'id="job-history"' not in command_workbench
     assert 'id="result-panel"' not in command_workbench
     assert 'class="rightbar"' not in index_html
@@ -446,6 +448,38 @@ def test_static_job_result_summary_helpers_exist():
     assert ".result-summary" in styles_css
 
 
+def test_static_workspace_summary_keeps_latest_success_by_command_and_resource():
+    index_html, app_js, styles_css = read_static_texts()
+
+    capture = extract_js_function(app_js, "captureWorkspaceResult")
+    render = extract_js_function(app_js, "renderWorkspaceSummary")
+
+    assert "<strong>Latest Successful Result</strong>" in index_html
+    assert "workspaceResults: {}" in app_js
+    assert 'job.status !== "finished"' in capture
+    assert "workspaceResultKey(job.command, resource)" in capture
+    assert "state.workspaceResults[workspaceResultKey(state.selected, resource)]" in render
+    assert "renderCapabilitiesWorkspaceSummary(container, job.result);" in render
+    assert "renderIdentifyWorkspaceSummary(container, job.result);" in render
+    assert "captureWorkspaceResult(job);" in app_js
+    assert ".workspace-summary-content" in styles_css
+    assert ".workspace-summary-field" in styles_css
+
+
+def test_static_workspace_capabilities_and_identify_fields_are_user_facing():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    capabilities = extract_js_function(app_js, "renderCapabilitiesWorkspaceSummary")
+    identify = extract_js_function(app_js, "renderIdentifyWorkspaceSummary")
+
+    for label in ("Model", "Resource", "Output channels", "Measurement channels", "Output", "Protection", "Trigger"):
+        assert f'["{label}"' in capabilities
+    assert "featureAvailability(" in capabilities
+    assert "details.channels.length" in capabilities
+    for label in ("Manufacturer", "Model", "Serial number", "Firmware", "Installed options", "SCPI version", "Resource"):
+        assert f'["{label}"' in identify
+
+
 def test_static_command_keys_are_used_for_selection_and_submission():
     _index_html, app_js, _styles_css = read_static_texts()
 
@@ -471,6 +505,9 @@ def test_static_command_display_names_filter_and_sort_by_human_label():
     assert '"restore-from-snapshot": "Restore snapshot"' in display_name
     assert '"protection-set": "Set protection"' in display_name
     assert 'clear: "Clear Status / Errors"' in display_name
+    assert 'capabilities: "Get capabilities"' in display_name
+    assert 'identify: "Read device information"' in display_name
+    assert 'error: "Read errors"' in display_name
     assert 'name.replace(/-/g, " ")' in display_name
 
 
@@ -691,7 +728,7 @@ def test_commands_metadata(client: TestClient):
         "protection": {"protection-set", "clear-protection"},
         "trigger": {"trigger-pulse", "trigger-status", "trigger-step", "trigger-list", "trigger-fire", "trigger-abort"},
         "artifact": {"snapshot", "restore-from-snapshot"},
-        "discovery": {"verify", "clear", "error", "capabilities", "safety inspect", "readback", "identify"},
+        "discovery": {"clear", "error", "capabilities", "identify"},
     }
     actual_categories = {
         category: {name for name, metadata in cmds.items() if metadata["category"] == category}
@@ -703,7 +740,8 @@ def test_commands_metadata(client: TestClient):
     assert cmds["smoke-output"]["description"] == "Run guarded output diagnostic"
     assert cmds["identify"]["category"] == "discovery"
     assert cmds["identify"]["description"] == "Read instrument identification information"
-    assert cmds["readback"]["category"] == "discovery"
+    assert not (WEBUI_HIDDEN_DIAGNOSTIC_COMMANDS & set(cmds))
+    assert cmds["error"]["description"] == "Read and remove entries from the instrument error queue"
     assert cmds["clear-protection"]["category"] == "protection"
     assert cmds["clear-protection"]["requires_confirm"] is True
     assert "does not clear OVP/OCP protection latches" in cmds["clear"]["description"]
@@ -734,9 +772,11 @@ def test_commands_metadata_includes_model_aware_support(client: TestClient):
     assert support["EDU36311A"]["trigger-list"]["hardware_validation"] == "not_supported_by_model"
     assert support["GENERIC"]["set"]["real"] is False
     for model in ("E36312A", "EDU36311A", "GENERIC"):
-        assert support[model]["verify"]["real"] is True
         assert support[model]["clear"]["real"] is True
         assert support[model]["error"]["real"] is True
+        assert "verify" not in support[model]
+        assert "readback" not in support[model]
+        assert "safety inspect" not in support[model]
 
 
 def test_command_coverage(client: TestClient):
@@ -749,6 +789,7 @@ def test_command_coverage(client: TestClient):
     assert WEBUI_COMMAND_NAMES <= webui_commands
     assert "list-resources" not in webui_commands
     assert not (WEBUI_HIDDEN_LIVE_DATA_COMMANDS & webui_commands)
+    assert not (WEBUI_HIDDEN_DIAGNOSTIC_COMMANDS & webui_commands)
     assert not (WEBUI_HIDDEN_UNSUPPORTED_COMMANDS & webui_commands)
     for model_support in data["command_support_by_model"].values():
         assert set(model_support) <= webui_commands
@@ -1688,6 +1729,36 @@ def test_webui_commands_simulate_mode(client: TestClient):
         
         job_data = client.get(f"/api/jobs/{job_id}").json()
         assert job_data["status"] == "finished", f"Command {cmd} failed: {job_data.get('error')}"
+
+
+@pytest.mark.parametrize(
+    ("command", "parameters"),
+    [
+        ("verify", {}),
+        ("readback", {"channel": "all"}),
+        ("safety inspect", {}),
+    ],
+)
+def test_hidden_diagnostic_commands_remain_directly_submittable(client: TestClient, command: str, parameters: dict[str, Any]):
+    payload = {
+        "command": command,
+        "runtime": {
+            "simulate": True,
+            "resource": "USB0::SIM::E36312A::INSTR",
+        },
+        "parameters": parameters,
+    }
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+
+    job_id = response.json()["job_id"]
+    for _ in range(20):
+        job_data = client.get(f"/api/jobs/{job_id}").json()
+        if job_data["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.05)
+
+    assert job_data["status"] == "finished", job_data.get("error")
 
 
 def test_webui_capabilities_uses_selected_resource_model(client: TestClient):

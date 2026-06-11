@@ -83,6 +83,12 @@ still requires explicit confirmation. A tripped channel card can open and
 prefill the form without executing it. Clear Status / Errors is separate and
 does not clear OVP/OCP protection latches.
 
+Advanced Diagnostics exposes Clear Status / Errors, Get capabilities, Read
+device information, and Read errors. The Workspace keeps the latest successful
+result for each command and resource, while Result Detail keeps the complete
+raw job payload. Read errors removes each returned entry from the instrument
+error queue.
+
 ## Limits
 
 CLI-only or not-yet-shared commands are marked disabled by `/api/commands` and

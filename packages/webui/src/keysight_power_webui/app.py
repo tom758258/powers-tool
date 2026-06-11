@@ -40,7 +40,7 @@ COMMAND_METADATA = {
     "list-resources": {"description": "Discover available VISA resources", "requires_confirm": False, "category": "discovery"},
     "verify": {"description": "Verify connection and basic communication", "requires_confirm": False, "category": "discovery"},
     "clear": {"description": "Clear status and errors; does not clear OVP/OCP protection latches", "requires_confirm": False, "category": "discovery"},
-    "error": {"description": "Read instrument error queue", "requires_confirm": False, "category": "discovery"},
+    "error": {"description": "Read and remove entries from the instrument error queue", "requires_confirm": False, "category": "discovery"},
     "doctor": {"description": "Run diagnostic checks", "requires_confirm": False, "category": "discovery"},
     "capabilities": {"description": "Get instrument capabilities", "requires_confirm": False, "category": "discovery"},
     "safety inspect": {"description": "Inspect safety configuration", "requires_confirm": False, "category": "discovery"},
@@ -84,6 +84,9 @@ WEBUI_HIDDEN_COMMANDS = {
     "read-status",
     "protection-status",
     "output-state",
+    "verify",
+    "readback",
+    "safety inspect",
 }
 
 

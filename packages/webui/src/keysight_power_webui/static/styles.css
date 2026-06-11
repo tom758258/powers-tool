@@ -229,6 +229,35 @@ button.icon-button {
   padding: 0;
   margin: 0;
 }
+.workspace-summary {
+  margin: 0 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+.workspace-summary > strong {
+  display: block;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.workspace-summary-content {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+.workspace-summary-field {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+}
+.workspace-summary-field span { font-weight: 600; overflow-wrap: anywhere; }
+.workspace-summary-field small { color: var(--muted); }
+.workspace-summary-empty { grid-column: 1 / -1; margin: 0; color: var(--muted); }
 .field-description {
   display: block;
   margin-top: 5px;
@@ -494,6 +523,7 @@ pre {
   .form-grid {
     overflow: visible;
   }
+  .workspace-summary-content { grid-template-columns: 1fr; }
   .command-title-group {
     flex-wrap: wrap;
   }

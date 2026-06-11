@@ -4,6 +4,7 @@ const state = {
   resourceModels: {},
   activeCategory: "output",
   selected: null,
+  workspaceResults: {},
   jobs: [],
   events: null,
   liveEvents: null,
@@ -261,6 +262,7 @@ function selectCommand(name) {
   state.selected = name;
   document.getElementById("selected-command").textContent = commandDisplayName(name);
   renderForm(name);
+  renderWorkspaceSummary();
   prefillClearProtectionChannel();
   updateSelectedCommandState();
   renderCommands();
@@ -1458,7 +1460,10 @@ function commandDisplayName(name) {
     snapshot: "Create snapshot",
     "restore-from-snapshot": "Restore snapshot",
     "protection-set": "Set protection",
-    clear: "Clear Status / Errors"
+    clear: "Clear Status / Errors",
+    capabilities: "Get capabilities",
+    identify: "Read device information",
+    error: "Read errors"
   };
   if (overrides[name]) return overrides[name];
   const spaced = name.replace(/-/g, " ");
@@ -1505,6 +1510,7 @@ async function handleJobEvent(jobId, event) {
     }
     if (event.type === "finished" && job) {
       captureLatestSnapshotDocument(job);
+      captureWorkspaceResult(job);
     }
     if (jobCommand(jobId) === "snapshot") {
       refreshSnapshotFormIfVisible(jobId);
@@ -1576,6 +1582,113 @@ function renderResult(data) {
   document.getElementById("result").textContent = JSON.stringify(data, null, 2);
 }
 
+function workspaceResultKey(command, resource) {
+  return `${command}\u0000${resource || ""}`;
+}
+
+function captureWorkspaceResult(job) {
+  if (!job || job.status !== "finished" || !job.command || !job.result) return false;
+  const resource = job.runtime?.resource || job.result?.resource?.name || "";
+  state.workspaceResults[workspaceResultKey(job.command, resource)] = job;
+  renderWorkspaceSummary();
+  return true;
+}
+
+function renderWorkspaceSummary() {
+  const container = document.getElementById("workspace-summary-content");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!state.selected) {
+    renderWorkspaceEmpty(container, "Choose a command to view its latest successful result.");
+    return;
+  }
+  const resource = valueOrNull("resource") || "";
+  const job = state.workspaceResults[workspaceResultKey(state.selected, resource)];
+  if (!job) {
+    renderWorkspaceEmpty(container, "Run this command to see its latest successful result for the selected resource.");
+    return;
+  }
+  if (job.command === "capabilities") {
+    renderCapabilitiesWorkspaceSummary(container, job.result);
+    return;
+  }
+  if (job.command === "identify") {
+    renderIdentifyWorkspaceSummary(container, job.result);
+    return;
+  }
+  appendWorkspaceFields(container, [
+    ["Command", commandDisplayName(job.command)],
+    ["Resource", resource || "No resource selected"],
+    ["Summary", successfulJobSummary(job)]
+  ]);
+}
+
+function renderWorkspaceEmpty(container, message) {
+  const empty = document.createElement("p");
+  empty.className = "workspace-summary-empty";
+  empty.textContent = message;
+  container.appendChild(empty);
+}
+
+function renderCapabilitiesWorkspaceSummary(container, result) {
+  const resource = result.resource || {};
+  const model = resource.idn?.model || result.driver?.model;
+  if (resource.name || model) {
+    const support = result.command_support || {};
+    appendWorkspaceFields(container, [
+      ["Model", model || "--"],
+      ["Resource", resource.name || "--"],
+      ["Output channels", channelList(result.channels)],
+      ["Measurement channels", channelList(result.measure_channels?.real)],
+      ["Output", featureAvailability(support, ["set", "apply", "output-on", "output-off"])],
+      ["Protection", featureAvailability(support, ["protection-set", "clear-protection", "protection-status"])],
+      ["Trigger", featureAvailability(support, ["trigger-status", "trigger-step", "trigger-list", "trigger-fire"])]
+    ]);
+    return;
+  }
+  const models = result.models || {};
+  const fields = Object.entries(models).map(([name, details]) => [
+    name,
+    `${Array.isArray(details.channels) ? details.channels.length : 0} channels (${channelList(details.channels)})`
+  ]);
+  appendWorkspaceFields(container, fields.length ? fields : [["Supported models", "--"]]);
+}
+
+function renderIdentifyWorkspaceSummary(container, result) {
+  const idn = result.idn || result.resource?.idn || {};
+  const resource = typeof result.resource === "string" ? result.resource : result.resource?.name;
+  appendWorkspaceFields(container, [
+    ["Manufacturer", idn.manufacturer || "--"],
+    ["Model", idn.model || "--"],
+    ["Serial number", idn.serial || "--"],
+    ["Firmware", idn.firmware || "--"],
+    ["Installed options", result.options || "--"],
+    ["SCPI version", result.scpi_version || "--"],
+    ["Resource", resource || "--"]
+  ]);
+}
+
+function appendWorkspaceFields(container, fields) {
+  fields.forEach(([labelText, valueText]) => {
+    const field = document.createElement("div");
+    field.className = "workspace-summary-field";
+    const label = document.createElement("small");
+    label.textContent = labelText;
+    const value = document.createElement("span");
+    value.textContent = String(valueText);
+    field.append(value, label);
+    container.appendChild(field);
+  });
+}
+
+function channelList(channels) {
+  return Array.isArray(channels) && channels.length ? channels.map((channel) => `CH${channel}`).join(", ") : "--";
+}
+
+function featureAvailability(support, commands) {
+  return commands.some((command) => support[command]?.real === true) ? "Available" : "Unavailable";
+}
+
 function renderClientResult(command, status, summary, detail) {
   const jobId = `client-${Date.now()}`;
   addHistory(jobId, command, status, command);
@@ -1641,6 +1754,7 @@ function resourceLabel(resource, name) {
 function syncSelectedResource() {
   const value = document.getElementById("resource-select").value;
   if (value) document.getElementById("resource").value = value;
+  renderWorkspaceSummary();
   if (state.selected) selectCommand(state.selected);
   else renderCommands();
 }
