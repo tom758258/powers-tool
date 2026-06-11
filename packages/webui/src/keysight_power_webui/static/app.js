@@ -21,7 +21,8 @@ const state = {
   loadedSnapshotDocument: null,
   loadedSnapshotFilename: "",
   sequenceFilename: "",
-  sequenceTextareaValue: undefined,
+  sequenceSteps: [{ action: "wait", seconds: 0 }],
+  sequenceExpanded: new Set(),
   restoreChannel: "all",
   restoreOutputState: false,
   restorePlanPreview: null,
@@ -110,7 +111,7 @@ const PARAMS = {
     value: 20,
     description: "Limits how many times the snapshot reads the instrument error queue. Reading stops early when the instrument reports no error. Each reported error is removed from the instrument queue."
   }],
-  sequence: [{ name: "document", type: "textarea", label: "Sequence document", value: "{}" }]
+  sequence: []
 };
 
 function baseOutputParams() {
@@ -1066,56 +1067,231 @@ function validateRestoreSnapshot(doc) {
 
 function renderSequenceForm(form) {
   const editor = document.createElement("div");
-  editor.className = "artifact-editor";
-
+  editor.className = "sequence-editor";
   const toolbar = document.createElement("div");
-  toolbar.className = "artifact-toolbar";
-
-  const loadBtn = document.createElement("button");
-  loadBtn.type = "button";
-  loadBtn.className = "secondary";
-  loadBtn.id = "btn-load-sequence";
-  loadBtn.textContent = "Load Sequence";
-  loadBtn.addEventListener("click", loadSequenceFile);
-  toolbar.appendChild(loadBtn);
-
-  const saveBtn = document.createElement("button");
-  saveBtn.type = "button";
-  saveBtn.className = "secondary";
-  saveBtn.id = "btn-save-sequence";
-  saveBtn.textContent = "Save Sequence";
-  saveBtn.addEventListener("click", saveSequenceFile);
-  toolbar.appendChild(saveBtn);
-
-  const fileStatus = document.createElement("span");
-  fileStatus.id = "sequence-file-status";
-  fileStatus.className = "artifact-file-status";
-  fileStatus.textContent = state.sequenceFilename
-    ? `Loaded: ${state.sequenceFilename}`
-    : "";
-  toolbar.appendChild(fileStatus);
+  toolbar.className = "sequence-toolbar";
+  [
+    ["Load Sequence", loadSequenceFile],
+    ["Save Sequence", saveSequenceFile],
+    ["Add Step", addSequenceStep]
+  ].forEach(([text, handler]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    button.disabled = text === "Add Step" && state.sequenceSteps.length >= sequenceMaxSteps();
+    button.addEventListener("click", handler);
+    toolbar.appendChild(button);
+  });
+  const count = document.createElement("span");
+  count.className = "sequence-step-count";
+  count.textContent = `${state.sequenceSteps.length} / ${sequenceMaxSteps()}`;
+  toolbar.appendChild(count);
+  if (state.sequenceFilename) {
+    const fileStatus = document.createElement("span");
+    fileStatus.className = "artifact-file-status";
+    fileStatus.textContent = state.sequenceFilename;
+    toolbar.appendChild(fileStatus);
+  }
   editor.appendChild(toolbar);
-
-  const textLabel = document.createElement("label");
-  textLabel.textContent = "Sequence document";
-  const textarea = document.createElement("textarea");
-  textarea.id = "param-document";
-  textarea.className = "artifact-preview";
-
-  const paramDef = PARAMS["sequence"][0];
-  textarea.value = state.sequenceTextareaValue !== undefined ? state.sequenceTextareaValue : paramDef.value;
-
-  const onInput = (e) => {
-    state.sequenceTextareaValue = e.target.value;
-    updateSelectedCommandState();
-  };
-  textarea.addEventListener("input", onInput);
-  textarea.addEventListener("change", onInput);
-
-  textLabel.appendChild(textarea);
-  editor.appendChild(textLabel);
-
+  state.sequenceSteps.forEach((step, index) => editor.appendChild(sequenceStepCard(step, index)));
   form.appendChild(editor);
+}
+
+const SEQUENCE_ACTIONS = [
+  "measure", "readback", "output-state", "log", "wait", "safe-off",
+  "set", "output-on", "output-off", "cycle-output", "apply"
+];
+
+function sequenceMaxSteps() {
+  return Number(state.commands.sequence?.max_steps) || 250;
+}
+
+function sequenceActionDefinitions(action) {
+  const channel = (all = false) => ({
+    name: "channel", label: "Channel", type: "select",
+    options: all ? ["all", "1", "2", "3"] : ["1", "2", "3"],
+    value: "1"
+  });
+  return {
+    measure: [channel()],
+    readback: [channel()],
+    "output-state": [channel(true)],
+    log: [{ name: "message", label: "Message", type: "text", value: "" }],
+    wait: [{ name: "seconds", label: "Seconds", type: "number", value: 0 }],
+    "safe-off": [channel(true)],
+    set: [channel(), { name: "voltage", label: "Voltage(V)", type: "number", value: 0 }, { name: "current", label: "Current(A)", type: "number", value: 0 }],
+    "output-on": [channel(true)],
+    "output-off": [channel(true)],
+    "cycle-output": [channel(true), { name: "duration_ms", label: "Duration(ms)", type: "number", value: 500 }],
+    apply: [channel(true), { name: "voltage", label: "Voltage(V)", type: "number", value: 0 }, { name: "current", label: "Current(A)", type: "number", value: 0 }, { name: "no_output", label: "Do not enable output", type: "checkbox", value: false }]
+  }[action] || [];
+}
+
+function defaultSequenceStep(action = "wait", previous = {}) {
+  const step = { action };
+  sequenceActionDefinitions(action).forEach((field) => {
+    step[field.name] = field.name === "channel" && previous.channel !== undefined
+      && field.options.includes(String(previous.channel))
+      ? previous.channel
+      : field.value;
+  });
+  return step;
+}
+
+function sequenceStepCard(step, index) {
+  const card = document.createElement("div");
+  card.className = "sequence-step-card";
+  card.dataset.sequenceStepIndex = String(index);
+  const head = document.createElement("div");
+  head.className = "sequence-step-head";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "secondary";
+  toggle.textContent = state.sequenceExpanded.has(index) ? "Collapse" : "Expand";
+  toggle.addEventListener("click", () => {
+    if (state.sequenceExpanded.has(index)) state.sequenceExpanded.delete(index);
+    else state.sequenceExpanded.add(index);
+    renderForm("sequence");
+  });
+  const title = document.createElement("strong");
+  title.textContent = `Step ${index + 1}: ${step.action}`;
+  const summary = document.createElement("span");
+  summary.className = "sequence-step-summary";
+  summary.textContent = sequenceStepSummary(step);
+  const actions = document.createElement("div");
+  actions.className = "sequence-step-actions";
+  [
+    ["Up", () => moveSequenceStep(index, -1), index === 0],
+    ["Down", () => moveSequenceStep(index, 1), index === state.sequenceSteps.length - 1],
+    ["Remove", () => removeSequenceStep(index), state.sequenceSteps.length === 1]
+  ].forEach(([text, handler, disabled]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    button.disabled = disabled;
+    button.addEventListener("click", handler);
+    actions.appendChild(button);
+  });
+  head.append(toggle, title, summary, actions);
+  card.appendChild(head);
+  if (state.sequenceExpanded.has(index)) {
+    card.appendChild(sequenceStepFields(step, index, card, title, summary));
+    renderSequenceStepError(card, step, index);
+  }
+  return card;
+}
+
+function sequenceStepFields(step, index, card, title, summary) {
+  const fields = document.createElement("div");
+  fields.className = "sequence-step-fields";
+  const actionLabel = document.createElement("label");
+  actionLabel.textContent = "Action";
+  const actionSelect = document.createElement("select");
+  SEQUENCE_ACTIONS.forEach((action) => {
+    const option = document.createElement("option");
+    option.value = action;
+    option.textContent = optionDisplayName(action);
+    actionSelect.appendChild(option);
+  });
+  actionSelect.value = step.action;
+  actionSelect.addEventListener("change", () => {
+    state.sequenceSteps[index] = defaultSequenceStep(actionSelect.value, step);
+    const replacement = sequenceStepCard(state.sequenceSteps[index], index);
+    card.replaceWith(replacement);
+    updateSelectedCommandState();
+  });
+  actionLabel.appendChild(actionSelect);
+  fields.appendChild(actionLabel);
+  sequenceActionDefinitions(step.action).forEach((definition) => {
+    const label = document.createElement("label");
+    if (definition.type === "checkbox") label.classList.add("checkbox-field");
+    label.textContent = definition.label;
+    const input = document.createElement(definition.type === "select" ? "select" : "input");
+    if (definition.type === "select") {
+      definition.options.forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = optionDisplayName(value);
+        input.appendChild(option);
+      });
+    } else {
+      input.type = definition.type;
+    }
+    if (definition.type === "checkbox") input.checked = Boolean(step[definition.name]);
+    else input.value = String(step[definition.name] ?? definition.value);
+    input.dataset.sequenceField = definition.name;
+    input.addEventListener("input", () => {
+      step[definition.name] = sequenceFieldValue(definition, input);
+      summary.textContent = sequenceStepSummary(step);
+      title.textContent = `Step ${index + 1}: ${step.action}`;
+      renderSequenceStepError(card, step, index);
+      updateSelectedCommandState();
+    });
+    input.addEventListener("change", () => {
+      step[definition.name] = sequenceFieldValue(definition, input);
+      summary.textContent = sequenceStepSummary(step);
+      renderSequenceStepError(card, step, index);
+      updateSelectedCommandState();
+    });
+    label.appendChild(input);
+    fields.appendChild(label);
+  });
+  return fields;
+}
+
+function sequenceFieldValue(definition, input) {
+  if (definition.type === "checkbox") return input.checked;
+  if (definition.type === "number") return Number(input.value);
+  if (definition.name === "channel" && input.value !== "all") return Number(input.value);
+  return input.value;
+}
+
+function sequenceStepSummary(step) {
+  return Object.entries(step)
+    .filter(([key]) => key !== "action")
+    .map(([key, value]) => `${key}=${value}`)
+    .join(", ");
+}
+
+function renderSequenceStepError(card, step, index) {
+  const previous = card.querySelector?.(".sequence-step-error");
+  if (previous) previous.remove();
+  try {
+    validateCanonicalSequenceStep(step, index);
+    card.classList?.remove("invalid");
+  } catch (error) {
+    card.classList?.add("invalid");
+    const message = document.createElement("div");
+    message.className = "sequence-step-error";
+    message.textContent = error.message || String(error);
+    card.appendChild(message);
+  }
+}
+
+function addSequenceStep() {
+  if (state.sequenceSteps.length >= sequenceMaxSteps()) return;
+  state.sequenceSteps.push(defaultSequenceStep());
+  renderForm("sequence");
+  updateSelectedCommandState();
+}
+
+function removeSequenceStep(index) {
+  if (state.sequenceSteps.length <= 1) return;
+  state.sequenceSteps.splice(index, 1);
+  state.sequenceExpanded = new Set();
+  renderForm("sequence");
+  updateSelectedCommandState();
+}
+
+function moveSequenceStep(index, offset) {
+  const target = index + offset;
+  if (target < 0 || target >= state.sequenceSteps.length) return;
+  [state.sequenceSteps[index], state.sequenceSteps[target]] = [state.sequenceSteps[target], state.sequenceSteps[index]];
+  state.sequenceExpanded = new Set();
+  renderForm("sequence");
+  updateSelectedCommandState();
 }
 
 async function loadSequenceFile() {
@@ -1125,11 +1301,10 @@ async function loadSequenceFile() {
       extensions: SEQUENCE_JSON_EXTENSIONS
     });
     const rawDoc = JSON.parse(text);
-    validateSequenceDocument(rawDoc);
-
-    state.sequenceTextareaValue = JSON.stringify(rawDoc, null, 2);
+    const normalized = normalizeSequenceDocument(rawDoc);
+    state.sequenceSteps = normalized.steps;
+    state.sequenceExpanded = new Set();
     state.sequenceFilename = filename;
-
     renderForm("sequence");
     updateSelectedCommandState();
   } catch (error) {
@@ -1148,16 +1323,8 @@ async function loadSequenceFile() {
 }
 
 async function saveSequenceFile() {
-  const rawVal = document.getElementById("param-document")?.value || "{}";
   try {
-    const rawDoc = JSON.parse(rawVal);
-    validateSequenceDocument(rawDoc);
-
-    const prettyDocument = JSON.stringify(rawDoc, null, 2);
-    state.sequenceTextareaValue = prettyDocument;
-    const textarea = document.getElementById("param-document");
-    if (textarea) textarea.value = prettyDocument;
-    const documentText = `${prettyDocument}\n`;
+    const documentText = `${JSON.stringify(sequenceDocumentFromEditor(), null, 2)}\n`;
     const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
     const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
@@ -1183,92 +1350,76 @@ async function saveSequenceFile() {
   }
 }
 
-function validateSequenceDocument(doc) {
-  const allowedActions = new Set([
-    "measure",
-    "readback",
-    "output-state",
-    "log",
-    "wait",
-    "safe-off",
-    "set",
-    "output-on",
-    "output-off",
-    "cycle-output",
-    "apply"
-  ]);
+function normalizeSequenceDocument(doc) {
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) throw new Error("Sequence document must be a JSON object.");
+  if (Object.keys(doc).some((field) => !["version", "steps"].includes(field))) throw new Error("Sequence document contains unsupported fields.");
+  if (doc.version !== undefined && doc.version !== 1 && doc.version !== "1") throw new Error("Sequence version must be 1.");
+  if (!Array.isArray(doc.steps) || doc.steps.length === 0) throw new Error("Sequence document must contain a non-empty 'steps' array.");
+  if (doc.steps.length > sequenceMaxSteps()) throw new Error(`Sequence supports at most ${sequenceMaxSteps()} steps in the WebUI.`);
+  return { version: 1, steps: doc.steps.map(normalizeSequenceStep) };
+}
 
-  if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
-    throw new Error("Sequence document must be a JSON object.");
-  }
-  if (doc.version !== undefined && doc.version !== 1 && doc.version !== "1") {
-    throw new Error("Sequence version must be 1.");
-  }
-  if (!doc.steps || !Array.isArray(doc.steps) || doc.steps.length === 0) {
-    throw new Error("Sequence document must contain a non-empty 'steps' array.");
-  }
-
-  doc.steps.forEach((step, index) => {
-    if (!step) {
-      throw new Error(`Sequence step at index ${index} is null or empty.`);
+function normalizeSequenceStep(step, index) {
+  if (!step) throw new Error(`Sequence step at index ${index} is null or empty.`);
+  let action;
+  let parameters = {};
+  if (typeof step === "string") {
+    action = step;
+  } else if (typeof step === "object" && !Array.isArray(step)) {
+    const keys = Object.keys(step);
+    if ("action" in step || "type" in step) {
+      if ("action" in step && "type" in step && step.action !== step.type) throw new Error(`Step ${index + 1} has conflicting action and type values.`);
+      action = step.action ?? step.type;
+      parameters = Object.fromEntries(Object.entries(step).filter(([key]) => !["action", "type"].includes(key)));
+    } else if (keys.length === 1) {
+      action = keys[0];
+      parameters = typeof step[action] === "object" && step[action] !== null && !Array.isArray(step[action]) ? step[action] : {};
+    } else {
+      throw new Error(`Step ${index + 1} is invalid. Objects with multiple keys must contain an action or type property.`);
     }
-
-    // 1. String action format.
-    if (typeof step === "string") {
-      if (!allowedActions.has(step)) {
-        if (step === "delay") {
-          throw new Error(`Unsupported sequence action "delay" at step ${index + 1}. Did you mean "wait"?`);
-        }
-        throw new Error(`Unsupported sequence action string "${step}" at step ${index + 1}.`);
-      }
-      return;
-    }
-
-    // 2. Object action/type format.
-    if (typeof step === "object" && !Array.isArray(step)) {
-      const keys = Object.keys(step);
-
-      const hasAction = "action" in step;
-      const hasType = "type" in step;
-
-      if (hasAction || hasType) {
-        if (hasAction && hasType && step.action !== step.type) {
-          throw new Error(`Step ${index + 1} has conflicting 'action' ("${step.action}") and 'type' ("${step.type}") values.`);
-        }
-        const action = step.action ?? step.type;
-        if (!allowedActions.has(action)) {
-          if (action === "delay") {
-            throw new Error(`Unsupported sequence action "delay" at step ${index + 1}. Did you mean "wait"?`);
-          }
-          throw new Error(`Unsupported sequence action "${action}" at step ${index + 1}.`);
-        }
-        return;
-      }
-
-      // Shorthand format.
-      if (keys.length === 1) {
-        const key = keys[0];
-        if (allowedActions.has(key)) {
-          return;
-        }
-        if (key === "delay") {
-          throw new Error(`Unsupported sequence action "delay" at step ${index + 1}. Did you mean "wait"?`);
-        }
-        throw new Error(`Unsupported shorthand sequence action "${key}" at step ${index + 1}.`);
-      }
-
-      throw new Error(`Step ${index + 1} is invalid. Objects with multiple keys must contain an 'action' or 'type' property.`);
-    }
-
+  } else {
     throw new Error(`Invalid step format at index ${index + 1}.`);
+  }
+  if (!SEQUENCE_ACTIONS.includes(action)) {
+    if (action === "delay") throw new Error(`Unsupported sequence action "delay" at step ${index + 1}. Did you mean "wait"?`);
+    throw new Error(`Unsupported shorthand sequence action "${action}" at step ${index + 1}.`);
+  }
+  if (action === "wait" && "duration_sec" in parameters) {
+    if ("seconds" in parameters && parameters.seconds !== parameters.duration_sec) {
+      throw new Error(`Sequence step ${index + 1} has conflicting seconds and duration_sec values.`);
+    }
+    parameters = { ...parameters, seconds: parameters.duration_sec };
+    delete parameters.duration_sec;
+  }
+  const allowed = new Set(sequenceActionDefinitions(action).map((field) => field.name));
+  if (Object.keys(parameters).some((field) => !allowed.has(field))) throw new Error(`Sequence step ${index + 1} contains unsupported fields.`);
+  if (["set", "apply"].includes(action) && (!("voltage" in parameters) || !("current" in parameters))) {
+    throw new Error(`Sequence step ${index + 1} requires voltage and current.`);
+  }
+  const normalized = defaultSequenceStep(action, parameters);
+  Object.entries(parameters).forEach(([key, value]) => { normalized[key] = value; });
+  if (normalized.channel !== undefined && normalized.channel !== "all") normalized.channel = Number(normalized.channel);
+  validateCanonicalSequenceStep(normalized, index);
+  return normalized;
+}
+
+function validateCanonicalSequenceStep(step, index) {
+  const fields = sequenceActionDefinitions(step.action);
+  const allowed = new Set(["action", ...fields.map((field) => field.name)]);
+  if (Object.keys(step).some((field) => !allowed.has(field))) throw new Error(`Sequence step ${index + 1} contains unsupported fields.`);
+  fields.forEach((field) => {
+    const value = step[field.name];
+    if (field.type === "number" && (typeof value !== "number" || !Number.isFinite(value))) throw new Error(`Sequence step ${index + 1} requires a finite ${field.name}.`);
+    if (field.type === "select" && !field.options.includes(String(value))) throw new Error(`Sequence step ${index + 1} has an invalid ${field.name}.`);
+    if (field.type === "checkbox" && typeof value !== "boolean") throw new Error(`Sequence step ${index + 1} requires a boolean ${field.name}.`);
+    if (field.type === "text" && typeof value !== "string") throw new Error(`Sequence step ${index + 1} requires a string ${field.name}.`);
   });
+  if (step.action === "wait" && step.seconds < 0) throw new Error(`Sequence step ${index + 1} wait seconds must be non-negative.`);
+  if (step.action === "cycle-output" && step.duration_ms < 0) throw new Error(`Sequence step ${index + 1} duration_ms must be non-negative.`);
 }
 
 function sequenceDocumentFromEditor() {
-  const rawVal = document.getElementById("param-document")?.value || "{}";
-  const parsed = JSON.parse(rawVal);
-  validateSequenceDocument(parsed);
-  return parsed;
+  return normalizeSequenceDocument({ version: 1, steps: state.sequenceSteps });
 }
 
 async function scanResources() {

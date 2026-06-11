@@ -604,6 +604,7 @@ def test_commands_metadata(client: TestClient):
     assert cmds["trigger-list"]["description"] == "Configure a LIST transient waveform and optionally fire it"
     assert cmds["trigger-fire"]["description"] == "Send *TRG to an already armed BUS trigger"
     assert cmds["trigger-abort"]["description"] == "Abort trigger or LIST execution for selected channels"
+    assert cmds["sequence"]["max_steps"] == 250
     
     # Check output-affecting commands are marked correctly
     assert cmds["output-on"]["requires_confirm"] is True
@@ -1947,28 +1948,49 @@ def test_static_restore_load_unwrap_contract():
 def test_static_sequence_json_artifact_flow_contracts():
     _index_html, app_js, _styles_css = read_static_texts()
 
-    load_sequence = extract_js_function(app_js, "loadSequenceFile")
-    save_sequence = extract_js_function(app_js, "saveSequenceFile")
-    validate_sequence = extract_js_function(app_js, "validateSequenceDocument")
-    run_selected = extract_js_function(app_js, "runSelected")
-    parameter_payload = extract_js_function(app_js, "parameterPayload")
+    sequence_fields = extract_js_function(app_js, "sequenceStepFields")
 
-    assert "extensions: SEQUENCE_JSON_EXTENSIONS" in load_sequence
-    assert "const rawDoc = JSON.parse(text);" in load_sequence
-    assert "validateSequenceDocument(rawDoc);" in load_sequence
-    assert "const rawDoc = JSON.parse(rawVal);" in save_sequence
-    assert save_sequence.index("const rawDoc = JSON.parse(rawVal);") < save_sequence.index("validateSequenceDocument(rawDoc);")
-    assert save_sequence.index("validateSequenceDocument(rawDoc);") < save_sequence.index("const prettyDocument = JSON.stringify(rawDoc, null, 2);")
-    assert "state.sequenceTextareaValue = prettyDocument;" in save_sequence
-    assert "extensions: SEQUENCE_JSON_EXTENSIONS" in save_sequence
-    assert "validatedSequenceDocument = sequenceDocumentFromEditor();" in run_selected
-    assert "? { document: validatedSequenceDocument }" in run_selected
-    assert "document: sequenceDocumentFromEditor()" in parameter_payload
-    assert 'step.action ?? step.type' in validate_sequence
-    assert 'step.action !== step.type' in validate_sequence
-    assert 'keys.length === 1' in validate_sequence
-    assert 'Unsupported shorthand sequence action' in validate_sequence
-    assert 'Did you mean "wait"?' in validate_sequence
+    assert 'const SEQUENCE_JSON_EXTENSIONS = [".sequence.json", ".json"];' in app_js
+    assert "dataset.sequenceStepIndex" in app_js
+    assert "input.dataset.sequenceField" in app_js
+    assert "state.sequenceSteps" in app_js
+    assert 'command: "sequence"' in app_js
+    assert "{ document: validatedSequenceDocument }" in app_js
+    assert "param-document" not in app_js
+    assert "option.value = action;" in sequence_fields
+    assert "option.textContent = optionDisplayName(action);" in sequence_fields
+    assert "option.value = value;" in sequence_fields
+    assert "option.textContent = optionDisplayName(value);" in sequence_fields
+
+
+def test_api_sequence_webui_step_limit(client: TestClient, tmp_path):
+    from keysight_power_webui.jobs import job_manager
+
+    steps_250 = [{"action": "wait", "seconds": 0}] * 250
+    payload = {
+        "command": "sequence",
+        "runtime": {"simulate": True, "dry_run": True},
+        "parameters": {"document": {"version": 1, "steps": steps_250}},
+    }
+
+    accepted = client.post("/api/jobs", json=payload)
+    assert accepted.status_code == 200
+
+    jobs_before = len(job_manager.jobs)
+    payload["parameters"]["document"]["steps"].append({"action": "wait", "seconds": 0})
+    rejected = client.post("/api/jobs", json=payload)
+    assert rejected.status_code == 400
+    assert len(job_manager.jobs) == jobs_before
+
+    sequence_file = tmp_path / "too-large.sequence.json"
+    sequence_file.write_text(
+        json.dumps({"version": 1, "steps": payload["parameters"]["document"]["steps"]}),
+        encoding="utf-8",
+    )
+    payload["parameters"] = {"file": str(sequence_file)}
+    rejected_file = client.post("/api/jobs", json=payload)
+    assert rejected_file.status_code == 400
+    assert len(job_manager.jobs) == jobs_before
 
 
 def test_api_restore_from_snapshot_dry_run(client: TestClient):

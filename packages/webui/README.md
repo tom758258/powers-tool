@@ -58,7 +58,8 @@ The static UI is a three-panel dashboard:
 - top connection bar for mode, resource, backend, timeout, safety config, and
   health;
 - left command rail populated from `/api/commands`;
-- main generated command form with typed controls and sequence-document JSON input;
+- main generated command form with typed controls and a graphical Sequence
+  step-card editor;
 - right panel for live trend canvas, live table, job history, and result JSON.
 
 Machine-facing command IDs remain kebab-case. Human-facing WebUI command names
@@ -67,6 +68,10 @@ use spaces and sentence case.
 The frontend keeps one job SSE controller and one live-data SSE controller.
 Ramp List uses a dedicated segment-card editor with versioned JSON Load/Save,
 up to 10 ordered segments, and full-list trip guarding before submission.
+Sequence uses collapsed step cards with JSON Load/Save and supports up to 250
+steps in the WebUI. Loaded Sequence JSON is normalized to the canonical
+`{"version": 1, "steps": [...]}` shape before saving or running. CLI and Core
+Sequence YAML/JSON support is unchanged and has no WebUI step limit.
 Job Result history is expanded by default and can be collapsed or cleared
 without changing Result Detail.
 Live Data samples include parsed model identity and channel-local OVP/OCP trip

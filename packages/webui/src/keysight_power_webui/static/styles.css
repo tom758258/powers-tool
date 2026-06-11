@@ -295,6 +295,43 @@ button.icon-button {
   grid-template-columns: repeat(4, minmax(120px, 1fr));
   gap: 10px;
 }
+.sequence-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+}
+.sequence-toolbar, .sequence-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.sequence-step-count, .sequence-step-summary, .sequence-step-error {
+  color: var(--muted);
+  font-size: 13px;
+}
+.sequence-step-card {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+.sequence-step-card.invalid { border-color: #c62828; }
+.sequence-step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.sequence-step-head .sequence-step-summary { flex: 1; min-width: 180px; }
+.sequence-step-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+}
+.sequence-step-error { color: #c62828; }
 .confirm-banner {
   display: none;
   margin: 12px 12px 0;
@@ -533,7 +570,7 @@ pre {
     text-overflow: clip;
     white-space: normal;
   }
-  .ramp-segment-fields { grid-template-columns: 1fr 1fr; }
+  .ramp-segment-fields, .sequence-step-fields { grid-template-columns: 1fr 1fr; }
 }
 
 

@@ -54,6 +54,16 @@ def test_sequence_lint_does_not_open_visa() -> None:
     assert data["step_count"] == 1
 
 
+def test_sequence_core_has_no_webui_step_limit() -> None:
+    core_request = request({"version": 1, "steps": [{"action": "wait", "seconds": 0}] * 251})
+    core_request = SequenceRequest(runtime=core_request.runtime, parameters={**core_request.parameters, "lint": True})
+
+    data = run_sequence(core_request, opener=lambda *args, **kwargs: FakeSession())
+
+    assert data["status"] == "valid"
+    assert data["step_count"] == 251
+
+
 def test_sequence_dry_run_does_not_open_visa_and_adds_preview() -> None:
     opened = False
     core_request = request(

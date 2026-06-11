@@ -12,13 +12,15 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from keysight_power_core.core import CommandCancelled, StopCleanupError
+from keysight_power_core.core import CommandCancelled, CoreValidationError, StopCleanupError
+from keysight_power_core.sequence import load_sequence_document
 
 from .jobs import job_manager, JobStatus
 from .commands import execute_job_command, MUTATING_COMMANDS, WEBUI_UNSUPPORTED_COMMANDS, webui_command_support
 
 STATIC_DIR = Path(__file__).parent / "static"
 CACHE_CONTROL_NO_STORE = "no-store"
+WEBUI_SEQUENCE_MAX_STEPS = 250
 
 
 class NoStoreStaticFiles(StaticFiles):
@@ -70,7 +72,12 @@ COMMAND_METADATA = {
     "trigger-list": {"description": "Configure a LIST transient waveform and optionally fire it", "requires_confirm": False, "category": "trigger"},
     "trigger-fire": {"description": "Send *TRG to an already armed BUS trigger", "requires_confirm": False, "category": "trigger"},
     "trigger-abort": {"description": "Abort trigger or LIST execution for selected channels", "requires_confirm": False, "category": "trigger"},
-    "sequence": {"description": "Execute sequence document", "requires_confirm": True, "category": "workflow"},
+    "sequence": {
+        "description": "Execute sequence document",
+        "requires_confirm": True,
+        "category": "workflow",
+        "max_steps": WEBUI_SEQUENCE_MAX_STEPS,
+    },
     "snapshot": {"description": "Create hardware snapshot", "requires_confirm": False, "category": "artifact"},
     "snapshot-diff": {"description": "Compare snapshots", "requires_confirm": False, "category": "artifact"},
     "restore-from-snapshot": {"description": "Restore from snapshot", "requires_confirm": True, "category": "artifact"},
@@ -147,6 +154,8 @@ async def create_job(request: Request):
     runtime = payload.get("runtime", {})
     parameters = payload.get("parameters", {})
     artifacts = payload.get("artifacts")
+    if command == "sequence":
+        _validate_webui_sequence_size(parameters)
 
     # Hardware lock check at submission time for non-simulate/dry-run jobs
     # Only lock jobs that touch real hardware
@@ -442,6 +451,25 @@ def _stale_live_panel_sample(
         "message": message,
         "channels": channels,
     }
+
+
+def _validate_webui_sequence_size(parameters: Any) -> None:
+    if not isinstance(parameters, dict):
+        return
+    document = parameters.get("document")
+    if document is None and parameters.get("file"):
+        try:
+            document = load_sequence_document(str(parameters["file"]))
+        except (CoreValidationError, OSError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not isinstance(document, dict):
+        return
+    steps = document.get("steps")
+    if isinstance(steps, list) and len(steps) > WEBUI_SEQUENCE_MAX_STEPS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"WebUI sequence supports at most {WEBUI_SEQUENCE_MAX_STEPS} steps.",
+        )
 
 
 def _blank_live_channels() -> list[dict[str, Any]]:
