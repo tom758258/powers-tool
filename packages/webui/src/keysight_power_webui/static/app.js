@@ -495,10 +495,14 @@ const SNAPSHOT_JSON_EXTENSIONS = [".snapshot.json", ".json"];
 const SEQUENCE_JSON_EXTENSIONS = [".sequence.json", ".json"];
 const RAMP_LIST_JSON_EXTENSIONS = [".ramp-list.json", ".json"];
 
+function buildNativeJsonPickerAccept() {
+  return { [JSON_MIME_TYPE]: [".json"] };
+}
+
 async function openJsonFile({ description, extensions }) {
   let text = "";
   let filename = "";
-  const acceptMap = { [JSON_MIME_TYPE]: extensions };
+  const acceptMap = buildNativeJsonPickerAccept();
   if (window.showOpenFilePicker) {
     const [handle] = await window.showOpenFilePicker({
       types: [{ description, accept: acceptMap }],
@@ -571,7 +575,7 @@ function chooseJsonFile(accept) {
 }
 
 async function saveJsonFile(text, { description, extensions, suggestedName }) {
-  const acceptMap = { [JSON_MIME_TYPE]: extensions };
+  const acceptMap = buildNativeJsonPickerAccept();
   if (window.showSaveFilePicker) {
     const handle = await window.showSaveFilePicker({
       suggestedName,
@@ -1842,7 +1846,10 @@ function updateSelectedCommandState() {
   const tripGuard = tripGuardReason(state.selected, parameters);
   const tripWarning = tripContextWarning(state.selected);
   const runButton = document.getElementById("run");
-  document.getElementById("command-description").textContent = [meta.description, tripGuard || tripWarning].filter(Boolean).join(" ");
+  const commandDescription = document.getElementById("command-description");
+  const descriptionText = [meta.description, tripGuard || tripWarning].filter(Boolean).join(" ");
+  commandDescription.textContent = descriptionText;
+  commandDescription.title = descriptionText;
   runButton.disabled = Boolean(meta.disabled || tripGuard);
   if (state.selected === "restore-from-snapshot") {
     try {

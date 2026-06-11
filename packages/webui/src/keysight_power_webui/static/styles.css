@@ -189,8 +189,23 @@ button.icon-button {
   min-height: 0;
   overflow: hidden;
 }
-.panel-title h2 { margin: 0; font-size: 18px; }
-.panel-title p { margin: 3px 0 0; color: var(--muted); }
+.command-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--control-h);
+  min-width: 0;
+  flex: 1;
+}
+.panel-title h2 { margin: 0; font-size: inherit; }
+.panel-title p {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(160px, 1fr));
@@ -470,6 +485,15 @@ pre {
   }
   .form-grid {
     overflow: visible;
+  }
+  .command-title-group {
+    flex-wrap: wrap;
+  }
+  .panel-title p {
+    flex-basis: 100%;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
   }
   .ramp-segment-fields { grid-template-columns: 1fr 1fr; }
 }

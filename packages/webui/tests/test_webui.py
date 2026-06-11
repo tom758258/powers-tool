@@ -302,6 +302,29 @@ def test_static_command_panels_keep_stable_desktop_height():
     assert ".rail, .workspace { height: auto; }" in styles_css
 
 
+def test_static_command_panel_headers_align():
+    index_html, app_js, styles_css = read_static_texts()
+    update_selected = extract_js_function(app_js, "updateSelectedCommandState")
+
+    assert "<strong>Commands</strong>" in index_html
+    assert '<div class="command-title-group">' in index_html
+    assert '<h2 id="selected-command">No command selected</h2>' in index_html
+    assert '<p id="command-description" title="Choose a command from the rail.">' in index_html
+    assert ".command-title-group {" in styles_css
+    assert "align-items: center;" in styles_css
+    assert "align-items: baseline;" not in styles_css
+    assert "min-height: var(--control-h);" in styles_css
+    assert "flex: 1;" in styles_css
+    assert ".panel-title h2 { margin: 0; font-size: inherit; }" in styles_css
+    assert ".panel-title h2 { margin: 0; font-size: 18px; }" not in styles_css
+    assert "text-overflow: ellipsis;" in styles_css
+    assert "white-space: nowrap;" in styles_css
+    assert "flex-wrap: wrap;" in styles_css
+    assert "white-space: normal;" in styles_css
+    assert "commandDescription.textContent = descriptionText;" in update_selected
+    assert "commandDescription.title = descriptionText;" in update_selected
+
+
 def test_static_generated_checkboxes_are_compact():
     _index_html, app_js, styles_css = read_static_texts()
 
@@ -1774,13 +1797,17 @@ def test_static_json_artifact_file_helpers_have_cancel_and_accept_contracts():
     choose_json = extract_js_function(app_js, "chooseJsonFile")
     save_json = extract_js_function(app_js, "saveJsonFile")
     build_accept = extract_js_function(app_js, "buildJsonFileAccept")
+    build_native_accept = extract_js_function(app_js, "buildNativeJsonPickerAccept")
 
     assert 'const JSON_MIME_TYPE = "application/json";' in app_js
     assert 'const SNAPSHOT_JSON_EXTENSIONS = [".snapshot.json", ".json"];' in app_js
     assert 'const SEQUENCE_JSON_EXTENSIONS = [".sequence.json", ".json"];' in app_js
     assert 'const RAMP_LIST_JSON_EXTENSIONS = [".ramp-list.json", ".json"];' in app_js
-    assert "const acceptMap = { [JSON_MIME_TYPE]: extensions };" in open_json
-    assert "const acceptMap = { [JSON_MIME_TYPE]: extensions };" in save_json
+    assert 'return { [JSON_MIME_TYPE]: [".json"] };' in build_native_accept
+    assert "const acceptMap = buildNativeJsonPickerAccept();" in open_json
+    assert "const acceptMap = buildNativeJsonPickerAccept();" in save_json
+    assert "{ [JSON_MIME_TYPE]: extensions }" not in open_json
+    assert "{ [JSON_MIME_TYPE]: extensions }" not in save_json
     assert "chooseJsonFile(buildJsonFileAccept(extensions))" in open_json
     assert 'return [...extensions, JSON_MIME_TYPE].join(",");' in build_accept
     assert 'input.addEventListener("cancel", abort);' in choose_json
