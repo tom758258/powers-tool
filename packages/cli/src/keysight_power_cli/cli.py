@@ -899,23 +899,15 @@ def _add_completion_pulse_arguments(parser: argparse.ArgumentParser) -> None:
         type=_e36312a_channel,
         help="E36312A output trigger channel for completion pulses.",
     )
-    parser.add_argument(
-        "--completion-pulse-mode",
-        choices=("auto", "native", "post-action"),
-        default="auto",
-        help="Completion pulse strategy.",
-    )
+
+
+def _add_ramp_completion_pulse_arguments(parser: argparse.ArgumentParser) -> None:
+    _add_completion_pulse_arguments(parser)
     parser.add_argument(
         "--completion-pulse-timing",
         choices=("segment", "step"),
         default="segment",
         help="Emit one pulse after the operation or after every software ramp step.",
-    )
-    parser.add_argument(
-        "--completion-pulse-dwell-ms",
-        type=_positive_duration_ms,
-        default=10,
-        help="Native LIST final dwell in milliseconds.",
     )
 
 
@@ -1604,10 +1596,7 @@ def _completion_pulse_channel(args: argparse.Namespace, default_channel: int | s
 def _completion_request_fields(args: argparse.Namespace) -> dict[str, Any]:
     if (
         not _completion_pulse_requested(args)
-        and getattr(args, "completion_pulse_mode", "auto") == "auto"
-        and getattr(args, "completion_pulse_timing", "segment") == "segment"
         and getattr(args, "completion_pulse_channel", None) is None
-        and getattr(args, "completion_pulse_dwell_ms", 10) == 10
         and getattr(args, "completion_pulse_polarity", "positive") == "positive"
         and not getattr(args, "leave_trigger_configured", False)
     ):
@@ -1617,10 +1606,12 @@ def _completion_request_fields(args: argparse.Namespace) -> dict[str, Any]:
             "pins": list(_completion_pulse_pins(args)),
             "polarity": getattr(args, "completion_pulse_polarity", "positive"),
             "channel": getattr(args, "completion_pulse_channel", None),
-            "mode": getattr(args, "completion_pulse_mode", "auto"),
-            "timing": getattr(args, "completion_pulse_timing", "segment"),
-            "dwell_ms": getattr(args, "completion_pulse_dwell_ms", 10),
             "leave_trigger_configured": getattr(args, "leave_trigger_configured", False),
+            **(
+                {"timing": getattr(args, "completion_pulse_timing", "segment")}
+                if args.command == "ramp"
+                else {}
+            ),
         }
     }
 
@@ -1645,7 +1636,7 @@ def _trigger_result_payload(
     restore_errors: list[str] | None = None,
     fallback_reason: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "mode": mode,
         "native": native,
         "channel": channel,
@@ -1662,8 +1653,10 @@ def _trigger_result_payload(
         "poll_ms": poll_ms,
         "restored": restored,
         "restore_errors": restore_errors or [],
-        "fallback_reason": fallback_reason,
     }
+    if fallback_reason is not None:
+        payload["fallback_reason"] = fallback_reason
+    return payload
 
 
 def _restore_trigger_snapshot(
@@ -1859,7 +1852,6 @@ def _maybe_run_completion_pulse(
     power_supply: E36312APowerSupply,
     *,
     default_channel: int | str | None,
-    fallback_reason: str | None = None,
 ) -> dict[str, Any] | None:
     if not _completion_pulse_requested(args):
         return None
@@ -1868,14 +1860,7 @@ def _maybe_run_completion_pulse(
             "EDU36311A real execution does not support completion-pulse options"
         )
     channel = _completion_pulse_channel(args, default_channel)
-    if getattr(args, "completion_pulse_mode", "auto") == "native":
-        raise _TriggerNativeUnsupported(
-            f"{args.command} does not have a native completion event; use --completion-pulse-mode post-action"
-        )
-    trigger = _run_post_action_completion_pulse(args, power_supply, channel=channel)
-    if trigger is not None:
-        trigger["fallback_reason"] = fallback_reason
-    return trigger
+    return _run_post_action_completion_pulse(args, power_supply, channel=channel)
 
 
 def _attach_trigger_if_present(data: dict[str, Any], trigger: dict[str, Any] | None) -> None:
@@ -4800,99 +4785,18 @@ def _run_output_plan(args: argparse.Namespace) -> int:
             retryable=False,
         )
 
-    if args.command == "ramp":
-        voltages = _ramp_voltages(args.start_voltage, args.stop_voltage, args.step_voltage)
-        native_requested = (
-            getattr(args, "completion_pulse_timing", "segment") != "step"
-            and (
-                getattr(args, "completion_pulse_mode", "auto") == "native"
-                or _completion_pulse_requested(args)
-            )
-        )
-        if native_requested and len(voltages) > 100 and getattr(args, "completion_pulse_mode", "auto") == "native":
-            return _emit_cli_error(
-                args,
-                request=request,
-                error_type="validation",
-                code="trigger_list_too_long",
-                message="native ramp LIST supports at most 100 steps",
-                retryable=False,
-            )
-        if native_requested and len(voltages) <= 100:
-            dwell = tuple(
-                max(
-                    (
-                        args.completion_pulse_dwell_ms
-                        if index == len(voltages) - 1
-                        else args.delay_ms
-                    )
-                    / 1000,
-                    0.01,
-                )
-                for index, _ in enumerate(voltages)
-            )
-            scpi = _trigger_list_scpi(
-                channel=args.channel,
-                source="bus",
-                voltages=tuple(voltages),
-                currents=tuple(float(args.current) for _ in voltages),
-                dwell=dwell,
-                pins=_completion_pulse_pins(args),
-                polarity=args.completion_pulse_polarity,
-                final_eost_pulse=_completion_pulse_requested(args),
-                count=1,
-                fire=True,
-                wait_complete=True,
-            )
-            plan = dry_run_plan(
-                command=args.command,
-                resource=args.resource,
-                scpi=scpi,
-                description="Preview native E36312A LIST ramp execution.",
-            )
-            if args.json:
-                emit_json_success(
-                    command=args.command,
-                    execution=_execution_for_args(args, hardware_intent=True),
-                    request=request,
-                    data={
-                        "plan": plan,
-                        "trigger": _trigger_result_payload(
-                            mode="ramp",
-                            native=True,
-                            channel=args.channel,
-                            pins=_completion_pulse_pins(args),
-                            polarity=args.completion_pulse_polarity,
-                            source="bus",
-                            armed=True,
-                            fired=True,
-                            completed=False,
-                            wait_timeout_ms=_trigger_wait_timeout_ms(args, mode="ramp", dwell=dwell, count=1),
-                            poll_ms=_trigger_poll_interval_ms(args),
-                            restored=not getattr(args, "leave_trigger_configured", False),
-                        ),
-                    },
-                )
-                return 0
-            _print_scpi_plan(plan, mode=_mode_for_args(args), dry_run=args.dry_run)
-            return 0
-
     plan = _output_plan_for_args(args)
     if getattr(args, "completion_pulse_timing", "segment") != "step":
         _append_completion_pulse_plan(args, plan)
-    warnings = _ramp_completion_fallback_warnings(args) if args.command == "ramp" else []
     if args.json:
         emit_json_success(
             command=args.command,
             execution=_execution_for_args(args, hardware_intent=args.command != "safe-off"),
             request=request,
             data={"plan": plan},
-            warnings=warnings,
         )
         return 0
 
-    for warning in warnings:
-        print(f"Warning: {warning['message']}", file=sys.stderr)
     _print_output_plan(plan, mode=_mode_for_args(args), dry_run=args.dry_run)
     return 0
 
@@ -6868,186 +6772,6 @@ def _run_apply_real(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_ramp_real(args: argparse.Namespace) -> int:
-    request = _request_for_args(args)
-    execution = _execution_for_args(args, hardware_intent=True)
-    manager = _resource_manager_for_args(args)
-    backend = getattr(args, "backend", None)
-    timeout_ms = getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS)
-
-    try:
-        safety_limits = _safety_limits_for_args(args)
-        request = _request_for_args(args)
-        _validate_output_request(args, safety_limits)
-    except (SafetyConfigError, SafetyValidationError, ValueError) as exc:
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="argument_error",
-            message=str(exc),
-            retryable=False,
-        )
-
-    voltages = _ramp_voltages(args.start_voltage, args.stop_voltage, args.step_voltage)
-    native_requested = (
-        getattr(args, "completion_pulse_timing", "segment") != "step"
-        and (
-            getattr(args, "completion_pulse_mode", "auto") == "native"
-            or _completion_pulse_requested(args)
-        )
-    )
-    if native_requested and len(voltages) > 100 and getattr(args, "completion_pulse_mode", "auto") == "native":
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="trigger_list_too_long",
-            message="native ramp LIST supports at most 100 steps",
-            retryable=False,
-            hardware_intent=True,
-        )
-    try:
-        with _open_resource(args.resource, manager, backend=backend, timeout_ms=timeout_ms) as instrument:
-            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
-            idn = session.query(IDN_QUERY)
-            power_supply = create_power_supply(session, idn)
-            if not isinstance(power_supply, OUTPUT_WRITE_POWER_SUPPLY_TYPES):
-                raise _ApplyModelError(
-                    "ramp real execution is only supported for E36312A or EDU36311A; "
-                    f"found {type(power_supply).__name__} from *IDN? response"
-                )
-            if isinstance(power_supply, EDU36311APowerSupply) and native_requested:
-                raise _TriggerNativeUnsupported(
-                    "EDU36311A real ramp does not support native LIST or completion pulses"
-                )
-            if args.channel not in power_supply.capabilities.channels:
-                raise _ApplyChannelError(
-                    f"channel {args.channel} is not supported for ramp; "
-                    f"supported: {power_supply.capabilities.channels}"
-                )
-            if native_requested and len(voltages) <= 100:
-                list_dwell = tuple(
-                    max(
-                        (
-                            args.completion_pulse_dwell_ms
-                            if index == len(voltages) - 1
-                            else args.delay_ms
-                        )
-                        / 1000,
-                        0.01,
-                    )
-                    for index, _ in enumerate(voltages)
-                )
-                trigger_data = _run_native_list(
-                    args,
-                    power_supply,
-                    channel=args.channel,
-                    source="bus",
-                    voltages=tuple(voltages),
-                    currents=tuple(float(args.current) for _ in voltages),
-                    dwell=list_dwell,
-                    pins=_completion_pulse_pins(args),
-                    polarity=args.completion_pulse_polarity,
-                    final_eost_pulse=_completion_pulse_requested(args),
-                    count=1,
-                    fire=True,
-                    wait_complete=True,
-                    mode="ramp",
-                )
-            else:
-                power_supply.set_current_limit(channel=args.channel, current=args.current)
-                for index, voltage in enumerate(voltages):
-                    power_supply.set_voltage(channel=args.channel, voltage=voltage)
-                    if args.delay_ms > 0 and index < len(voltages) - 1:
-                        time.sleep(args.delay_ms / 1000)
-                trigger_data = _maybe_run_completion_pulse(
-                    args,
-                    power_supply,
-                    default_channel=args.channel,
-                    fallback_reason=(
-                        "native LIST supports at most 100 steps"
-                        if native_requested and len(voltages) > 100
-                        else None
-                    ),
-                )
-            _settle_after_write(args)
-            verification = _verify_setpoints_after_write(
-                power_supply,
-                args,
-                channels=(args.channel,),
-                expected_voltage=args.stop_voltage,
-            )
-            if not verification["passed"]:
-                return _emit_verification_error(args, request, execution, verification)
-            _raise_on_instrument_errors(power_supply, "ramp")
-    except _ApplyModelError as exc:
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="unsupported_model_for_ramp",
-            message=str(exc),
-            retryable=False,
-            hardware_intent=True,
-        )
-    except _ApplyChannelError as exc:
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="argument_error",
-            message=str(exc),
-            retryable=False,
-            hardware_intent=True,
-        )
-    except VisaConnectionError as exc:
-        return _emit_safe_io_error(
-            args,
-            request=request,
-            execution=execution,
-            code="connection_failed",
-            message=f"Could not open resource for ramp: {exc}",
-        )
-    except _TriggerNativeUnsupported as exc:
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="trigger_native_unsupported",
-            message=str(exc),
-            retryable=False,
-            hardware_intent=True,
-        )
-    except ValueError as exc:
-        return _emit_safe_io_error(
-            args,
-            request=request,
-            execution=execution,
-            code="ramp_failed",
-            message=f"ramp failed: {exc}",
-        )
-    except _TriggerExecutionStopped as exc:
-        return _emit_trigger_stop_error(args, request=request, execution=execution, exc=exc)
-
-    resource_data = _ramp_resource_payload(args, idn, voltages)
-    _attach_trigger_if_present(resource_data, trigger_data)
-    _attach_verification_if_requested(args, resource_data, verification)
-    warnings = _ramp_completion_fallback_warnings(args)
-    if args.json:
-        emit_json_success(command=args.command, execution=execution, request=request, data=resource_data, warnings=warnings)
-        return 0
-
-    for warning in warnings:
-        print(f"Warning: {warning['message']}", file=sys.stderr)
-    print(f"Resource: {args.resource}")
-    print(f"Channel: {args.channel}")
-    print(f"Current limit: {_format_text_value(args.current)} A")
-    print(f"Voltage ramp: {_format_text_value(args.start_voltage)} V to {_format_text_value(args.stop_voltage)} V")
-    print("Output changed: false")
-    return 0
-
-
 def _run_output_on_real(args: argparse.Namespace) -> int:
     request = _request_for_args(args)
     execution = _execution_for_args(args, hardware_intent=True)
@@ -8371,8 +8095,6 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-            "wait_timeout_ms": getattr(args, "wait_timeout_ms", None),
-            "poll_ms": getattr(args, "poll_ms", 200),
             **_write_verification_request_fields(args),
             **_completion_request_fields(args),
         }
@@ -8659,8 +8381,6 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
-            "wait_timeout_ms": _int_option_from_argv(argv, "--wait-timeout-ms", None),
-            "poll_ms": _int_option_from_argv(argv, "--poll-ms", 200),
             **_write_verification_request_fields_from_argv(argv),
             **_completion_request_fields_from_argv(argv),
         }
@@ -8829,16 +8549,12 @@ def _write_verification_request_fields_from_argv(argv: Sequence[str]) -> dict[st
 
 def _completion_request_fields_from_argv(argv: Sequence[str]) -> dict[str, Any]:
     pins = _completion_pins_from_argv(argv)
-    mode = _option_value(argv, "--completion-pulse-mode") or "auto"
     channel = _int_from_argv(argv, "--completion-pulse-channel")
-    dwell_ms = _int_option_from_argv(argv, "--completion-pulse-dwell-ms", 10)
     polarity = _option_value(argv, "--completion-pulse-polarity") or "positive"
     leave_configured = "--leave-trigger-configured" in argv
     if (
         pins is None
-        and mode == "auto"
         and channel is None
-        and dwell_ms == 10
         and polarity == "positive"
         and not leave_configured
     ):
@@ -8848,8 +8564,6 @@ def _completion_request_fields_from_argv(argv: Sequence[str]) -> dict[str, Any]:
             "pins": pins or [],
             "polarity": polarity,
             "channel": channel,
-            "mode": mode,
-            "dwell_ms": dwell_ms,
             "leave_trigger_configured": leave_configured,
         }
     }
@@ -9234,8 +8948,6 @@ def _validate_output_request(
         step_voltage=getattr(args, "step_voltage", None),
     )
     if args.command == "ramp" and getattr(args, "completion_pulse_timing", "segment") == "step":
-        if getattr(args, "completion_pulse_mode", "auto") == "native":
-            raise ValueError("step completion pulses require software post-action mode; native is not supported")
         if _completion_pulse_requested(args) and getattr(args, "delay_ms", 0) <= 5000:
             raise ValueError("step completion pulses require delay_ms greater than 5000")
 
@@ -9318,11 +9030,11 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
         "delay_ms": getattr(args, "delay_ms", 0),
         "completion_pulse_pins": _completion_pulse_pins(args) if hasattr(args, "completion_pulse_pins") else (),
         "completion_pulse_channel": getattr(args, "completion_pulse_channel", None),
-        "completion_pulse_mode": getattr(args, "completion_pulse_mode", "auto"),
-        "completion_pulse_timing": getattr(args, "completion_pulse_timing", "segment"),
         "completion_pulse_polarity": getattr(args, "completion_pulse_polarity", "positive"),
         "leave_trigger_configured": getattr(args, "leave_trigger_configured", False),
     }
+    if args.command == "ramp":
+        parameters["completion_pulse_timing"] = getattr(args, "completion_pulse_timing", "segment")
     return OperationRequest(
         command=args.command,
         runtime=RuntimeOptions(
@@ -9556,29 +9268,7 @@ def _append_completion_pulse_plan(args: argparse.Namespace, plan: dict[str, Any]
         pins=pins,
         polarity=args.completion_pulse_polarity,
         source="bus",
-        fallback_reason=(
-            "native LIST supports at most 100 steps"
-            if args.command == "ramp" and len(_ramp_voltages(args.start_voltage, args.stop_voltage, args.step_voltage)) > 100
-            else None
-        ),
     )
-
-
-def _ramp_completion_fallback_warnings(args: argparse.Namespace) -> list[dict[str, str]]:
-    if args.command != "ramp":
-        return []
-    if not _completion_pulse_requested(args):
-        return []
-    if getattr(args, "completion_pulse_mode", "auto") != "auto":
-        return []
-    if len(_ramp_voltages(args.start_voltage, args.stop_voltage, args.step_voltage)) <= 100:
-        return []
-    return [
-        {
-            "code": "native_list_fallback",
-            "message": "ramp has more than 100 steps; using software ramp plus post-action completion pulse",
-        }
-    ]
 
 
 def _output_plan_description(command: str) -> str:

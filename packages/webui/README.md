@@ -86,6 +86,9 @@ is enabled. Rear-pin fields use a selector for every valid pin combination,
 including All. Ramp List disables Every-step pulse when any segment delay is
 5000 ms or less and points users to the built-in Segment complete pulse, which
 supports those shorter delays.
+Workflow completion pulses are software-scheduled post-action `*TRG` pulses,
+not native LIST execution. They temporarily modify and restore trigger/rear-pin
+settings, and global `*TRG` may affect other armed BUS behavior.
 Live Data samples include parsed model identity and channel-local OVP/OCP trip
 state. A valid Live Data model can repair the selected resource's command
 support cache; results without a model do not replace an already known model.

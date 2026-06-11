@@ -254,9 +254,8 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     runtime._add_backend_argument(ramp_parser)
     runtime._add_timeout_argument(ramp_parser)
     runtime._add_write_verification_arguments(ramp_parser)
-    runtime._add_completion_pulse_arguments(ramp_parser)
+    runtime._add_ramp_completion_pulse_arguments(ramp_parser)
     runtime._add_trigger_restore_argument(ramp_parser)
-    runtime._add_trigger_wait_arguments(ramp_parser)
     ramp_parser.add_argument(
         "--log-scpi",
         action="store_true",

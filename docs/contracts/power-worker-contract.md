@@ -156,6 +156,13 @@ Ramp accepts `completion_pulse_timing`; step timing requires `delay_ms > 5000`
 and uses software post-action pulses. Sequence accepts canonical
 `trigger-pulse` actions with `channel`, `pins`, `polarity`, and optional
 `leave_trigger_configured`. Rear pulse pins and output channels are separate.
+Ramp rejects the removed `completion_pulse_mode`,
+`completion_pulse_dwell_ms`, `wait_timeout_ms`, and `poll_ms` fields before
+artifact creation or queue mutation. Native LIST and trigger wait controls are
+accepted only by the relevant Trigger commands.
+Post-action pulses modify and restore trigger/rear-pin settings unless
+explicitly left configured. Their global `*TRG` may trigger other armed BUS
+behavior.
 
 ## Safety
 

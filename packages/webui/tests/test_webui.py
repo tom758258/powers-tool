@@ -364,6 +364,7 @@ def test_static_pulse_child_fields_and_rear_pin_select_contracts():
     assert cycle.count("pulseChild: true") == 2
     assert 'name: "completion_pulse_pins", type: "select"' in ramp
     assert ramp.count("pulseChild: true") == 2
+    assert 'payload.completion_pulse_mode = "post-action";' not in app_js
     assert 'name: "pins", type: "select", label: "Rear pins"' in trigger_pulse
     assert 'name: "completion_pulse_pins", type: "select"' in trigger_list
     assert 'name: "pins", label: "Rear pins", type: "select"' in sequence_definitions
@@ -1103,6 +1104,32 @@ def test_api_rejects_invalid_ramp_list_pulse_before_creating_job(client: TestCli
     response = client.post("/api/jobs", json=payload)
 
     assert response.status_code == 400
+    assert len(job_manager.jobs) == jobs_before
+
+
+@pytest.mark.parametrize("field", ["completion_pulse_mode", "completion_pulse_dwell_ms", "wait_timeout_ms", "poll_ms"])
+def test_api_rejects_removed_ramp_native_fields_before_creating_job(client: TestClient, field: str):
+    from keysight_power_webui.jobs import job_manager
+
+    jobs_before = len(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "ramp",
+            "runtime": {"simulate": True},
+            "parameters": {
+                "channel": 1,
+                "start_voltage": 0,
+                "stop_voltage": 1,
+                "step_voltage": 0.5,
+                "current": 0.1,
+                field: "native" if field == "completion_pulse_mode" else 10,
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert field in response.json()["detail"]
     assert len(job_manager.jobs) == jobs_before
 
 

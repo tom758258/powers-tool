@@ -5071,7 +5071,7 @@ def test_trigger_abort_all_plans_each_channel(capsys) -> None:
     assert commands[:3] == ["ABOR (@1)", "ABOR (@2)", "ABOR (@3)"]
 
 
-def test_ramp_auto_completion_over_100_steps_falls_back_with_warning(capsys) -> None:
+def test_ramp_completion_over_100_steps_uses_software_without_warning(capsys) -> None:
     assert (
         cli.main(
             [
@@ -5098,12 +5098,21 @@ def test_ramp_auto_completion_over_100_steps_falls_back_with_warning(capsys) -> 
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["warnings"][0]["code"] == "native_list_fallback"
+    assert payload["warnings"] == []
     assert payload["data"]["plan"]["trigger"]["native"] is False
-    assert payload["data"]["plan"]["trigger"]["fallback_reason"] == "native LIST supports at most 100 steps"
+    assert all("LIST:" not in str(step) for step in payload["data"]["plan"]["steps"])
 
 
-def test_ramp_native_completion_over_100_steps_is_error(capsys) -> None:
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("--completion-pulse-mode", "native"),
+        ("--completion-pulse-dwell-ms", "10"),
+        ("--wait-timeout-ms", "1000"),
+        ("--poll-ms", "200"),
+    ],
+)
+def test_ramp_removed_native_completion_options_are_argparse_errors(capsys, option: str, value: str) -> None:
     assert (
         cli.main(
             [
@@ -5124,18 +5133,19 @@ def test_ramp_native_completion_over_100_steps_is_error(capsys) -> None:
                 "0.05",
                 "--completion-pulse-pins",
                 "1",
-                "--completion-pulse-mode",
-                "native",
+                option,
+                value,
             ]
         )
         == 2
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["error"]["code"] == "trigger_list_too_long"
+    assert payload["error"]["code"] == "argument_error"
+    assert "unrecognized arguments" in payload["error"]["message"]
 
 
-def test_ramp_dry_run_native_completion_uses_list_scpi(capsys) -> None:
+def test_ramp_dry_run_completion_uses_software_steps(capsys) -> None:
     assert (
         cli.main(
             [
@@ -5156,18 +5166,14 @@ def test_ramp_dry_run_native_completion_uses_list_scpi(capsys) -> None:
                 "0.05",
                 "--completion-pulse-pins",
                 "1",
-                "--completion-pulse-mode",
-                "native",
             ]
         )
         == 0
     )
 
     payload = json.loads(capsys.readouterr().out)
-    commands = [step["command"] for step in payload["data"]["plan"]["steps"]]
-    assert "LIST:VOLT 0,0.5,1,(@1)" in commands
-    assert "LIST:TOUT:EOST 0,0,1,(@1)" in commands
-    assert payload["data"]["trigger"]["native"] is True
+    assert all("LIST:" not in str(step) for step in payload["data"]["plan"]["steps"])
+    assert payload["data"]["plan"]["trigger"]["native"] is False
 
 
 def test_readback_real_e36312a_sends_expected_scpi(monkeypatch, capsys) -> None:
@@ -6309,10 +6315,14 @@ def test_ramp_real_writes_current_voltage_steps_and_exact_stop(monkeypatch, caps
     assert payload["data"]["voltages"] == [0.0, 0.4, 0.8, 1.0]
 
 
-def test_ramp_real_native_completion_uses_core_list_path(monkeypatch, capsys) -> None:
+def test_ramp_real_completion_uses_software_core_path(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
-        query_responses=_trigger_snapshot_query_responses(),
+        query_responses={
+            **_trigger_snapshot_query_responses(),
+            "VOLT? (@1)": "1.0",
+            "CURR? (@1)": "0.05",
+        },
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
@@ -6335,19 +6345,16 @@ def test_ramp_real_native_completion_uses_core_list_path(monkeypatch, capsys) ->
                 "0.05",
                 "--completion-pulse-pins",
                 "1",
-                "--completion-pulse-mode",
-                "native",
             ]
         )
         == 0
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert "LIST:VOLT 0,0.5,1,(@1)" in session.writes
-    assert "LIST:TOUT:EOST 0,0,1,(@1)" in session.writes
-    assert "VOLT 0,(@1)" not in session.writes
-    assert payload["data"]["trigger"]["mode"] == "ramp"
-    assert payload["data"]["trigger"]["native"] is True
+    assert "VOLT 0,(@1)" in session.writes
+    assert "LIST:VOLT 0,0.5,1,(@1)" not in session.writes
+    assert "LIST:TOUT:EOST 0,0,1,(@1)" not in session.writes
+    assert payload["data"]["trigger"]["native"] is False
 
 
 def test_ramp_rejects_more_than_1000_voltage_writes(capsys) -> None:

@@ -128,4 +128,9 @@ Selected data mappings:
 - Ramp and Ramp List every-step pulse results use ordered `triggers` entries
   containing step index, voltage, and trigger result. Single completion pulses
   remain under `trigger`; Ramp List pulse results are stored per segment.
+- Ramp always uses software setpoint writes and accepts
+  `completion_pulse_pins`, `completion_pulse_polarity`,
+  `completion_pulse_channel`, `leave_trigger_configured`, and
+  `completion_pulse_timing`. Removed Native LIST/trigger-wait options are
+  argparse errors. Completion pulse results report `native: false`.
 - `restore-from-snapshot`: restored channels and restore plan.

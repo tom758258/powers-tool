@@ -31,8 +31,8 @@ script from `keysight-power-cli`.
 - `keysight_power_core.readonly`: read-only `status`, `readback`,
   `measure-all`, log, and validation flows, including dry-run plans that do
   not open VISA.
-- `keysight_power_core.trigger`: E36312A trigger, STEP, LIST, fire, abort, and
-  native LIST-backed ramp support.
+- `keysight_power_core.trigger`: E36312A trigger, STEP, native LIST, fire, and
+  abort support.
 - `keysight_power_core.sequence`: parser-neutral sequence document loading,
   linting, dry-run planning, and execution.
 - `keysight_power_core.ramp_list`: versioned JSON Ramp List loading, full
@@ -125,8 +125,9 @@ the selected channels, and the WebUI live-panel read returns parsed model
 identity plus channel-local OVP/OCP trip state.
 
 E36312A native trigger/LIST behavior has no-hardware coverage and live USB
-validation for channel 1 trigger-list, arm/fire, trigger-fire, and native
-LIST-backed ramp. EDU36311A STEP trigger commands remain simulator/dry-run
+validation for channel 1 trigger-list, arm/fire, and trigger-fire. Native LIST
+execution belongs only to `trigger-list`; Ramp always uses software setpoint
+steps. EDU36311A STEP trigger commands remain simulator/dry-run
 planning only; real trigger/LIST execution remains disabled for that model.
 Hardware-affecting behavior remains explicit and opt-in.
 
@@ -140,11 +141,11 @@ own transport envelopes.
 Completion pulses use E36312A rear digital pins; rear pins are separate from
 the selected output channel. Ramp supports `segment` timing for one completion
 pulse and `step` timing for a software post-action pulse after every voltage
-write, including the final write. Step timing requires `delay_ms > 5000` and
-rejects explicit native mode.
+write, including the final write. Step timing requires `delay_ms > 5000`.
 
 Ramp List version 1 optionally accepts a document-level `completion_pulse`
 object with `timing`, `pins`, and `polarity`. Step timing requires every
 segment to use `delay_ms > 5000`. Sequence documents accept the canonical
 `trigger-pulse` action. Software pulses snapshot and restore trigger/digital
 pin settings unless `leave_trigger_configured` is explicitly requested.
+They send global `*TRG`, which may also trigger other armed BUS behavior.

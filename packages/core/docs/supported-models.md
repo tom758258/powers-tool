@@ -26,8 +26,8 @@ no-DUT low-power output validation. EDU36311A `protection-set` and
 EDU36311A trigger/LIST remains intentionally bounded. `trigger-step`,
 `trigger-fire`, and `trigger-abort` are simulator/dry-run planning paths with
 `hardware_validation=planning_only`; real EDU36311A trigger execution is
-disabled. `trigger-list`, `trigger-pulse`, completion-pulse pins, and native
-LIST-backed ramp are reported as `not_supported_by_model`.
+disabled. `trigger-list`, `trigger-pulse`, and completion-pulse pins are
+reported as `not_supported_by_model`.
 
 ## Command Support Notes
 
@@ -44,6 +44,8 @@ command-level facts:
   3600 seconds, and count values from 1 to 256. Real native trigger sources
   are currently limited to BUS and immediate; rear pin and external input
   sources remain dry-run/simulator only until hardware validation.
+- Ramp always uses software setpoint steps. Native LIST execution is confined
+  to `trigger-list`.
 - EDU36311A USB-local read-only/output/protection commands are enabled; LAN
   remains read-only pending a separate live pass.
 - E36312A and EDU36311A OVP/OCP trip status is queried per channel. Aggregate

@@ -16,6 +16,7 @@ from keysight_power_core.sequence import run_sequence
 from keysight_power_core.snapshot import run_snapshot
 from keysight_power_core.trigger import run_trigger
 from keysight_power_core.stop_cleanup import CleanupReporter, stop_aware_opener
+from keysight_power_core.workflow_validation import validate_general_workflow_parameters
 
 
 def run_core_command(
@@ -28,6 +29,8 @@ def run_core_command(
     cleanup_reporter: CleanupReporter | None = None,
 ) -> dict[str, Any]:
     command = request.command
+    if isinstance(request, OperationRequest):
+        validate_general_workflow_parameters(request)
     if stop_requested is not None:
         opener = stop_aware_opener(
             opener or _default_opener,

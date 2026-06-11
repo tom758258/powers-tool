@@ -216,9 +216,8 @@ differences are found.
 
 `ramp` is a setpoint-only command for E36312A and EDU36311A: it sets current
 limit first, then steps voltage from `--start-voltage` to the exact
-`--stop-voltage`. It does not turn output on or off. E36312A `ramp` uses native
-LIST when the pulse mode is `auto` or `native` and the ramp has at most 100
-steps. EDU36311A real `ramp` does not support native LIST or completion-pulse
+`--stop-voltage`. It does not turn output on or off and always uses software
+setpoint steps. EDU36311A real `ramp` does not support completion-pulse
 options. `set`, `apply`, `output-on`, `output-off`, and `ramp` accept
 `--settle-ms` and `--verify-after-write`; verification failures return JSON
 error code `verification_failed` and exit `3`.
@@ -480,7 +479,7 @@ Ramp voltage setpoints without changing output state:
 
 ```powershell
 uv run keysight-power ramp --json --resource "USB0::...::INSTR" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
-uv run keysight-power ramp --json --resource "USB0::...::INSTR" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --completion-pulse-mode native --log-scpi
+uv run keysight-power ramp --json --resource "USB0::...::INSTR" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
 ```
 
 Add an explicit safety config to apply local global limits to output plans:
@@ -539,8 +538,8 @@ stays parseable. Every JSON success and error envelope includes
   accept `--channel all` and expand to channels 1, 2, and 3 in order. `set`,
   `ramp`, and `smoke-output` remain single-channel commands. `output-on` does
   not set voltage or current.
-- Real `measure-all`, `trigger-pulse`, `trigger-status`, `trigger-list`, and
-  native LIST-backed ramp are enabled only for E36312A. `status`, `readback`,
+- Real `measure-all`, `trigger-pulse`, `trigger-status`, and `trigger-list`
+  are enabled only for E36312A. `status`, `readback`,
   `log`, `validate-readonly`, and protection commands are enabled for E36312A
   and EDU36311A. EDU36311A STEP trigger commands are simulator/dry-run planning
   only; real trigger/LIST execution remains disabled for that model.
@@ -567,4 +566,4 @@ stays parseable. Every JSON success and error envelope includes
 
 Active package. Live E36312A validation covers read-only CLI flows,
 output-safe setpoint flows, worker dry-run/read-only behavior, and native
-LIST-backed trigger/ramp flows documented in the hardware test guide.
+trigger-list flows documented in the hardware test guide.

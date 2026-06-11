@@ -264,21 +264,16 @@ def test_cycle_output_completion_pulse_runs_after_all_outputs_are_off(monkeypatc
     assert writes_at_pulse[-3:] == ["OUTP OFF,(@1)", "OUTP OFF,(@2)", "OUTP OFF,(@3)"]
 
 
-def test_ramp_real_native_completion_uses_list_before_software_voltage_writes() -> None:
-    session = FakeSession(responses=_trigger_snapshot_responses())
+@pytest.mark.parametrize("step_voltage", [0.02, 0.01, 0.005])
+def test_ramp_real_always_uses_software_voltage_writes(step_voltage: float) -> None:
+    session = FakeSession()
     params = request(
         "ramp",
         start_voltage=0.0,
         stop_voltage=1.0,
-        step_voltage=0.5,
+        step_voltage=step_voltage,
         current=0.05,
         delay_ms=0,
-        completion_pulse_pins=(1,),
-        completion_pulse_mode="native",
-        completion_pulse_dwell_ms=10,
-        completion_pulse_polarity="positive",
-        leave_trigger_configured=False,
-        poll_ms=200,
     ).parameters
     core_request = OperationRequest(
         command="ramp",
@@ -288,23 +283,23 @@ def test_ramp_real_native_completion_uses_list_before_software_voltage_writes() 
 
     data = run_operation(core_request, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
 
-    assert "LIST:VOLT 0,0.5,1,(@1)" in session.writes
-    assert "LIST:TOUT:EOST 0,0,1,(@1)" in session.writes
-    assert "VOLT 0,(@1)" not in session.writes
-    assert data["trigger"]["mode"] == "ramp"
-    assert data["trigger"]["native"] is True
+    assert session.writes[0] == "CURR 0.05,(@1)"
+    assert session.writes[1] == "VOLT 0,(@1)"
+    assert session.writes[-1] == "VOLT 1,(@1)"
+    assert not any(command.startswith("LIST:") for command in session.writes)
+    assert data["steps"] in {51, 101, 201}
 
 
-def test_ramp_real_native_completion_over_100_steps_rejects_before_writes() -> None:
+@pytest.mark.parametrize("field", ["completion_pulse_mode", "completion_pulse_dwell_ms", "wait_timeout_ms", "poll_ms"])
+def test_ramp_removed_native_fields_reject_before_io(field: str) -> None:
     session = FakeSession()
     params = request(
         "ramp",
         start_voltage=0.0,
         stop_voltage=1.0,
-        step_voltage=0.005,
+        step_voltage=0.5,
         current=0.05,
-        completion_pulse_pins=(1,),
-        completion_pulse_mode="native",
+        **{field: 10 if field != "completion_pulse_mode" else "native"},
     ).parameters
     core_request = OperationRequest(
         command="ramp",
@@ -312,9 +307,10 @@ def test_ramp_real_native_completion_over_100_steps_rejects_before_writes() -> N
         parameters=params,
     )
 
-    with pytest.raises(CoreValidationError, match="native ramp LIST supports at most 100 steps"):
+    with pytest.raises(CoreValidationError, match=field):
         run_operation(core_request, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
 
+    assert session.queries == []
     assert session.writes == []
 
 
@@ -336,7 +332,6 @@ def test_ramp_step_completion_pulses_after_every_write_including_last(monkeypatc
         delay_ms=5001,
         completion_pulse_pins=(1,),
         completion_pulse_timing="step",
-        completion_pulse_mode="auto",
     ).parameters
 
     data = run_operation(

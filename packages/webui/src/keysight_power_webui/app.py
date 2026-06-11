@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from keysight_power_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions, StopCleanupError
 from keysight_power_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
 from keysight_power_core.sequence import load_sequence_document
+from keysight_power_core.workflow_validation import validate_general_workflow_parameters
 
 from .jobs import job_manager, JobStatus
 from .commands import execute_job_command, MUTATING_COMMANDS, WEBUI_UNSUPPORTED_COMMANDS, webui_command_support
@@ -155,6 +156,10 @@ async def create_job(request: Request):
     runtime = payload.get("runtime", {})
     parameters = payload.get("parameters", {})
     artifacts = payload.get("artifacts")
+    try:
+        validate_general_workflow_parameters(OperationRequest(command=command, parameters=parameters))
+    except CoreValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if command == "sequence":
         _validate_webui_sequence_size(parameters)
     if command == "ramp-list":

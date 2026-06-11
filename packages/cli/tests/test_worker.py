@@ -193,6 +193,31 @@ def test_worker_invalid_command(running_worker):
     assert exc_info.value.code == 400
 
 
+@pytest.mark.parametrize("field", ["completion_pulse_mode", "completion_pulse_dwell_ms", "wait_timeout_ms", "poll_ms"])
+def test_worker_rejects_removed_ramp_native_fields_before_artifact(running_worker, field):
+    url = f"http://127.0.0.1:{running_worker['port']}/command"
+    payload = {
+        "command": "ramp",
+        "arguments": {
+            "dry_run": True,
+            "channel": 1,
+            "start_voltage": 0,
+            "stop_voltage": 1,
+            "step_voltage": 0.5,
+            "current": 0.1,
+            field: "native" if field == "completion_pulse_mode" else 10,
+        },
+    }
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+
+    assert exc_info.value.code == 400
+    jobs_dir = running_worker["artifacts_dir"] / "jobs"
+    assert not jobs_dir.exists() or not list(jobs_dir.iterdir())
+
+
 def test_cli_send_command_dry_run_does_not_send_http(capsys):
     exit_code = cli.main(["send-command", "--command", "read-status", "--arguments-json", "{\"dry_run\": true}", "--dry-run", "--json"])
     payload = _last_stdout_json(capsys)

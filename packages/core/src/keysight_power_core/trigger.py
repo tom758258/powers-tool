@@ -222,7 +222,7 @@ def trigger_result_payload(
     restore_errors: list[str] | None = None,
     fallback_reason: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "mode": mode,
         "native": native,
         "channel": channel,
@@ -239,8 +239,10 @@ def trigger_result_payload(
         "poll_ms": poll_ms,
         "restored": restored,
         "restore_errors": restore_errors or [],
-        "fallback_reason": fallback_reason,
     }
+    if fallback_reason is not None:
+        payload["fallback_reason"] = fallback_reason
+    return payload
 
 
 def trigger_pulse_scpi(
@@ -740,62 +742,6 @@ def _run_trigger_list(
             return {"idn": getattr(power_supply, "_core_idn_raw", None), "steps": len(config["voltages"]), "trigger": trigger}
     except VisaConnectionError as exc:
         raise CoreIoError(f"trigger-list failed: {exc}", opened=opened) from exc
-
-
-def run_native_list_operation(
-    *,
-    command: str,
-    runtime: Any,
-    power_supply: E36312APowerSupply,
-    channel: int,
-    source: str,
-    voltages: tuple[float, ...],
-    currents: tuple[float, ...],
-    dwell: tuple[float, ...],
-    pins: tuple[int, ...],
-    polarity: str,
-    final_eost_pulse: bool,
-    count: int,
-    exclusive_pins: bool = False,
-    fire: bool = True,
-    wait_complete: bool = True,
-    leave_trigger_configured: bool = False,
-    wait_timeout_ms: int | None = None,
-    poll_ms: int | None = None,
-    sleep: Callable[[float], None] = time.sleep,
-    result_mode: str = "list",
-    stop_requested: StopRequested = None,
-) -> dict[str, Any]:
-    """Run native LIST execution for an operation that already opened E36312A."""
-
-    parameters: dict[str, Any] = {
-        "leave_trigger_configured": leave_trigger_configured,
-        "wait_complete": wait_complete,
-    }
-    if wait_timeout_ms is not None:
-        parameters["wait_timeout_ms"] = wait_timeout_ms
-    if poll_ms is not None:
-        parameters["poll_ms"] = poll_ms
-    request = TriggerRequest(command=command, runtime=runtime, parameters=parameters)
-    return _native_list(
-        request,
-        power_supply,
-        channel=channel,
-        source=source,
-        voltages=voltages,
-        currents=currents,
-        dwell=dwell,
-        pins=pins,
-        polarity=polarity,
-        final_eost_pulse=final_eost_pulse,
-        count=count,
-        exclusive_pins=exclusive_pins,
-        fire=fire,
-        wait_complete=wait_complete,
-        sleep=sleep,
-        result_mode=result_mode,
-        stop_requested=stop_requested,
-    )
 
 
 def _run_trigger_fire(

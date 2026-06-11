@@ -1710,7 +1710,6 @@ function parameterPayload() {
     delete payload.completion_pulse_segment;
     if (enabled) {
       payload.completion_pulse_timing = timing;
-      payload.completion_pulse_mode = "post-action";
     } else {
       delete payload.completion_pulse_pins;
       delete payload.completion_pulse_polarity;
