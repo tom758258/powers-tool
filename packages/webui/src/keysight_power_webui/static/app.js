@@ -57,7 +57,14 @@ const PARAMS = {
   apply: [...applyOutputParams(), { name: "no_output", type: "checkbox", label: "Do not enable output" }],
   "output-on": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
   "output-off": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
-  "safe-off": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
+  "safe-off": [{
+    name: "channel",
+    type: "select",
+    label: "Channel",
+    options: ["all", "1", "2", "3"],
+    value: "all",
+    description: "Disables the selected output, or every available output when set to all, then reads back each output state. Voltage/current setpoints and protection settings are not changed."
+  }],
   "cycle-output": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }, { name: "duration_ms", type: "number", label: "Duration(ms)", value: 100 }],
   ramp: [
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },

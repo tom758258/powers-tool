@@ -590,6 +590,7 @@ def test_commands_metadata(client: TestClient):
     assert set(cmds) == set().union(*expected_categories.values())
     assert cmds["smoke-output"]["category"] == "workflow"
     assert cmds["smoke-output"]["description"] == "Run guarded output diagnostic"
+    assert cmds["safe-off"]["description"] == "Safely disable output"
     assert cmds["identify"]["category"] == "discovery"
     assert cmds["identify"]["description"] == "Read instrument identification information"
     assert not (WEBUI_HIDDEN_DIAGNOSTIC_COMMANDS & set(cmds))
@@ -1916,6 +1917,14 @@ def test_static_snapshot_max_errors_documents_destructive_queue_reads():
     assert "appendFieldDescription(label, param);" in render_snapshot
     assert 'description.className = "field-description";' in append_description
     assert "description.textContent = param.description;" in append_description
+
+
+def test_static_safe_off_channel_documents_behavior():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    assert "every available output when set to all" in app_js
+    assert "reads back each output state" in app_js
+    assert "setpoints and protection settings are not changed" in app_js
 
 
 def test_static_restore_load_unwrap_contract():
