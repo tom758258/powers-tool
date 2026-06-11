@@ -27,11 +27,13 @@ const state = {
   restorePlanPreviewStatus: "idle"
 };
 
-const COMMAND_CATEGORIES = ["output", "trigger", "artifact", "discovery"];
+const COMMAND_CATEGORIES = ["output", "workflow", "protection", "trigger", "artifact", "discovery"];
 const COMMAND_CATEGORY_LABELS = {
   output: "Output",
+  workflow: "Output Workflows",
+  protection: "Protection",
   trigger: "Trigger",
-  artifact: "Workflows & State",
+  artifact: "Snapshot",
   discovery: "Advanced Diagnostics"
 };
 const TRIP_GUARDED_COMMANDS = new Set(["output-on", "cycle-output", "ramp", "ramp-list", "smoke-output", "apply"]);
@@ -1455,6 +1457,7 @@ function commandDisplayName(name) {
   const overrides = {
     snapshot: "Create snapshot",
     "restore-from-snapshot": "Restore snapshot",
+    "protection-set": "Set protection",
     clear: "Clear Status / Errors"
   };
   if (overrides[name]) return overrides[name];

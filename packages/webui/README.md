@@ -77,10 +77,11 @@ Fresh, explicit channel trip state adds a WebUI soft guard for direct output
 commands targeting that channel. Stale or unknown trip state does not add a
 guard. Safe/off and recovery commands remain available.
 
-Clear Protection is under Advanced Diagnostics and still requires explicit
-confirmation. A tripped channel card can open and prefill the form without
-executing it. Clear Status / Errors is separate and does not clear OVP/OCP
-protection latches.
+Commands are grouped into Output, Output Workflows, Protection, Trigger,
+Snapshot, and Advanced Diagnostics. Clear Protection is under Protection and
+still requires explicit confirmation. A tripped channel card can open and
+prefill the form without executing it. Clear Status / Errors is separate and
+does not clear OVP/OCP protection latches.
 
 ## Limits
 

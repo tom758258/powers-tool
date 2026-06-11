@@ -342,7 +342,11 @@ def test_static_commands_use_category_navigation():
     _index_html, app_js, _styles_css = read_static_texts()
 
     assert 'activeCategory: "output"' in app_js
-    assert 'const COMMAND_CATEGORIES = ["output", "trigger", "artifact", "discovery"];' in app_js
+    assert 'const COMMAND_CATEGORIES = ["output", "workflow", "protection", "trigger", "artifact", "discovery"];' in app_js
+    assert 'workflow: "Output Workflows"' in app_js
+    assert 'protection: "Protection"' in app_js
+    assert 'artifact: "Snapshot"' in app_js
+    assert 'discovery: "Advanced Diagnostics"' in app_js
 
     render_commands = app_js[app_js.index("function renderCommands()"):app_js.index("function selectCommand")]
     assert 'const categories = document.getElementById("command-categories");' in render_commands
@@ -465,6 +469,7 @@ def test_static_command_display_names_filter_and_sort_by_human_label():
     assert 'commandDisplayName(a[0]).localeCompare(commandDisplayName(b[0]))' in render_commands
     assert 'snapshot: "Create snapshot"' in display_name
     assert '"restore-from-snapshot": "Restore snapshot"' in display_name
+    assert '"protection-set": "Set protection"' in display_name
     assert 'clear: "Clear Status / Errors"' in display_name
     assert 'name.replace(/-/g, " ")' in display_name
 
@@ -680,12 +685,26 @@ def test_commands_metadata(client: TestClient):
     assert cmds["set"]["requires_confirm"] is True
     assert not (WEBUI_HIDDEN_LIVE_DATA_COMMANDS & set(cmds))
     assert "list-resources" not in cmds
-    assert cmds["smoke-output"]["category"] == "discovery"
+    expected_categories = {
+        "output": {"set", "apply", "output-on", "output-off", "safe-off"},
+        "workflow": {"cycle-output", "ramp", "ramp-list", "sequence", "smoke-output"},
+        "protection": {"protection-set", "clear-protection"},
+        "trigger": {"trigger-pulse", "trigger-status", "trigger-step", "trigger-list", "trigger-fire", "trigger-abort"},
+        "artifact": {"snapshot", "restore-from-snapshot"},
+        "discovery": {"verify", "clear", "error", "capabilities", "safety inspect", "readback", "identify"},
+    }
+    actual_categories = {
+        category: {name for name, metadata in cmds.items() if metadata["category"] == category}
+        for category in expected_categories
+    }
+    assert actual_categories == expected_categories
+    assert set(cmds) == set().union(*expected_categories.values())
+    assert cmds["smoke-output"]["category"] == "workflow"
     assert cmds["smoke-output"]["description"] == "Run guarded output diagnostic"
     assert cmds["identify"]["category"] == "discovery"
     assert cmds["identify"]["description"] == "Read instrument identification information"
     assert cmds["readback"]["category"] == "discovery"
-    assert cmds["clear-protection"]["category"] == "discovery"
+    assert cmds["clear-protection"]["category"] == "protection"
     assert cmds["clear-protection"]["requires_confirm"] is True
     assert "does not clear OVP/OCP protection latches" in cmds["clear"]["description"]
     assert cmds["trigger-pulse"]["description"] == "Configure rear trigger output pins and emit a BUS trigger pulse"
