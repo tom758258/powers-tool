@@ -244,6 +244,26 @@ def test_cycle_output_all_turns_on_all_then_sleeps_once_then_off() -> None:
     ]
 
 
+def test_cycle_output_completion_pulse_runs_after_all_outputs_are_off(monkeypatch) -> None:
+    session = FakeSession()
+    writes_at_pulse: list[str] = []
+
+    def pulse(*args, **kwargs):
+        writes_at_pulse.extend(session.writes)
+        return {"completed": True}
+
+    monkeypatch.setattr("keysight_power_core.operations.run_post_action_completion_pulse", pulse)
+    core_request = OperationRequest(
+        command="cycle-output",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+        parameters=request("cycle-output", channel="all", completion_pulse_pins=(1,)).parameters,
+    )
+
+    run_operation(core_request, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
+
+    assert writes_at_pulse[-3:] == ["OUTP OFF,(@1)", "OUTP OFF,(@2)", "OUTP OFF,(@3)"]
+
+
 def test_ramp_real_native_completion_uses_list_before_software_voltage_writes() -> None:
     session = FakeSession(responses=_trigger_snapshot_responses())
     params = request(
@@ -296,6 +316,54 @@ def test_ramp_real_native_completion_over_100_steps_rejects_before_writes() -> N
         run_operation(core_request, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
 
     assert session.writes == []
+
+
+def test_ramp_step_completion_pulses_after_every_write_including_last(monkeypatch) -> None:
+    session = FakeSession()
+    pulse_write_snapshots: list[list[str]] = []
+
+    def pulse(*args, **kwargs):
+        pulse_write_snapshots.append(list(session.writes))
+        return {"completed": True}
+
+    monkeypatch.setattr("keysight_power_core.operations.run_post_action_completion_pulse", pulse)
+    params = request(
+        "ramp",
+        start_voltage=0.0,
+        stop_voltage=1.0,
+        step_voltage=0.5,
+        current=0.05,
+        delay_ms=5001,
+        completion_pulse_pins=(1,),
+        completion_pulse_timing="step",
+        completion_pulse_mode="auto",
+    ).parameters
+
+    data = run_operation(
+        OperationRequest(command="ramp", runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True), parameters=params),
+        opener=lambda *args, **kwargs: session,
+        sleep=lambda seconds: None,
+    )
+
+    assert len(data["triggers"]) == 3
+    assert [item["voltage"] for item in data["triggers"]] == [0.0, 0.5, 1.0]
+    assert [snapshot[-1] for snapshot in pulse_write_snapshots] == ["VOLT 0,(@1)", "VOLT 0.5,(@1)", "VOLT 1,(@1)"]
+
+
+@pytest.mark.parametrize("delay_ms", [0, 5000])
+def test_ramp_step_completion_pulse_rejects_short_delay(delay_ms) -> None:
+    with pytest.raises(CoreValidationError, match="greater than 5000"):
+        output_plan(
+            request(
+                "ramp",
+                start_voltage=0,
+                stop_voltage=1,
+                step_voltage=1,
+                delay_ms=delay_ms,
+                completion_pulse_pins=(1,),
+                completion_pulse_timing="step",
+            )
+        )
 
 
 def _trigger_snapshot_responses() -> dict[str, str]:

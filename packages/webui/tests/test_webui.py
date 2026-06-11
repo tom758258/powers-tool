@@ -320,7 +320,7 @@ def test_job_result_is_expanded_collapsible_and_clearable():
 
 
 def test_static_ramp_list_editor_contract():
-    _index_html, app_js, _styles_css = read_static_texts()
+    _index_html, app_js, styles_css = read_static_texts()
 
     assert '"ramp-list": []' in app_js
     for field in ("channel", "current", "start_voltage", "stop_voltage", "step_voltage", "delay_ms", "hold_ms"):
@@ -332,10 +332,44 @@ def test_static_ramp_list_editor_contract():
     assert 'kind: "keysight-power-ramp-list"' in app_js
     assert "window.showOpenFilePicker" in app_js
     assert "window.showSaveFilePicker" in app_js
-    assert "const segments = validateRampListDocument(JSON.parse(text));" in app_js
-    assert "state.rampListSegments = segments;" in app_js
+    assert "const normalized = validateRampListDocument(JSON.parse(text));" in app_js
+    assert "state.rampListSegments = normalized.segments;" in app_js
+    assert "state.rampListCompletionPulse = normalized.completionPulse;" in app_js
+    assert "Segment complete pulse" in app_js
+    assert "Every-step pulse" in app_js
+    assert "Trigger pulse when finished" in app_js
+    assert '"trigger-pulse": [channel()' in app_js
+    assert 'const REAR_PIN_OPTIONS = ["1", "2", "3", "1,2", "1,3", "2,3", "1,2,3"];' in app_js
+    assert 'option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);' in app_js
+    assert 'definition.name === "timing" && value === "step" && stepPulseBlocked' in app_js
+    assert "Use the built-in Segment complete pulse instead" in app_js
+    assert "rampListStepPulseBlocked()" in app_js
+    assert ".ramp-list-pulse-hint { grid-column: 1 / -1; }" in styles_css
     assert 'if (state.selected === "ramp-list") return { document: rampListDocument() };' in app_js
     assert 'command === "ramp-list"' in app_js
+
+
+def test_static_pulse_child_fields_and_rear_pin_select_contracts():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    cycle = extract_param_block(app_js, "cycle-output")
+    ramp = extract_param_block(app_js, "ramp")
+    trigger_pulse = extract_param_block(app_js, "trigger-pulse")
+    trigger_list = extract_js_function(app_js, "triggerListParams")
+    sequence_definitions = extract_js_function(app_js, "sequenceActionDefinitions")
+    normalize_sequence = extract_js_function(app_js, "normalizeSequenceStep")
+
+    assert 'name: "completion_pulse_enabled", type: "checkbox"' in cycle
+    assert 'name: "completion_pulse_pins", type: "select"' in cycle
+    assert cycle.count("pulseChild: true") == 2
+    assert 'name: "completion_pulse_pins", type: "select"' in ramp
+    assert ramp.count("pulseChild: true") == 2
+    assert 'name: "pins", type: "select", label: "Rear pins"' in trigger_pulse
+    assert 'name: "completion_pulse_pins", type: "select"' in trigger_list
+    assert 'name: "pins", label: "Rear pins", type: "select"' in sequence_definitions
+    assert "if (action === \"trigger-pulse\") normalized.pins = parseRearPins(normalized.pins);" in normalize_sequence
+    assert ".form-grid .pulse-child-field.visible { display: block; }" in styles_css
+    assert "function updatePulseChildVisibility(command)" in app_js
 
 
 def test_static_job_result_summary_contract():
@@ -418,10 +452,11 @@ def test_static_command_select_options_use_human_labels_and_machine_values():
     display_name = extract_js_function(app_js, "optionDisplayName")
 
     assert "item.value = option;" in render_form
-    assert "item.textContent = optionDisplayName(option);" in render_form
+    assert 'item.textContent = param.parser === "intList" ? rearPinDisplayName(option) : optionDisplayName(option);' in render_form
     assert "opt.value = ch;" in render_restore
     assert "opt.textContent = optionDisplayName(ch);" in render_restore
     assert 'value.replace(/-/g, " ")' in display_name
+    assert 'return `Pin ${value}`' not in display_name
 
 
 def test_static_commands_disable_by_selected_resource_model():
@@ -515,13 +550,13 @@ def test_static_trigger_forms_have_advanced_parameters():
     ):
         assert f'"{command}"' in params_block
 
-    assert_param_contract(app_js, "pins", "text")
+    assert_param_contract(extract_param_block(app_js, "trigger-pulse"), "pins", "select")
     assert 'parser: "intList"' in app_js
     assert_param_contract(app_js, "voltage_list", "text")
     assert_param_contract(app_js, "current_list", "text")
     assert_param_contract(app_js, "dwell_list", "text")
     assert 'parser: "numberList"' in app_js
-    assert_param_contract(app_js, "completion_pulse_pins", "text")
+    assert_param_contract(extract_js_function(app_js, "triggerListParams"), "completion_pulse_pins", "select")
     assert_param_contract(app_js, "source", "select", ["bus", "immediate", "pin1", "pin2", "pin3", "ext"])
     assert_param_contract(app_js, "wait_timeout_ms", "number")
     assert_param_contract(app_js, "leave_trigger_configured", "checkbox")
@@ -1043,6 +1078,32 @@ def test_ramp_list_lint_dry_run(client: TestClient):
     assert job_data["status"] == "finished"
     assert job_data["result"]["status"] == "valid"
     assert job_data["result"]["segment_count"] == 1
+
+
+def test_api_rejects_invalid_ramp_list_pulse_before_creating_job(client: TestClient):
+    from keysight_power_webui.jobs import job_manager
+
+    jobs_before = len(job_manager.jobs)
+    payload = {
+        "command": "ramp-list",
+        "runtime": {"simulate": True, "dry_run": True},
+        "parameters": {
+            "document": {
+                "kind": "keysight-power-ramp-list",
+                "version": 1,
+                "completion_pulse": {"timing": "step", "pins": [1], "polarity": "positive"},
+                "segments": [{
+                    "channel": 1, "current": 0.1, "start_voltage": 0, "stop_voltage": 1,
+                    "step_voltage": 0.5, "delay_ms": 5000, "hold_ms": 0,
+                }],
+            },
+        },
+    }
+
+    response = client.post("/api/jobs", json=payload)
+
+    assert response.status_code == 400
+    assert len(job_manager.jobs) == jobs_before
 
 
 def test_sse_event_order(client: TestClient):
@@ -1960,7 +2021,7 @@ def test_static_sequence_json_artifact_flow_contracts():
     assert "option.value = action;" in sequence_fields
     assert "option.textContent = optionDisplayName(action);" in sequence_fields
     assert "option.value = value;" in sequence_fields
-    assert "option.textContent = optionDisplayName(value);" in sequence_fields
+    assert 'option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);' in sequence_fields
 
 
 def test_api_sequence_webui_step_limit(client: TestClient, tmp_path):

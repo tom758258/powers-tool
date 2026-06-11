@@ -906,6 +906,12 @@ def _add_completion_pulse_arguments(parser: argparse.ArgumentParser) -> None:
         help="Completion pulse strategy.",
     )
     parser.add_argument(
+        "--completion-pulse-timing",
+        choices=("segment", "step"),
+        default="segment",
+        help="Emit one pulse after the operation or after every software ramp step.",
+    )
+    parser.add_argument(
         "--completion-pulse-dwell-ms",
         type=_positive_duration_ms,
         default=10,
@@ -1599,6 +1605,7 @@ def _completion_request_fields(args: argparse.Namespace) -> dict[str, Any]:
     if (
         not _completion_pulse_requested(args)
         and getattr(args, "completion_pulse_mode", "auto") == "auto"
+        and getattr(args, "completion_pulse_timing", "segment") == "segment"
         and getattr(args, "completion_pulse_channel", None) is None
         and getattr(args, "completion_pulse_dwell_ms", 10) == 10
         and getattr(args, "completion_pulse_polarity", "positive") == "positive"
@@ -1611,6 +1618,7 @@ def _completion_request_fields(args: argparse.Namespace) -> dict[str, Any]:
             "polarity": getattr(args, "completion_pulse_polarity", "positive"),
             "channel": getattr(args, "completion_pulse_channel", None),
             "mode": getattr(args, "completion_pulse_mode", "auto"),
+            "timing": getattr(args, "completion_pulse_timing", "segment"),
             "dwell_ms": getattr(args, "completion_pulse_dwell_ms", 10),
             "leave_trigger_configured": getattr(args, "leave_trigger_configured", False),
         }
@@ -4795,8 +4803,11 @@ def _run_output_plan(args: argparse.Namespace) -> int:
     if args.command == "ramp":
         voltages = _ramp_voltages(args.start_voltage, args.stop_voltage, args.step_voltage)
         native_requested = (
-            getattr(args, "completion_pulse_mode", "auto") == "native"
-            or _completion_pulse_requested(args)
+            getattr(args, "completion_pulse_timing", "segment") != "step"
+            and (
+                getattr(args, "completion_pulse_mode", "auto") == "native"
+                or _completion_pulse_requested(args)
+            )
         )
         if native_requested and len(voltages) > 100 and getattr(args, "completion_pulse_mode", "auto") == "native":
             return _emit_cli_error(
@@ -4867,7 +4878,8 @@ def _run_output_plan(args: argparse.Namespace) -> int:
             return 0
 
     plan = _output_plan_for_args(args)
-    _append_completion_pulse_plan(args, plan)
+    if getattr(args, "completion_pulse_timing", "segment") != "step":
+        _append_completion_pulse_plan(args, plan)
     warnings = _ramp_completion_fallback_warnings(args) if args.command == "ramp" else []
     if args.json:
         emit_json_success(
@@ -6879,8 +6891,11 @@ def _run_ramp_real(args: argparse.Namespace) -> int:
 
     voltages = _ramp_voltages(args.start_voltage, args.stop_voltage, args.step_voltage)
     native_requested = (
-        getattr(args, "completion_pulse_mode", "auto") == "native"
-        or _completion_pulse_requested(args)
+        getattr(args, "completion_pulse_timing", "segment") != "step"
+        and (
+            getattr(args, "completion_pulse_mode", "auto") == "native"
+            or _completion_pulse_requested(args)
+        )
     )
     if native_requested and len(voltages) > 100 and getattr(args, "completion_pulse_mode", "auto") == "native":
         return _emit_cli_error(
@@ -9218,6 +9233,11 @@ def _validate_output_request(
         stop_voltage=getattr(args, "stop_voltage", None),
         step_voltage=getattr(args, "step_voltage", None),
     )
+    if args.command == "ramp" and getattr(args, "completion_pulse_timing", "segment") == "step":
+        if getattr(args, "completion_pulse_mode", "auto") == "native":
+            raise ValueError("step completion pulses require software post-action mode; native is not supported")
+        if _completion_pulse_requested(args) and getattr(args, "delay_ms", 0) <= 5000:
+            raise ValueError("step completion pulses require delay_ms greater than 5000")
 
 
 def _emit_cli_error(
@@ -9299,6 +9319,7 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
         "completion_pulse_pins": _completion_pulse_pins(args) if hasattr(args, "completion_pulse_pins") else (),
         "completion_pulse_channel": getattr(args, "completion_pulse_channel", None),
         "completion_pulse_mode": getattr(args, "completion_pulse_mode", "auto"),
+        "completion_pulse_timing": getattr(args, "completion_pulse_timing", "segment"),
         "completion_pulse_polarity": getattr(args, "completion_pulse_polarity", "positive"),
         "leave_trigger_configured": getattr(args, "leave_trigger_configured", False),
     }

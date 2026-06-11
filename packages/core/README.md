@@ -134,3 +134,17 @@ The adapter boundary is intentionally one-way: core contains driver methods,
 SCPI helpers, simulator selection, and dry-run planning; CLI and WebUI build
 `RuntimeOptions`/`OperationRequest` objects and wrap returned `data` in their
 own transport envelopes.
+
+## Output Workflow Pulses
+
+Completion pulses use E36312A rear digital pins; rear pins are separate from
+the selected output channel. Ramp supports `segment` timing for one completion
+pulse and `step` timing for a software post-action pulse after every voltage
+write, including the final write. Step timing requires `delay_ms > 5000` and
+rejects explicit native mode.
+
+Ramp List version 1 optionally accepts a document-level `completion_pulse`
+object with `timing`, `pins`, and `polarity`. Step timing requires every
+segment to use `delay_ms > 5000`. Sequence documents accept the canonical
+`trigger-pulse` action. Software pulses snapshot and restore trigger/digital
+pin settings unless `leave_trigger_configured` is explicitly requested.

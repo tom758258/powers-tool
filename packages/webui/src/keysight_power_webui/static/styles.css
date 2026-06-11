@@ -229,6 +229,15 @@ button.icon-button {
   padding: 0;
   margin: 0;
 }
+.form-grid .pulse-toggle-field { grid-column: 1 / -1; }
+.form-grid .pulse-child-field {
+  display: none;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel-soft);
+}
+.form-grid .pulse-child-field.visible { display: block; }
 .workspace-summary {
   margin: 0 12px 12px;
   border: 1px solid var(--border);
@@ -295,6 +304,7 @@ button.icon-button {
   grid-template-columns: repeat(4, minmax(120px, 1fr));
   gap: 10px;
 }
+.ramp-list-pulse-hint { grid-column: 1 / -1; }
 .sequence-editor {
   grid-column: 1 / -1;
   display: grid;

@@ -74,6 +74,18 @@ steps in the WebUI. Loaded Sequence JSON is normalized to the canonical
 Sequence YAML/JSON support is unchanged and has no WebUI step limit.
 Job Result history is expanded by default and can be collapsed or cleared
 without changing Result Detail.
+
+Cycle Output exposes an optional finished pulse. Ramp exposes mutually
+exclusive Segment complete and Every-step pulse controls; Every-step requires
+Delay(ms) greater than 5000. Ramp List Load/Save preserves its global pulse
+configuration, and Sequence includes a Trigger pulse action. Pulse rear pins
+are independent of output channels and are E36312A-only. Controls are disabled
+when the selected resource is known to be another model.
+Pulse detail fields in Cycle Output and Ramp appear only after a pulse option
+is enabled. Rear-pin fields use a selector for every valid pin combination,
+including All. Ramp List disables Every-step pulse when any segment delay is
+5000 ms or less and points users to the built-in Segment complete pulse, which
+supports those shorter delays.
 Live Data samples include parsed model identity and channel-local OVP/OCP trip
 state. A valid Live Data model can repair the selected resource's command
 support cache; results without a model do not replace an already known model.

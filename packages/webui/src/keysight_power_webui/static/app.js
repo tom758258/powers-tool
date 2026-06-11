@@ -16,6 +16,7 @@ const state = {
   resultCollapsed: true,
   jobResultCollapsed: false,
   rampListSegments: [defaultRampSegment()],
+  rampListCompletionPulse: null,
   latestSnapshotDocument: null,
   latestSnapshotMetadata: null,
   loadedSnapshotDocument: null,
@@ -47,6 +48,8 @@ const TRIP_WARNING_COMMANDS = new Set([
   "trigger-list",
   "trigger-fire"
 ]);
+const REAR_PIN_OPTIONS = ["1", "2", "3", "1,2", "1,3", "2,3", "1,2,3"];
+const OPTIONAL_REAR_PIN_OPTIONS = ["", ...REAR_PIN_OPTIONS];
 
 const PARAMS = {
   "list-resources": [{ name: "live_only", type: "checkbox", label: "Live only" }],
@@ -66,14 +69,24 @@ const PARAMS = {
     value: "all",
     description: "Disables the selected output, or every available output when set to all, then reads back each output state. Voltage/current setpoints and protection settings are not changed."
   }],
-  "cycle-output": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }, { name: "duration_ms", type: "number", label: "Duration(ms)", value: 100 }],
+  "cycle-output": [
+    { name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" },
+    { name: "duration_ms", type: "number", label: "Duration(ms)", value: 100 },
+    { name: "completion_pulse_enabled", type: "checkbox", label: "Trigger pulse when finished", pulseToggle: true },
+    { name: "completion_pulse_pins", type: "select", label: "Rear pins", options: REAR_PIN_OPTIONS, value: "1", parser: "intList", pulseChild: true },
+    { name: "completion_pulse_polarity", type: "select", label: "Polarity", options: ["positive", "negative"], value: "positive", pulseChild: true }
+  ],
   ramp: [
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
     { name: "current", type: "number", label: "Current(A)", value: 0.1 },
     { name: "start_voltage", type: "number", label: "Start voltage(V)", value: 0 },
     { name: "stop_voltage", type: "number", label: "Stop voltage(V)", value: 1 },
     { name: "step_voltage", type: "number", label: "Step voltage(V)", value: 0.1 },
-    { name: "delay_ms", type: "number", label: "Delay(ms)", value: 0 }
+    { name: "delay_ms", type: "number", label: "Delay(ms)", value: 0 },
+    { name: "completion_pulse_segment", type: "checkbox", label: "Segment complete pulse", pulseToggle: true },
+    { name: "completion_pulse_step", type: "checkbox", label: "Every-step pulse", description: "Requires Delay(ms) greater than 5000.", pulseToggle: true },
+    { name: "completion_pulse_pins", type: "select", label: "Rear pins", options: REAR_PIN_OPTIONS, value: "1", parser: "intList", pulseChild: true },
+    { name: "completion_pulse_polarity", type: "select", label: "Polarity", options: ["positive", "negative"], value: "positive", pulseChild: true }
   ],
   "ramp-list": [],
   "smoke-output": smokeOutputParams(),
@@ -86,7 +99,7 @@ const PARAMS = {
   ],
   "clear-protection": [{ name: "channel", type: "select", label: "Channel", options: ["", "all", "1", "2", "3"], value: "" }],
   "trigger-pulse": [
-    { name: "pins", type: "text", label: "Pins", value: "1", parser: "intList" },
+    { name: "pins", type: "select", label: "Rear pins", options: REAR_PIN_OPTIONS, value: "1", parser: "intList" },
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
     { name: "polarity", type: "select", label: "Polarity", options: ["positive", "negative"], value: "positive" },
     { name: "exclusive_pins", type: "checkbox", label: "Exclusive pins" }
@@ -172,7 +185,7 @@ function triggerListParams() {
     { name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus" },
     { name: "fire", type: "checkbox", label: "Fire now" },
     { name: "wait_complete", type: "checkbox", label: "Wait complete" },
-    { name: "completion_pulse_pins", type: "text", label: "Pulse pins", optional: true, parser: "intList" },
+    { name: "completion_pulse_pins", type: "select", label: "Pulse pins", options: OPTIONAL_REAR_PIN_OPTIONS, value: "", optional: true, parser: "intList" },
     { name: "completion_pulse_polarity", type: "select", label: "Pulse polarity", options: ["positive", "negative"], value: "positive" },
     { name: "exclusive_pins", type: "checkbox", label: "Exclusive pins" },
     ...triggerWaitParams(),
@@ -298,6 +311,8 @@ function renderForm(command) {
   (PARAMS[command] || []).forEach((param) => {
     const label = document.createElement("label");
     if (param.type === "checkbox") label.classList.add("checkbox-field");
+    if (param.pulseToggle) label.classList.add("pulse-toggle-field");
+    if (param.pulseChild) label.classList.add("pulse-child-field");
     label.textContent = param.label;
     let input;
     if (param.type === "select") {
@@ -305,7 +320,7 @@ function renderForm(command) {
       param.options.forEach((option) => {
         const item = document.createElement("option");
         item.value = option;
-        item.textContent = optionDisplayName(option);
+        item.textContent = param.parser === "intList" ? rearPinDisplayName(option) : optionDisplayName(option);
         input.appendChild(item);
       });
     } else if (param.type === "textarea") {
@@ -316,10 +331,38 @@ function renderForm(command) {
     }
     input.id = `param-${param.name}`;
     if (param.value !== undefined) input.value = param.value;
-    input.addEventListener("change", updateSelectedCommandState);
+    if (command === "ramp" && param.name === "completion_pulse_step") {
+      const delay = Number(document.getElementById("param-delay_ms")?.value || 0);
+      input.disabled = delay <= 5000;
+      input.title = input.disabled ? "Every-step pulse requires Delay(ms) greater than 5000." : "";
+    }
+    if (param.name.includes("completion_pulse") && pulseControlsUnavailableReason()) {
+      input.disabled = true;
+      input.title = pulseControlsUnavailableReason();
+    }
+    input.addEventListener("change", () => {
+      enforcePulseFormRules(command, param.name, input);
+      updateSelectedCommandState();
+    });
+    input.addEventListener("input", () => {
+      enforcePulseFormRules(command, param.name, input);
+      updateSelectedCommandState();
+    });
     label.appendChild(input);
     appendFieldDescription(label, param);
     form.appendChild(label);
+  });
+  updatePulseChildVisibility(command);
+}
+
+function updatePulseChildVisibility(command) {
+  const enabled = command === "cycle-output"
+    ? Boolean(document.getElementById("param-completion_pulse_enabled")?.checked)
+    : command === "ramp"
+      ? Boolean(document.getElementById("param-completion_pulse_segment")?.checked || document.getElementById("param-completion_pulse_step")?.checked)
+      : true;
+  document.querySelectorAll("#command-form .pulse-child-field").forEach((field) => {
+    field.classList.toggle("visible", enabled);
   });
 }
 
@@ -350,6 +393,50 @@ function renderRampListForm(form) {
     toolbar.appendChild(button);
   });
   editor.appendChild(toolbar);
+  const pulseFields = document.createElement("div");
+  pulseFields.className = "ramp-segment-fields";
+  const stepPulseBlocked = rampListStepPulseBlocked();
+  [
+    { name: "timing", label: "Pulse timing", type: "select", options: ["", "segment", "step"] },
+    { name: "pins", label: "Rear pins", type: "select", options: REAR_PIN_OPTIONS },
+    { name: "polarity", label: "Polarity", type: "select", options: ["positive", "negative"] }
+  ].forEach((definition) => {
+    const label = document.createElement("label");
+    label.textContent = definition.label;
+    const input = document.createElement(definition.type === "select" ? "select" : "input");
+    if (definition.type === "select") {
+      definition.options.forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);
+        if (definition.name === "timing" && value === "step" && stepPulseBlocked) option.disabled = true;
+        input.appendChild(option);
+      });
+    } else {
+      input.type = "text";
+    }
+    input.value = definition.name === "pins"
+      ? pinsSelectValue(state.rampListCompletionPulse?.pins || [1])
+      : String(state.rampListCompletionPulse?.[definition.name] || (definition.name === "polarity" ? "positive" : ""));
+    input.id = `ramp-list-pulse-${definition.name}`;
+    input.addEventListener("change", () => updateRampListPulse(definition.name, input.value));
+    if (definition.name !== "timing" && !state.rampListCompletionPulse) {
+      input.disabled = true;
+      input.title = "Select a pulse timing to configure this field.";
+    } else if (pulseControlsUnavailableReason()) {
+      input.disabled = true;
+      input.title = pulseControlsUnavailableReason();
+    }
+    label.appendChild(input);
+    pulseFields.appendChild(label);
+  });
+  if (stepPulseBlocked) {
+    const hint = document.createElement("small");
+    hint.className = "field-description ramp-list-pulse-hint";
+    hint.textContent = "Every-step pulse requires every Delay(ms) to be greater than 5000. Use the built-in Segment complete pulse instead; it supports Delay(ms) of 5000 or less.";
+    pulseFields.appendChild(hint);
+  }
+  editor.appendChild(pulseFields);
   state.rampListSegments.forEach((segment, index) => editor.appendChild(rampSegmentCard(segment, index)));
   form.appendChild(editor);
 }
@@ -399,8 +486,15 @@ function rampSegmentCard(segment, index) {
     input.dataset.rampField = definition.name;
     input.addEventListener("input", () => {
       state.rampListSegments[index][definition.name] = Number(input.value);
+      if (definition.name === "delay_ms" && rampListStepPulseBlocked() && state.rampListCompletionPulse?.timing === "step") {
+        state.rampListCompletionPulse = null;
+        renderForm("ramp-list");
+      }
       updateSelectedCommandState();
     });
+    if (definition.name === "delay_ms") {
+      input.addEventListener("change", () => renderForm("ramp-list"));
+    }
     label.appendChild(input);
     fields.appendChild(label);
   });
@@ -452,25 +546,31 @@ function moveRampSegment(index, offset) {
 }
 
 function rampListDocument() {
-  return {
+  const document = {
     kind: "keysight-power-ramp-list",
     version: 1,
     segments: state.rampListSegments.map((segment) => ({ ...segment }))
   };
+  if (state.rampListCompletionPulse) document.completion_pulse = { ...state.rampListCompletionPulse };
+  return document;
+}
+
+function rampListStepPulseBlocked() {
+  return state.rampListSegments.some((segment) => Number(segment.delay_ms) <= 5000);
 }
 
 function validateRampListDocument(document) {
   if (!document || document.kind !== "keysight-power-ramp-list" || document.version !== 1) {
     throw new Error("Invalid Ramp List kind or version.");
   }
-  if (Object.keys(document).some((field) => !["kind", "version", "segments"].includes(field))) {
+  if (Object.keys(document).some((field) => !["kind", "version", "completion_pulse", "segments"].includes(field))) {
     throw new Error("Ramp List contains unsupported fields.");
   }
   if (!Array.isArray(document.segments) || document.segments.length < 1 || document.segments.length > 10) {
     throw new Error("Ramp List requires 1 to 10 segments.");
   }
   const fields = rampSegmentDefinitions().map((item) => item.name);
-  return document.segments.map((segment, index) => {
+  const segments = document.segments.map((segment, index) => {
     if (!segment || Object.keys(segment).some((field) => !fields.includes(field)) || fields.some((field) => typeof segment[field] !== "number" || !Number.isFinite(segment[field]))) {
       throw new Error(`Ramp Segment ${index + 1} contains invalid fields.`);
     }
@@ -483,6 +583,19 @@ function validateRampListDocument(document) {
     }
     return Object.fromEntries(fields.map((field) => [field, segment[field]]));
   });
+  let completionPulse = null;
+  if (document.completion_pulse !== undefined) {
+    const pulse = document.completion_pulse;
+    if (!pulse || !["segment", "step"].includes(pulse.timing) || !Array.isArray(pulse.pins) || !pulse.pins.length
+      || pulse.pins.some((pin) => ![1, 2, 3].includes(pin)) || !["positive", "negative"].includes(pulse.polarity)) {
+      throw new Error("Ramp List completion_pulse is invalid.");
+    }
+    if (pulse.timing === "step" && segments.some((segment) => segment.delay_ms <= 5000)) {
+      throw new Error("Ramp List every-step pulse requires every Delay(ms) to be greater than 5000.");
+    }
+    completionPulse = { timing: pulse.timing, pins: [...pulse.pins], polarity: pulse.polarity };
+  }
+  return { segments, completionPulse };
 }
 
 async function loadRampList() {
@@ -491,8 +604,9 @@ async function loadRampList() {
       description: "Ramp List JSON",
       extensions: RAMP_LIST_JSON_EXTENSIONS
     });
-    const segments = validateRampListDocument(JSON.parse(text));
-    state.rampListSegments = segments;
+    const normalized = validateRampListDocument(JSON.parse(text));
+    state.rampListSegments = normalized.segments;
+    state.rampListCompletionPulse = normalized.completionPulse;
     renderForm("ramp-list");
     updateSelectedCommandState();
   } catch (error) {
@@ -1100,7 +1214,7 @@ function renderSequenceForm(form) {
 
 const SEQUENCE_ACTIONS = [
   "measure", "readback", "output-state", "log", "wait", "safe-off",
-  "set", "output-on", "output-off", "cycle-output", "apply"
+  "set", "output-on", "output-off", "cycle-output", "apply", "trigger-pulse"
 ];
 
 function sequenceMaxSteps() {
@@ -1124,7 +1238,8 @@ function sequenceActionDefinitions(action) {
     "output-on": [channel(true)],
     "output-off": [channel(true)],
     "cycle-output": [channel(true), { name: "duration_ms", label: "Duration(ms)", type: "number", value: 500 }],
-    apply: [channel(true), { name: "voltage", label: "Voltage(V)", type: "number", value: 0 }, { name: "current", label: "Current(A)", type: "number", value: 0 }, { name: "no_output", label: "Do not enable output", type: "checkbox", value: false }]
+    apply: [channel(true), { name: "voltage", label: "Voltage(V)", type: "number", value: 0 }, { name: "current", label: "Current(A)", type: "number", value: 0 }, { name: "no_output", label: "Do not enable output", type: "checkbox", value: false }],
+    "trigger-pulse": [channel(), { name: "pins", label: "Rear pins", type: "select", options: REAR_PIN_OPTIONS, value: [1] }, { name: "polarity", label: "Polarity", type: "select", options: ["positive", "negative"], value: "positive" }, { name: "leave_trigger_configured", label: "Leave configured", type: "checkbox", value: false }]
   }[action] || [];
 }
 
@@ -1213,15 +1328,21 @@ function sequenceStepFields(step, index, card, title, summary) {
       definition.options.forEach((value) => {
         const option = document.createElement("option");
         option.value = value;
-        option.textContent = optionDisplayName(value);
+        option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);
         input.appendChild(option);
       });
     } else {
       input.type = definition.type;
     }
     if (definition.type === "checkbox") input.checked = Boolean(step[definition.name]);
-    else input.value = String(step[definition.name] ?? definition.value);
+    else input.value = definition.name === "pins"
+      ? pinsSelectValue(step[definition.name] ?? definition.value)
+      : String(step[definition.name] ?? definition.value);
     input.dataset.sequenceField = definition.name;
+    if (step.action === "trigger-pulse" && pulseControlsUnavailableReason()) {
+      input.disabled = true;
+      input.title = pulseControlsUnavailableReason();
+    }
     input.addEventListener("input", () => {
       step[definition.name] = sequenceFieldValue(definition, input);
       summary.textContent = sequenceStepSummary(step);
@@ -1245,6 +1366,7 @@ function sequenceFieldValue(definition, input) {
   if (definition.type === "checkbox") return input.checked;
   if (definition.type === "number") return Number(input.value);
   if (definition.name === "channel" && input.value !== "all") return Number(input.value);
+  if (definition.name === "pins") return parseRearPins(input.value);
   return input.value;
 }
 
@@ -1399,6 +1521,7 @@ function normalizeSequenceStep(step, index) {
   const normalized = defaultSequenceStep(action, parameters);
   Object.entries(parameters).forEach(([key, value]) => { normalized[key] = value; });
   if (normalized.channel !== undefined && normalized.channel !== "all") normalized.channel = Number(normalized.channel);
+  if (action === "trigger-pulse") normalized.pins = parseRearPins(normalized.pins);
   validateCanonicalSequenceStep(normalized, index);
   return normalized;
 }
@@ -1416,6 +1539,9 @@ function validateCanonicalSequenceStep(step, index) {
   });
   if (step.action === "wait" && step.seconds < 0) throw new Error(`Sequence step ${index + 1} wait seconds must be non-negative.`);
   if (step.action === "cycle-output" && step.duration_ms < 0) throw new Error(`Sequence step ${index + 1} duration_ms must be non-negative.`);
+  if (step.action === "trigger-pulse" && (!Array.isArray(step.pins) || !step.pins.length || step.pins.some((pin) => ![1, 2, 3].includes(pin)))) {
+    throw new Error(`Sequence step ${index + 1} rear pins must contain 1, 2, or 3.`);
+  }
 }
 
 function sequenceDocumentFromEditor() {
@@ -1570,7 +1696,65 @@ function parameterPayload() {
     const parsed = parameterValue(param, input);
     if (parsed !== undefined) payload[param.name] = parsed;
   });
+  if (state.selected === "cycle-output") {
+    if (!payload.completion_pulse_enabled) {
+      delete payload.completion_pulse_pins;
+      delete payload.completion_pulse_polarity;
+    }
+    delete payload.completion_pulse_enabled;
+  }
+  if (state.selected === "ramp") {
+    const timing = payload.completion_pulse_step ? "step" : "segment";
+    const enabled = payload.completion_pulse_step || payload.completion_pulse_segment;
+    delete payload.completion_pulse_step;
+    delete payload.completion_pulse_segment;
+    if (enabled) {
+      payload.completion_pulse_timing = timing;
+      payload.completion_pulse_mode = "post-action";
+    } else {
+      delete payload.completion_pulse_pins;
+      delete payload.completion_pulse_polarity;
+    }
+  }
   return payload;
+}
+
+function enforcePulseFormRules(command, name, input) {
+  if (command === "cycle-output") {
+    updatePulseChildVisibility(command);
+    return;
+  }
+  if (command !== "ramp") return;
+  if (name === "completion_pulse_segment" && input.checked) {
+    const other = document.getElementById("param-completion_pulse_step");
+    if (other) other.checked = false;
+  }
+  if (name === "completion_pulse_step" && input.checked) {
+    const other = document.getElementById("param-completion_pulse_segment");
+    if (other) other.checked = false;
+  }
+  if (name === "delay_ms") {
+    const step = document.getElementById("param-completion_pulse_step");
+    if (step) {
+      step.disabled = Number(input.value) <= 5000;
+      step.title = step.disabled ? "Every-step pulse requires Delay(ms) greater than 5000." : "";
+      if (step.disabled) step.checked = false;
+    }
+  }
+  updatePulseChildVisibility(command);
+}
+
+function updateRampListPulse(name, value) {
+  if (name === "timing" && !value) {
+    state.rampListCompletionPulse = null;
+  } else {
+    state.rampListCompletionPulse ||= { timing: "segment", pins: [1], polarity: "positive" };
+    state.rampListCompletionPulse[name] = name === "pins"
+      ? parseRearPins(value)
+      : value;
+  }
+  renderForm("ramp-list");
+  updateSelectedCommandState();
 }
 
 function restoreSnapshotParameters(document) {
@@ -1626,6 +1810,28 @@ function commandDisplayName(name) {
   if (overrides[name]) return overrides[name];
   const spaced = name.replace(/-/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function parseRearPins(value) {
+  const source = Array.isArray(value) ? value : String(value || "").split(",");
+  return source.map((item) => Number(String(item).trim())).filter((item) => [1, 2, 3].includes(item));
+}
+
+function pinsSelectValue(value) {
+  return parseRearPins(value).join(",");
+}
+
+function rearPinDisplayName(value) {
+  const labels = {
+    "1": "Pin 1",
+    "2": "Pin 2",
+    "3": "Pin 3",
+    "1,2": "Pins 1 + 2",
+    "1,3": "Pins 1 + 3",
+    "2,3": "Pins 2 + 3",
+    "1,2,3": "All"
+  };
+  return value === "" ? "None" : labels[value] || value;
 }
 
 function optionDisplayName(value) {
@@ -2296,7 +2502,30 @@ function updateSelectedCommandState() {
       runButton.disabled = true;
     }
   }
+  if (state.selected === "ramp-list") {
+    try {
+      validateRampListDocument(rampListDocument());
+    } catch (e) {
+      runButton.disabled = true;
+    }
+  }
+  if (pulseControlsUnavailableReason() && commandRequestsPulse(state.selected, parameters)) {
+    runButton.disabled = true;
+    commandDescription.textContent = [descriptionText, pulseControlsUnavailableReason()].filter(Boolean).join(" ");
+  }
   document.getElementById("confirm-banner").classList.toggle("visible", Boolean(meta.requires_confirm));
+}
+
+function pulseControlsUnavailableReason() {
+  const model = currentResourceModel();
+  return model && model !== "E36312A" ? `Rear trigger pulse is only supported on E36312A, not ${model}.` : "";
+}
+
+function commandRequestsPulse(command, parameters) {
+  if (command === "cycle-output" || command === "ramp") return Boolean(parameters.completion_pulse_pins);
+  if (command === "ramp-list") return Boolean(parameters.document?.completion_pulse);
+  if (command === "sequence") return Boolean(parameters.document?.steps?.some((step) => step.action === "trigger-pulse"));
+  return false;
 }
 
 function currentTripChannels() {

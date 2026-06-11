@@ -540,7 +540,7 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
                 plan = sequence_plan(plan_req, doc)
                 has_writes = any(
                     step.get("action") in {
-                        "set", "apply", "output-on", "output-off", "safe-off", "cycle-output", "ramp", "smoke-output"
+                        "set", "apply", "output-on", "output-off", "safe-off", "cycle-output", "ramp", "smoke-output", "trigger-pulse"
                     }
                     for step in plan.get("steps", [])
                 )

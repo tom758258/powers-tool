@@ -12,7 +12,8 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from keysight_power_core.core import CommandCancelled, CoreValidationError, StopCleanupError
+from keysight_power_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions, StopCleanupError
+from keysight_power_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
 from keysight_power_core.sequence import load_sequence_document
 
 from .jobs import job_manager, JobStatus
@@ -156,6 +157,20 @@ async def create_job(request: Request):
     artifacts = payload.get("artifacts")
     if command == "sequence":
         _validate_webui_sequence_size(parameters)
+    if command == "ramp-list":
+        try:
+            validation_request = OperationRequest(
+                command="ramp-list",
+                runtime=RuntimeOptions(
+                    resource=runtime.get("resource"),
+                    safety_config=runtime.get("safety_config"),
+                    dry_run=True,
+                ),
+                parameters=parameters,
+            )
+            ramp_list_plan(validation_request, ramp_list_document_for_request(validation_request))
+        except (CoreValidationError, OSError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # Hardware lock check at submission time for non-simulate/dry-run jobs
     # Only lock jobs that touch real hardware

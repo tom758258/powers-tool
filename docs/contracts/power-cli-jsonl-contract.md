@@ -125,4 +125,7 @@ Selected data mappings:
 - `sequence`: lint/plan/execution status, step results, and stop/failure details.
 - `ramp-list`: version, segment count, completed segment count, ordered segment
   plans/results, and failed segment details when execution stops or fails.
+- Ramp and Ramp List every-step pulse results use ordered `triggers` entries
+  containing step index, voltage, and trigger result. Single completion pulses
+  remain under `trigger`; Ramp List pulse results are stored per segment.
 - `restore-from-snapshot`: restored channels and restore plan.

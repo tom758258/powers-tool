@@ -229,3 +229,28 @@ def test_ramp_list_cancellation_stops_later_segments_without_output_off() -> Non
 def test_ramp_list_rejects_invalid_documents(doc, message) -> None:
     with pytest.raises(CoreValidationError, match=message):
         run_ramp_list(request(doc, dry_run=True))
+
+
+def test_ramp_list_step_pulse_requires_every_segment_delay_over_5000() -> None:
+    doc = document(segment(delay_ms=5001), segment(channel=2, delay_ms=5000))
+    doc["completion_pulse"] = {"timing": "step", "pins": [1], "polarity": "positive"}
+
+    with pytest.raises(CoreValidationError, match="invalid segment"):
+        run_ramp_list(request(doc, dry_run=True))
+
+
+def test_ramp_list_segment_pulse_uses_each_segment_channel(monkeypatch) -> None:
+    calls: list[int] = []
+
+    def pulse(_power_supply, *, channel, **kwargs):
+        calls.append(channel)
+        return {"channel": channel, "completed": True}
+
+    monkeypatch.setattr("keysight_power_core.ramp_list.run_post_action_completion_pulse", pulse)
+    doc = document(segment(channel=1), segment(channel=2))
+    doc["completion_pulse"] = {"timing": "segment", "pins": [1], "polarity": "positive"}
+
+    data = run_ramp_list(request(doc), opener=lambda *args, **kwargs: FakeSession(), sleep=lambda seconds: None)
+
+    assert calls == [1, 2]
+    assert [item["trigger"]["channel"] for item in data["segments"]] == [1, 2]

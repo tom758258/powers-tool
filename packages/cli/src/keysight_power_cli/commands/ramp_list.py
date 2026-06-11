@@ -27,6 +27,9 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         metavar=("CHANNEL", "CURRENT", "START", "STOP", "STEP", "DELAY_MS", "HOLD_MS"),
         help="Repeatable segment: channel current start stop step delay-ms hold-ms.",
     )
+    parser.add_argument("--completion-pulse-timing", choices=("segment", "step"), help="Emit a pulse after each segment or voltage step.")
+    parser.add_argument("--completion-pulse-pins", type=runtime._trigger_pins_list, help="Comma-separated E36312A rear digital pulse pins.")
+    parser.add_argument("--completion-pulse-polarity", choices=("positive", "negative"), default="positive", help="Completion pulse polarity.")
     runtime._add_json_argument(parser)
     runtime._add_simulate_argument(parser)
     runtime._add_dry_run_argument(parser)
@@ -65,12 +68,24 @@ def request_from_argv(argv: Sequence[str], runtime: Any) -> dict[str, Any]:
 
 def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRequest:
     parameters: dict[str, Any] = {"file": getattr(args, "file", None), "lint": getattr(args, "lint", False)}
+    pulse_requested = getattr(args, "completion_pulse_timing", None) is not None or getattr(args, "completion_pulse_pins", None) is not None
+    if getattr(args, "file", None) is not None and pulse_requested:
+        raise ValueError("--file Ramp List completion_pulse settings must come from the document")
     if getattr(args, "segment", None) is not None:
-        parameters["document"] = {
+        document: dict[str, Any] = {
             "kind": RAMP_LIST_KIND,
             "version": 1,
             "segments": [_segment_document(values) for values in args.segment],
         }
+        if pulse_requested:
+            if getattr(args, "completion_pulse_pins", None) is None:
+                raise ValueError("--completion-pulse-pins is required when --completion-pulse-timing is used")
+            document["completion_pulse"] = {
+                "timing": getattr(args, "completion_pulse_timing", None) or "segment",
+                "pins": list(args.completion_pulse_pins),
+                "polarity": getattr(args, "completion_pulse_polarity", "positive"),
+            }
+        parameters["document"] = document
         parameters.pop("file", None)
     return OperationRequest(
         command="ramp-list",

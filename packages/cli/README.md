@@ -228,6 +228,17 @@ VISA session. It validates the complete versioned JSON document and all
 generated setpoints before the first hardware write. It does not enable or
 disable output, use native LIST, or perform automatic safe-off on failure.
 
+Ramp `--completion-pulse-timing segment` preserves one completion pulse.
+`--completion-pulse-timing step` emits a software post-action pulse after
+every voltage write and requires `--delay-ms` strictly greater than `5000`.
+Rear pulse pins are not output channels. Pulse workflows are E36312A-only, and
+`*TRG` may affect other already armed BUS-triggered behavior.
+
+Ramp List version 1 may contain a global `completion_pulse` object. Inline
+`--segment` usage accepts `--completion-pulse-timing`,
+`--completion-pulse-pins`, and `--completion-pulse-polarity`; with `--file`,
+the document is authoritative and CLI pulse overrides are rejected.
+
 ```powershell
 uv run keysight-power ramp-list --lint --json --file example.ramp-list.json
 uv run keysight-power ramp-list --dry-run --json --file example.ramp-list.json --resource "USB0::...::INSTR"
@@ -413,6 +424,10 @@ uv run keysight-power sequence --dry-run --json --resource "USB0::SIM::E36312A::
 Sequence YAML files are formally supported through the core package's PyYAML
 runtime dependency. A small built-in parser remains as a fallback for minimal
 environments.
+
+Sequence documents also accept `{"action":"trigger-pulse","channel":1,
+"pins":[1],"polarity":"positive","leave_trigger_configured":false}`. The
+default restores trigger and rear-pin configuration after the pulse.
 
 Preview output-affecting commands with no hardware writes:
 

@@ -169,11 +169,24 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
         _append_write_followup_steps(p, plan["steps"], ("programmed_voltage", "programmed_current"))
     elif command == "ramp":
         voltages = ramp_voltages(p["start_voltage"], p["stop_voltage"], p["step_voltage"])
+        _validate_ramp_completion_pulse(request)
         steps = [_driver_step(1, "set_current_limit", channel=channel, current=_json_safe_number(p["current"]))]
         index = 2
         for voltage_index, voltage in enumerate(voltages):
             steps.append(_driver_step(index, "set_voltage", channel=channel, voltage=_json_safe_number(voltage)))
             index += 1
+            if _step_completion_pulse_requested(request):
+                steps.append(
+                    _driver_step(
+                        index,
+                        "completion_pulse",
+                        channel=channel,
+                        pins=list(p.get("completion_pulse_pins") or ()),
+                        polarity=p.get("completion_pulse_polarity", "positive"),
+                        mode="post-action",
+                    )
+                )
+                index += 1
             if p.get("delay_ms", 0) > 0 and voltage_index < len(voltages) - 1:
                 steps.append(_driver_step(index, "sleep", duration_ms=p["delay_ms"]))
                 index += 1
@@ -465,6 +478,7 @@ def _execute_output_write(
     if command == "ramp":
         _require_channel(power_supply, channel, command)
         voltages = ramp_voltages(p["start_voltage"], p["stop_voltage"], p["step_voltage"])
+        _validate_ramp_completion_pulse(request)
         _validate_setpoint_for_request(request, idn, channel, voltage=p["stop_voltage"], current=p["current"])
         native_requested = _native_ramp_requested(request, voltages)
         if p.get("completion_pulse_mode", "auto") == "native" and len(voltages) > 100:
@@ -511,10 +525,17 @@ def _execute_output_write(
                 stop_requested=stop_requested,
             )
         else:
+            if _completion_pulse_requested(request):
+                _validate_completion_pulse_power_supply(power_supply)
             power_supply.set_current_limit(channel=channel, current=p["current"])
+            triggers: list[dict[str, Any]] = []
             for index, voltage in enumerate(voltages):
                 raise_if_cancelled(stop_requested)
                 power_supply.set_voltage(channel=channel, voltage=voltage)
+                if _step_completion_pulse_requested(request):
+                    step_trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
+                    if step_trigger is not None:
+                        triggers.append({"step_index": index, "voltage": voltage, "trigger": step_trigger})
                 if p.get("delay_ms", 0) > 0 and index < len(voltages) - 1:
                     interruptible_sleep(
                         p["delay_ms"] / 1000,
@@ -529,20 +550,23 @@ def _execute_output_write(
                 expected_voltage=p["stop_voltage"],
             )
             _raise_verification_failed(verification)
-            trigger = _maybe_run_completion_pulse(
-                request,
-                power_supply,
-                default_channel=channel,
-                fallback_reason=(
-                    "native LIST supports at most 100 steps"
-                    if _completion_pulse_requested(request) and len(voltages) > 100 and p.get("completion_pulse_mode", "auto") == "auto"
-                    else None
-                ),
-            )
+            if not _step_completion_pulse_requested(request):
+                trigger = _maybe_run_completion_pulse(
+                    request,
+                    power_supply,
+                    default_channel=channel,
+                    fallback_reason=(
+                        "native LIST supports at most 100 steps"
+                        if _completion_pulse_requested(request) and len(voltages) > 100 and p.get("completion_pulse_mode", "auto") == "auto"
+                        else None
+                    ),
+                )
         _raise_on_instrument_errors(power_supply, command)
         data = _resource_payload(request, idn, channel=channel, voltages=voltages)
         data["steps"] = len(voltages)
         _attach_trigger_if_present(data, trigger)
+        if not native_requested and _step_completion_pulse_requested(request):
+            data["triggers"] = triggers
         _attach_verification_if_requested(request, data, verification)
         return data
 
@@ -794,10 +818,35 @@ def _completion_pulse_requested(request: OperationRequest) -> bool:
 
 
 def _native_ramp_requested(request: OperationRequest, voltages: Sequence[float]) -> bool:
+    if _step_completion_pulse_requested(request):
+        return False
     mode = request.parameters.get("completion_pulse_mode", "auto")
     if mode == "native":
         return True
     return mode == "auto" and _completion_pulse_requested(request) and len(voltages) <= 100
+
+
+def _step_completion_pulse_requested(request: OperationRequest) -> bool:
+    return _completion_pulse_requested(request) and request.parameters.get("completion_pulse_timing", "segment") == "step"
+
+
+def _validate_ramp_completion_pulse(request: OperationRequest) -> None:
+    timing = request.parameters.get("completion_pulse_timing", "segment")
+    if timing not in {"segment", "step"}:
+        raise CoreValidationError("completion-pulse-timing must be segment or step")
+    if timing != "step":
+        return
+    if request.parameters.get("completion_pulse_mode", "auto") == "native":
+        raise CoreValidationError("step completion pulses require software post-action mode; native is not supported")
+    if _completion_pulse_requested(request) and int(request.parameters.get("delay_ms", 0)) <= 5000:
+        raise CoreValidationError("step completion pulses require delay_ms greater than 5000")
+
+
+def _validate_completion_pulse_power_supply(power_supply: Any) -> None:
+    if isinstance(power_supply, EDU36311APowerSupply):
+        raise CoreValidationError("EDU36311A real execution does not support completion-pulse options")
+    if not isinstance(power_supply, E36312APowerSupply):
+        raise UnsupportedModelError("completion-pulse options require E36312A")
 
 
 def _completion_pulse_channel(request: OperationRequest, default_channel: int | str | None = None) -> int:
@@ -819,10 +868,7 @@ def _maybe_run_completion_pulse(
     pins = tuple(request.parameters.get("completion_pulse_pins") or ())
     if not pins:
         return None
-    if isinstance(power_supply, EDU36311APowerSupply):
-        raise CoreValidationError("EDU36311A real execution does not support completion-pulse options")
-    if not isinstance(power_supply, E36312APowerSupply):
-        raise UnsupportedModelError("completion-pulse options require E36312A")
+    _validate_completion_pulse_power_supply(power_supply)
     channel = _completion_pulse_channel(request, default_channel)
     if request.parameters.get("completion_pulse_mode", "auto") == "native":
         raise CoreValidationError(

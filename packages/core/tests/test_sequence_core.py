@@ -177,3 +177,24 @@ def test_sequence_cleanup_errors_do_not_replace_original_failure() -> None:
     assert data["failed_step"]["index"] == 1
     assert data["failed_step"]["message"] == "output on failed"
     assert data["cleanup"]["errors"] == [{"channel": 2, "message": "cleanup channel 2 failed"}]
+
+
+def test_sequence_trigger_pulse_dry_run_and_execution(monkeypatch) -> None:
+    doc = {
+        "version": 1,
+        "steps": [{"action": "trigger-pulse", "channel": 2, "pins": [1, 3], "polarity": "negative", "leave_trigger_configured": False}],
+    }
+    dry_run = run_sequence(request(doc, dry_run=True), opener=lambda *args, **kwargs: FakeSession())
+    assert dry_run["plan"]["steps"][0]["preview"]["commands"][-1] == "*TRG"
+
+    calls = []
+
+    def pulse(_power_supply, **kwargs):
+        calls.append(kwargs)
+        return {"completed": True, **kwargs}
+
+    monkeypatch.setattr("keysight_power_core.sequence.run_post_action_completion_pulse", pulse)
+    data = run_sequence(request(doc), opener=lambda *args, **kwargs: FakeSession())
+
+    assert data["status"] == "completed"
+    assert calls == [{"channel": 2, "pins": (1, 3), "polarity": "negative", "leave_configured": False}]

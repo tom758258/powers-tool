@@ -18,6 +18,7 @@ from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
 from keysight_power_core.operations import ScpiLoggingSession, ramp_voltages
 from keysight_power_core.safety import SafetyConfigError, SafetyValidationError, resolve_safety_config, validate_setpoint
+from keysight_power_core.trigger import run_post_action_completion_pulse
 
 RAMP_LIST_KIND = "keysight-power-ramp-list"
 RAMP_LIST_VERSION = 1
@@ -110,7 +111,7 @@ def ramp_list_plan(request: OperationRequest, document: dict[str, Any]) -> dict[
         raise CoreValidationError(f"ramp-list kind must be {RAMP_LIST_KIND!r}")
     if isinstance(document.get("version"), bool) or document.get("version") != RAMP_LIST_VERSION:
         raise CoreValidationError(f"unsupported ramp-list version: {document.get('version')!r}")
-    unknown = sorted(set(document) - {"kind", "version", "segments"})
+    unknown = sorted(set(document) - {"kind", "version", "completion_pulse", "segments"})
     if unknown:
         raise CoreValidationError(f"unsupported ramp-list field(s): {', '.join(unknown)}")
     raw_segments = document.get("segments")
@@ -123,6 +124,13 @@ def ramp_list_plan(request: OperationRequest, document: dict[str, Any]) -> dict[
         normalize_ramp_segment(request, index, raw_segment)
         for index, raw_segment in enumerate(raw_segments, start=1)
     ]
+    completion_pulse = normalize_completion_pulse(document.get("completion_pulse"))
+    if completion_pulse and completion_pulse["timing"] == "step":
+        invalid = [segment["index"] for segment in segments if segment["delay_ms"] <= 5000]
+        if invalid:
+            raise CoreValidationError(
+                f"ramp-list step completion pulses require delay_ms greater than 5000 for every segment; invalid segment(s): {invalid}"
+            )
     return {
         "kind": RAMP_LIST_KIND,
         "version": RAMP_LIST_VERSION,
@@ -132,9 +140,32 @@ def ramp_list_plan(request: OperationRequest, document: dict[str, Any]) -> dict[
             "resource_alias": request.runtime.resource_alias,
         },
         "segment_count": len(segments),
+        "completion_pulse": completion_pulse,
         "segments": segments,
         "hardware_touched": False,
     }
+
+
+def normalize_completion_pulse(raw: Any) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise CoreValidationError("ramp-list completion_pulse must be a JSON object")
+    unknown = sorted(set(raw) - {"timing", "pins", "polarity"})
+    if unknown:
+        raise CoreValidationError(f"ramp-list completion_pulse has unsupported field(s): {', '.join(unknown)}")
+    timing = raw.get("timing", "segment")
+    polarity = raw.get("polarity", "positive")
+    pins = raw.get("pins")
+    if timing not in {"segment", "step"}:
+        raise CoreValidationError("ramp-list completion_pulse timing must be segment or step")
+    if polarity not in {"positive", "negative"}:
+        raise CoreValidationError("ramp-list completion_pulse polarity must be positive or negative")
+    if not isinstance(pins, list) or not pins or any(isinstance(pin, bool) or not isinstance(pin, int) or pin not in {1, 2, 3} for pin in pins):
+        raise CoreValidationError("ramp-list completion_pulse pins must be a non-empty list containing rear pins 1, 2, or 3")
+    if len(set(pins)) != len(pins):
+        raise CoreValidationError("ramp-list completion_pulse pins must not contain duplicates")
+    return {"timing": timing, "pins": list(pins), "polarity": polarity}
 
 
 def normalize_ramp_segment(request: OperationRequest, index: int, raw_segment: Any) -> dict[str, Any]:
@@ -223,6 +254,8 @@ def execute_ramp_list(
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
             _validate_plan_for_power_supply(request, plan, power_supply, idn_raw)
+            if plan.get("completion_pulse") and not isinstance(power_supply, E36312APowerSupply):
+                raise CoreValidationError("ramp-list completion pulses are only supported for E36312A")
             for segment in plan["segments"]:
                 try:
                     raise_if_cancelled(stop_requested)
@@ -230,6 +263,7 @@ def execute_ramp_list(
                         execute_ramp_segment(
                             power_supply,
                             segment,
+                            completion_pulse=plan.get("completion_pulse"),
                             sleep=sleep,
                             stop_requested=stop_requested,
                         )
@@ -282,22 +316,40 @@ def execute_ramp_segment(
     power_supply: Any,
     segment: dict[str, Any],
     *,
+    completion_pulse: dict[str, Any] | None,
     sleep: Callable[[float], None],
     stop_requested: Callable[[], bool] | None,
 ) -> dict[str, Any]:
     channel = segment["channel"]
+    triggers: list[dict[str, Any]] = []
+    trigger: dict[str, Any] | None = None
     power_supply.set_current_limit(channel=channel, current=segment["current"])
     for voltage_index, voltage in enumerate(segment["voltages"]):
         raise_if_cancelled(stop_requested)
         power_supply.set_voltage(channel=channel, voltage=voltage)
+        if completion_pulse and completion_pulse["timing"] == "step":
+            pulse = run_post_action_completion_pulse(
+                power_supply,
+                channel=channel,
+                pins=completion_pulse["pins"],
+                polarity=completion_pulse["polarity"],
+            )
+            triggers.append({"step_index": voltage_index, "voltage": voltage, "trigger": pulse})
         if segment["delay_ms"] > 0 and voltage_index < len(segment["voltages"]) - 1:
             interruptible_sleep(segment["delay_ms"] / 1000, sleep=sleep, stop_requested=stop_requested)
     if segment["hold_ms"] > 0:
         interruptible_sleep(segment["hold_ms"] / 1000, sleep=sleep, stop_requested=stop_requested)
+    if completion_pulse and completion_pulse["timing"] == "segment":
+        trigger = run_post_action_completion_pulse(
+            power_supply,
+            channel=channel,
+            pins=completion_pulse["pins"],
+            polarity=completion_pulse["polarity"],
+        )
     errors, _read_count = power_supply.read_error_queue(20)
     if errors:
         raise ValueError(f"instrument errors: {errors}")
-    return {
+    result = {
         "index": segment["index"],
         "channel": channel,
         "current": segment["current"],
@@ -308,6 +360,11 @@ def execute_ramp_segment(
         "hold_ms": segment["hold_ms"],
         "status": "completed",
     }
+    if trigger is not None:
+        result["trigger"] = trigger
+    if triggers:
+        result["triggers"] = triggers
+    return result
 
 
 def _validate_plan_for_power_supply(

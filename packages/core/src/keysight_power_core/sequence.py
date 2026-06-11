@@ -15,6 +15,7 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.safety import SafetyConfigError, SafetyLimits, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
+from keysight_power_core.trigger import run_post_action_completion_pulse, trigger_pulse_scpi
 
 IDN_QUERY = "*IDN?"
 OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
@@ -30,8 +31,9 @@ SEQUENCE_ACTIONS = {
     "output-off",
     "cycle-output",
     "apply",
+    "trigger-pulse",
 }
-SEQUENCE_OUTPUT_ACTIONS = {"safe-off", "set", "output-on", "output-off", "cycle-output", "apply"}
+SEQUENCE_OUTPUT_ACTIONS = {"safe-off", "set", "output-on", "output-off", "cycle-output", "apply", "trigger-pulse"}
 
 
 def run_sequence(
@@ -201,6 +203,10 @@ def sequence_step_preview(step: dict[str, Any]) -> dict[str, Any] | None:
     if action == "safe-off":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
         return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]}
+    if action == "trigger-pulse":
+        channel = sequence_channel(parameters.get("channel", 1))
+        pins = sequence_pulse_pins(parameters.get("pins"))
+        return {"commands": list(trigger_pulse_scpi(pins, parameters.get("polarity", "positive"), channel))}
     return None
 
 
@@ -227,6 +233,13 @@ def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> No
     parameters = step["parameters"]
     if action in {"measure", "readback", "output-state", "safe-off", "output-on", "output-off", "cycle-output"}:
         sequence_channel(parameters.get("channel", 1), allow_all=(action in {"safe-off", "output-state", "output-on", "output-off", "cycle-output"}))
+    if action == "trigger-pulse":
+        sequence_channel(parameters.get("channel", 1))
+        sequence_pulse_pins(parameters.get("pins"))
+        if parameters.get("polarity", "positive") not in {"positive", "negative"}:
+            raise CoreValidationError("trigger-pulse polarity must be positive or negative")
+        if not isinstance(parameters.get("leave_trigger_configured", False), bool):
+            raise CoreValidationError("trigger-pulse leave_trigger_configured must be boolean")
     if action == "wait":
         seconds = float(parameters.get("seconds", parameters.get("duration_sec", 0)))
         if seconds < 0:
@@ -393,6 +406,18 @@ def execute_sequence_step(
         seconds = float(parameters.get("seconds", parameters.get("duration_sec", 0)))
         interruptible_sleep(seconds, sleep=sleep, stop_requested=stop_requested)
         return {"index": step["index"], "action": action, "seconds": seconds}
+    if action == "trigger-pulse":
+        if not isinstance(power_supply, E36312APowerSupply):
+            raise CoreValidationError("sequence trigger-pulse is only supported for E36312A")
+        channel = sequence_channel(parameters.get("channel", 1))
+        trigger = run_post_action_completion_pulse(
+            power_supply,
+            channel=channel,
+            pins=sequence_pulse_pins(parameters.get("pins")),
+            polarity=parameters.get("polarity", "positive"),
+            leave_configured=parameters.get("leave_trigger_configured", False),
+        )
+        return {"index": step["index"], "action": action, "channel": channel, "trigger": trigger}
     if action == "safe-off":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
         for selected_channel in sequence_channels(channel, power_supply.capabilities.channels):
@@ -462,6 +487,17 @@ def sequence_channel(value: Any, *, allow_all: bool = False) -> int | str:
     if channel < 1:
         raise CoreValidationError("sequence channel must be a positive integer")
     return channel
+
+
+def sequence_pulse_pins(value: Any) -> tuple[int, ...]:
+    if not isinstance(value, (list, tuple)) or not value:
+        raise CoreValidationError("sequence trigger-pulse pins must be a non-empty list")
+    if any(isinstance(pin, bool) or not isinstance(pin, int) or pin not in {1, 2, 3} for pin in value):
+        raise CoreValidationError("sequence trigger-pulse pins must contain rear pins 1, 2, or 3")
+    pins = tuple(value)
+    if len(set(pins)) != len(pins):
+        raise CoreValidationError("sequence trigger-pulse pins must not contain duplicates")
+    return pins
 
 
 def sequence_channels(channel: int | str, supported_channels: tuple[int, ...]) -> tuple[int, ...]:
