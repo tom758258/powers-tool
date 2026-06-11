@@ -469,6 +469,22 @@ def test_static_command_display_names_filter_and_sort_by_human_label():
     assert 'name.replace(/-/g, " ")' in display_name
 
 
+def test_static_command_select_options_use_human_labels_and_machine_values():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    render_form = extract_js_function(app_js, "renderForm")
+    render_restore = extract_js_function(app_js, "renderRestoreForm")
+    display_name = extract_js_function(app_js, "optionDisplayName")
+
+    assert "item.value = option;" in render_form
+    assert "item.textContent = optionDisplayName(option);" in render_form
+    assert "opt.value = ch;" in render_restore
+    assert "opt.textContent = optionDisplayName(ch);" in render_restore
+    assert 'if (value === "") return "None";' in display_name
+    assert '"cc-transition": "CC transition"' in display_name
+    assert 'value.replace(/-/g, " ")' in display_name
+
+
 def test_static_commands_disable_by_selected_resource_model():
     _index_html, app_js, _styles_css = read_static_texts()
 

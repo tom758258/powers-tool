@@ -293,7 +293,7 @@ function renderForm(command) {
       param.options.forEach((option) => {
         const item = document.createElement("option");
         item.value = option;
-        item.textContent = option || "none";
+        item.textContent = optionDisplayName(option);
         input.appendChild(item);
       });
     } else if (param.type === "textarea") {
@@ -798,7 +798,7 @@ function renderRestoreForm(form) {
   ["all", "1", "2", "3"].forEach((ch) => {
     const opt = document.createElement("option");
     opt.value = ch;
-    opt.textContent = ch;
+    opt.textContent = optionDisplayName(ch);
     channelSelect.appendChild(opt);
   });
   channelSelect.value = state.restoreChannel;
@@ -1459,6 +1459,16 @@ function commandDisplayName(name) {
   };
   if (overrides[name]) return overrides[name];
   const spaced = name.replace(/-/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function optionDisplayName(value) {
+  const overrides = {
+    "cc-transition": "CC transition"
+  };
+  if (value === "") return "None";
+  if (overrides[value]) return overrides[value];
+  const spaced = value.replace(/-/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
