@@ -275,6 +275,23 @@ button.icon-button {
   font-weight: 400;
   line-height: 1.4;
 }
+.command-notes {
+  grid-column: 1 / -1;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+.command-notes > strong { display: block; margin-bottom: 6px; }
+.command-notes p { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.command-notes dl {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) 1fr;
+  gap: 6px 12px;
+  margin: 10px 0 0;
+}
+.command-notes dt { font-weight: 600; overflow-wrap: anywhere; }
+.command-notes dd { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
 .ramp-list-editor {
   grid-column: 1 / -1;
   display: grid;
@@ -341,6 +358,8 @@ button.icon-button {
   grid-template-columns: repeat(4, minmax(120px, 1fr));
   gap: 10px;
 }
+.sequence-step-fields .checkbox-field { flex-wrap: wrap; }
+.sequence-step-fields .checkbox-field .field-description { flex-basis: 100%; }
 .sequence-step-error { color: #c62828; }
 .confirm-banner {
   display: none;
@@ -571,6 +590,8 @@ pre {
     overflow: visible;
   }
   .workspace-summary-content { grid-template-columns: 1fr; }
+  .command-notes dl { grid-template-columns: 1fr; gap: 3px; }
+  .command-notes dd + dt { margin-top: 5px; }
   .command-title-group {
     flex-wrap: wrap;
   }

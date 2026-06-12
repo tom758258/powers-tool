@@ -563,6 +563,69 @@ def test_static_trigger_forms_have_advanced_parameters():
     assert_param_contract(app_js, "leave_trigger_configured", "checkbox")
 
 
+def test_static_trigger_forms_document_behavior_and_key_fields():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    summaries = {
+        "trigger-pulse": "Configures the selected rear pins as trigger outputs",
+        "trigger-status": "Read-only E36312A query",
+        "trigger-step": "Configures and arms a STEP transient",
+        "trigger-list": "Configures and arms a LIST waveform",
+        "trigger-fire": "Sends global *TRG to armed BUS triggers",
+        "trigger-abort": "Aborts Trigger/LIST execution",
+    }
+    blocks = {
+        "trigger-pulse": extract_param_block(app_js, "trigger-pulse"),
+        "trigger-status": extract_param_block(app_js, "trigger-status"),
+        "trigger-step": extract_js_function(app_js, "triggerStepParams"),
+        "trigger-list": extract_js_function(app_js, "triggerListParams"),
+        "trigger-fire": extract_param_block(app_js, "trigger-fire"),
+        "trigger-abort": extract_param_block(app_js, "trigger-abort"),
+    }
+    for command, summary in summaries.items():
+        assert summary in blocks[command]
+        assert "description:" in blocks[command]
+
+    for field in ("source", "fire", "wait_complete", "poll_ms", "wait_timeout_ms",
+                  "exclusive_pins", "leave_trigger_configured"):
+        field_start = app_js.index(f'name: "{field}"')
+        assert "description:" in app_js[field_start:field_start + 500]
+    for field in ("voltage_list", "current_list", "dwell_list", "count", "completion_pulse_pins"):
+        assert f'name: "{field}"' in blocks["trigger-list"]
+        field_start = blocks["trigger-list"].index(f'name: "{field}"')
+        assert "description:" in blocks["trigger-list"][field_start:field_start + 450]
+
+    assert "PIN and EXT sources are shown for compatibility but are not currently enabled" in app_js
+    assert "it does not limit the scope of *TRG" in blocks["trigger-fire"]
+    assert "It does not turn outputs off" in blocks["trigger-abort"]
+    assert "instrument error-queue entries" in blocks["trigger-abort"]
+
+    render_form = extract_js_function(app_js, "renderForm")
+    append_notes = extract_js_function(app_js, "appendCommandNotes")
+    assert "if (!TRIGGER_COMMANDS.has(command)) appendFieldDescription(label, param);" in render_form
+    assert "if (TRIGGER_COMMANDS.has(command)) appendCommandNotes(form, command, PARAMS[command] || []);" in render_form
+    assert 'notes.className = "command-notes";' in append_notes
+    assert 'title.textContent = "Command notes";' in append_notes
+    assert "summary.textContent = commandMeta(command).description || \"\";" in append_notes
+    assert "const descriptions = params.filter((param) => param.description);" in append_notes
+    assert "term.textContent = param.label;" in append_notes
+    assert "detail.textContent = param.description;" in append_notes
+    assert ".command-notes {" in styles_css
+    assert "grid-column: 1 / -1;" in styles_css[styles_css.index(".command-notes {"):styles_css.index(".ramp-list-editor {")]
+
+
+def test_static_sequence_trigger_pulse_leave_configured_documents_pin_reset():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    definitions = extract_js_function(app_js, "sequenceActionDefinitions")
+    sequence_fields = extract_js_function(app_js, "sequenceStepFields")
+
+    assert 'name: "leave_trigger_configured"' in definitions
+    assert "Resets unselected rear pins before configuring the selected pulse pins." in definitions
+    assert "appendFieldDescription(label, definition);" in sequence_fields
+    assert ".sequence-step-fields .checkbox-field .field-description { flex-basis: 100%; }" in styles_css
+
+
 @pytest.fixture
 def client():
     from keysight_power_webui.app import app

@@ -52,6 +52,14 @@ const TRIP_WARNING_COMMANDS = new Set([
 ]);
 const REAR_PIN_OPTIONS = ["1", "2", "3", "1,2", "1,3", "2,3", "1,2,3"];
 const OPTIONAL_REAR_PIN_OPTIONS = ["", ...REAR_PIN_OPTIONS];
+const TRIGGER_COMMANDS = new Set([
+  "trigger-pulse",
+  "trigger-status",
+  "trigger-step",
+  "trigger-list",
+  "trigger-fire",
+  "trigger-abort"
+]);
 
 const PARAMS = {
   "list-resources": [{ name: "live_only", type: "checkbox", label: "Live only" }],
@@ -101,22 +109,22 @@ const PARAMS = {
   ],
   "clear-protection": [{ name: "channel", type: "select", label: "Channel", options: ["", "all", "1", "2", "3"], value: "" }],
   "trigger-pulse": [
-    { name: "pins", type: "select", label: "Rear pins", options: REAR_PIN_OPTIONS, value: "1", parser: "intList" },
+    { name: "pins", type: "select", label: "Rear pins", options: REAR_PIN_OPTIONS, value: "1", parser: "intList", description: "E36312A only. Configures the selected rear pins as trigger outputs, keeps the current programmed setpoint, and sends global *TRG. The pulse may also fire other armed BUS triggers." },
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
     { name: "polarity", type: "select", label: "Polarity", options: ["positive", "negative"], value: "positive" },
-    { name: "exclusive_pins", type: "checkbox", label: "Exclusive pins" }
+    { name: "exclusive_pins", type: "checkbox", label: "Exclusive pins", description: "Resets unselected rear pins before configuring the selected pulse pins." }
   ],
-  "trigger-status": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
+  "trigger-status": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all", description: "Read-only E36312A query of rear pins, trigger source, and STEP/LIST state. It does not modify instrument settings." }],
   "trigger-step": triggerStepParams(),
   "trigger-list": triggerListParams(),
   "trigger-fire": [
-    { name: "channel", type: "select", label: "Channel", options: ["", "1", "2", "3"], value: "", optional: true },
-    { name: "wait_complete", type: "checkbox", label: "Wait complete" },
+    { name: "channel", type: "select", label: "Channel", options: ["", "1", "2", "3"], value: "", optional: true, description: "E36312A only. Sends global *TRG to armed BUS triggers. The optional channel selects which channel to wait for; it does not limit the scope of *TRG." },
+    { name: "wait_complete", type: "checkbox", label: "Wait complete", description: "Polls the selected channel until its trigger execution completes. Requires a channel." },
     ...triggerWaitParams()
   ],
   "trigger-abort": [
-    { name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" },
-    { name: "max_errors", type: "number", label: "Max errors", value: 20 }
+    { name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all", description: "E36312A only. Aborts Trigger/LIST execution for the selected channel or all channels. It does not turn outputs off." },
+    { name: "max_errors", type: "number", label: "Max errors", value: 20, description: "Limits how many instrument error-queue entries are read after aborting." }
   ],
   identify: [],
   snapshot: [{
@@ -166,39 +174,53 @@ function defaultRampSegment() {
 
 function triggerStepParams() {
   return [
-    { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
+    {
+      name: "channel",
+      type: "select",
+      label: "Channel",
+      options: ["1", "2", "3"],
+      value: "1",
+      description: "E36312A only. Configures and arms a STEP transient. It does not fire by default; omitted voltage or current values keep the current programmed setpoint."
+    },
     { name: "voltage", type: "number", label: "Triggered voltage(V)", optional: true },
     { name: "current", type: "number", label: "Triggered current(A)", optional: true },
-    { name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus" },
-    { name: "fire", type: "checkbox", label: "Fire now" },
-    { name: "wait_complete", type: "checkbox", label: "Wait complete" },
+    { name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus", description: "Selects the trigger source. PIN and EXT sources are shown for compatibility but are not currently enabled." },
+    { name: "fire", type: "checkbox", label: "Fire now", description: "After arming, sends global *TRG for BUS source. This may also fire other armed BUS triggers." },
+    { name: "wait_complete", type: "checkbox", label: "Wait complete", description: "Polls the selected channel until its trigger execution completes." },
     ...triggerWaitParams(),
-    { name: "leave_trigger_configured", type: "checkbox", label: "Leave configured" }
+    { name: "leave_trigger_configured", type: "checkbox", label: "Leave configured", description: "Keeps the configured trigger source and transient mode instead of restoring them after execution." }
   ];
 }
 
 function triggerListParams() {
   return [
-    { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
-    { name: "voltage_list", type: "text", label: "Voltage list(V)", value: "0,1", parser: "numberList" },
-    { name: "current_list", type: "text", label: "Current list(A)", value: "0.05", parser: "numberList" },
-    { name: "dwell_list", type: "text", label: "Dwell list(s)", value: "0.01", parser: "numberList" },
-    { name: "count", type: "number", label: "Count", value: 1 },
-    { name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus" },
-    { name: "fire", type: "checkbox", label: "Fire now" },
-    { name: "wait_complete", type: "checkbox", label: "Wait complete" },
-    { name: "completion_pulse_pins", type: "select", label: "Pulse pins", options: OPTIONAL_REAR_PIN_OPTIONS, value: "", optional: true, parser: "intList" },
+    {
+      name: "channel",
+      type: "select",
+      label: "Channel",
+      options: ["1", "2", "3"],
+      value: "1",
+      description: "E36312A only. Configures and arms a LIST waveform. It does not fire by default; one current or dwell value can be applied to every voltage step."
+    },
+    { name: "voltage_list", type: "text", label: "Voltage list(V)", value: "0,1", parser: "numberList", description: "Comma-separated voltage steps." },
+    { name: "current_list", type: "text", label: "Current list(A)", value: "0.05", parser: "numberList", description: "Comma-separated current limits. A single value applies to every voltage step." },
+    { name: "dwell_list", type: "text", label: "Dwell list(s)", value: "0.01", parser: "numberList", description: "Comma-separated dwell times. A single value applies to every voltage step." },
+    { name: "count", type: "number", label: "Count", value: 1, description: "Number of times to repeat the complete LIST waveform." },
+    { name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus", description: "Selects the trigger source. PIN and EXT sources are shown for compatibility but are not currently enabled." },
+    { name: "fire", type: "checkbox", label: "Fire now", description: "After arming, sends global *TRG for BUS source. This may also fire other armed BUS triggers." },
+    { name: "wait_complete", type: "checkbox", label: "Wait complete", description: "Polls the selected channel until LIST execution completes." },
+    { name: "completion_pulse_pins", type: "select", label: "Pulse pins", options: OPTIONAL_REAR_PIN_OPTIONS, value: "", optional: true, parser: "intList", description: "Optionally emits a completion pulse on the selected rear pins after LIST execution finishes." },
     { name: "completion_pulse_polarity", type: "select", label: "Pulse polarity", options: ["positive", "negative"], value: "positive" },
-    { name: "exclusive_pins", type: "checkbox", label: "Exclusive pins" },
+    { name: "exclusive_pins", type: "checkbox", label: "Exclusive pins", description: "Resets unselected rear pins before configuring completion-pulse pins." },
     ...triggerWaitParams(),
-    { name: "leave_trigger_configured", type: "checkbox", label: "Leave configured" }
+    { name: "leave_trigger_configured", type: "checkbox", label: "Leave configured", description: "Keeps the configured trigger source and LIST mode instead of restoring them after execution." }
   ];
 }
 
 function triggerWaitParams() {
   return [
-    { name: "poll_ms", type: "number", label: "Poll(ms)", value: 200 },
-    { name: "wait_timeout_ms", type: "number", label: "Timeout(ms)", optional: true }
+    { name: "poll_ms", type: "number", label: "Poll(ms)", value: 200, description: "Interval between completion-status polls when waiting." },
+    { name: "wait_timeout_ms", type: "number", label: "Timeout(ms)", optional: true, description: "Optional maximum wait time; leave blank to use the command default." }
   ];
 }
 
@@ -351,9 +373,10 @@ function renderForm(command) {
       updateSelectedCommandState();
     });
     label.appendChild(input);
-    appendFieldDescription(label, param);
+    if (!TRIGGER_COMMANDS.has(command)) appendFieldDescription(label, param);
     form.appendChild(label);
   });
+  if (TRIGGER_COMMANDS.has(command)) appendCommandNotes(form, command, PARAMS[command] || []);
   updatePulseChildVisibility(command);
 }
 
@@ -374,6 +397,32 @@ function appendFieldDescription(label, param) {
   description.className = "field-description";
   description.textContent = param.description;
   label.appendChild(description);
+}
+
+function appendCommandNotes(form, command, params) {
+  const notes = document.createElement("section");
+  notes.className = "command-notes";
+  const title = document.createElement("strong");
+  title.textContent = "Command notes";
+  notes.appendChild(title);
+
+  const summary = document.createElement("p");
+  summary.textContent = commandMeta(command).description || "";
+  notes.appendChild(summary);
+
+  const descriptions = params.filter((param) => param.description);
+  if (descriptions.length) {
+    const list = document.createElement("dl");
+    descriptions.forEach((param) => {
+      const term = document.createElement("dt");
+      term.textContent = param.label;
+      const detail = document.createElement("dd");
+      detail.textContent = param.description;
+      list.append(term, detail);
+    });
+    notes.appendChild(list);
+  }
+  form.appendChild(notes);
 }
 
 function renderRampListForm(form) {
@@ -1220,7 +1269,7 @@ function sequenceActionDefinitions(action) {
     "output-off": [channel(true)],
     "cycle-output": [channel(true), { name: "duration_ms", label: "Duration(ms)", type: "number", value: 500 }],
     apply: [channel(true), { name: "voltage", label: "Voltage(V)", type: "number", value: 0 }, { name: "current", label: "Current(A)", type: "number", value: 0 }, { name: "no_output", label: "Do not enable output", type: "checkbox", value: false }],
-    "trigger-pulse": [channel(), { name: "pins", label: "Rear pins", type: "select", options: REAR_PIN_OPTIONS, value: [1] }, { name: "polarity", label: "Polarity", type: "select", options: ["positive", "negative"], value: "positive" }, { name: "leave_trigger_configured", label: "Leave configured", type: "checkbox", value: false }]
+    "trigger-pulse": [channel(), { name: "pins", label: "Rear pins", type: "select", options: REAR_PIN_OPTIONS, value: [1] }, { name: "polarity", label: "Polarity", type: "select", options: ["positive", "negative"], value: "positive" }, { name: "leave_trigger_configured", label: "Leave configured", type: "checkbox", value: false, description: "Resets unselected rear pins before configuring the selected pulse pins." }]
   }[action] || [];
 }
 
@@ -1339,6 +1388,7 @@ function sequenceStepFields(step, index, card, title, summary) {
       updateSelectedCommandState();
     });
     label.appendChild(input);
+    appendFieldDescription(label, definition);
     fields.appendChild(label);
   });
   return fields;
