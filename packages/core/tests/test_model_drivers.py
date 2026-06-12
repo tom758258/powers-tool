@@ -157,8 +157,7 @@ def test_e36312a_driver_configures_native_list_with_trigger_outputs() -> None:
         step_mode="AUTO",
         terminate_last=True,
     )
-    power_supply.set_current_trigger_mode(channel=1, mode="LIST")
-    power_supply.set_voltage_trigger_mode(channel=1, mode="LIST")
+    power_supply.set_trigger_modes(channel=1, current_mode="LIST", voltage_mode="LIST")
     power_supply.set_output_trigger_source(channel=1, source="BUS")
     power_supply.initiate_output_trigger(1)
     power_supply.fire_bus_trigger()
@@ -172,6 +171,8 @@ def test_e36312a_driver_configures_native_list_with_trigger_outputs() -> None:
         "LIST:COUN 1,(@1)",
         "LIST:STEP AUTO,(@1)",
         "LIST:TERM:LAST ON,(@1)",
+        "CURR:MODE FIX,(@1)",
+        "VOLT:MODE FIX,(@1)",
         "CURR:MODE LIST,(@1)",
         "VOLT:MODE LIST,(@1)",
         "TRIG:SOUR BUS,(@1)",
@@ -223,5 +224,19 @@ def test_e36312a_restore_trigger_snapshot_accepts_fixed_modes() -> None:
 
     power_supply.restore_trigger_snapshot(snapshot)
 
-    assert "CURR:MODE FIX,(@1)" in session.commands
-    assert "VOLT:MODE FIX,(@1)" in session.commands
+    assert session.commands.count("CURR:MODE FIX,(@1)") == 1
+    assert session.commands.count("VOLT:MODE FIX,(@1)") == 1
+
+
+def test_e36312a_trigger_mode_switch_always_passes_through_fix() -> None:
+    session = FakeSession()
+    power_supply = E36312APowerSupply(session)
+
+    power_supply.set_trigger_modes(channel=1, current_mode="STEP", voltage_mode="LIST")
+
+    assert session.commands == [
+        "CURR:MODE FIX,(@1)",
+        "VOLT:MODE FIX,(@1)",
+        "CURR:MODE STEP,(@1)",
+        "VOLT:MODE LIST,(@1)",
+    ]

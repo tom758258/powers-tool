@@ -36,6 +36,7 @@ def run_trigger(
 ) -> dict[str, Any]:
     """Run a trigger command or return a dry-run trigger plan."""
 
+    validate_trigger_request(request)
     if request.runtime.dry_run:
         return {"plan": trigger_plan(request)}
 
@@ -55,6 +56,39 @@ def run_trigger(
         return _run_trigger_abort(request, opener=opener, scpi_logger=scpi_logger)
 
     raise CoreValidationError(f"unsupported trigger command {request.command!r}")
+
+
+def validate_trigger_request(request: TriggerRequest) -> None:
+    """Reject trigger controls that cannot complete or restore safely."""
+
+    if request.command == "trigger-fire":
+        if request.parameters.get("wait_complete", False) and request.parameters.get("channel") is None:
+            raise CoreValidationError(
+                "trigger-fire wait_complete requires channel as the abort target "
+                "if the wait times out or is interrupted"
+            )
+        return
+    if request.command not in {"trigger-step", "trigger-list"}:
+        return
+    source = str(request.parameters.get("source", "bus")).strip().lower()
+    fire = request.parameters.get("fire", False) is True
+    wait_complete = request.parameters.get("wait_complete", False) is True
+    leave_configured = request.parameters.get("leave_trigger_configured", False) is True
+    immediate = source in {"immediate", "imm"}
+    if immediate and fire:
+        raise CoreValidationError(f"{request.command} source=immediate does not accept fire=true; INIT starts it immediately")
+    if source == "bus" and wait_complete and not fire:
+        raise CoreValidationError(f"{request.command} wait_complete=true with BUS source requires fire=true")
+    if request.command == "trigger-list":
+        started = immediate or (source == "bus" and fire)
+        if not started and not leave_configured:
+            raise CoreValidationError("trigger-list arm-only requires leave_trigger_configured=true")
+        if started and not wait_complete and not leave_configured:
+            raise CoreValidationError(
+                "trigger-list started without wait_complete=true requires leave_trigger_configured=true"
+            )
+        if any(field in request.parameters for field in ("voltages", "voltage_list", "bost_list", "eost_list", "trigger_output_pins")):
+            trigger_list_config(request.parameters)
 
 
 def trigger_plan(request: TriggerRequest) -> dict[str, object]:
@@ -162,8 +196,7 @@ def run_post_action_completion_pulse(
         configure_completion_output_pins(power_supply, selected_pins, polarity)
         power_supply.set_triggered_current(channel=channel, current=current)
         power_supply.set_triggered_voltage(channel=channel, voltage=voltage)
-        power_supply.set_current_trigger_mode_step(channel)
-        power_supply.set_voltage_trigger_mode_step(channel)
+        power_supply.set_trigger_modes(channel=channel, current_mode="STEP", voltage_mode="STEP")
         power_supply.configure_output_trigger_source_bus(channel)
         power_supply.initiate_output_trigger(channel)
         power_supply.fire_bus_trigger()
@@ -214,7 +247,7 @@ def trigger_result_payload(
     *,
     mode: str,
     native: bool,
-    channel: int,
+    channel: int | None,
     pins: tuple[int, ...] = (),
     polarity: str = "positive",
     source: str = "bus",
@@ -276,6 +309,8 @@ def trigger_pulse_scpi(
         "DIG:TOUT:BUS ON",
         f"CURR:TRIG <current-readback>,(@{channel})",
         f"VOLT:TRIG <voltage-readback>,(@{channel})",
+        f"CURR:MODE FIX,(@{channel})",
+        f"VOLT:MODE FIX,(@{channel})",
         f"CURR:MODE STEP,(@{channel})",
         f"VOLT:MODE STEP,(@{channel})",
         f"TRIG:SOUR BUS,(@{channel})",
@@ -308,6 +343,8 @@ def trigger_step_scpi(
         [
             f"CURR:TRIG {current_text},(@{channel})",
             f"VOLT:TRIG {voltage_text},(@{channel})",
+            f"CURR:MODE FIX,(@{channel})",
+            f"VOLT:MODE FIX,(@{channel})",
             f"CURR:MODE STEP,(@{channel})",
             f"VOLT:MODE STEP,(@{channel})",
             f"TRIG:SOUR {trigger_source_scpi(source)},(@{channel})",
@@ -330,6 +367,8 @@ def trigger_list_scpi(
     pins: tuple[int, ...] = (),
     polarity: str = "positive",
     final_eost_pulse: bool = False,
+    begin_outputs: tuple[bool, ...] | None = None,
+    end_outputs: tuple[bool, ...] | None = None,
     exclusive_pins: bool = False,
     fire: bool = False,
     count: int = 1,
@@ -347,8 +386,10 @@ def trigger_list_scpi(
         commands.append(f"DIG:PIN{pin}:POL {polarity_command}")
     if pins:
         commands.append("DIG:TOUT:BUS ON")
-    begin_outputs = tuple(False for _ in voltages)
-    end_outputs = tuple(index == len(voltages) - 1 and final_eost_pulse for index, _ in enumerate(voltages))
+    begin_outputs = begin_outputs if begin_outputs is not None else tuple(False for _ in voltages)
+    end_outputs = end_outputs if end_outputs is not None else tuple(
+        index == len(voltages) - 1 and final_eost_pulse for index, _ in enumerate(voltages)
+    )
     commands.extend(
         [
             f"LIST:VOLT {_number_csv(voltages)},(@{channel})",
@@ -359,6 +400,8 @@ def trigger_list_scpi(
             f"LIST:COUN {count},(@{channel})",
             f"LIST:STEP AUTO,(@{channel})",
             f"LIST:TERM:LAST ON,(@{channel})",
+            f"CURR:MODE FIX,(@{channel})",
+            f"VOLT:MODE FIX,(@{channel})",
             f"CURR:MODE LIST,(@{channel})",
             f"VOLT:MODE LIST,(@{channel})",
             f"TRIG:SOUR {trigger_source_scpi(source)},(@{channel})",
@@ -388,7 +431,39 @@ def trigger_list_config(parameters: dict[str, Any]) -> dict[str, Any]:
         currents = tuple(currents[0] for _ in voltages)
     if len(dwell) == 1 and len(voltages) > 1:
         dwell = tuple(dwell[0] for _ in voltages)
-    pins = tuple(parameters.get("completion_pulse_pins") or parameters.get("pins") or ())
+    canonical_fields = {"bost_list", "eost_list", "trigger_output_pins", "trigger_output_polarity"}
+    legacy_fields = {"completion_pulse_pins", "completion_pulse_polarity"}
+    if canonical_fields.intersection(parameters) and legacy_fields.intersection(parameters):
+        raise CoreValidationError(
+            "trigger-list completion_pulse_* fields cannot be mixed with "
+            "bost_list, eost_list, or trigger_output_* fields"
+        )
+    canonical = bool(canonical_fields.intersection(parameters))
+    begin_outputs = _bool_tuple(parameters.get("bost_list")) if canonical else None
+    end_outputs = _bool_tuple(parameters.get("eost_list")) if canonical else None
+    if canonical:
+        begin_outputs = begin_outputs if begin_outputs is not None else tuple(False for _ in voltages)
+        end_outputs = end_outputs if end_outputs is not None else tuple(False for _ in voltages)
+        pins = tuple(parameters.get("trigger_output_pins") or ())
+        polarity = str(parameters.get("trigger_output_polarity", "positive"))
+    else:
+        pins = tuple(parameters.get("completion_pulse_pins") or parameters.get("pins") or ())
+        polarity = str(parameters.get("completion_pulse_polarity", parameters.get("polarity", "positive")))
+        begin_outputs = tuple(False for _ in voltages)
+        end_outputs = tuple(index == len(voltages) - 1 and bool(pins) for index, _ in enumerate(voltages))
+    if len(begin_outputs) != len(voltages):
+        raise CoreValidationError("BOST list length must match voltage list length")
+    if len(end_outputs) != len(voltages):
+        raise CoreValidationError("EOST list length must match voltage list length")
+    if any(begin_outputs) or any(end_outputs):
+        if not pins:
+            raise CoreValidationError("trigger-list BOST/EOST pulses require explicit trigger_output_pins")
+    if any(not isinstance(pin, int) or isinstance(pin, bool) or pin not in {1, 2, 3} for pin in pins):
+        raise CoreValidationError("trigger-list output pins must contain only rear pins 1, 2, or 3")
+    if len(set(pins)) != len(pins):
+        raise CoreValidationError("trigger-list output pins must not contain duplicates")
+    if polarity not in {"positive", "negative"}:
+        raise CoreValidationError("trigger-list output polarity must be positive or negative")
     return {
         "channel": int(channel),
         "source": str(parameters.get("source", "bus")).lower(),
@@ -396,8 +471,10 @@ def trigger_list_config(parameters: dict[str, Any]) -> dict[str, Any]:
         "currents": currents,
         "dwell": dwell,
         "pins": pins,
-        "polarity": str(parameters.get("completion_pulse_polarity", parameters.get("polarity", "positive"))),
-        "final_eost_pulse": bool(pins),
+        "polarity": polarity,
+        "final_eost_pulse": False,
+        "begin_outputs": begin_outputs,
+        "end_outputs": end_outputs,
         "count": int(parameters.get("count", 1)),
     }
 
@@ -526,8 +603,7 @@ def _run_trigger_pulse(
             )
             power_supply.set_triggered_current(channel=channel, current=current)
             power_supply.set_triggered_voltage(channel=channel, voltage=voltage)
-            power_supply.set_current_trigger_mode_step(channel)
-            power_supply.set_voltage_trigger_mode_step(channel)
+            power_supply.set_trigger_modes(channel=channel, current_mode="STEP", voltage_mode="STEP")
             power_supply.configure_output_trigger_source_bus(channel)
             raise_if_cancelled(stop_requested)
             power_supply.trigger_pulse(channel=channel)
@@ -788,7 +864,7 @@ def _run_trigger_fire(
                 "trigger": trigger_result_payload(
                     mode="fire",
                     native=True,
-                    channel=int(p.get("channel") or 1),
+                    channel=int(p["channel"]) if p.get("channel") is not None else None,
                     armed=False,
                     fired=True,
                     completed=completed,
@@ -867,8 +943,7 @@ def _native_step(
         configure_completion_output_pins(power_supply, pins, polarity)
         power_supply.set_triggered_current(channel=channel, current=selected_current)
         power_supply.set_triggered_voltage(channel=channel, voltage=selected_voltage)
-        power_supply.set_current_trigger_mode_step(channel)
-        power_supply.set_voltage_trigger_mode_step(channel)
+        power_supply.set_trigger_modes(channel=channel, current_mode="STEP", voltage_mode="STEP")
         power_supply.set_output_trigger_source(channel=channel, source=trigger_source_scpi(source))
         power_supply.initiate_output_trigger(channel)
         fired = False
@@ -927,6 +1002,8 @@ def _native_list(
     fire: bool,
     wait_complete: bool,
     sleep: Callable[[float], None],
+    begin_outputs: tuple[bool, ...] | None = None,
+    end_outputs: tuple[bool, ...] | None = None,
     result_mode: str = "list",
     stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
@@ -944,8 +1021,10 @@ def _native_list(
         raise_if_cancelled(stop_requested)
         power_supply.abort_output_trigger(channel)
         configure_completion_output_pins(power_supply, pins, polarity, exclusive_pins=exclusive_pins)
-        begin_outputs = tuple(False for _ in voltages)
-        end_outputs = tuple(index == len(voltages) - 1 and final_eost_pulse for index, _ in enumerate(voltages))
+        begin_outputs = begin_outputs if begin_outputs is not None else tuple(False for _ in voltages)
+        end_outputs = end_outputs if end_outputs is not None else tuple(
+            index == len(voltages) - 1 and final_eost_pulse for index, _ in enumerate(voltages)
+        )
         power_supply.configure_list(
             channel=channel,
             voltages=voltages,
@@ -957,8 +1036,7 @@ def _native_list(
             step_mode="AUTO",
             terminate_last=True,
         )
-        power_supply.set_current_trigger_mode(channel=channel, mode="LIST")
-        power_supply.set_voltage_trigger_mode(channel=channel, mode="LIST")
+        power_supply.set_trigger_modes(channel=channel, current_mode="LIST", voltage_mode="LIST")
         power_supply.set_output_trigger_source(channel=channel, source=trigger_source_scpi(source))
         power_supply.initiate_output_trigger(channel)
         fired = False
@@ -1012,7 +1090,10 @@ def _trigger_power_supply(instrument: Any, *, simulate: bool, command: str) -> A
 def _raise_on_instrument_errors(power_supply: Any, command: str) -> None:
     errors, _read_count = _read_error_queue(power_supply, 20)
     if errors:
-        raise CoreExecutionError(f"{command} completed with instrument errors: {errors}")
+        hint = ""
+        if command == "trigger-fire" and any('-211,"Trigger ignored"' in error for error in errors):
+            hint = "; no armed BUS trigger may be available"
+        raise CoreExecutionError(f"{command} completed with instrument errors: {errors}{hint}")
 
 
 def _read_error_queue(power_supply: Any, max_errors: int) -> tuple[list[str], int]:
@@ -1060,3 +1141,12 @@ def _float_tuple(value: Any) -> tuple[float, ...] | None:
     if isinstance(value, list):
         return tuple(float(item) for item in value)
     return (float(value),)
+
+
+def _bool_tuple(value: Any) -> tuple[bool, ...] | None:
+    if value is None:
+        return None
+    values = value if isinstance(value, (list, tuple)) else (value,)
+    if any(not isinstance(item, bool) for item in values):
+        raise CoreValidationError("trigger-list BOST/EOST lists must contain only booleans")
+    return tuple(values)

@@ -12,10 +12,11 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from keysight_power_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, StopCleanupError
+from keysight_power_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, StopCleanupError, TriggerRequest
 from keysight_power_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
 from keysight_power_core.parameter_constraints import parameter_constraints_metadata, validate_request_parameters
 from keysight_power_core.sequence import load_sequence_document, sequence_plan
+from keysight_power_core.trigger import validate_trigger_request
 from keysight_power_core.workflow_validation import validate_general_workflow_parameters
 
 from .jobs import job_manager, JobStatus
@@ -162,9 +163,12 @@ async def create_job(request: Request):
     parameters = payload.get("parameters", {})
     artifacts = payload.get("artifacts")
     try:
-        validation_request = OperationRequest(command=command, parameters=parameters)
+        request_type = TriggerRequest if isinstance(command, str) and command.startswith("trigger-") else OperationRequest
+        validation_request = request_type(command=command, parameters=parameters)
         validate_general_workflow_parameters(validation_request)
         validate_request_parameters(validation_request)
+        if isinstance(validation_request, TriggerRequest):
+            validate_trigger_request(validation_request)
     except CoreValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if command == "sequence":

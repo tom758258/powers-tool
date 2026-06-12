@@ -168,6 +168,16 @@ def test_e36312a_simulator_tracks_trigger_list_state() -> None:
     assert session.query("LIST:TOUT:EOST? (@1)") == "0,1"
 
 
+def test_e36312a_simulator_accepts_fixed_trigger_modes() -> None:
+    session = SimulatedResourceManager().open_resource("USB0::SIM::E36312A::INSTR")
+
+    session.write("CURR:MODE FIX,(@1)")
+    session.write("VOLT:MODE FIX,(@1)")
+
+    assert session.query("CURR:MODE? (@1)") == "FIX"
+    assert session.query("VOLT:MODE? (@1)") == "FIX"
+
+
 def test_e36312a_simulator_supports_operation_complete_polling() -> None:
     session = SimulatedResourceManager().open_resource("USB0::SIM::E36312A::INSTR")
 

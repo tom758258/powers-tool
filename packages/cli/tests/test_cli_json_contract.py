@@ -158,6 +158,7 @@ def assert_contract_envelope(payload: dict[str, object], *, command: str, ok: bo
                 "1",
                 "--source",
                 "bus",
+                "--leave-trigger-configured",
             ],
         ),
         (

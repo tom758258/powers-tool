@@ -137,3 +137,6 @@ Selected data mappings:
   `completion_pulse_timing`. Removed Native LIST/trigger-wait options are
   argparse errors. Completion pulse results report `native: false`.
 - `restore-from-snapshot`: restored channels and restore plan.
+- `trigger-list`: selected channel, step count, completion state, and
+  `restored`; `restored: true` means the pre-run Trigger configuration and LIST
+  table were written back after completion.

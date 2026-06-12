@@ -727,6 +727,84 @@ def test_worker_rejects_invalid_static_parameter_before_enqueue():
     assert state.next_job is None
 
 
+def test_worker_rejects_arm_only_trigger_list_before_enqueue():
+    config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
+    state = WorkerState(config, 0)
+
+    status, payload = worker_mod._validate_command_body(
+        {"command": "trigger-list", "arguments": {"channel": 1, "source": "bus"}},
+        state,
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "argument_error"
+    assert "leave_trigger_configured=true" in payload["error"]["message"]
+    assert state.next_job is None
+
+
+@pytest.mark.parametrize(
+    ("command", "arguments", "message"),
+    [
+        ("trigger-step", {"source": "immediate", "fire": True}, "does not accept fire=true"),
+        ("trigger-list", {"source": "immediate", "fire": True}, "does not accept fire=true"),
+        ("trigger-step", {"source": "bus", "wait_complete": True}, "requires fire=true"),
+        ("trigger-list", {"source": "bus", "wait_complete": True}, "requires fire=true"),
+        ("trigger-list", {"source": "immediate"}, "started without wait_complete=true"),
+        ("trigger-list", {"source": "bus", "fire": True}, "started without wait_complete=true"),
+    ],
+)
+def test_worker_rejects_invalid_trigger_control_before_enqueue(command, arguments, message):
+    config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
+    state = WorkerState(config, 0)
+
+    status, payload = worker_mod._validate_command_body(
+        {"command": command, "arguments": {"channel": 1, **arguments}},
+        state,
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "argument_error"
+    assert message in payload["error"]["message"]
+    assert state.next_job is None
+
+
+def test_worker_rejects_trigger_fire_wait_without_abort_target_before_enqueue():
+    config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
+    state = WorkerState(config, 0)
+
+    status, payload = worker_mod._validate_command_body(
+        {"command": "trigger-fire", "arguments": {"wait_complete": True}},
+        state,
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "argument_error"
+    assert "abort target" in payload["error"]["message"]
+    assert state.next_job is None
+
+
+def test_worker_rejects_trigger_list_pulse_without_output_pins_before_enqueue():
+    config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
+    state = WorkerState(config, 0)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "command": "trigger-list",
+            "arguments": {
+                "channel": 1, "source": "immediate", "wait_complete": True,
+                "voltage_list": [0, 1], "current_list": [0.05, 0.05], "dwell_list": [0.01, 0.01],
+                "bost_list": [True, False], "eost_list": [False, False],
+            },
+        },
+        state,
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "argument_error"
+    assert "explicit trigger_output_pins" in payload["error"]["message"]
+    assert state.next_job is None
+
+
 def test_worker_ramp_list_rejects_invalid_document_before_enqueue():
     config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
     state = WorkerState(config, 0)

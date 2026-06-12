@@ -31,6 +31,7 @@ from keysight_power_core.core import (
 from keysight_power_core.command_runner import run_core_command
 from keysight_power_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
 from keysight_power_core.parameter_constraints import validate_request_parameters
+from keysight_power_core.trigger import validate_trigger_request
 from keysight_power_core.sequence import load_sequence_document, sequence_plan
 from keysight_power_core.stop_cleanup import StopCleanupResult
 from keysight_power_core.workflow_validation import validate_general_workflow_parameters
@@ -238,12 +239,15 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
         except (CoreValidationError, OSError, ValueError) as exc:
             return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": str(exc)})
     try:
-        validation_request = OperationRequest(
+        request_type = TriggerRequest if command.startswith("trigger-") else OperationRequest
+        validation_request = request_type(
             command=command,
             parameters={key: value for key, value in arguments.items() if key not in {"dry_run", "confirm_output"}},
         )
         validate_general_workflow_parameters(validation_request)
         validate_request_parameters(validation_request)
+        if isinstance(validation_request, TriggerRequest):
+            validate_trigger_request(validation_request)
     except CoreValidationError as exc:
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": str(exc)})
     if command == "restore-from-snapshot" and "snapshot" not in arguments and "document" not in arguments:

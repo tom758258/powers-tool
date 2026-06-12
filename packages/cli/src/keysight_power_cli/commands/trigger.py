@@ -128,6 +128,10 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     trigger_list_parser.add_argument("--voltage-list", type=runtime._float_list, help="Comma-separated voltage list.")
     trigger_list_parser.add_argument("--current-list", type=runtime._float_list, help="Comma-separated current list.")
     trigger_list_parser.add_argument("--dwell-list", type=runtime._float_list, help="Comma-separated dwell values in seconds.")
+    trigger_list_parser.add_argument("--bost-list", type=runtime._bool_list, help="Comma-separated per-step BOST booleans.")
+    trigger_list_parser.add_argument("--eost-list", type=runtime._bool_list, help="Comma-separated per-step EOST booleans.")
+    trigger_list_parser.add_argument("--trigger-output-pins", type=runtime._trigger_pins_list, help="Rear digital output pins used by BOST/EOST.")
+    trigger_list_parser.add_argument("--trigger-output-polarity", choices=("positive", "negative"), help="BOST/EOST output polarity.")
     trigger_list_parser.add_argument("--count", type=runtime._positive_int, default=1, help="LIST repeat count, 1-256.")
     trigger_list_parser.add_argument(
         "--source",

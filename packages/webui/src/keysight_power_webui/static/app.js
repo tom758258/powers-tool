@@ -19,6 +19,9 @@ const state = {
   jobResultCollapsed: false,
   rampListSegments: [defaultRampSegment()],
   rampListCompletionPulse: null,
+  triggerListActiveChannel: 1,
+  triggerListControls: defaultTriggerListControls(),
+  triggerListChannels: defaultTriggerListChannels(),
   latestSnapshotDocument: null,
   latestSnapshotMetadata: null,
   loadedSnapshotDocument: null,
@@ -116,10 +119,10 @@ const PARAMS = {
   ],
   "trigger-status": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all", description: "Read-only E36312A query of rear pins, trigger source, and STEP/LIST state. It does not modify instrument settings." }],
   "trigger-step": triggerStepParams(),
-  "trigger-list": triggerListParams(),
+  "trigger-list": [],
   "trigger-fire": [
-    { name: "channel", type: "select", label: "Channel", options: ["", "1", "2", "3"], value: "", optional: true, description: "E36312A only. Sends global *TRG to armed BUS triggers. The optional channel selects which channel to wait for; it does not limit the scope of *TRG." },
-    { name: "wait_complete", type: "checkbox", label: "Wait complete", description: "Polls the selected channel until its trigger execution completes. Requires a channel." },
+    { name: "channel", type: "select", label: "Abort target channel", options: ["", "1", "2", "3"], value: "", optional: true, description: "Used only to abort this output channel if Wait complete times out or is interrupted." },
+    { name: "wait_complete", type: "checkbox", label: "Wait complete", description: "Waits for the instrument-wide operation-complete event. Requires an Abort target channel." },
     ...triggerWaitParams()
   ],
   "trigger-abort": [
@@ -184,9 +187,9 @@ function triggerStepParams() {
     },
     { name: "voltage", type: "number", label: "Triggered voltage(V)", optional: true },
     { name: "current", type: "number", label: "Triggered current(A)", optional: true },
-    { name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus", description: "Selects the trigger source. PIN and EXT sources are shown for compatibility but are not currently enabled." },
+    { name: "source", type: "select", label: "Source", options: ["bus", "immediate"], value: "bus", description: "Selects BUS or Immediate as the trigger source." },
     { name: "fire", type: "checkbox", label: "Fire now", description: "After arming, sends global *TRG for BUS source. This may also fire other armed BUS triggers." },
-    { name: "wait_complete", type: "checkbox", label: "Wait complete", description: "Polls the selected channel until its trigger execution completes." },
+    { name: "wait_complete", type: "checkbox", label: "Wait complete", description: "Waits for the instrument-wide operation-complete event before returning." },
     ...triggerWaitParams(),
     { name: "leave_trigger_configured", type: "checkbox", label: "Leave configured", description: "Keeps the configured trigger source and transient mode instead of restoring them after execution." }
   ];
@@ -206,9 +209,9 @@ function triggerListParams() {
     { name: "current_list", type: "text", label: "Current list(A)", value: "0.05", parser: "numberList", description: "Comma-separated current limits. A single value applies to every voltage step." },
     { name: "dwell_list", type: "text", label: "Dwell list(s)", value: "0.01", parser: "numberList", description: "Comma-separated dwell times. A single value applies to every voltage step." },
     { name: "count", type: "number", label: "Count", value: 1, description: "Number of times to repeat the complete LIST waveform." },
-    { name: "source", type: "select", label: "Source", options: ["bus", "immediate", "pin1", "pin2", "pin3", "ext"], value: "bus", description: "Selects the trigger source. PIN and EXT sources are shown for compatibility but are not currently enabled." },
+    { name: "source", type: "select", label: "Source", options: ["bus", "immediate"], value: "bus", description: "Selects BUS or Immediate as the trigger source." },
     { name: "fire", type: "checkbox", label: "Fire now", description: "After arming, sends global *TRG for BUS source. This may also fire other armed BUS triggers." },
-    { name: "wait_complete", type: "checkbox", label: "Wait complete", description: "Polls the selected channel until LIST execution completes." },
+    { name: "wait_complete", type: "checkbox", label: "Wait complete", description: "Waits for all LIST steps and repeat counts to complete before returning." },
     { name: "completion_pulse_pins", type: "select", label: "Pulse pins", options: OPTIONAL_REAR_PIN_OPTIONS, value: "", optional: true, parser: "intList", description: "Optionally emits a completion pulse on the selected rear pins after LIST execution finishes." },
     { name: "completion_pulse_polarity", type: "select", label: "Pulse polarity", options: ["positive", "negative"], value: "positive" },
     { name: "exclusive_pins", type: "checkbox", label: "Exclusive pins", description: "Resets unselected rear pins before configuring completion-pulse pins." },
@@ -322,6 +325,10 @@ function renderForm(command) {
     renderRampListForm(form);
     return;
   }
+  if (command === "trigger-list") {
+    renderTriggerListForm(form);
+    return;
+  }
   if (command === "snapshot") {
     renderSnapshotForm(form);
     return;
@@ -380,6 +387,20 @@ function renderForm(command) {
   updatePulseChildVisibility(command);
 }
 
+function renderCommandGuidance(command, parameters = {}) {
+  const guidance = document.getElementById("command-guidance");
+  if (!guidance) return;
+  const messages = {
+    "trigger-step": "Immediate starts from INIT, so Fire now is unavailable. For BUS, Wait complete requires Fire now in the same command and waits for the instrument-wide operation-complete event.",
+    "trigger-list": "Wait complete with Leave configured off writes back the pre-run Trigger settings and LIST table after completion. The running LIST may be briefly visible; select Leave configured to retain the new LIST table and Trigger settings.",
+    "trigger-fire": "Sends global *TRG to every armed BUS trigger on the instrument. Abort target channel does not limit Fire or Wait; it is used only if Wait complete times out or is interrupted."
+  };
+  const guard = triggerControlGuardReason(command, parameters) || triggerFireWaitGuardReason(command, parameters);
+  const text = [guard, messages[command]].filter(Boolean).join(" ");
+  guidance.textContent = text;
+  guidance.hidden = !text;
+}
+
 function updatePulseChildVisibility(command) {
   const enabled = command === "cycle-output"
     ? Boolean(document.getElementById("param-completion_pulse_enabled")?.checked)
@@ -423,6 +444,170 @@ function appendCommandNotes(form, command, params) {
     notes.appendChild(list);
   }
   form.appendChild(notes);
+}
+
+function defaultTriggerListStep() {
+  return { voltage: 0, current: 0.05, dwell: 0.01, bost: false, eost: false };
+}
+
+function defaultTriggerListChannels() {
+  return Object.fromEntries(["1", "2", "3"].map((channel) => [channel, { count: 1, steps: [defaultTriggerListStep()] }]));
+}
+
+function defaultTriggerListControls() {
+  return { source: "immediate", fire: false, wait_complete: true, trigger_output_pins: [], trigger_output_polarity: "positive", exclusive_pins: false, poll_ms: 200, wait_timeout_ms: null, leave_trigger_configured: false };
+}
+
+function activeTriggerListDraft() {
+  return state.triggerListChannels[String(state.triggerListActiveChannel)];
+}
+
+function renderTriggerListForm(form) {
+  const editor = document.createElement("div");
+  editor.className = "trigger-list-editor";
+  const toolbar = document.createElement("div");
+  toolbar.className = "trigger-list-toolbar";
+  [["Load Trigger List", loadTriggerListWorkspace], ["Save Trigger List", saveTriggerListWorkspace], ["Add Step", addTriggerListStep]].forEach(([text, handler]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    button.disabled = text === "Add Step" && activeTriggerListDraft().steps.length >= 100;
+    button.addEventListener("click", handler);
+    toolbar.appendChild(button);
+  });
+  editor.appendChild(toolbar);
+  const tabs = document.createElement("div");
+  tabs.className = "trigger-list-tabs";
+  [1, 2, 3].forEach((channel) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `secondary${state.triggerListActiveChannel === channel ? " active" : ""}`;
+    button.textContent = `Channel ${channel}`;
+    button.addEventListener("click", () => {
+      state.triggerListActiveChannel = channel;
+      renderForm("trigger-list");
+      updateSelectedCommandState();
+    });
+    tabs.appendChild(button);
+  });
+  editor.appendChild(tabs);
+  const controls = document.createElement("div");
+  controls.className = "trigger-list-controls";
+  triggerListControlDefinitions().forEach((definition) => controls.appendChild(triggerListControlField(definition)));
+  editor.appendChild(controls);
+  const table = document.createElement("table");
+  table.className = "trigger-list-table";
+  table.innerHTML = "<thead><tr><th>Step</th><th>Voltage (V)</th><th>Current (A)</th><th>Dwell (s)</th><th>BOST</th><th>EOST</th><th>Actions</th></tr></thead>";
+  const body = document.createElement("tbody");
+  activeTriggerListDraft().steps.forEach((step, index) => body.appendChild(triggerListStepRow(step, index)));
+  table.appendChild(body);
+  editor.appendChild(table);
+  form.appendChild(editor);
+}
+
+function triggerListControlDefinitions() {
+  return [
+    { name: "count", label: "Count", type: "number" }, { name: "source", label: "Source", type: "select", options: ["immediate", "bus"] },
+    { name: "fire", label: "Fire", type: "checkbox" }, { name: "wait_complete", label: "Wait complete", type: "checkbox" },
+    { name: "trigger_output_pins", label: "LIST output pins", type: "select", options: OPTIONAL_REAR_PIN_OPTIONS },
+    { name: "trigger_output_polarity", label: "Polarity", type: "select", options: ["positive", "negative"] },
+    { name: "exclusive_pins", label: "Exclusive pins", type: "checkbox" }, { name: "poll_ms", label: "Poll (ms)", type: "number" },
+    { name: "wait_timeout_ms", label: "Timeout (ms)", type: "number" }, { name: "leave_trigger_configured", label: "Leave configured", type: "checkbox" }
+  ];
+}
+
+function triggerListControlField(definition) {
+  const label = document.createElement("label");
+  if (definition.type === "checkbox") label.classList.add("checkbox-field");
+  label.textContent = definition.label;
+  const input = document.createElement(definition.type === "select" ? "select" : "input");
+  if (definition.type === "select") {
+    definition.options.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = definition.name === "trigger_output_pins" ? rearPinDisplayName(value) : optionDisplayName(value);
+      input.appendChild(option);
+    });
+  } else input.type = definition.type;
+  const value = definition.name === "count" ? activeTriggerListDraft().count : state.triggerListControls[definition.name];
+  if (definition.type === "checkbox") input.checked = Boolean(value);
+  else input.value = definition.name === "trigger_output_pins" ? pinsSelectValue(value) : value ?? "";
+  if (definition.name === "count") { input.min = "1"; input.max = "256"; input.step = "1"; }
+  if (definition.name === "poll_ms") { input.min = "50"; input.step = "1"; }
+  if (definition.name === "wait_timeout_ms") { input.min = "1"; input.step = "1"; }
+  input.id = `param-${definition.name}`;
+  if (definition.name === "fire" && state.triggerListControls.source === "immediate") input.disabled = true;
+  input.addEventListener("change", () => updateTriggerListControl(definition, input));
+  input.addEventListener("input", () => updateTriggerListControl(definition, input));
+  label.appendChild(input);
+  return label;
+}
+
+function triggerListStepRow(step, index) {
+  const row = document.createElement("tr");
+  const number = document.createElement("td");
+  number.textContent = String(index + 1);
+  row.appendChild(number);
+  ["voltage", "current", "dwell", "bost", "eost"].forEach((name) => {
+    const cell = document.createElement("td");
+    const input = document.createElement("input");
+    input.type = ["bost", "eost"].includes(name) ? "checkbox" : "number";
+    if (input.type === "checkbox") input.checked = step[name]; else input.value = String(step[name]);
+    if (input.type === "number") input.step = "any";
+    if (name === "voltage" || name === "current") input.min = "0";
+    if (name === "dwell") { input.min = "0.01"; input.max = "3600"; }
+    const update = () => { step[name] = input.type === "checkbox" ? input.checked : Number(input.value); updateSelectedCommandState(); };
+    input.addEventListener("input", update);
+    input.addEventListener("change", update);
+    cell.appendChild(input);
+    row.appendChild(cell);
+  });
+  const actions = document.createElement("td");
+  [["Up", -1, index === 0], ["Down", 1, index === activeTriggerListDraft().steps.length - 1], ["Remove", 0, activeTriggerListDraft().steps.length === 1]].forEach(([text, offset, disabled]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    button.disabled = disabled;
+    button.addEventListener("click", () => offset === 0 ? removeTriggerListStep(index) : moveTriggerListStep(index, offset));
+    actions.appendChild(button);
+  });
+  row.appendChild(actions);
+  return row;
+}
+
+function updateTriggerListControl(definition, input) {
+  const value = definition.type === "checkbox" ? input.checked : definition.type === "number" ? (input.value === "" ? null : Number(input.value)) : definition.name === "trigger_output_pins" ? parseRearPins(input.value) : input.value;
+  if (definition.name === "count") activeTriggerListDraft().count = value; else state.triggerListControls[definition.name] = value;
+  if (definition.name === "source" && value === "immediate") state.triggerListControls.fire = false;
+  if (definition.name === "source") renderForm("trigger-list");
+  updateSelectedCommandState();
+}
+
+function addTriggerListStep() {
+  const steps = activeTriggerListDraft().steps;
+  if (steps.length >= 100) return;
+  steps.push({ ...steps[steps.length - 1] });
+  renderForm("trigger-list");
+  updateSelectedCommandState();
+}
+
+function removeTriggerListStep(index) {
+  const steps = activeTriggerListDraft().steps;
+  if (steps.length <= 1) return;
+  steps.splice(index, 1);
+  renderForm("trigger-list");
+  updateSelectedCommandState();
+}
+
+function moveTriggerListStep(index, offset) {
+  const steps = activeTriggerListDraft().steps;
+  const target = index + offset;
+  if (target < 0 || target >= steps.length) return;
+  [steps[index], steps[target]] = [steps[target], steps[index]];
+  renderForm("trigger-list");
+  updateSelectedCommandState();
 }
 
 function renderRampListForm(form) {
@@ -659,6 +844,64 @@ async function saveRampList() {
   }
 }
 
+function triggerListWorkspaceDocument() {
+  return {
+    kind: "keysight-power-trigger-list-workspace", version: 1, active_channel: state.triggerListActiveChannel,
+    controls: { ...state.triggerListControls, trigger_output_pins: [...state.triggerListControls.trigger_output_pins] },
+    channels: Object.fromEntries(["1", "2", "3"].map((channel) => [channel, {
+      count: state.triggerListChannels[channel].count,
+      steps: state.triggerListChannels[channel].steps.map((step) => ({ ...step }))
+    }]))
+  };
+}
+
+function validateTriggerListWorkspace(document) {
+  const exact = (object, fields, label) => {
+    if (!object || typeof object !== "object" || Array.isArray(object) || Object.keys(object).some((field) => !fields.includes(field)) || fields.some((field) => !(field in object))) throw new Error(`${label} contains unknown or missing fields.`);
+  };
+  exact(document, ["kind", "version", "active_channel", "controls", "channels"], "Trigger List workspace");
+  if (document.kind !== "keysight-power-trigger-list-workspace" || document.version !== 1 || ![1, 2, 3].includes(document.active_channel)) throw new Error("Invalid Trigger List workspace kind, version, or active channel.");
+  const fields = ["source", "fire", "wait_complete", "trigger_output_pins", "trigger_output_polarity", "exclusive_pins", "poll_ms", "wait_timeout_ms", "leave_trigger_configured"];
+  exact(document.controls, fields, "Trigger List controls");
+  const c = document.controls;
+  if (!["immediate", "bus"].includes(c.source) || typeof c.fire !== "boolean" || typeof c.wait_complete !== "boolean" || typeof c.exclusive_pins !== "boolean" || typeof c.leave_trigger_configured !== "boolean" || !Array.isArray(c.trigger_output_pins) || c.trigger_output_pins.some((pin) => ![1, 2, 3].includes(pin)) || new Set(c.trigger_output_pins).size !== c.trigger_output_pins.length || !["positive", "negative"].includes(c.trigger_output_polarity) || !Number.isInteger(c.poll_ms) || c.poll_ms < 50 || !(c.wait_timeout_ms === null || (Number.isInteger(c.wait_timeout_ms) && c.wait_timeout_ms > 0))) throw new Error("Trigger List controls are invalid.");
+  exact(document.channels, ["1", "2", "3"], "Trigger List channels");
+  const channels = {};
+  ["1", "2", "3"].forEach((channel) => {
+    const draft = document.channels[channel];
+    exact(draft, ["count", "steps"], `Channel ${channel}`);
+    if (!Number.isInteger(draft.count) || draft.count < 1 || draft.count > 256 || !Array.isArray(draft.steps) || draft.steps.length < 1 || draft.steps.length > 100) throw new Error(`Channel ${channel} has invalid count or step count.`);
+    channels[channel] = { count: draft.count, steps: draft.steps.map((step, index) => {
+      exact(step, ["voltage", "current", "dwell", "bost", "eost"], `Channel ${channel} step ${index + 1}`);
+      if (![step.voltage, step.current, step.dwell].every((value) => typeof value === "number" && Number.isFinite(value)) || step.voltage < 0 || step.current < 0 || step.dwell < 0.01 || step.dwell > 3600 || typeof step.bost !== "boolean" || typeof step.eost !== "boolean") throw new Error(`Channel ${channel} step ${index + 1} is invalid.`);
+      return { ...step };
+    }) };
+  });
+  return { activeChannel: document.active_channel, controls: { ...c, trigger_output_pins: [...c.trigger_output_pins] }, channels };
+}
+
+async function loadTriggerListWorkspace() {
+  try {
+    const { text } = await openJsonFile({ description: "Trigger List Workspace JSON", extensions: TRIGGER_LIST_WORKSPACE_JSON_EXTENSIONS });
+    const normalized = validateTriggerListWorkspace(JSON.parse(text));
+    state.triggerListActiveChannel = normalized.activeChannel;
+    state.triggerListControls = normalized.controls;
+    state.triggerListChannels = normalized.channels;
+    renderForm("trigger-list");
+    updateSelectedCommandState();
+  } catch (error) {
+    if (!isAbortError(error)) renderClientResult("trigger-list", "failed", error.message || String(error), { error: "Trigger List load failed", detail: error.message || String(error) });
+  }
+}
+
+async function saveTriggerListWorkspace() {
+  try {
+    await saveJsonFile(`${JSON.stringify(triggerListWorkspaceDocument(), null, 2)}\n`, { description: "Trigger List Workspace JSON", extensions: TRIGGER_LIST_WORKSPACE_JSON_EXTENSIONS, suggestedName: "trigger-list.trigger-list-workspace.json" });
+  } catch (error) {
+    if (!isAbortError(error)) renderClientResult("trigger-list", "failed", error.message || String(error), { error: "Trigger List save failed", detail: error.message || String(error) });
+  }
+}
+
 /* ==========================================
    Shared JSON File Helpers
    ========================================== */
@@ -667,6 +910,7 @@ const JSON_MIME_TYPE = "application/json";
 const SNAPSHOT_JSON_EXTENSIONS = [".snapshot.json", ".json"];
 const SEQUENCE_JSON_EXTENSIONS = [".sequence.json", ".json"];
 const RAMP_LIST_JSON_EXTENSIONS = [".ramp-list.json", ".json"];
+const TRIGGER_LIST_WORKSPACE_JSON_EXTENSIONS = [".trigger-list-workspace.json", ".json"];
 
 function buildNativeJsonPickerAccept() {
   return { [JSON_MIME_TYPE]: [".json"] };
@@ -1269,7 +1513,7 @@ function sequenceActionDefinitions(action) {
     "output-off": [channel(true)],
     "cycle-output": [channel(true), { name: "duration_ms", label: "Duration(ms)", type: "number", value: 500 }],
     apply: [channel(true), { name: "voltage", label: "Voltage(V)", type: "number", value: 0 }, { name: "current", label: "Current(A)", type: "number", value: 0 }, { name: "no_output", label: "Do not enable output", type: "checkbox", value: false }],
-    "trigger-pulse": [channel(), { name: "pins", label: "Rear pins", type: "select", options: REAR_PIN_OPTIONS, value: [1] }, { name: "polarity", label: "Polarity", type: "select", options: ["positive", "negative"], value: "positive" }, { name: "leave_trigger_configured", label: "Leave configured", type: "checkbox", value: false, description: "Resets unselected rear pins before configuring the selected pulse pins." }]
+    "trigger-pulse": [channel(), { name: "pins", label: "Rear pins", type: "select", options: REAR_PIN_OPTIONS, value: [1] }, { name: "polarity", label: "Polarity", type: "select", options: ["positive", "negative"], value: "positive" }, { name: "leave_trigger_configured", label: "Leave configured", type: "checkbox", value: false, description: "Controls whether Trigger and rear-pin settings are restored after the pulse completes. It does not keep a trigger armed. Enabling it may affect later Sequence steps or other BUS triggers." }]
   }[action] || [];
 }
 
@@ -1713,6 +1957,21 @@ function runtimePayload() {
 
 function parameterPayload() {
   if (state.selected === "ramp-list") return { document: rampListDocument() };
+  if (state.selected === "trigger-list") {
+    const draft = activeTriggerListDraft();
+    return {
+      channel: state.triggerListActiveChannel,
+      voltage_list: draft.steps.map((step) => step.voltage),
+      current_list: draft.steps.map((step) => step.current),
+      dwell_list: draft.steps.map((step) => step.dwell),
+      bost_list: draft.steps.map((step) => step.bost),
+      eost_list: draft.steps.map((step) => step.eost),
+      count: draft.count,
+      ...state.triggerListControls,
+      trigger_output_pins: [...state.triggerListControls.trigger_output_pins],
+      trigger_output_polarity: state.triggerListControls.trigger_output_polarity
+    };
+  }
   if (state.selected === "restore-from-snapshot") {
     return restoreSnapshotParameters(state.loadedSnapshotDocument);
   }
@@ -2055,6 +2314,21 @@ function renderWorkspaceSummary() {
     renderIdentifyWorkspaceSummary(container, job.result);
     return;
   }
+  if (job.command === "trigger-status") {
+    renderTriggerStatusWorkspaceSummary(container, job.result);
+    return;
+  }
+  if (job.command === "trigger-list") {
+    const trigger = job.result.trigger || {};
+    appendWorkspaceFields(container, [
+      ["Command", commandDisplayName(job.command)],
+      ["Channel", trigger.channel ?? "--"],
+      ["Steps", job.result.steps ?? "--"],
+      ["Completed", trigger.completed === true ? "Yes" : "No"],
+      ["Previous LIST restored", trigger.restored === true ? "Yes" : trigger.restored === false ? "No" : "--"]
+    ]);
+    return;
+  }
   appendWorkspaceFields(container, [
     ["Command", commandDisplayName(job.command)],
     ["Resource", resource || "No resource selected"],
@@ -2105,6 +2379,26 @@ function renderIdentifyWorkspaceSummary(container, result) {
     ["SCPI version", result.scpi_version || "--"],
     ["Resource", resource || "--"]
   ]);
+}
+
+function renderTriggerStatusWorkspaceSummary(container, result) {
+  const pins = Array.isArray(result.digital_pins) ? result.digital_pins : [];
+  const channels = Array.isArray(result.channels) ? result.channels : [];
+  const fields = [
+    ["Trigger output BUS", result.trigger_output_bus_enabled === true ? "Enabled" : result.trigger_output_bus_enabled === false ? "Disabled" : "--"],
+    ["Rear pins", pins.length ? pins.map((pin) => `P${pin.pin} ${pin.function}/${pin.polarity}`).join(", ") : "--"]
+  ];
+  channels.forEach((channel) => {
+    const trigger = channel.trigger || {};
+    const list = channel.list || {};
+    const steps = Array.isArray(list.voltage) ? list.voltage.length : 0;
+    fields.push(
+      [`CH${channel.channel} trigger`, `${trigger.source || "--"}; V ${trigger.voltage_mode || "--"}; I ${trigger.current_mode || "--"}`],
+      [`CH${channel.channel} triggered level`, `${formatNum(trigger.triggered_voltage)} V / ${formatNum(trigger.triggered_current)} A`],
+      [`CH${channel.channel} LIST`, `${steps} step${steps === 1 ? "" : "s"}; count ${list.count ?? "--"}; ${list.step_mode || "--"}; terminate last ${list.terminate_last === true ? "on" : list.terminate_last === false ? "off" : "--"}`]
+    );
+  });
+  appendWorkspaceFields(container, fields);
 }
 
 function appendWorkspaceFields(container, fields) {
@@ -2549,6 +2843,7 @@ function prefillClearProtectionChannel() {
 
 function updateSelectedCommandState() {
   if (!state.selected) return;
+  syncTriggerImmediateControls(state.selected);
   const meta = commandMeta(state.selected);
   let parameters = {};
   try {
@@ -2558,13 +2853,16 @@ function updateSelectedCommandState() {
   }
   const tripGuard = tripGuardReason(state.selected, parameters);
   const ratingGuard = electricalRatingGuardReason(state.selected, parameters);
+  const triggerControlGuard = triggerControlGuardReason(state.selected, parameters);
+  const triggerFireWaitGuard = triggerFireWaitGuardReason(state.selected, parameters);
   const tripWarning = tripContextWarning(state.selected);
   const runButton = document.getElementById("run");
   const commandDescription = document.getElementById("command-description");
   const descriptionText = [meta.description, ratingGuard, tripGuard || tripWarning].filter(Boolean).join(" ");
   commandDescription.textContent = descriptionText;
   commandDescription.title = descriptionText;
-  runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard);
+  renderCommandGuidance(state.selected, parameters);
+  runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard || triggerControlGuard || triggerFireWaitGuard);
   runButton.disabled ||= !validateConstrainedInputs();
   if (state.selected === "restore-from-snapshot") {
     const restoreValid = isLoadedRestoreSnapshotValid();
@@ -2591,6 +2889,50 @@ function updateSelectedCommandState() {
     commandDescription.textContent = [descriptionText, pulseControlsUnavailableReason()].filter(Boolean).join(" ");
   }
   document.getElementById("confirm-banner").classList.toggle("visible", Boolean(meta.requires_confirm));
+}
+
+function syncTriggerImmediateControls(command) {
+  if (!["trigger-step", "trigger-list"].includes(command)) return;
+  const source = String(document.getElementById("param-source")?.value || "bus").toLowerCase();
+  const fire = document.getElementById("param-fire");
+  if (!fire) return;
+  const immediate = ["immediate", "imm"].includes(source);
+  if (immediate) fire.checked = false;
+  fire.disabled = immediate;
+  fire.title = immediate ? "Immediate starts when INIT is sent; Fire now does not apply." : "";
+}
+
+function triggerControlGuardReason(command, parameters) {
+  if (!["trigger-step", "trigger-list"].includes(command)) return "";
+  const source = String(parameters.source || "bus").toLowerCase();
+  const immediate = ["immediate", "imm"].includes(source);
+  if (immediate && parameters.fire) {
+    return "Immediate starts from INIT and does not accept Fire now.";
+  }
+  if (source === "bus" && parameters.wait_complete && !parameters.fire) {
+    return "BUS Wait complete requires Fire now in the same command.";
+  }
+  if (command === "trigger-list") {
+    if ([...(parameters.bost_list || []), ...(parameters.eost_list || [])].some(Boolean) && !(parameters.trigger_output_pins || []).length) {
+      return "BOST/EOST pulses require LIST output pins.";
+    }
+    const started = immediate || (source === "bus" && parameters.fire);
+    if (!started && !parameters.leave_trigger_configured) {
+      return "Arm-only LIST requires Leave configured so a later Trigger fire can start it.";
+    }
+    if (started && !parameters.wait_complete && !parameters.leave_trigger_configured) {
+      return "A started LIST without Wait complete requires Leave configured.";
+    }
+  }
+  return "";
+}
+
+function triggerFireWaitGuardReason(command, parameters) {
+  if (command !== "trigger-fire") return "";
+  if (parameters.wait_complete && parameters.channel == null) {
+    return "Wait complete requires an Abort target channel.";
+  }
+  return "";
 }
 
 function electricalRatingGuardReason(command, parameters) {

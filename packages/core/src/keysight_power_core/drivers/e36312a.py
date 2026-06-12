@@ -145,6 +145,18 @@ class E36312APowerSupply(GenericScpiPowerSupply):
         self._require_output_channel(channel)
         self._session.write(f"CURR:MODE {_trigger_mode(mode)},(@{channel})")
 
+    def set_trigger_modes(self, *, channel: int, current_mode: str, voltage_mode: str) -> None:
+        """Safely switch current and voltage transient modes together."""
+
+        normalized_current = _trigger_mode(current_mode)
+        normalized_voltage = _trigger_mode(voltage_mode)
+        self.set_current_trigger_mode(channel=channel, mode="FIX")
+        self.set_voltage_trigger_mode(channel=channel, mode="FIX")
+        if normalized_current != "FIX":
+            self.set_current_trigger_mode(channel=channel, mode=normalized_current)
+        if normalized_voltage != "FIX":
+            self.set_voltage_trigger_mode(channel=channel, mode=normalized_voltage)
+
     def voltage_trigger_mode(self, channel: int) -> str:
         self._require_output_channel(channel)
         return self._session.query(f"VOLT:MODE? (@{channel})").strip().upper()
@@ -393,8 +405,11 @@ class E36312APowerSupply(GenericScpiPowerSupply):
         self.set_output_trigger_delay(channel=channel, delay=float(snapshot.trigger["delay"]))
         self.set_triggered_current(channel=channel, current=float(snapshot.trigger["triggered_current"]))
         self.set_triggered_voltage(channel=channel, voltage=float(snapshot.trigger["triggered_voltage"]))
-        self.set_current_trigger_mode(channel=channel, mode=str(snapshot.trigger["current_mode"]))
-        self.set_voltage_trigger_mode(channel=channel, mode=str(snapshot.trigger["voltage_mode"]))
+        self.set_trigger_modes(
+            channel=channel,
+            current_mode=str(snapshot.trigger["current_mode"]),
+            voltage_mode=str(snapshot.trigger["voltage_mode"]),
+        )
         list_state = snapshot.list_state
         self.configure_list(
             channel=channel,

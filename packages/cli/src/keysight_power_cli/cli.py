@@ -1932,6 +1932,8 @@ def _trigger_list_scpi(
     pins: tuple[int, ...] = (),
     polarity: str = "positive",
     final_eost_pulse: bool = False,
+    begin_outputs: tuple[bool, ...] | None = None,
+    end_outputs: tuple[bool, ...] | None = None,
     exclusive_pins: bool = False,
     fire: bool = False,
     count: int = 1,
@@ -1948,8 +1950,10 @@ def _trigger_list_scpi(
         commands.append(f"DIG:PIN{pin}:POL {polarity_command}")
     if pins:
         commands.append("DIG:TOUT:BUS ON")
-    begin_outputs = tuple(False for _ in voltages)
-    end_outputs = tuple(index == len(voltages) - 1 and final_eost_pulse for index, _ in enumerate(voltages))
+    begin_outputs = begin_outputs if begin_outputs is not None else tuple(False for _ in voltages)
+    end_outputs = end_outputs if end_outputs is not None else tuple(
+        index == len(voltages) - 1 and final_eost_pulse for index, _ in enumerate(voltages)
+    )
     commands.extend(
         [
             f"LIST:VOLT {_number_csv(voltages)},(@{channel})",
@@ -2059,6 +2063,8 @@ def _run_native_list(
     pins: tuple[int, ...],
     polarity: str,
     final_eost_pulse: bool,
+    begin_outputs: tuple[bool, ...] | None = None,
+    end_outputs: tuple[bool, ...] | None = None,
     exclusive_pins: bool = False,
     fire: bool = False,
     count: int = 1,
@@ -2082,8 +2088,10 @@ def _run_native_list(
     try:
         power_supply.abort_output_trigger(channel)
         _configure_completion_output_pins(power_supply, pins, polarity, exclusive_pins=exclusive_pins)
-        begin_outputs = tuple(False for _ in voltages)
-        end_outputs = tuple(index == len(voltages) - 1 and final_eost_pulse for index, _ in enumerate(voltages))
+        begin_outputs = begin_outputs if begin_outputs is not None else tuple(False for _ in voltages)
+        end_outputs = end_outputs if end_outputs is not None else tuple(
+            index == len(voltages) - 1 and final_eost_pulse for index, _ in enumerate(voltages)
+        )
         power_supply.configure_list(
             channel=channel,
             voltages=voltages,
@@ -2585,6 +2593,8 @@ def _trigger_list_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
     voltages = args.voltage_list or _document_float_list(document, "voltages", "voltage_list", "voltage")
     currents = args.current_list or _document_float_list(document, "currents", "current_list", "current")
     dwell = args.dwell_list or _document_float_list(document, "dwell", "dwells", "dwell_list")
+    bost = getattr(args, "bost_list", None) or _document_bool_list(document, "bost_list")
+    eost = getattr(args, "eost_list", None) or _document_bool_list(document, "eost_list")
     steps = document.get("steps")
     if (voltages is None or currents is None or dwell is None) and steps is not None:
         if not isinstance(steps, list) or not steps:
@@ -2592,6 +2602,8 @@ def _trigger_list_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
         step_voltages: list[float] = []
         step_currents: list[float] = []
         step_dwell: list[float] = []
+        step_bost: list[bool] = []
+        step_eost: list[bool] = []
         for index, step in enumerate(steps, start=1):
             if not isinstance(step, dict):
                 raise ValueError(f"trigger-list step {index} must be a mapping")
@@ -2599,6 +2611,8 @@ def _trigger_list_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
                 step_voltages.append(float(step["voltage"]))
                 step_currents.append(float(step["current"]))
                 step_dwell.append(float(step["dwell"]))
+                step_bost.append(_strict_bool(step.get("bost", False), f"trigger-list step {index} bost"))
+                step_eost.append(_strict_bool(step.get("eost", False), f"trigger-list step {index} eost"))
             except KeyError as exc:
                 raise ValueError(f"trigger-list step {index} missing {exc.args[0]}") from exc
         if voltages is None:
@@ -2607,6 +2621,10 @@ def _trigger_list_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
             currents = tuple(step_currents)
         if dwell is None:
             dwell = tuple(step_dwell)
+        if bost is None:
+            bost = tuple(step_bost)
+        if eost is None:
+            eost = tuple(step_eost)
     if voltages is None:
         raise ValueError("trigger-list requires --voltage-list or voltages in --file")
     if currents is None:
@@ -2626,7 +2644,33 @@ def _trigger_list_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
     final_eost_pulse = bool(pins)
     count = args.count if args.count != 1 else int(document.get("count", 1))
     polarity = args.completion_pulse_polarity or str(document.get("polarity", "positive"))
-    return {
+    canonical_requested = any(
+        value is not None
+        for value in (
+            getattr(args, "bost_list", None),
+            getattr(args, "eost_list", None),
+            getattr(args, "trigger_output_pins", None),
+            getattr(args, "trigger_output_polarity", None),
+            document.get("bost_list"),
+            document.get("eost_list"),
+            document.get("trigger_output_pins"),
+            document.get("trigger_output_polarity"),
+        )
+    ) or (steps is not None and any(isinstance(step, dict) and ("bost" in step or "eost" in step) for step in steps))
+    if canonical_requested and pins:
+        raise ValueError("trigger-list completion-pulse fields cannot be mixed with BOST/EOST trigger-output fields")
+    if canonical_requested:
+        pins = getattr(args, "trigger_output_pins", None) or tuple(document.get("trigger_output_pins") or ())
+        polarity = getattr(args, "trigger_output_polarity", None) or str(document.get("trigger_output_polarity", "positive"))
+        bost = bost if bost is not None else tuple(False for _ in voltages)
+        eost = eost if eost is not None else tuple(False for _ in voltages)
+        if len(bost) != len(voltages):
+            raise ValueError("BOST list length must match voltage list length")
+        if len(eost) != len(voltages):
+            raise ValueError("EOST list length must match voltage list length")
+        if (any(bost) or any(eost)) and not pins:
+            raise ValueError("trigger-list BOST/EOST pulses require explicit trigger output pins")
+    config = {
         "channel": int(channel),
         "source": str(source).lower(),
         "voltages": tuple(float(value) for value in voltages),
@@ -2634,9 +2678,12 @@ def _trigger_list_config_from_args(args: argparse.Namespace) -> dict[str, Any]:
         "dwell": tuple(float(value) for value in dwell),
         "pins": pins,
         "polarity": polarity,
-        "final_eost_pulse": final_eost_pulse,
+        "final_eost_pulse": final_eost_pulse if not canonical_requested else False,
         "count": count,
     }
+    if canonical_requested:
+        config.update({"begin_outputs": tuple(bost), "end_outputs": tuple(eost)})
+    return config
 
 
 def _document_float_list(document: dict[str, Any], *keys: str) -> tuple[float, ...] | None:
@@ -2650,6 +2697,21 @@ def _document_float_list(document: dict[str, Any], *keys: str) -> tuple[float, .
             return tuple(float(item) for item in value)
         return (float(value),)
     return None
+
+
+def _document_bool_list(document: dict[str, Any], key: str) -> tuple[bool, ...] | None:
+    if key not in document:
+        return None
+    value = document[key]
+    if not isinstance(value, list):
+        raise ValueError(f"trigger-list {key} must be a list")
+    return tuple(_strict_bool(item, f"trigger-list {key}") for item in value)
+
+
+def _strict_bool(value: Any, label: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{label} must be a boolean")
+    return value
 
 
 def _run_trigger_fire(args: argparse.Namespace) -> int:
@@ -7950,6 +8012,10 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "voltage_list": list(args.voltage_list) if args.voltage_list is not None else None,
             "current_list": list(args.current_list) if args.current_list is not None else None,
             "dwell_list": list(args.dwell_list) if args.dwell_list is not None else None,
+            "bost_list": list(args.bost_list) if getattr(args, "bost_list", None) is not None else None,
+            "eost_list": list(args.eost_list) if getattr(args, "eost_list", None) is not None else None,
+            "trigger_output_pins": list(args.trigger_output_pins) if getattr(args, "trigger_output_pins", None) is not None else None,
+            "trigger_output_polarity": getattr(args, "trigger_output_polarity", None),
             "count": args.count,
             "fire": args.fire,
             "wait_complete": args.wait_complete,
@@ -8853,6 +8919,19 @@ def _float_list(value: str) -> tuple[float, ...]:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+def _bool_list(value: str) -> tuple[bool, ...]:
+    parsed = []
+    for item in value.split(","):
+        normalized = item.strip().lower()
+        if normalized in {"true", "on", "1"}:
+            parsed.append(True)
+        elif normalized in {"false", "off", "0"}:
+            parsed.append(False)
+        else:
+            raise argparse.ArgumentTypeError("boolean lists accept true/false, on/off, or 1/0")
+    return tuple(parsed)
+
+
 def _safe_off_channel(value: str) -> int | str:
     if value.lower() == "all":
         return "all"
@@ -9164,6 +9243,13 @@ def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
             _safety_limits_for_channel(args, config["channel"], model="E36312A"),
         )
         parameters.update(config)
+        if "begin_outputs" in config:
+            parameters.pop("completion_pulse_pins", None)
+            parameters.pop("completion_pulse_polarity", None)
+            parameters["bost_list"] = config["begin_outputs"]
+            parameters["eost_list"] = config["end_outputs"]
+            parameters["trigger_output_pins"] = config["pins"]
+            parameters["trigger_output_polarity"] = config["polarity"]
     return TriggerRequest(
         command=args.command,
         runtime=RuntimeOptions(

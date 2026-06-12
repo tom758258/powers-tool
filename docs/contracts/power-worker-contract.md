@@ -162,6 +162,22 @@ accepted only by the relevant Trigger commands.
 Post-action pulses modify and restore trigger/rear-pin settings unless
 explicitly left configured. Their global `*TRG` may trigger other armed BUS
 behavior.
+Native `trigger-step` and `trigger-list` reject `fire: true` with Immediate
+source, and BUS requests with `wait_complete: true` require `fire: true` in
+the same command. Native `trigger-list` arm-only requests require
+`leave_trigger_configured: true`; a started LIST without `wait_complete: true`
+also requires `leave_trigger_configured: true`. Invalid requests return HTTP
+400 before artifact creation or queue mutation.
+`trigger-fire` sends global `*TRG`. Requests with `wait_complete: true` require
+`channel` as the abort target for a timed-out or interrupted instrument-wide
+completion wait; invalid requests return HTTP 400 before artifact creation or
+queue mutation.
+Native `trigger-list` accepts canonical `bost_list`, `eost_list`,
+`trigger_output_pins`, and `trigger_output_polarity`. Per-step pulse lists
+must match the voltage step count; enabled pulses require explicit output
+pins. These fields cannot be mixed with legacy `completion_pulse_pins`, which
+continues to mean a final-step EOST pulse. Invalid requests return HTTP 400
+before artifact creation or queue mutation.
 
 ## Safety
 

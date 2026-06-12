@@ -393,16 +393,28 @@ Native E36312A trigger/LIST commands:
 uv run keysight-power trigger-status --json --resource "USB0::...::INSTR" --channel all
 uv run keysight-power trigger-step --json --resource "USB0::...::INSTR" --channel 1 --source bus --fire --wait-complete
 uv run keysight-power trigger-list --json --resource "USB0::...::INSTR" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --completion-pulse-pins 1 --fire --wait-complete
+uv run keysight-power trigger-list --json --resource "USB0::...::INSTR" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --bost-list on,off --eost-list off,on --trigger-output-pins 1 --source immediate --wait-complete
 uv run keysight-power trigger-fire --json --resource "USB0::...::INSTR" --channel 1 --wait-complete
 uv run keysight-power trigger-abort --json --resource "USB0::...::INSTR" --channel all
 ```
 
 For native BUS triggers, `trigger-step` and `trigger-list` only arm by default;
-add `--fire` to send `*TRG` in the same command. Arm-only `trigger-list`
-commands must also use `--leave-trigger-configured`, then a later
-`trigger-fire --channel N` can fire the already armed channel. `trigger-pulse`
-is the legacy post-action pulse helper and is separate from the native
-trigger/list subsystem.
+add `--fire` to send `*TRG` in the same command. BUS `--wait-complete` requires
+`--fire`. Immediate source starts when `INIT` is sent and rejects `--fire`.
+Arm-only LIST requires `--leave-trigger-configured`; a LIST that starts without
+`--wait-complete` also requires `--leave-trigger-configured`, otherwise restore
+would abort it. Trigger Step keeps its existing non-wait behavior. For
+`trigger-fire`, `--channel N` is required only with `--wait-complete`; it
+selects the output channel to abort if the instrument-wide completion wait
+times out or is interrupted. It does not limit the scope of `*TRG` or the
+completion wait. `trigger-pulse` is the legacy post-action pulse helper and is
+separate from the native trigger/list subsystem.
+Canonical Trigger LIST files and flags accept per-step `bost_list` and
+`eost_list` plus `trigger_output_pins` and `trigger_output_polarity`. Enabled
+pulses require explicit output pins. Legacy `--completion-pulse-pins` remains
+a final-step EOST pulse and cannot be mixed with canonical fields. A completed
+wait restores the pre-run Trigger settings and LIST table unless
+`--leave-trigger-configured` is selected.
 
 Run offline diagnostics:
 
@@ -427,6 +439,8 @@ environments.
 Sequence documents also accept `{"action":"trigger-pulse","channel":1,
 "pins":[1],"polarity":"positive","leave_trigger_configured":false}`. The
 default restores trigger and rear-pin configuration after the pulse.
+`leave_trigger_configured` controls only that restore; it does not keep the
+pulse trigger armed, and enabling it may affect later steps or other BUS triggers.
 
 Preview output-affecting commands with no hardware writes:
 

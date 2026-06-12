@@ -473,7 +473,7 @@ def test_static_commands_disable_by_selected_resource_model():
     assert "!next.stale && updateResourceModel(next.resource, next.model)" in app_js
     assert "support.real !== false" in app_js
     assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
-    assert "runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard);" in app_js
+    assert "runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard || triggerControlGuard || triggerFireWaitGuard);" in app_js
     assert 'error: "Command unavailable"' in app_js
 
 
@@ -558,7 +558,8 @@ def test_static_trigger_forms_have_advanced_parameters():
     assert_param_contract(app_js, "dwell_list", "text")
     assert 'parser: "numberList"' in app_js
     assert_param_contract(extract_js_function(app_js, "triggerListParams"), "completion_pulse_pins", "select")
-    assert_param_contract(app_js, "source", "select", ["bus", "immediate", "pin1", "pin2", "pin3", "ext"])
+    assert_param_contract(extract_js_function(app_js, "triggerStepParams"), "source", "select", ["bus", "immediate"])
+    assert_param_contract(extract_js_function(app_js, "triggerListParams"), "source", "select", ["bus", "immediate"])
     assert_param_contract(app_js, "wait_timeout_ms", "number")
     assert_param_contract(app_js, "leave_trigger_configured", "checkbox")
 
@@ -571,7 +572,7 @@ def test_static_trigger_forms_document_behavior_and_key_fields():
         "trigger-status": "Read-only E36312A query",
         "trigger-step": "Configures and arms a STEP transient",
         "trigger-list": "Configures and arms a LIST waveform",
-        "trigger-fire": "Sends global *TRG to armed BUS triggers",
+        "trigger-fire": "Used only to abort this output channel",
         "trigger-abort": "Aborts Trigger/LIST execution",
     }
     blocks = {
@@ -595,8 +596,9 @@ def test_static_trigger_forms_document_behavior_and_key_fields():
         field_start = blocks["trigger-list"].index(f'name: "{field}"')
         assert "description:" in blocks["trigger-list"][field_start:field_start + 450]
 
-    assert "PIN and EXT sources are shown for compatibility but are not currently enabled" in app_js
-    assert "it does not limit the scope of *TRG" in blocks["trigger-fire"]
+    assert "pin1" not in extract_js_function(app_js, "triggerStepParams")
+    assert "pin1" not in extract_js_function(app_js, "triggerListParams")
+    assert 'label: "Abort target channel"' in blocks["trigger-fire"]
     assert "It does not turn outputs off" in blocks["trigger-abort"]
     assert "instrument error-queue entries" in blocks["trigger-abort"]
 
@@ -614,16 +616,93 @@ def test_static_trigger_forms_document_behavior_and_key_fields():
     assert "grid-column: 1 / -1;" in styles_css[styles_css.index(".command-notes {"):styles_css.index(".ramp-list-editor {")]
 
 
-def test_static_sequence_trigger_pulse_leave_configured_documents_pin_reset():
+def test_static_sequence_trigger_pulse_leave_configured_documents_restore_semantics():
     _index_html, app_js, styles_css = read_static_texts()
 
     definitions = extract_js_function(app_js, "sequenceActionDefinitions")
     sequence_fields = extract_js_function(app_js, "sequenceStepFields")
 
     assert 'name: "leave_trigger_configured"' in definitions
-    assert "Resets unselected rear pins before configuring the selected pulse pins." in definitions
+    assert "It does not keep a trigger armed." in definitions
+    assert "may affect later Sequence steps or other BUS triggers" in definitions
     assert "appendFieldDescription(label, definition);" in sequence_fields
     assert ".sequence-step-fields .checkbox-field .field-description { flex-basis: 100%; }" in styles_css
+
+
+def test_static_trigger_controls_disable_invalid_combinations_and_immediate_fire():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    update_state = extract_js_function(app_js, "updateSelectedCommandState")
+    sync = extract_js_function(app_js, "syncTriggerImmediateControls")
+    guard = extract_js_function(app_js, "triggerControlGuardReason")
+
+    assert "syncTriggerImmediateControls(state.selected)" in update_state
+    assert "triggerControlGuardReason(state.selected, parameters)" in update_state
+    assert "meta.disabled || tripGuard || ratingGuard || triggerControlGuard || triggerFireWaitGuard" in update_state
+    assert "triggerArmOnlyGuardReason" not in app_js
+    assert '["trigger-step", "trigger-list"]' in guard
+    assert "fire.checked = false" in sync
+    assert "fire.disabled = immediate" in sync
+    assert "BUS Wait complete requires Fire now in the same command." in guard
+    assert "A started LIST without Wait complete requires Leave configured." in guard
+
+
+def test_static_trigger_guidance_explains_global_fire_and_wait_semantics():
+    index_html, app_js, styles_css = read_static_texts()
+
+    guidance = extract_js_function(app_js, "renderCommandGuidance")
+    fire_guard = extract_js_function(app_js, "triggerFireWaitGuardReason")
+
+    assert 'id="command-guidance"' in index_html
+    assert index_html.index('id="command-guidance"') < index_html.index('id="command-form"')
+    assert "global *TRG" in guidance
+    assert "instrument-wide operation-complete event" in guidance
+    assert "Abort target channel does not limit Fire or Wait" in guidance
+    assert "Wait complete requires an Abort target channel." in fire_guard
+    assert ".command-guidance {" in styles_css
+
+
+def test_static_trigger_status_has_human_readable_workspace_summary():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    render = extract_js_function(app_js, "renderWorkspaceSummary")
+    summary = extract_js_function(app_js, "renderTriggerStatusWorkspaceSummary")
+
+    assert "renderTriggerStatusWorkspaceSummary(container, job.result);" in render
+    for field in ("digital_pins", "trigger_output_bus_enabled", "triggered_voltage", "triggered_current", "step_mode", "terminate_last"):
+        assert field in summary
+
+
+def test_static_trigger_list_uses_three_channel_workspace_editor():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    render = extract_js_function(app_js, "renderTriggerListForm")
+    payload = extract_js_function(app_js, "parameterPayload")
+    validator = extract_js_function(app_js, "validateTriggerListWorkspace")
+
+    for text in ("Load Trigger List", "Save Trigger List", "Add Step", "Channel ${channel}", "BOST", "EOST"):
+        assert text in render
+    assert "steps.push({ ...steps[steps.length - 1] })" in app_js
+    assert "steps.length >= 100" in app_js
+    assert "steps.length <= 1" in app_js
+    assert 'if (input.type === "number") input.step = "any";' in app_js
+    for field in ("bost_list", "eost_list", "trigger_output_pins", "trigger_output_polarity"):
+        assert field in payload
+    assert "keysight-power-trigger-list-workspace" in validator
+    assert 'exact(document.channels, ["1", "2", "3"]' in validator
+    assert "contains unknown or missing fields" in validator
+    assert ".trigger-list-editor {" in styles_css
+
+
+def test_static_trigger_list_documents_restore_and_pulse_pin_guard():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    guidance = extract_js_function(app_js, "renderCommandGuidance")
+    guard = extract_js_function(app_js, "triggerControlGuardReason")
+
+    assert "writes back the pre-run Trigger settings and LIST table" in guidance
+    assert "select Leave configured to retain the new LIST table" in guidance
+    assert "BOST/EOST pulses require LIST output pins." in guard
 
 
 @pytest.fixture
@@ -738,6 +817,76 @@ def test_api_rejects_invalid_static_parameter_before_creating_job(client: TestCl
     assert len(job_manager.jobs) == jobs_before
 
 
+def test_api_rejects_arm_only_trigger_list_before_creating_job(client: TestClient):
+    from keysight_power_webui.jobs import job_manager
+
+    jobs_before = len(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "trigger-list",
+            "runtime": {"simulate": True},
+            "parameters": {"channel": 1, "source": "bus"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "leave_trigger_configured=true" in response.json()["detail"]
+    assert len(job_manager.jobs) == jobs_before
+
+
+@pytest.mark.parametrize(
+    ("command", "parameters", "message"),
+    [
+        ("trigger-step", {"source": "immediate", "fire": True}, "does not accept fire=true"),
+        ("trigger-list", {"source": "immediate", "fire": True}, "does not accept fire=true"),
+        ("trigger-step", {"source": "bus", "wait_complete": True}, "requires fire=true"),
+        ("trigger-list", {"source": "bus", "wait_complete": True}, "requires fire=true"),
+        ("trigger-list", {"source": "immediate"}, "started without wait_complete=true"),
+        ("trigger-list", {"source": "bus", "fire": True}, "started without wait_complete=true"),
+    ],
+)
+def test_api_rejects_invalid_trigger_control_before_creating_job(
+    client: TestClient,
+    command: str,
+    parameters: dict[str, object],
+    message: str,
+):
+    from keysight_power_webui.jobs import job_manager
+
+    jobs_before = len(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": command,
+            "runtime": {"simulate": True},
+            "parameters": {"channel": 1, **parameters},
+        },
+    )
+
+    assert response.status_code == 400
+    assert message in response.json()["detail"]
+    assert len(job_manager.jobs) == jobs_before
+
+
+def test_api_rejects_trigger_fire_wait_without_abort_target_before_creating_job(client: TestClient):
+    from keysight_power_webui.jobs import job_manager
+
+    jobs_before = len(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "trigger-fire",
+            "runtime": {"simulate": True},
+            "parameters": {"wait_complete": True},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "abort target" in response.json()["detail"]
+    assert len(job_manager.jobs) == jobs_before
+
+
 def test_commands_metadata_includes_model_aware_support(client: TestClient):
     response = client.get("/api/commands")
     assert response.status_code == 200
@@ -794,7 +943,7 @@ def test_command_coverage(client: TestClient):
                 "completion_pulse_polarity": "positive",
                 "exclusive_pins": False,
                 "poll_ms": 200,
-                "leave_trigger_configured": False,
+                "leave_trigger_configured": True,
             },
         ),
         ("trigger-fire", {"channel": 1, "wait_complete": False, "poll_ms": 200}),

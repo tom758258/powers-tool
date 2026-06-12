@@ -662,7 +662,7 @@ def _simulated_trigger_mode_change(command: str) -> tuple[str, int, str] | None:
     for prefix, kind in (("VOLT:MODE ", "voltage"), ("CURR:MODE ", "current")):
         if command.startswith(prefix) and ",(@" in command and command.endswith(")"):
             mode, channel_text = command.removeprefix(prefix).split(",(@", maxsplit=1)
-            if mode not in {"STEP", "LIST"}:
+            if mode not in {"FIX", "STEP", "LIST"}:
                 raise VisaConnectionError(f"Unsupported simulated trigger mode command {command!r}")
             return (kind, _parse_channel_list(f"(@{channel_text}", "(@"), mode)
     return None

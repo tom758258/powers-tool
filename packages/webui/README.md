@@ -87,6 +87,28 @@ additional delay.
 Workflow completion pulses are software-scheduled post-action `*TRG` pulses,
 not native LIST execution. They temporarily modify and restore trigger/rear-pin
 settings, and global `*TRG` may affect other armed BUS behavior.
+Sequence Trigger pulse `Leave configured` controls only whether those settings
+are restored after the pulse; it does not keep the pulse trigger armed and may
+affect later Sequence steps or other BUS triggers.
+Trigger Fire sends global `*TRG` to every armed BUS trigger. Its Abort target
+channel is required only when Wait complete is enabled and is used only if the
+instrument-wide completion wait times out or is interrupted.
+For Trigger Step and Trigger List, Immediate starts when `INIT` is sent, so
+Fire now is cleared and disabled. BUS Wait complete requires Fire now in the
+same command. A LIST that starts without Wait complete requires Leave
+configured; select Wait complete to restore after completion or Leave
+configured for asynchronous execution.
+Trigger List uses a dedicated three-channel workspace editor. Each channel
+keeps its own count and 1 to 100 step rows with Voltage, Current, Dwell, BOST,
+and EOST. Run submits only the selected channel. Load/Save uses strict
+`keysight-power-trigger-list-workspace` version 1 JSON and preserves all three
+channel drafts plus shared controls. Enabled BOST/EOST rows require LIST
+output pins.
+
+When Wait complete is selected and Leave configured is off, completion writes
+back the pre-run Trigger settings and LIST table. The running table may be
+briefly visible before restore. Select Leave configured to retain the new
+table and Trigger settings.
 Live Data samples include parsed model identity and channel-local OVP/OCP trip
 state. A valid Live Data model can repair the selected resource's command
 support cache; results without a model do not replace an already known model.

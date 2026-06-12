@@ -15,6 +15,27 @@ Power Worker, and WebUI Commands. Adapter defaults are not limits.
 - `max_reads`, `max_errors`, and `wait_timeout_ms` are positive integers.
 - Trigger poll intervals are integers of at least 50 ms.
 - Trigger LIST count is 1 through 256. LIST dwell is 0.01 through 3600 seconds.
+- Native Trigger LIST accepts canonical `bost_list`, `eost_list`,
+  `trigger_output_pins`, and `trigger_output_polarity`. BOST/EOST lengths must
+  match the voltage step count, and any enabled BOST/EOST pulse requires
+  explicit output pins. Legacy `completion_pulse_pins` remains a final-step
+  EOST pulse and must not be mixed with canonical fields.
+- Native `trigger-step` and `trigger-list` reject `fire=true` with Immediate
+  source because `INIT` starts Immediate execution.
+- Native BUS `trigger-step` and `trigger-list` requests with
+  `wait_complete=true` require `fire=true` in the same command.
+- Native `trigger-list` arm-only requests require
+  `leave_trigger_configured=true`, so a later `trigger-fire` can start the
+  armed LIST.
+- A started native `trigger-list` without `wait_complete=true` requires
+  `leave_trigger_configured=true`, so restore does not abort the active LIST.
+- With `wait_complete=true` and `leave_trigger_configured=false`, native
+  Trigger LIST restores the pre-run Trigger configuration and LIST table after
+  completion. `leave_trigger_configured=true` retains the newly configured
+  LIST table.
+- `trigger-fire` sends global `*TRG`. When `wait_complete=true`, `channel` is
+  required only as the output channel to abort if the instrument-wide
+  completion wait times out or is interrupted.
 - Ramp supports at most 1000 voltage steps. Ramp List supports 1 through 10
   segments, each with at most 1000 voltage steps.
 

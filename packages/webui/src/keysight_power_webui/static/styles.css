@@ -206,6 +206,51 @@ button.icon-button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.command-guidance {
+  margin: 12px 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+  color: var(--muted);
+  line-height: 1.4;
+}
+.trigger-list-editor {
+  grid-column: 1 / -1;
+  overflow-x: auto;
+}
+.trigger-list-toolbar,
+.trigger-list-tabs,
+.trigger-list-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.trigger-list-tabs .active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.trigger-list-controls label {
+  min-width: 140px;
+}
+.trigger-list-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.trigger-list-table th,
+.trigger-list-table td {
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.trigger-list-table input[type="number"] {
+  min-width: 95px;
+  width: 100%;
+}
+.trigger-list-table td:last-child {
+  white-space: nowrap;
+}
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(160px, 1fr));

@@ -4014,6 +4014,8 @@ def test_trigger_pulse_real_sends_expected_scpi(monkeypatch, capsys) -> None:
         "DIG:TOUT:BUS ON",
         "CURR:TRIG 0.05,(@3)",
         "VOLT:TRIG 1,(@3)",
+        "CURR:MODE FIX,(@3)",
+        "VOLT:MODE FIX,(@3)",
         "CURR:MODE STEP,(@3)",
         "VOLT:MODE STEP,(@3)",
         "TRIG:SOUR BUS,(@3)",
@@ -4064,11 +4066,13 @@ def test_trigger_pulse_dry_run_json_does_not_open_resource(monkeypatch, capsys) 
         {"index": 3, "type": "scpi", "command": "DIG:TOUT:BUS ON"},
         {"index": 4, "type": "scpi", "command": "CURR:TRIG <current-readback>,(@1)"},
         {"index": 5, "type": "scpi", "command": "VOLT:TRIG <voltage-readback>,(@1)"},
-        {"index": 6, "type": "scpi", "command": "CURR:MODE STEP,(@1)"},
-        {"index": 7, "type": "scpi", "command": "VOLT:MODE STEP,(@1)"},
-        {"index": 8, "type": "scpi", "command": "TRIG:SOUR BUS,(@1)"},
-        {"index": 9, "type": "scpi", "command": "INIT (@1)"},
-        {"index": 10, "type": "scpi", "command": "*TRG"},
+        {"index": 6, "type": "scpi", "command": "CURR:MODE FIX,(@1)"},
+        {"index": 7, "type": "scpi", "command": "VOLT:MODE FIX,(@1)"},
+        {"index": 8, "type": "scpi", "command": "CURR:MODE STEP,(@1)"},
+        {"index": 9, "type": "scpi", "command": "VOLT:MODE STEP,(@1)"},
+        {"index": 10, "type": "scpi", "command": "TRIG:SOUR BUS,(@1)"},
+        {"index": 11, "type": "scpi", "command": "INIT (@1)"},
+        {"index": 12, "type": "scpi", "command": "*TRG"},
     ]
 
 
@@ -4272,6 +4276,8 @@ def test_trigger_pulse_instrument_error_queue_fails_command(monkeypatch, capsys)
         "DIG:TOUT:BUS ON",
         "CURR:TRIG 0.05,(@1)",
         "VOLT:TRIG 1,(@1)",
+        "CURR:MODE FIX,(@1)",
+        "VOLT:MODE FIX,(@1)",
         "CURR:MODE STEP,(@1)",
         "VOLT:MODE STEP,(@1)",
         "TRIG:SOUR BUS,(@1)",
@@ -4673,6 +4679,8 @@ def test_trigger_list_dry_run_json_plans_native_list_scpi(monkeypatch, capsys) -
         "LIST:COUN 1,(@1)",
         "LIST:STEP AUTO,(@1)",
         "LIST:TERM:LAST ON,(@1)",
+        "CURR:MODE FIX,(@1)",
+        "VOLT:MODE FIX,(@1)",
         "CURR:MODE LIST,(@1)",
         "VOLT:MODE LIST,(@1)",
         "TRIG:SOUR BUS,(@1)",
@@ -4720,6 +4728,7 @@ def test_trigger_step_bus_fire_is_explicit(capsys) -> None:
         "1",
         "--source",
         "bus",
+        "--leave-trigger-configured",
     ]
 
     assert cli.main(base_args) == 0
@@ -4731,6 +4740,22 @@ def test_trigger_step_bus_fire_is_explicit(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     commands = [step["command"] for step in payload["data"]["plan"]["steps"]]
     assert "*TRG" in commands
+
+
+def test_trigger_list_dry_run_supports_explicit_bost_eost(capsys) -> None:
+    assert cli.main([
+        "trigger-list", "--dry-run", "--json", "--resource", OUTPUT_RESOURCE,
+        "--channel", "1", "--voltage-list", "0,1", "--current-list", "0.05",
+        "--dwell-list", "0.01", "--bost-list", "on,off", "--eost-list", "off,on",
+        "--trigger-output-pins", "1,3", "--trigger-output-polarity", "negative",
+        "--source", "immediate", "--wait-complete",
+    ]) == 0
+
+    commands = [step["command"] for step in json.loads(capsys.readouterr().out)["data"]["plan"]["steps"]]
+    assert "LIST:TOUT:BOST 1,0,(@1)" in commands
+    assert "LIST:TOUT:EOST 0,1,(@1)" in commands
+    assert "DIG:PIN1:POL NEG" in commands
+    assert "DIG:PIN3:POL NEG" in commands
 
 
 def test_trigger_step_rejects_completion_pulse_pins(capsys) -> None:
@@ -4754,6 +4779,28 @@ def test_trigger_step_rejects_completion_pulse_pins(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["code"] == "argument_error"
     assert "one-step trigger-list" in payload["error"]["message"]
+
+
+def test_trigger_step_bus_arm_only_keeps_existing_non_wait_behavior(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "trigger-step",
+                "--dry-run",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--source",
+                "bus",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
 
 
 def test_trigger_step_simulate_edu36311a_is_planning_only(capsys) -> None:
@@ -4796,6 +4843,7 @@ def test_trigger_step_real_edu36311a_is_rejected(monkeypatch, capsys) -> None:
                 "1",
                 "--source",
                 "bus",
+                "--leave-trigger-configured",
             ]
         )
         == 2
