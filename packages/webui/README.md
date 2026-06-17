@@ -55,8 +55,8 @@ not started can become `cancelled` immediately.
 
 The static UI is a three-panel dashboard:
 
-- top connection bar for mode, resource, backend, timeout, safety config, and
-  health;
+- package-versioned title area and top connection bar for resource selection
+  and health;
 - Basic command panel for direct per-channel setpoint and output shortcuts;
 - collapsible command rail populated from `/api/commands`;
 - generated command form with typed controls and a graphical Sequence
@@ -70,6 +70,8 @@ The `set` command accepts Voltage, Current, or both in Basic command and
 Commands. Blank setpoint fields are omitted from the job payload and left
 unchanged by Core; Live Data/readback remains the source for complete
 instrument setpoint state.
+Basic output controls are lit-state ON buttons: an unlit ON control represents
+OFF/unknown, and a lit ON control represents ON according to fresh Live Data.
 
 The Live Data status row uses LED indicators for WebUI State, Command State,
 and Live State. Command State reports whether the WebUI command path is free

@@ -173,6 +173,8 @@ def test_static_top_bar_uses_live_resource_defaults():
     assert 'id="resource" value="USB0::SIM::E36312A::INSTR"' not in index_html
     assert 'id="resource-select"' in index_html
     assert 'id="scan"' in index_html
+    assert 'class="brand-subtitle"' in index_html
+    assert "Unofficial Controller v__WEBUI_VERSION__" in index_html
     assert 'id="server-state"' in index_html
     assert 'id="device-state"' in index_html
     assert 'id="live-state"' in index_html
@@ -309,7 +311,9 @@ def test_static_basic_command_panel_contract():
     assert 'Basic command' in index_html
     assert 'id="basic-command-status"' in index_html
     assert 'data-basic-all-output' in index_html
+    assert "data-basic-all-output>ALL ON</button>" in index_html
     assert 'Show more commands' in index_html
+    assert 'class="secondary advanced-command-button"' in index_html
     assert 'Hide commands' in app_js
     assert 'function toggleAdvancedCommands()' in app_js
     assert 'panel.hidden = !expanded;' in app_js
@@ -320,14 +324,37 @@ def test_static_basic_command_panel_contract():
         assert f'data-basic-current="{channel}"' in index_html
         assert f'data-basic-set="{channel}"' in index_html
         assert f'data-basic-output="{channel}"' in index_html
+        assert f'data-basic-output="{channel}">ON</button>' in index_html
+        assert f'data-basic-output="{channel}">OFF</button>' not in index_html
 
     assert ".basic-command-section" in styles_css
     assert ".basic-channel-grid" in styles_css
     assert ".basic-set {" in styles_css
     assert ".basic-toggle.on" in styles_css
+    assert 'button.advanced-command-button' in styles_css
+    assert '--toggle-on: #0a84ff' in styles_css
+    assert '.basic-toggle[data-basic-output="2"]' in styles_css
+    assert '.basic-toggle[data-basic-output="3"]' in styles_css
+    assert ".basic-toggle[data-basic-all-output]" in styles_css
     assert "#basic-output-all" in styles_css
     assert ".basic-action-error" in styles_css
     assert "@media (max-width: 1100px)" in styles_css
+
+
+def test_static_basic_output_buttons_label_on_and_use_lit_state():
+    index_html, app_js, _styles_css = read_static_texts()
+    output_button = extract_js_function(app_js, "renderBasicOutputButton")
+    all_button = extract_js_function(app_js, "renderBasicAllOutputButton")
+
+    assert "All OFF" not in index_html
+    assert 'button.textContent = "ON";' in output_button
+    assert 'button.textContent = "ALL ON";' in all_button
+    assert 'button.textContent = enabled ? "ON" : "OFF";' not in output_button
+    assert 'button.textContent = allOn ? "All ON" : "All OFF";' not in all_button
+    assert 'button.classList.toggle("on", enabled);' in output_button
+    assert 'button.classList.toggle("off", !enabled);' in output_button
+    assert 'button.classList.toggle("on", allOn);' in all_button
+    assert 'button.classList.toggle("off", !allOn);' in all_button
 
 
 def test_static_live_channel_status_uses_led_indicators():
@@ -842,12 +869,16 @@ def client():
 
 
 def test_index_uses_cache_busted_assets_and_no_store(client: TestClient):
+    from keysight_power_webui import __version__
+
     response = client.get("/")
 
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "no-store"
     assert '/static/styles.css?v=' in response.text
     assert '/static/app.js?v=' in response.text
+    assert f"Unofficial Controller v{__version__}" in response.text
+    assert "__WEBUI_VERSION__" not in response.text
 
 
 def test_static_assets_accept_query_string_and_no_store(client: TestClient):
@@ -859,11 +890,14 @@ def test_static_assets_accept_query_string_and_no_store(client: TestClient):
 
 
 def test_health_check(client: TestClient):
+    from keysight_power_webui import __version__
+
     response = client.get("/api/health")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
     assert data["package"] == "keysight-power-webui"
+    assert data["version"] == __version__
 
 
 def test_commands_metadata(client: TestClient):

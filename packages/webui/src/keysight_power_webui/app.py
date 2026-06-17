@@ -19,6 +19,7 @@ from keysight_power_core.sequence import load_sequence_document, sequence_plan
 from keysight_power_core.trigger import validate_trigger_request
 from keysight_power_core.workflow_validation import validate_general_workflow_parameters
 
+from . import __version__ as WEBUI_VERSION
 from .jobs import job_manager, JobStatus
 from .commands import execute_job_command, MUTATING_COMMANDS, WEBUI_UNSUPPORTED_COMMANDS, webui_command_support
 
@@ -35,7 +36,7 @@ class NoStoreStaticFiles(StaticFiles):
         response.headers["Cache-Control"] = CACHE_CONTROL_NO_STORE
         return response
 
-app = FastAPI(title="Keysight Power WebUI", version="0.1.0")
+app = FastAPI(title="Keysight Power WebUI", version=WEBUI_VERSION)
 
 # Mount static files if directory exists
 if STATIC_DIR.exists():
@@ -109,6 +110,7 @@ async def index():
         html = index_path.read_text(encoding="utf-8")
         html = html.replace("/static/styles.css", f"/static/styles.css?v={_asset_version('styles.css')}")
         html = html.replace("/static/app.js", f"/static/app.js?v={_asset_version('app.js')}")
+        html = html.replace("__WEBUI_VERSION__", WEBUI_VERSION)
         return HTMLResponse(html, headers={"Cache-Control": CACHE_CONTROL_NO_STORE})
     return {"message": "Keysight Power WebUI - Static UI not found"}
 
@@ -126,7 +128,7 @@ async def health_check():
     return {
         "status": "ok",
         "package": "keysight-power-webui",
-        "version": "0.1.0",
+        "version": WEBUI_VERSION,
         "hardware_locked": job_manager.is_hardware_locked(),
         "active_job": job_manager.active_job_id,
     }

@@ -2994,20 +2994,24 @@ function renderBasicOutputButton(channel, liveChannel, fresh) {
   const button = document.querySelector(`[data-basic-output="${channel}"]`);
   if (!button) return;
   const enabled = fresh && liveChannel?.output_enabled === true;
-  button.textContent = enabled ? "ON" : "OFF";
+  button.textContent = "ON";
   button.classList.toggle("on", enabled);
   button.classList.toggle("off", !enabled);
   button.setAttribute("aria-pressed", String(enabled));
+  button.setAttribute("aria-label", `CH${channel} output ${enabled ? "on" : "off"}`);
+  button.title = fresh ? `CH${channel} output is ${enabled ? "ON" : "OFF"}.` : `CH${channel} output state is unknown.`;
 }
 
 function renderBasicAllOutputButton(channels) {
   const button = document.querySelector("[data-basic-all-output]");
   if (!button) return;
   const allOn = [1, 2, 3].every((channel) => channels.find((item) => Number(item.channel) === channel)?.output_enabled === true);
-  button.textContent = allOn ? "All ON" : "All OFF";
+  button.textContent = "ALL ON";
   button.classList.toggle("on", allOn);
   button.classList.toggle("off", !allOn);
   button.setAttribute("aria-pressed", String(allOn));
+  button.setAttribute("aria-label", `All outputs ${allOn ? "on" : "not all on"}`);
+  button.title = allOn ? "All outputs are ON." : "One or more outputs are OFF or unknown.";
 }
 
 function clearResolvedBasicErrors(channel, liveChannel, fresh) {
