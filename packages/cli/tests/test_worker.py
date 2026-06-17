@@ -727,6 +727,34 @@ def test_worker_rejects_invalid_static_parameter_before_enqueue():
     assert state.next_job is None
 
 
+def test_worker_accepts_partial_set_before_enqueue():
+    config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
+    state = WorkerState(config, 0)
+
+    status, payload = worker_mod._validate_command_body(
+        {"command": "set", "arguments": {"channel": 1, "voltage": 1.0, "dry_run": True}},
+        state,
+    )
+
+    assert status == 202
+    assert payload["arguments"]["voltage"] == 1.0
+    assert "current" not in payload["arguments"]
+
+
+def test_worker_rejects_empty_set_before_enqueue():
+    config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
+    state = WorkerState(config, 0)
+
+    status, payload = worker_mod._validate_command_body(
+        {"command": "set", "arguments": {"channel": 1, "dry_run": True}},
+        state,
+    )
+
+    assert status == 400
+    assert "set requires voltage, current, or both" in payload["error"]["message"]
+    assert state.next_job is None
+
+
 def test_worker_rejects_arm_only_trigger_list_before_enqueue():
     config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
     state = WorkerState(config, 0)

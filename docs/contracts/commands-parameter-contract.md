@@ -6,6 +6,12 @@ Power Worker, and WebUI Commands. Adapter defaults are not limits.
 ## Fixed Limits
 
 - Voltage and current values must be finite and non-negative.
+- `set` requires `channel` plus at least one of `voltage` or `current`.
+  Supplying only one setpoint leaves the omitted setpoint unchanged on the
+  instrument; adapters must not replace omitted values with zero or readback
+  guesses.
+- `apply`, `ramp`, `smoke-output`, Ramp List, and Sequence set/apply steps keep
+  their complete setpoint requirements.
 - `step_voltage` must be finite and greater than zero.
 - Ramp and Ramp List `delay_ms` is the additional delay after each voltage
   step completes before starting the next step. It is a non-negative integer.

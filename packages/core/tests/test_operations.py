@@ -71,6 +71,93 @@ def test_operations_dry_run_does_not_open_visa() -> None:
     assert [step["action"] for step in data["steps"]] == ["set_current_limit", "set_voltage"]
 
 
+def test_output_plan_set_accepts_voltage_only() -> None:
+    params = request("set").parameters
+    params.pop("current")
+
+    plan = output_plan(OperationRequest(command="set", runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", dry_run=True), parameters=params))
+
+    assert [step["action"] for step in plan["steps"]] == ["set_voltage"]
+    assert plan["steps"][0]["parameters"] == {"channel": 1, "voltage": 1.0}
+
+
+def test_output_plan_set_accepts_current_only() -> None:
+    params = request("set").parameters
+    params.pop("voltage")
+
+    plan = output_plan(OperationRequest(command="set", runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", dry_run=True), parameters=params))
+
+    assert [step["action"] for step in plan["steps"]] == ["set_current_limit"]
+    assert plan["steps"][0]["parameters"] == {"channel": 1, "current": 0.1}
+
+
+def test_output_plan_set_requires_one_setpoint() -> None:
+    params = request("set").parameters
+    params.pop("voltage")
+    params.pop("current")
+
+    with pytest.raises(CoreValidationError, match="set requires voltage, current, or both"):
+        output_plan(OperationRequest(command="set", runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", dry_run=True), parameters=params))
+
+
+def test_real_set_voltage_only_writes_only_voltage() -> None:
+    session = FakeSession()
+    params = request("set").parameters
+    params.pop("current")
+    core_request = OperationRequest(
+        command="set",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+        parameters=params,
+    )
+
+    data = run_operation(core_request, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
+
+    assert "CURR 0.1,(@1)" not in session.writes
+    assert session.writes == ["VOLT 1,(@1)"]
+    assert data["updated_setpoints"] == {"voltage": 1.0}
+    assert "current" not in data
+
+
+def test_real_set_current_only_writes_only_current() -> None:
+    session = FakeSession()
+    params = request("set").parameters
+    params.pop("voltage")
+    core_request = OperationRequest(
+        command="set",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+        parameters=params,
+    )
+
+    data = run_operation(core_request, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
+
+    assert session.writes == ["CURR 0.1,(@1)"]
+    assert data["updated_setpoints"] == {"current": 0.1}
+    assert "voltage" not in data
+
+
+def test_real_set_verify_after_write_checks_only_written_field() -> None:
+    session = FakeSession(responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "999"})
+    params = request("set", verify_after_write=True).parameters
+    params.pop("current")
+    core_request = OperationRequest(
+        command="set",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+        parameters=params,
+    )
+
+    data = run_operation(core_request, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
+
+    assert "CURR? (@1)" not in session.queries
+    assert data["verification"]["checks"] == [
+        {
+            "channel": 1,
+            "expected": {"voltage": 1.0},
+            "actual": {"voltage": 1.0},
+            "tolerances": {"voltage": 0.001, "current": 0.001},
+        }
+    ]
+
+
 @pytest.mark.parametrize(
     ("command", "expected"),
     [

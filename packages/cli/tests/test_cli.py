@@ -2293,6 +2293,77 @@ def test_set_plan_orders_current_limit_before_voltage(capsys) -> None:
     ]
 
 
+def test_set_dry_run_json_accepts_voltage_only(capsys) -> None:
+    assert cli.main([
+        "set",
+        "--resource",
+        "USB0::SIM::E36312A::INSTR",
+        "--channel",
+        "1",
+        "--voltage",
+        "1",
+        "--dry-run",
+        "--json",
+    ]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["request"]["voltage"] == 1.0
+    assert "current" not in payload["request"]
+    assert [step["action"] for step in payload["data"]["plan"]["steps"]] == ["set_voltage"]
+
+
+def test_set_dry_run_json_accepts_current_only(capsys) -> None:
+    assert cli.main([
+        "set",
+        "--resource",
+        "USB0::SIM::E36312A::INSTR",
+        "--channel",
+        "1",
+        "--current",
+        "0.05",
+        "--dry-run",
+        "--json",
+    ]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["request"]["current"] == 0.05
+    assert "voltage" not in payload["request"]
+    assert [step["action"] for step in payload["data"]["plan"]["steps"]] == ["set_current_limit"]
+
+
+def test_set_dry_run_json_rejects_missing_setpoints(capsys) -> None:
+    assert cli.main([
+        "set",
+        "--resource",
+        "USB0::SIM::E36312A::INSTR",
+        "--channel",
+        "1",
+        "--dry-run",
+        "--json",
+    ]) == 2
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+    assert "set requires voltage, current, or both" in payload["error"]["message"]
+
+
+def test_set_text_dry_run_lists_only_requested_setpoint(capsys) -> None:
+    assert cli.main([
+        "set",
+        "--resource",
+        "USB0::SIM::E36312A::INSTR",
+        "--channel",
+        "1",
+        "--voltage",
+        "1",
+        "--dry-run",
+    ]) == 0
+
+    captured = capsys.readouterr()
+    assert "set_voltage channel=1 voltage=1" in captured.out
+    assert "set_current_limit" not in captured.out
+
+
 def test_channel_two_plan_is_logical_and_not_scpi(capsys) -> None:
     args = output_command_args("set", channel="2")
 

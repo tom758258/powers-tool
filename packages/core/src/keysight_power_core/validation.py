@@ -161,6 +161,8 @@ def validate_output_request(
         raise ValidationError(f"{command} does not support channel all")
     if command == "ramp" and channel == "all":
         raise ValidationError("ramp does not support channel all")
+    if command == "set" and voltage is None and current is None:
+        raise ValidationError("set requires voltage, current, or both")
     if command in {"set", "apply", "smoke-output"}:
         channels = (1, 2, 3) if channel == "all" else (int(channel),)
         for selected_channel in channels:

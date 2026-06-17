@@ -7870,18 +7870,18 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     if args.command == "set":
-        return {
+        return _drop_none_setpoints({
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
-            "voltage": _json_safe_number(args.voltage),
-            "current": _json_safe_number(args.current),
+            "voltage": _json_safe_number(args.voltage) if args.voltage is not None else None,
+            "current": _json_safe_number(args.current) if args.current is not None else None,
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             **_write_verification_request_fields(args),
             **_completion_request_fields(args),
-        }
+        })
     if args.command == "output-off":
         return {
             "resource": args.resource,
@@ -8276,7 +8276,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
         }
     if command == "set":
-        return {
+        return _drop_none_setpoints({
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": _channel_from_argv(argv),
@@ -8287,7 +8287,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
             **_write_verification_request_fields_from_argv(argv),
             **_completion_request_fields_from_argv(argv),
-        }
+        })
     if command == "output-off":
         return {
             "resource": _option_value(argv, "--resource"),
@@ -8716,6 +8716,10 @@ def _number_from_argv(argv: Sequence[str], option: str) -> float | str | None:
         return value
 
 
+def _drop_none_setpoints(request: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in request.items() if key not in {"voltage", "current"} or value is not None}
+
+
 def _int_from_argv(argv: Sequence[str], option: str) -> int | str | None:
     value = _option_value(argv, option)
     if value is None:
@@ -9129,6 +9133,8 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
     }
     if args.command == "ramp":
         parameters["completion_pulse_timing"] = getattr(args, "completion_pulse_timing", "segment")
+    if args.command == "set":
+        parameters = _drop_none_setpoints(parameters)
     return OperationRequest(
         command=args.command,
         runtime=RuntimeOptions(
@@ -9374,7 +9380,7 @@ def _append_completion_pulse_plan(args: argparse.Namespace, plan: dict[str, Any]
 
 def _output_plan_description(command: str) -> str:
     descriptions = {
-        "set": "Preview setting current limit before voltage.",
+        "set": "Preview setting voltage, current limit, or both.",
         "output-on": "Preview enabling the selected output channel.",
         "output-off": "Preview disabling the selected output channel.",
         "safe-off": "Preview a conservative output-off action without channel expansion.",

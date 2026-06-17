@@ -101,6 +101,7 @@ def run_operation(
 def output_plan(request: OperationRequest) -> dict[str, Any]:
     """Build the dry-run/simulation output plan without opening hardware."""
 
+    validate_general_workflow_parameters(request)
     validate_request_parameters(request)
     _validate_known_simulated_model_setpoints(request)
     command = request.command
@@ -118,11 +119,8 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
     }
 
     if command == "set":
-        plan["steps"] = [
-            _driver_step(1, "set_current_limit", channel=channel, current=_json_safe_number(p["current"])),
-            _driver_step(2, "set_voltage", channel=channel, voltage=_json_safe_number(p["voltage"])),
-        ]
-        _append_write_followup_steps(p, plan["steps"], ("programmed_voltage", "programmed_current"))
+        plan["steps"] = _setpoint_write_steps(channel, p)
+        _append_write_followup_steps(p, plan["steps"], _setpoint_verification_actions(p))
     elif command == "output-on":
         channels = _plan_channels(channel)
         plan["steps"] = [
@@ -305,14 +303,16 @@ def _execute_output_write(
     if command == "set":
         _require_channel(power_supply, channel, command)
         _validate_setpoint_for_request(request, idn, channel)
-        power_supply.set_current_limit(channel=channel, current=p["current"])
-        power_supply.set_voltage(channel=channel, voltage=p["voltage"])
+        if p.get("current") is not None:
+            power_supply.set_current_limit(channel=channel, current=p["current"])
+        if p.get("voltage") is not None:
+            power_supply.set_voltage(channel=channel, voltage=p["voltage"])
         _settle_after_write(request, sleep, stop_requested)
         verification = _verify_setpoints_after_write(request, power_supply, channels=(channel,))
         _raise_verification_failed(verification)
         trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
         _raise_on_instrument_errors(power_supply, command)
-        data = _resource_payload(request, idn, channel=channel, voltage=p["voltage"], current=p["current"])
+        data = _resource_payload(request, idn, channel=channel, **_set_result_fields(p))
         _attach_trigger_if_present(data, trigger)
         _attach_verification_if_requested(request, data, verification)
         return data
@@ -575,11 +575,13 @@ def _validate_setpoint_for_request(
 ) -> None:
     p = request.parameters
     limits = _safety_limits(request, channel=channel, model=parse_idn(idn).model)
+    requested_voltage = p.get("voltage") if voltage is None else voltage
+    requested_current = p.get("current") if current is None else current
     try:
         validate_setpoint(
             channel=channel,
-            voltage=p["voltage"] if voltage is None else voltage,
-            current=p["current"] if current is None else current,
+            voltage=requested_voltage,
+            current=requested_current,
             limits=limits,
         )
         validate_effective_setpoint(
@@ -587,8 +589,8 @@ def _validate_setpoint_for_request(
             channel=channel,
             electrical_ratings=power_supply_ratings_for_idn(idn),
             safety_limits=limits,
-            voltage=p["voltage"] if voltage is None else voltage,
-            current=p["current"] if current is None else current,
+            voltage=requested_voltage,
+            current=requested_current,
         )
     except (SafetyConfigError, SafetyValidationError) as exc:
         raise CoreValidationError(str(exc)) from exc
@@ -737,28 +739,36 @@ def _verify_setpoints_after_write(
     p = request.parameters
     if not p.get("verify_after_write", False):
         return {"passed": True, "checks": [], "differences": []}
-    voltage = p["voltage"] if expected_voltage is None else expected_voltage
-    current = p["current"]
+    voltage = p.get("voltage") if expected_voltage is None else expected_voltage
+    current = p.get("current")
     voltage_tolerance = float(p.get("setpoint_voltage_tolerance", 0.001))
     current_tolerance = float(p.get("setpoint_current_tolerance", 0.001))
     tolerances = {"voltage": voltage_tolerance, "current": current_tolerance}
     checks = []
     differences = []
     for channel in channels:
-        actual_voltage = power_supply.programmed_voltage(channel=channel)
-        actual_current = power_supply.programmed_current(channel=channel)
+        expected: dict[str, Any] = {}
+        actual: dict[str, Any] = {}
+        if voltage is not None:
+            actual_voltage = power_supply.programmed_voltage(channel=channel)
+            expected["voltage"] = _json_safe_number(voltage)
+            actual["voltage"] = _json_safe_number(actual_voltage)
+            if abs(actual_voltage - voltage) > voltage_tolerance:
+                differences.append(_verification_difference("programmed_voltage", channel, voltage, actual_voltage, voltage_tolerance))
+        if current is not None:
+            actual_current = power_supply.programmed_current(channel=channel)
+            expected["current"] = _json_safe_number(current)
+            actual["current"] = _json_safe_number(actual_current)
+            if abs(actual_current - current) > current_tolerance:
+                differences.append(_verification_difference("programmed_current", channel, current, actual_current, current_tolerance))
         checks.append(
             {
                 "channel": channel,
-                "expected": {"voltage": _json_safe_number(voltage), "current": _json_safe_number(current)},
-                "actual": {"voltage": _json_safe_number(actual_voltage), "current": _json_safe_number(actual_current)},
+                "expected": expected,
+                "actual": actual,
                 "tolerances": tolerances,
             }
         )
-        if abs(actual_voltage - voltage) > voltage_tolerance:
-            differences.append(_verification_difference("programmed_voltage", channel, voltage, actual_voltage, voltage_tolerance))
-        if abs(actual_current - current) > current_tolerance:
-            differences.append(_verification_difference("programmed_current", channel, current, actual_current, current_tolerance))
     return {"passed": not differences, "checks": checks, "differences": differences}
 
 
@@ -898,6 +908,36 @@ def _driver_step(index: int, action: str, **parameters: Any) -> dict[str, Any]:
     return {"index": index, "type": "driver_action", "action": action, "parameters": parameters}
 
 
+def _setpoint_write_steps(channel: int | str | None, parameters: dict[str, Any]) -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = []
+    if parameters.get("current") is not None:
+        steps.append(_driver_step(len(steps) + 1, "set_current_limit", channel=channel, current=_json_safe_number(parameters["current"])))
+    if parameters.get("voltage") is not None:
+        steps.append(_driver_step(len(steps) + 1, "set_voltage", channel=channel, voltage=_json_safe_number(parameters["voltage"])))
+    return steps
+
+
+def _setpoint_verification_actions(parameters: dict[str, Any]) -> tuple[str, ...]:
+    actions = []
+    if parameters.get("voltage") is not None:
+        actions.append("programmed_voltage")
+    if parameters.get("current") is not None:
+        actions.append("programmed_current")
+    return tuple(actions)
+
+
+def _set_result_fields(parameters: dict[str, Any]) -> dict[str, Any]:
+    updated = {
+        name: parameters[name]
+        for name in ("voltage", "current")
+        if parameters.get(name) is not None
+    }
+    result: dict[str, Any] = {"updated_setpoints": updated}
+    if set(updated) == {"voltage", "current"}:
+        result.update(updated)
+    return result
+
+
 def _append_write_followup_steps(
     parameters: dict[str, Any],
     steps: list[dict[str, Any]],
@@ -932,7 +972,7 @@ def _json_safe_number(value: float) -> float | str:
 
 def _output_plan_description(command: str) -> str:
     descriptions = {
-        "set": "Preview setting current limit before voltage.",
+        "set": "Preview setting voltage, current limit, or both.",
         "output-on": "Preview enabling the selected output channel.",
         "output-off": "Preview disabling the selected output channel.",
         "safe-off": "Preview a conservative output-off action without channel expansion.",

@@ -145,6 +145,11 @@ for output commands, `"all"` is supported by `apply`, `safe-off`,
 and `smoke-output` remain single-channel commands. `ramp-list` accepts `file`
 or `document`; each segment selects one positive integer channel.
 
+`set` arguments require `channel` plus `voltage`, `current`, or both. An
+omitted setpoint is left unchanged on the instrument and must not be replaced
+with zero or readback-derived values. Requests with neither `voltage` nor
+`current` return HTTP 400 before artifact creation or queue mutation.
+
 Ramp List documents are JSON objects with `kind: "keysight-power-ramp-list"`,
 `version: 1`, and 1 to 10 ordered `segments`. Each segment contains `channel`,
 `current`, `start_voltage`, `stop_voltage`, `step_voltage`, `delay_ms`, and

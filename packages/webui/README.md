@@ -66,6 +66,11 @@ The static UI is a three-panel dashboard:
 Machine-facing command IDs remain kebab-case. Human-facing WebUI command names
 use spaces and sentence case.
 
+The `set` command accepts Voltage, Current, or both in Basic command and
+Commands. Blank setpoint fields are omitted from the job payload and left
+unchanged by Core; Live Data/readback remains the source for complete
+instrument setpoint state.
+
 The frontend keeps one job SSE controller and one live-data SSE controller.
 Ramp List uses a dedicated segment-card editor with versioned JSON Load/Save,
 up to 10 ordered segments, and full-list trip guarding before submission.

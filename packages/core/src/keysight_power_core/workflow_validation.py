@@ -33,6 +33,8 @@ def validate_general_workflow_parameters(request: OperationRequest) -> None:
 
     if request.command not in GENERAL_PULSE_COMMANDS:
         return
+    if request.command == "set" and request.parameters.get("voltage") is None and request.parameters.get("current") is None:
+        raise CoreValidationError("set requires voltage, current, or both")
     removed = sorted(REMOVED_GENERAL_WORKFLOW_FIELDS.intersection(request.parameters))
     if removed:
         raise CoreValidationError(

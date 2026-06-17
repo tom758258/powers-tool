@@ -117,6 +117,10 @@ Selected data mappings:
 - `readback`: `resource`, `idn_raw`, and `channels[].setpoints`.
 - `measure`: selected channel measurements.
 - `measure-all`: all E36312A channel measurements.
+- `set`: request arguments contain `channel` plus `voltage`, `current`, or
+  both. Omitted setpoints are left unchanged, not defaulted. Successful results
+  include `updated_setpoints` with only the setpoints actually written; full
+  set requests also keep the existing top-level `voltage` and `current` fields.
 - `output-on`, `output-off`, `output-state`, and `cycle-output`: single-channel
   responses keep the existing `channel` plus `output` shape. With
   `channel: "all"`, responses keep `channel: "all"` and add `outputs[]` entries

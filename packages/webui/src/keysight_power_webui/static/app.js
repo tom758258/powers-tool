@@ -72,7 +72,7 @@ const PARAMS = {
   clear: [],
   error: [{ name: "max_reads", type: "number", label: "Max reads", value: 20 }],
   readback: [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "all" }],
-  set: baseOutputParams(),
+  set: setOutputParams(),
   apply: [...applyOutputParams(), { name: "no_output", type: "checkbox", label: "Do not enable output" }],
   "output-on": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
   "output-off": [{ name: "channel", type: "select", label: "Channel", options: ["all", "1", "2", "3"], value: "1" }],
@@ -147,6 +147,15 @@ function baseOutputParams() {
     { name: "channel", type: "select", label: "Channel", options: ["1", "2", "3"], value: "1" },
     { name: "voltage", type: "number", label: "Voltage(V)", value: 1 },
     { name: "current", type: "number", label: "Current(A)", value: 0.1 }
+  ];
+}
+
+function setOutputParams() {
+  const params = baseOutputParams();
+  return [
+    params[0],
+    { ...params[1], optional: true },
+    { ...params[2], optional: true }
   ];
 }
 
@@ -409,6 +418,7 @@ function renderCommandGuidance(command, parameters = {}) {
   const guidance = document.getElementById("command-guidance");
   if (!guidance) return;
   const messages = {
+    set: "Set accepts Voltage, Current, or both. Blank fields are left unchanged.",
     "trigger-step": "Immediate starts from INIT, so Fire now is unavailable. For BUS, Wait complete requires Fire now in the same command and waits for the instrument-wide operation-complete event.",
     "trigger-list": "Wait complete with Leave configured off writes back the pre-run Trigger settings and LIST table after completion. The running LIST may be briefly visible; select Leave configured to retain the new LIST table and Trigger settings.",
     "trigger-fire": "Sends global *TRG to every armed BUS trigger on the instrument. Abort target channel does not limit Fire or Wait; it is used only if Wait complete times out or is interrupted."
@@ -1878,11 +1888,7 @@ async function runBasicSet(channel) {
     failBasicAction(actionKey, "Invalid setpoint", values.message, { channel, label: `Basic CH${channel} Set` });
     return;
   }
-  await submitBasicJob("set", {
-    channel,
-    voltage: values.voltage,
-    current: values.current
-  }, actionKey, `Basic CH${channel} Set`);
+  await submitBasicJob("set", { channel, ...values.parameters }, actionKey, `Basic CH${channel} Set`);
 }
 
 async function runBasicOutput(channel) {
@@ -2212,15 +2218,21 @@ function basicSetpointValues(channel) {
   if (!voltageInput || !currentInput) return { ok: false, message: `CH${channel} controls are missing.` };
   const valid = [voltageInput, currentInput].every((input) => validateBasicInput(input));
   if (!valid) return { ok: false, message: `CH${channel} setpoint is outside allowed limits.` };
-  if (voltageInput.value === "" || currentInput.value === "") {
-    return { ok: false, message: `CH${channel} requires both V and A values.` };
+  if (voltageInput.value === "" && currentInput.value === "") {
+    return { ok: false, message: `CH${channel} requires V, A, or both.` };
   }
-  const voltage = Number(voltageInput.value);
-  const current = Number(currentInput.value);
-  if (!Number.isFinite(voltage) || !Number.isFinite(current)) {
-    return { ok: false, message: `CH${channel} V and A must be finite numbers.` };
+  const parameters = {};
+  if (voltageInput.value !== "") {
+    const voltage = Number(voltageInput.value);
+    if (!Number.isFinite(voltage)) return { ok: false, message: `CH${channel} V must be a finite number.` };
+    parameters.voltage = voltage;
   }
-  return { ok: true, voltage, current };
+  if (currentInput.value !== "") {
+    const current = Number(currentInput.value);
+    if (!Number.isFinite(current)) return { ok: false, message: `CH${channel} A must be a finite number.` };
+    parameters.current = current;
+  }
+  return { ok: true, parameters };
 }
 
 function updateRampListPulse(name, value) {
@@ -2984,7 +2996,10 @@ function clearResolvedBasicErrors(channel, liveChannel, fresh) {
 function liveSetpointsMatchBasicInputs(channel, liveChannel) {
   const values = basicSetpointValues(channel);
   if (!values.ok) return false;
-  return nearlyEqual(values.voltage, liveChannel.set_voltage) && nearlyEqual(values.current, liveChannel.set_current);
+  const expected = values.parameters;
+  if (expected.voltage !== undefined && !nearlyEqual(expected.voltage, liveChannel.set_voltage)) return false;
+  if (expected.current !== undefined && !nearlyEqual(expected.current, liveChannel.set_current)) return false;
+  return true;
 }
 
 function nearlyEqual(left, right) {
@@ -3175,16 +3190,17 @@ function updateSelectedCommandState() {
   }
   const tripGuard = tripGuardReason(state.selected, parameters);
   const ratingGuard = electricalRatingGuardReason(state.selected, parameters);
+  const setGuard = setRequiresSetpointGuardReason(state.selected, parameters);
   const triggerControlGuard = triggerControlGuardReason(state.selected, parameters);
   const triggerFireWaitGuard = triggerFireWaitGuardReason(state.selected, parameters);
   const tripWarning = tripContextWarning(state.selected);
   const runButton = document.getElementById("run");
   const commandDescription = document.getElementById("command-description");
-  const descriptionText = [meta.description, ratingGuard, tripGuard || tripWarning].filter(Boolean).join(" ");
+  const descriptionText = [meta.description, ratingGuard, setGuard, tripGuard || tripWarning].filter(Boolean).join(" ");
   commandDescription.textContent = descriptionText;
   commandDescription.title = descriptionText;
   renderCommandGuidance(state.selected, parameters);
-  runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard || triggerControlGuard || triggerFireWaitGuard);
+  runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard);
   runButton.disabled ||= !validateConstrainedInputs();
   if (state.selected === "restore-from-snapshot") {
     const restoreValid = isLoadedRestoreSnapshotValid();
@@ -3255,6 +3271,13 @@ function triggerFireWaitGuardReason(command, parameters) {
     return "Wait complete requires an Abort target channel.";
   }
   return "";
+}
+
+function setRequiresSetpointGuardReason(command, parameters) {
+  if (command !== "set") return "";
+  return parameters.voltage === undefined && parameters.current === undefined
+    ? "Set requires Voltage, Current, or both."
+    : "";
 }
 
 function electricalRatingGuardReason(command, parameters) {

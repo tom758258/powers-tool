@@ -309,6 +309,10 @@ def test_static_basic_command_submission_reuses_existing_jobs():
 
     assert 'command: "set"' not in run_set
     assert 'await submitBasicJob("set"' in run_set
+    assert "{ channel, ...values.parameters }" in run_set
+    assert "parameters.voltage = voltage" in app_js
+    assert "parameters.current = current" in app_js
+    assert "requires V, A, or both" in app_js
     assert '"output-off"' in run_output
     assert '"output-on"' in run_output
     assert 'channel: "all"' in run_all
@@ -542,7 +546,7 @@ def test_static_commands_disable_by_selected_resource_model():
     assert "!next.stale && updateResourceModel(next.resource, next.model)" in app_js
     assert "support.real !== false" in app_js
     assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
-    assert "runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard || triggerControlGuard || triggerFireWaitGuard);" in app_js
+    assert "runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard);" in app_js
     assert 'error: "Command unavailable"' in app_js
 
 
@@ -564,7 +568,12 @@ def test_static_trip_guard_and_clear_protection_recovery_contract():
 def test_static_channel_confirmation_and_job_detail_contracts():
     _index_html, app_js, _styles_css = read_static_texts()
 
-    assert 'set: baseOutputParams()' in app_js
+    assert 'set: setOutputParams()' in app_js
+    assert 'function setOutputParams()' in app_js
+    assert "{ ...params[1], optional: true }" in app_js
+    assert "{ ...params[2], optional: true }" in app_js
+    assert "Set accepts Voltage, Current, or both. Blank fields are left unchanged." in app_js
+    assert "setRequiresSetpointGuardReason(state.selected, parameters)" in app_js
     assert '"smoke-output": smokeOutputParams()' in app_js
     assert_param_contract(app_js, "channel", "select", ["1", "2", "3"])
     assert_param_contract(app_js, "voltage", "number")
@@ -707,7 +716,7 @@ def test_static_trigger_controls_disable_invalid_combinations_and_immediate_fire
 
     assert "syncTriggerImmediateControls(state.selected)" in update_state
     assert "triggerControlGuardReason(state.selected, parameters)" in update_state
-    assert "meta.disabled || tripGuard || ratingGuard || triggerControlGuard || triggerFireWaitGuard" in update_state
+    assert "meta.disabled || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard" in update_state
     assert "triggerArmOnlyGuardReason" not in app_js
     assert '["trigger-step", "trigger-list"]' in guard
     assert "fire.checked = false" in sync
@@ -1093,6 +1102,50 @@ def test_post_job_simulate_set(client: TestClient):
     job_data = client.get(f"/api/jobs/{job_id}").json()
     assert job_data["status"] == "finished"
     assert "operation" in job_data["result"]
+
+
+def test_post_job_simulate_set_accepts_voltage_only(client: TestClient):
+    payload = {
+        "command": "set",
+        "runtime": {
+            "resource": "USB0::SIM::E36312A::INSTR",
+            "simulate": True,
+            "timeout_ms": 5000,
+            "confirm": False,
+        },
+        "parameters": {"channel": 1, "voltage": 5.0},
+    }
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+
+    job_id = response.json()["job_id"]
+    for _ in range(20):
+        res = client.get(f"/api/jobs/{job_id}")
+        if res.json()["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.1)
+
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    assert job_data["status"] == "finished"
+    assert [step["action"] for step in job_data["result"]["steps"]] == ["set_voltage"]
+    assert job_data["parameters"] == {"channel": 1, "voltage": 5.0}
+
+
+def test_post_job_rejects_set_without_setpoints(client: TestClient):
+    payload = {
+        "command": "set",
+        "runtime": {
+            "resource": "USB0::SIM::E36312A::INSTR",
+            "simulate": True,
+            "timeout_ms": 5000,
+            "confirm": False,
+        },
+        "parameters": {"channel": 1},
+    }
+    response = client.post("/api/jobs", json=payload)
+
+    assert response.status_code == 400
+    assert "set requires voltage, current, or both" in response.json()["detail"]
 
 
 def test_post_job_simulate_set_normalizes_string_channel(client: TestClient):

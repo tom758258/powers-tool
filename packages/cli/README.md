@@ -186,7 +186,9 @@ models.
 Real CLI measurement keeps generic instruments on channel 1. E36312A and
 EDU36311A channels 2 and 3 use IDN-selected channel-list measurement queries.
 Real CLI `set` is supported for E36312A and EDU36311A channels 1, 2, and 3. It
-writes the current limit before voltage and does not enable output.
+accepts `--voltage`, `--current`, or both. Omitted setpoints are left
+unchanged; when both are supplied, it writes the current limit before voltage.
+It does not enable output.
 
 Real CLI `output-on` is supported for E36312A and EDU36311A channels 1, 2, 3,
 and `all`. After `*IDN?`, it reads back `VOLT? (@N)` and `CURR? (@N)` before
@@ -452,11 +454,12 @@ Set low E36312A or EDU36311A setpoints without enabling output:
 
 ```powershell
 uv run keysight-power set --json --resource "USB0::...::INSTR" --channel 1 --voltage 1 --current 0.05 --log-scpi
+uv run keysight-power set --json --resource "USB0::...::INSTR" --channel 1 --voltage 1 --log-scpi
 ```
 
 Real `set` first confirms the selected resource is an E36312A or EDU36311A
-with `*IDN?`, then sends `CURR <current>,(@N)` followed by
-`VOLT <voltage>,(@N)`. Channels other than 1, 2, and 3 are rejected.
+with `*IDN?`, then writes only the requested setpoint fields. Channels other
+than 1, 2, and 3 are rejected.
 
 Enable an E36312A or EDU36311A output only after setpoints are already safe:
 

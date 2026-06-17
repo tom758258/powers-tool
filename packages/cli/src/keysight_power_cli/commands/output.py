@@ -34,8 +34,8 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         type=runtime._positive_channel,
         help="Positive integer output channel.",
     )
-    set_parser.add_argument("--voltage", required=True, type=float, help="Voltage setpoint.")
-    set_parser.add_argument("--current", required=True, type=float, help="Current limit.")
+    set_parser.add_argument("--voltage", type=float, help="Voltage setpoint. Omit to leave voltage unchanged.")
+    set_parser.add_argument("--current", type=float, help="Current limit. Omit to leave current unchanged.")
     runtime._add_write_verification_arguments(set_parser)
     runtime._add_json_argument(set_parser)
     runtime._add_simulate_argument(set_parser)
