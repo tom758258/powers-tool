@@ -71,6 +71,12 @@ Commands. Blank setpoint fields are omitted from the job payload and left
 unchanged by Core; Live Data/readback remains the source for complete
 instrument setpoint state.
 
+The Live Data status row uses LED indicators for WebUI State, Command State,
+and Live State. Command State reports whether the WebUI command path is free
+to accept real hardware jobs; it reflects the WebUI hardware I/O lock, not an
+instrument-internal state register. Live State remains tied to real Live Data
+readback and one-shot post-command refreshes.
+
 The frontend keeps one job SSE controller and one live-data SSE controller.
 Ramp List uses a dedicated segment-card editor with versioned JSON Load/Save,
 up to 10 ordered segments, and full-list trip guarding before submission.

@@ -65,6 +65,7 @@ const TRIGGER_COMMANDS = new Set([
   "trigger-fire",
   "trigger-abort"
 ]);
+const STATE_CLASS_NAMES = ["state-ok", "state-warning", "state-error", "state-idle"];
 
 const PARAMS = {
   "list-resources": [{ name: "live_only", type: "checkbox", label: "Live only" }],
@@ -277,18 +278,50 @@ async function refreshHealth() {
   try {
     const health = await fetchJson("/api/health");
     const serverReady = health.status === "ok";
-    const deviceIdle = !health.hardware_locked;
-    const serverState = serverReady ? "Server ready" : `Server ${health.status}`;
-    const hardwareState = deviceIdle ? "hardware idle" : "hardware locked by a job";
-    document.getElementById("server-state").textContent = serverState;
-    document.getElementById("device-state").textContent = hardwareState;
+    const deviceIdle = serverReady && !health.hardware_locked;
+    setStateIndicator(
+      "server-state",
+      serverReady ? "Ready" : "Error",
+      serverReady ? "state-ok" : "state-error",
+      serverReady ? "WebUI API is reachable." : `WebUI health status: ${health.status}`
+    );
+    setStateIndicator(
+      "device-state",
+      serverReady ? (deviceIdle ? "Ready" : "Busy") : "Unknown",
+      serverReady ? (deviceIdle ? "state-ok" : "state-warning") : "state-idle",
+      deviceIdle
+        ? "Command path can accept real hardware jobs."
+        : serverReady
+          ? `Hardware lock is held by job ${health.active_job || "unknown"}.`
+          : "Command state is unavailable while WebUI health is not ready."
+    );
     return { serverReady, deviceIdle };
   } catch (error) {
-    document.getElementById("server-state").textContent = "Server error";
-    document.getElementById("device-state").textContent = "hardware unknown";
+    setStateIndicator("server-state", "Error", "state-error", error.message || String(error));
+    setStateIndicator("device-state", "Unknown", "state-idle", "Command state is unavailable while WebUI health cannot be reached.");
     renderBlankLivePanel("error", error.message || String(error));
     return { serverReady: false, deviceIdle: false, error };
   }
+}
+
+function setStateIndicator(elementId, text, stateClass = "state-idle", title = "") {
+  const indicator = document.getElementById(elementId);
+  if (!indicator) return;
+  indicator.classList.add("state-indicator");
+  STATE_CLASS_NAMES.forEach((className) => indicator.classList.toggle(className, className === stateClass));
+  let dot = indicator.querySelector(".state-dot");
+  let textNode = indicator.querySelector(".state-text");
+  if (!dot || !textNode) {
+    indicator.textContent = "";
+    dot = document.createElement("span");
+    dot.className = "state-dot";
+    dot.setAttribute("aria-hidden", "true");
+    textNode = document.createElement("span");
+    textNode.className = "state-text";
+    indicator.append(dot, textNode);
+  }
+  textNode.textContent = text;
+  indicator.title = title || text;
 }
 
 async function loadCommands() {
@@ -2774,11 +2807,12 @@ async function startLive() {
     state.liveEvents.addEventListener("finished", () => {
       document.getElementById("live-start").disabled = false;
       document.getElementById("live-stop").disabled = true;
-      setLiveState("Not monitoring");
+      setLiveState("Not monitoring", "state-idle", "Live Data monitor is stopped.");
       closeEventSource("liveEvents");
     });
     state.liveEvents.addEventListener("failed", (event) => {
-      renderLivePanel({ status: "error", stale: true, message: JSON.parse(event.data).data?.error });
+      const message = JSON.parse(event.data).data?.error || "Live Data monitor failed.";
+      renderLivePanel({ status: "error", stale: true, message });
       document.getElementById("live-start").disabled = false;
       document.getElementById("live-stop").disabled = true;
       closeEventSource("liveEvents");
@@ -2796,21 +2830,23 @@ async function stopLive() {
   closeEventSource("liveEvents");
   document.getElementById("live-start").disabled = false;
   document.getElementById("live-stop").disabled = true;
-  setLiveState("Not monitoring");
+  setLiveState("Not monitoring", "state-idle", "Live Data monitor is stopped.");
 }
 
 async function startLivePreviewSnapshot(healthState, resource = null) {
   if (state.liveEvents) return;
   stopLivePreviewSnapshot();
-  setLiveState("Not monitoring");
+  setLiveState("Refreshing once...", "state-warning", "Refreshing Live Data once after command completion.");
   if (!healthState?.serverReady || !healthState?.deviceIdle) {
     renderBlankLivePanel("error", "Server or hardware is not ready.");
+    setLiveState("Refresh blocked", "state-error", "Server or command path is not ready for a one-shot Live Data refresh.");
     return;
   }
   const payload = { runtime: runtimePayload(), parameters: { interval_ms: 1000 } };
   if (resource) payload.runtime.resource = resource;
   if (!payload.runtime.resource) {
     renderBlankLivePanel();
+    setLiveState("Not monitoring", "state-idle", "No hardware resource is selected.");
     return;
   }
   try {
@@ -2827,13 +2863,13 @@ async function startLivePreviewSnapshot(healthState, resource = null) {
     state.previewEvents.addEventListener("failed", (event) => {
       const error = JSON.parse(event.data).data?.error || "Snapshot preview failed.";
       renderBlankLivePanel("error", error);
-      setLiveState(liveStateText("error", Date.now() / 1000, error));
+      setLiveState(liveStateText("error", Date.now() / 1000, error), "state-error", error);
       stopLivePreviewSnapshot();
     });
   } catch (error) {
     const message = error.message || String(error);
     renderBlankLivePanel("error", message);
-    setLiveState(liveStateText("error", Date.now() / 1000, message));
+    setLiveState(liveStateText("error", Date.now() / 1000, message), "state-error", message);
   }
 }
 
@@ -3039,7 +3075,7 @@ function renderLivePanel(data) {
   state.samples = state.samples.slice(-60);
   const modelChanged = !next.stale && updateResourceModel(next.resource, next.model);
 
-  setLiveState(liveStateText(next.status, next.timestamp, next.message, next.stale));
+  setLiveState(liveStateText(next.status, next.timestamp, next.message, next.stale), liveStateClass(next.status, next.stale), next.message);
 
   next.channels.forEach((channel) => renderChannelCard(channel, next));
   syncBasicFromLivePanel(next);
@@ -3049,13 +3085,19 @@ function renderLivePanel(data) {
   drawTrend();
 }
 
-function setLiveState(text) {
-  document.getElementById("live-state").textContent = text;
+function setLiveState(text, stateClass = "state-idle", title = "") {
+  setStateIndicator("live-state", text, stateClass, title || text);
 }
 
 function liveStateText(status, timestamp, message = "", stale = false) {
   const lastUpdate = timestamp ? new Date(timestamp * 1000).toLocaleTimeString() : "never";
   return `${status}${stale ? " stale" : ""} - last update ${lastUpdate}${message ? ` - ${message}` : ""}`;
+}
+
+function liveStateClass(status, stale = false) {
+  if (status === "error") return "state-error";
+  if (stale || status === "busy") return "state-warning";
+  return "state-ok";
 }
 
 function renderBlankLivePanel(status = "ok", message = "") {
@@ -3133,7 +3175,10 @@ function renderChannelCard(channel, sample) {
       <div class="live-status-badges">
         ${protectionBadge("OVP", channel.over_voltage_tripped)}
         ${protectionBadge("OCP", channel.over_current_tripped)}
-        <span class="status-badge ${outputClass}">${outputText}</span>
+        <span class="status-badge status-indicator ${outputClass}">
+          <span class="indicator-dot" aria-hidden="true"></span>
+          <span class="indicator-text">OUT ${outputText}</span>
+        </span>
       </div>
     </div>
     <div class="live-measured">
@@ -3159,7 +3204,10 @@ function renderChannelCard(channel, sample) {
 function protectionBadge(label, tripped) {
   const stateClass = tripped === true ? "trip" : tripped === false ? "ok" : "unknown";
   const stateText = tripped === true ? "TRIP" : tripped === false ? "CLEAR" : "--";
-  return `<span class="protection-badge ${stateClass}">${label} ${stateText}</span>`;
+  return `<span class="protection-badge status-indicator ${stateClass}">
+    <span class="indicator-dot" aria-hidden="true"></span>
+    <span class="indicator-text">${label} ${stateText}</span>
+  </span>`;
 }
 
 function openClearProtection(channel) {
