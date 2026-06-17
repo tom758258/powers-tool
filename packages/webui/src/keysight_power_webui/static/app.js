@@ -15,6 +15,8 @@ const state = {
   previewJobId: null,
   samples: [],
   livePanel: null,
+  basicJobActions: {},
+  basicActionStates: {},
   resultCollapsed: true,
   jobResultCollapsed: false,
   rampListSegments: [defaultRampSegment()],
@@ -245,6 +247,21 @@ function bind() {
   document.getElementById("result-toggle").addEventListener("click", toggleResultPanel);
   document.getElementById("job-result-toggle").addEventListener("click", toggleJobResultPanel);
   document.getElementById("job-result-clear").addEventListener("click", clearJobResults);
+  document.getElementById("advanced-command-toggle").addEventListener("click", toggleAdvancedCommands);
+  document.querySelectorAll("[data-basic-set]").forEach((button) => {
+    button.addEventListener("click", () => runBasicSet(Number(button.dataset.basicSet)));
+  });
+  document.querySelectorAll("[data-basic-output]").forEach((button) => {
+    button.addEventListener("click", () => runBasicOutput(Number(button.dataset.basicOutput)));
+  });
+  document.querySelector("[data-basic-all-output]").addEventListener("click", runBasicOutputAll);
+  document.querySelectorAll("[data-basic-voltage], [data-basic-current]").forEach((input) => {
+    input.addEventListener("input", () => {
+      input.dataset.basicDirty = "true";
+      validateBasicInput(input);
+    });
+    input.addEventListener("blur", () => validateBasicInput(input));
+  });
 }
 
 async function refreshHealth() {
@@ -271,6 +288,7 @@ async function loadCommands() {
   state.commandSupportByModel = payload.command_support_by_model || {};
   state.parameterConstraints = payload.parameter_constraints || {};
   state.electricalRatingsByModel = payload.electrical_ratings_by_model || {};
+  refreshBasicInputConstraints();
   renderCommands();
 }
 
@@ -1843,6 +1861,87 @@ async function scanResources() {
   }
 }
 
+function toggleAdvancedCommands() {
+  const panel = document.getElementById("advanced-commands");
+  const button = document.getElementById("advanced-command-toggle");
+  const expanded = panel.hidden;
+  panel.hidden = !expanded;
+  panel.classList.toggle("collapsed", !expanded);
+  button.textContent = expanded ? "Hide commands" : "Show more commands";
+  button.setAttribute("aria-expanded", String(expanded));
+}
+
+async function runBasicSet(channel) {
+  const actionKey = basicActionKey("set", channel);
+  const values = basicSetpointValues(channel);
+  if (!values.ok) {
+    failBasicAction(actionKey, "Invalid setpoint", values.message, { channel, label: `Basic CH${channel} Set` });
+    return;
+  }
+  await submitBasicJob("set", {
+    channel,
+    voltage: values.voltage,
+    current: values.current
+  }, actionKey, `Basic CH${channel} Set`);
+}
+
+async function runBasicOutput(channel) {
+  const current = basicLiveChannel(channel)?.output_enabled === true;
+  const command = current ? "output-off" : "output-on";
+  const desiredOutput = !current;
+  await submitBasicJob(command, { channel }, basicActionKey("output", channel), `Basic CH${channel} ${desiredOutput ? "ON" : "OFF"}`, { desiredOutput });
+}
+
+async function runBasicOutputAll() {
+  const allOn = basicAllOutputsOn();
+  const command = allOn ? "output-off" : "output-on";
+  const desiredOutput = !allOn;
+  await submitBasicJob(command, { channel: "all" }, basicActionKey("output", "all"), `Basic All ${desiredOutput ? "ON" : "OFF"}`, { desiredOutput });
+}
+
+async function submitBasicJob(command, parameters, actionKey, label, actionState = {}) {
+  const meta = commandMeta(command);
+  if (meta.disabled) {
+    failBasicAction(actionKey, "Command unavailable", meta.disabled_reason || "This command is not available for the selected resource.", { command, parameters, label });
+    return;
+  }
+
+  const ratingGuard = electricalRatingGuardReason(command, parameters);
+  const tripGuard = tripGuardReason(command, parameters);
+  if (ratingGuard || tripGuard) {
+    failBasicAction(actionKey, ratingGuard ? "Rating guard" : "Protection trip active", ratingGuard || tripGuard, { command, parameters, label });
+    return;
+  }
+
+  const payload = {
+    command,
+    runtime: {
+      ...runtimePayload(),
+      confirm: true
+    },
+    parameters
+  };
+
+  setBasicActionState(actionKey, "pending", "Command accepted locally.", { command, parameters, ...actionState });
+  try {
+    const response = await submitJob(payload);
+    state.basicJobActions[response.job_id] = { actionKey, command, parameters, ...actionState };
+    addHistory(response.job_id, command, "accepted", label);
+    subscribeToJob(response.job_id, "/api/events");
+  } catch (error) {
+    failBasicAction(actionKey, "Submit failed", error.message || String(error), { command, parameters, label });
+  }
+}
+
+function failBasicAction(actionKey, error, detail, context = {}) {
+  setBasicActionState(actionKey, "error", detail, context);
+  renderClientResult(context.label || basicActionDisplayName(actionKey), "failed", detail, {
+    error,
+    detail,
+    ...context
+  });
+}
+
 async function runSelected() {
   if (!state.selected) return;
 
@@ -2046,10 +2145,14 @@ function applyElectricalRatingConstraint(input, name) {
 }
 
 function selectedChannelRating() {
+  const selected = document.getElementById("param-channel")?.value || "1";
+  return selectedChannelRatingFor(selected);
+}
+
+function selectedChannelRatingFor(selected) {
   const model = currentResourceModel();
   const ratings = state.electricalRatingsByModel?.[model]?.channels;
   if (!Array.isArray(ratings)) return null;
-  const selected = document.getElementById("param-channel")?.value || "1";
   const channels = selected === "all" ? ratings : ratings.filter((rating) => String(rating.channel) === String(selected));
   if (!channels.length) return null;
   return {
@@ -2076,6 +2179,48 @@ function validateConstrainedInputs() {
     valid &&= input.checkValidity();
   });
   return valid;
+}
+
+function refreshBasicInputConstraints() {
+  document.querySelectorAll("[data-basic-voltage], [data-basic-current]").forEach((input) => {
+    const channel = Number(input.dataset.basicVoltage || input.dataset.basicCurrent);
+    const name = input.dataset.basicVoltage ? "voltage" : "current";
+    input.removeAttribute("max");
+    input.title = "";
+    applyParameterConstraint(input, name);
+    const rating = selectedChannelRatingFor(channel);
+    if (rating) {
+      input.max = String(name === "current" ? rating.max_current : rating.max_voltage);
+      input.title = `Official independent-channel DC output rating: maximum ${input.max} ${name === "current" ? "A" : "V"}.`;
+    }
+    validateBasicInput(input);
+  });
+}
+
+function validateBasicInput(input) {
+  input.setCustomValidity("");
+  const exclusiveMin = input.dataset.exclusiveMin;
+  if (exclusiveMin !== undefined && input.value !== "" && Number(input.value) <= Number(exclusiveMin)) {
+    input.setCustomValidity(`Value must be greater than ${exclusiveMin}.`);
+  }
+  return input.checkValidity();
+}
+
+function basicSetpointValues(channel) {
+  const voltageInput = document.querySelector(`[data-basic-voltage="${channel}"]`);
+  const currentInput = document.querySelector(`[data-basic-current="${channel}"]`);
+  if (!voltageInput || !currentInput) return { ok: false, message: `CH${channel} controls are missing.` };
+  const valid = [voltageInput, currentInput].every((input) => validateBasicInput(input));
+  if (!valid) return { ok: false, message: `CH${channel} setpoint is outside allowed limits.` };
+  if (voltageInput.value === "" || currentInput.value === "") {
+    return { ok: false, message: `CH${channel} requires both V and A values.` };
+  }
+  const voltage = Number(voltageInput.value);
+  const current = Number(currentInput.value);
+  if (!Number.isFinite(voltage) || !Number.isFinite(current)) {
+    return { ok: false, message: `CH${channel} V and A must be finite numbers.` };
+  }
+  return { ok: true, voltage, current };
 }
 
 function updateRampListPulse(name, value) {
@@ -2212,6 +2357,9 @@ async function handleJobEvent(jobId, event) {
     }
     if (jobCommand(jobId) === "snapshot") {
       refreshSnapshotFormIfVisible(jobId);
+    }
+    if (state.basicJobActions[jobId]) {
+      updateBasicActionFromJob(jobId, event, job);
     }
     if (event.type === "finished") updateResourceModelFromJob(job);
     if (jobLabel(jobId) === "Restore plan preview") {
@@ -2473,6 +2621,8 @@ function populateResourceSelect(resources) {
     select.selectedIndex = 0;
     input.value = select.value;
   }
+  refreshBasicInputConstraints();
+  syncBasicFromLivePanel(state.livePanel);
   if (state.selected) selectCommand(state.selected);
   else renderCommands();
 }
@@ -2487,6 +2637,8 @@ function resourceLabel(resource, name) {
 function syncSelectedResource() {
   const value = document.getElementById("resource-select").value;
   if (value) document.getElementById("resource").value = value;
+  refreshBasicInputConstraints();
+  syncBasicFromLivePanel(state.livePanel);
   renderWorkspaceSummary();
   if (state.selected) selectCommand(state.selected);
   else renderCommands();
@@ -2508,6 +2660,7 @@ function updateResourceModelFromJob(job) {
   const resourceName = resultResource?.name || (typeof resultResource === "string" ? resultResource : job?.runtime?.resource);
   const model = resultResource?.idn?.model || result.idn?.model || result.model || result.driver?.model;
   if (updateResourceModel(resourceName, model)) {
+    refreshBasicInputConstraints();
     if (state.selected) selectCommand(state.selected);
     else renderCommands();
   }
@@ -2683,6 +2836,172 @@ function stopLivePreviewSnapshot() {
   }
 }
 
+function basicActionKey(action, channel) {
+  return `${action}:${channel}`;
+}
+
+function basicActionDisplayName(actionKey) {
+  const [kind, target] = actionKey.split(":");
+  const action = kind === "set" ? "Set" : "Output";
+  return target === "all" ? `Basic All ${action}` : `Basic CH${target} ${action}`;
+}
+
+function basicLiveChannel(channel) {
+  const panel = state.livePanel;
+  const resource = valueOrNull("resource");
+  if (!panel || panel.stale || !resource || panel.resource !== resource) return null;
+  return (panel.channels || []).find((item) => Number(item.channel) === Number(channel)) || null;
+}
+
+function basicAllOutputsOn() {
+  const panel = state.livePanel;
+  const resource = valueOrNull("resource");
+  if (!panel || panel.stale || !resource || panel.resource !== resource) return false;
+  const channels = panel.channels || [];
+  return [1, 2, 3].every((channel) => channels.find((item) => Number(item.channel) === channel)?.output_enabled === true);
+}
+
+function setBasicActionState(actionKey, status, message = "", context = {}) {
+  state.basicActionStates[actionKey] = { status, message, ...context };
+  renderBasicActionState(actionKey);
+  setBasicStatus(status === "pending" ? "Basic command running..." : message || basicStatusText(status));
+}
+
+function clearBasicActionState(actionKey) {
+  delete state.basicActionStates[actionKey];
+  renderBasicActionState(actionKey);
+  if (!Object.keys(state.basicActionStates).length) setBasicStatus("");
+}
+
+function renderBasicActionState(actionKey) {
+  const action = state.basicActionStates[actionKey];
+  const [kind, target] = actionKey.split(":");
+  const selector = kind === "set"
+    ? `[data-basic-set="${target}"]`
+    : target === "all"
+      ? "[data-basic-all-output]"
+      : `[data-basic-output="${target}"]`;
+  const button = document.querySelector(selector);
+  if (button) {
+    button.classList.toggle("basic-action-pending", action?.status === "pending");
+    button.classList.toggle("basic-action-success", action?.status === "success");
+    button.classList.toggle("basic-action-error", action?.status === "error");
+    button.title = action?.message || "";
+  }
+  if (target !== "all") renderBasicChannelActionState(Number(target));
+}
+
+function renderBasicChannelActionState(channel) {
+  const card = document.querySelector(`[data-basic-channel="${channel}"]`);
+  if (!card) return;
+  const setState = state.basicActionStates[basicActionKey("set", channel)]?.status;
+  const outputState = state.basicActionStates[basicActionKey("output", channel)]?.status;
+  card.classList.toggle("basic-action-error", setState === "error" || outputState === "error");
+  card.classList.toggle("basic-action-pending", setState === "pending" || outputState === "pending");
+}
+
+function updateBasicActionFromJob(jobId, event, job) {
+  const action = state.basicJobActions[jobId];
+  if (!action) return;
+  if (event.type === "finished" && job?.status === "finished") {
+    if (action.command === "set") clearBasicInputDirty(action.parameters.channel);
+    setBasicActionState(action.actionKey, "success", "Basic command completed.", action);
+  } else {
+    const detail = job?.error || event.data?.error || eventSummary(event);
+    setBasicActionState(action.actionKey, "error", detail, action);
+  }
+  delete state.basicJobActions[jobId];
+}
+
+function syncBasicFromLivePanel(panel) {
+  refreshBasicInputConstraints();
+  const resource = valueOrNull("resource");
+  const fresh = Boolean(panel && !panel.stale && resource && panel.resource === resource);
+  [1, 2, 3].forEach((channel) => {
+    const liveChannel = fresh ? (panel.channels || []).find((item) => Number(item.channel) === channel) : null;
+    syncBasicSetpointInput(channel, "voltage", liveChannel?.set_voltage, fresh);
+    syncBasicSetpointInput(channel, "current", liveChannel?.set_current, fresh);
+    renderBasicOutputButton(channel, liveChannel, fresh);
+    clearResolvedBasicErrors(channel, liveChannel, fresh);
+  });
+  renderBasicAllOutputButton(fresh ? panel.channels || [] : []);
+}
+
+function syncBasicSetpointInput(channel, kind, value, fresh) {
+  const input = document.querySelector(`[data-basic-${kind}="${channel}"]`);
+  if (!input) return;
+  if (!fresh || typeof value !== "number" || !Number.isFinite(value)) return;
+  if (input.dataset.basicDirty === "true") return;
+  input.value = String(value);
+  validateBasicInput(input);
+}
+
+function clearBasicInputDirty(channel) {
+  document.querySelectorAll(`[data-basic-voltage="${channel}"], [data-basic-current="${channel}"]`).forEach((input) => {
+    delete input.dataset.basicDirty;
+  });
+}
+
+function renderBasicOutputButton(channel, liveChannel, fresh) {
+  const button = document.querySelector(`[data-basic-output="${channel}"]`);
+  if (!button) return;
+  const enabled = fresh && liveChannel?.output_enabled === true;
+  button.textContent = enabled ? "ON" : "OFF";
+  button.classList.toggle("on", enabled);
+  button.classList.toggle("off", !enabled);
+  button.setAttribute("aria-pressed", String(enabled));
+}
+
+function renderBasicAllOutputButton(channels) {
+  const button = document.querySelector("[data-basic-all-output]");
+  if (!button) return;
+  const allOn = [1, 2, 3].every((channel) => channels.find((item) => Number(item.channel) === channel)?.output_enabled === true);
+  button.textContent = allOn ? "All ON" : "All OFF";
+  button.classList.toggle("on", allOn);
+  button.classList.toggle("off", !allOn);
+  button.setAttribute("aria-pressed", String(allOn));
+}
+
+function clearResolvedBasicErrors(channel, liveChannel, fresh) {
+  if (!fresh || !liveChannel) return;
+  const setKey = basicActionKey("set", channel);
+  const outputKey = basicActionKey("output", channel);
+  if (state.basicActionStates[setKey]?.status === "error" && liveSetpointsMatchBasicInputs(channel, liveChannel)) {
+    clearBasicActionState(setKey);
+  }
+  const outputAction = state.basicActionStates[outputKey];
+  if (outputAction?.status === "error" && typeof outputAction.desiredOutput === "boolean" && liveChannel.output_enabled === outputAction.desiredOutput) {
+    clearBasicActionState(outputKey);
+  }
+  const allAction = state.basicActionStates[basicActionKey("output", "all")];
+  if (allAction?.status === "error" && typeof allAction.desiredOutput === "boolean") {
+    const channels = state.livePanel?.channels || [];
+    const allMatched = [1, 2, 3].every((item) => channels.find((entry) => Number(entry.channel) === item)?.output_enabled === allAction.desiredOutput);
+    if (allMatched) clearBasicActionState(basicActionKey("output", "all"));
+  }
+}
+
+function liveSetpointsMatchBasicInputs(channel, liveChannel) {
+  const values = basicSetpointValues(channel);
+  if (!values.ok) return false;
+  return nearlyEqual(values.voltage, liveChannel.set_voltage) && nearlyEqual(values.current, liveChannel.set_current);
+}
+
+function nearlyEqual(left, right) {
+  return typeof right === "number" && Number.isFinite(right) && Math.abs(Number(left) - right) <= 1e-9;
+}
+
+function basicStatusText(status) {
+  if (status === "success") return "Basic command completed.";
+  if (status === "error") return "Basic command failed. See Result Detail.";
+  return "Live Data remains the source of instrument state.";
+}
+
+function setBasicStatus(text) {
+  const status = document.getElementById("basic-command-status");
+  if (status) status.textContent = text || "Live Data remains the source of instrument state.";
+}
+
 function renderLivePanel(data) {
   const previous = state.livePanel;
   const resource = data.resource || previous?.resource || "";
@@ -2708,7 +3027,9 @@ function renderLivePanel(data) {
   setLiveState(liveStateText(next.status, next.timestamp, next.message, next.stale));
 
   next.channels.forEach((channel) => renderChannelCard(channel, next));
+  syncBasicFromLivePanel(next);
   if (modelChanged) renderCommands();
+  if (modelChanged) refreshBasicInputConstraints();
   if (state.selected) updateSelectedCommandState();
   drawTrend();
 }
@@ -2734,6 +3055,7 @@ function renderBlankLivePanel(status = "ok", message = "") {
   };
   state.livePanel = panel;
   panel.channels.forEach((channel) => renderChannelCard(channel, panel));
+  syncBasicFromLivePanel(panel);
   drawTrend();
 }
 

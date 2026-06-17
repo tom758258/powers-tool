@@ -57,9 +57,10 @@ The static UI is a three-panel dashboard:
 
 - top connection bar for mode, resource, backend, timeout, safety config, and
   health;
-- left command rail populated from `/api/commands`;
-- main generated command form with typed controls and a graphical Sequence
-  step-card editor;
+- Basic command panel for direct per-channel setpoint and output shortcuts;
+- collapsible command rail populated from `/api/commands`;
+- generated command form with typed controls and a graphical Sequence
+  step-card editor, shown by the advanced command toggle;
 - right panel for live trend canvas, live table, job history, and result JSON.
 
 Machine-facing command IDs remain kebab-case. Human-facing WebUI command names

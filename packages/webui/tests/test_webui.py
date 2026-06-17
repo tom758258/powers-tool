@@ -255,7 +255,10 @@ def test_static_live_data_exposes_start_control():
 
 def test_static_layout_exposes_stable_structural_hooks():
     index_html, _app_js, _styles_css = read_static_texts()
-    assert 'class="command-workbench"' in index_html
+    assert 'id="basic-command"' in index_html
+    assert 'id="advanced-command-toggle"' in index_html
+    assert 'id="advanced-commands" class="command-workbench collapsed" hidden' in index_html
+    assert 'class="command-workbench' in index_html
     assert 'id="command-categories"' in index_html
     assert 'id="command-list"' in index_html
     assert 'class="command-main"' in index_html
@@ -267,6 +270,72 @@ def test_static_layout_exposes_stable_structural_hooks():
     assert 'id="command-form"' in index_html
     assert 'id="workspace-summary-content"' in index_html
     assert 'class="rightbar"' not in index_html
+
+
+def test_static_basic_command_panel_contract():
+    index_html, app_js, styles_css = read_static_texts()
+
+    assert 'id="basic-command"' in index_html
+    assert 'Basic command' in index_html
+    assert 'id="basic-command-status"' in index_html
+    assert 'data-basic-all-output' in index_html
+    assert 'Show more commands' in index_html
+    assert 'Hide commands' in app_js
+    assert 'function toggleAdvancedCommands()' in app_js
+    assert 'panel.hidden = !expanded;' in app_js
+
+    for channel in ("1", "2", "3"):
+        assert f'data-basic-channel="{channel}"' in index_html
+        assert f'data-basic-voltage="{channel}"' in index_html
+        assert f'data-basic-current="{channel}"' in index_html
+        assert f'data-basic-set="{channel}"' in index_html
+        assert f'data-basic-output="{channel}"' in index_html
+
+    assert ".basic-command-section" in styles_css
+    assert ".basic-channel-grid" in styles_css
+    assert ".basic-toggle.on" in styles_css
+    assert ".basic-action-error" in styles_css
+    assert "@media (max-width: 1100px)" in styles_css
+
+
+def test_static_basic_command_submission_reuses_existing_jobs():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    submit_basic = extract_js_function(app_js, "submitBasicJob")
+    run_set = extract_js_function(app_js, "runBasicSet")
+    run_output = extract_js_function(app_js, "runBasicOutput")
+    run_all = extract_js_function(app_js, "runBasicOutputAll")
+    handle_job = extract_js_function(app_js, "handleJobEvent")
+
+    assert 'command: "set"' not in run_set
+    assert 'await submitBasicJob("set"' in run_set
+    assert '"output-off"' in run_output
+    assert '"output-on"' in run_output
+    assert 'channel: "all"' in run_all
+    assert '"apply"' not in run_set
+    assert '"apply"' not in run_output
+    assert '"apply"' not in run_all
+    assert "...runtimePayload()" in submit_basic
+    assert "confirm: true" in submit_basic
+    assert "submitJob(payload)" in submit_basic
+    assert "tripGuardReason(command, parameters)" in submit_basic
+    assert "electricalRatingGuardReason(command, parameters)" in submit_basic
+    assert "state.basicJobActions[response.job_id]" in submit_basic
+    assert "updateBasicActionFromJob(jobId, event, job);" in handle_job
+
+
+def test_static_basic_command_error_state_contract():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    assert "basicActionStates: {}" in app_js
+    assert "basicJobActions: {}" in app_js
+    assert 'setBasicActionState(actionKey, "error"' in app_js
+    assert 'button.classList.toggle("basic-action-error"' in app_js
+    assert 'card.classList.toggle("basic-action-error"' in app_js
+    assert "clearResolvedBasicErrors(channel, liveChannel, fresh);" in app_js
+    assert "liveSetpointsMatchBasicInputs(channel, liveChannel)" in app_js
+    assert ".basic-action-error" in styles_css
+    assert "background: #fdecea" in styles_css
 
 
 def test_static_command_panel_exposes_description():

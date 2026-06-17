@@ -422,6 +422,80 @@ button.icon-button {
 canvas { display: block; width: 100%; height: 180px; background: #fbfcfd; border-bottom: 1px solid var(--border); }
 .live-data-section .section-head { border-bottom: 0; }
 .live-start-button { white-space: nowrap; }
+.basic-command-section {
+  display: grid;
+  gap: 0;
+}
+.basic-command-status {
+  padding: 0 12px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.basic-channel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+.basic-channel-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #ffffff 0%, var(--panel-soft) 100%);
+}
+.basic-channel-card.basic-action-pending { border-color: #9fc6d0; box-shadow: 0 0 0 2px rgba(31, 122, 140, .12); }
+.basic-channel-card.basic-action-error { border-color: var(--danger); background: #fff7f6; box-shadow: 0 0 0 2px rgba(180, 35, 24, .10); }
+.basic-channel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.basic-channel-head strong { font-size: 16px; }
+.basic-fields {
+  display: grid;
+  grid-template-columns: minmax(70px, 1fr) minmax(70px, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+.basic-fields label { min-width: 0; }
+.basic-set { min-width: 64px; }
+.basic-toggle {
+  min-width: 86px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.basic-toggle.on {
+  background: var(--ok);
+  border-color: #218a54;
+  color: #fff;
+  box-shadow: 0 0 0 2px rgba(33, 138, 84, .13);
+}
+.basic-toggle.off {
+  background: #edf1f4;
+  border-color: #cbd5de;
+  color: var(--muted);
+}
+.basic-toggle.off:hover { border-color: var(--accent); color: var(--text); }
+.basic-action-pending {
+  border-color: var(--accent) !important;
+  background: #e7f3f6 !important;
+  color: var(--accent-strong) !important;
+}
+.basic-action-success {
+  border-color: #8cc9ad !important;
+  background: #e9f7f0 !important;
+  color: var(--ok) !important;
+}
+.basic-action-error {
+  border-color: var(--danger) !important;
+  background: #fdecea !important;
+  color: var(--danger) !important;
+}
+.command-workbench.collapsed { display: none; }
 .live-data-note {
   padding: 0 12px 10px;
   color: #000;
@@ -615,6 +689,9 @@ pre {
   .live-resource-field { grid-template-columns: 1fr; }
   .live-state-row { grid-template-columns: 1fr; }
   .live-cards { grid-template-columns: 1fr; }
+  .basic-channel-grid { grid-template-columns: 1fr; }
+  .basic-fields { grid-template-columns: 1fr 1fr; }
+  .basic-set { grid-column: 1 / -1; }
   .command-browser {
     grid-template-columns: 1fr;
     min-height: 0;
