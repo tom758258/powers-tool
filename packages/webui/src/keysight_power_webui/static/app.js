@@ -252,8 +252,7 @@ function bind() {
   document.getElementById("scan").addEventListener("click", scanResources);
   document.getElementById("resource-select").addEventListener("change", syncSelectedResource);
   document.getElementById("command-filter").addEventListener("input", renderCommands);
-  document.getElementById("live-start").addEventListener("click", startLive);
-  document.getElementById("live-stop").addEventListener("click", stopLive);
+  document.getElementById("live-start").addEventListener("click", toggleLiveMonitor);
   document.getElementById("result-toggle").addEventListener("click", toggleResultPanel);
   document.getElementById("job-result-toggle").addEventListener("click", toggleJobResultPanel);
   document.getElementById("job-result-clear").addEventListener("click", clearJobResults);
@@ -272,6 +271,16 @@ function bind() {
     });
     input.addEventListener("blur", () => validateBasicInput(input));
   });
+}
+
+function updateLiveMonitorButton(monitoring, disabled = false) {
+  const button = document.getElementById("live-start");
+  if (!button) return;
+  button.disabled = disabled;
+  button.textContent = monitoring ? "Stop Monitor" : "Start Monitor";
+  button.setAttribute("aria-pressed", String(monitoring));
+  button.classList.toggle("on", monitoring);
+  button.classList.toggle("off", !monitoring);
 }
 
 async function refreshHealth() {
@@ -378,6 +387,8 @@ function selectCommand(name) {
   renderCommands();
 }
 
+const SET_PARTIAL_GUIDANCE = "Set accepts Voltage, Current, or both. Blank fields are left unchanged.";
+
 function renderForm(command) {
   const form = document.getElementById("command-form");
   form.innerHTML = "";
@@ -441,6 +452,7 @@ function renderForm(command) {
     });
     label.appendChild(input);
     if (!TRIGGER_COMMANDS.has(command)) appendFieldDescription(label, param);
+    if (command === "set" && param.name === "current") appendSetGuidance(label);
     form.appendChild(label);
   });
   if (TRIGGER_COMMANDS.has(command)) appendCommandNotes(form, command, PARAMS[command] || []);
@@ -451,7 +463,6 @@ function renderCommandGuidance(command, parameters = {}) {
   const guidance = document.getElementById("command-guidance");
   if (!guidance) return;
   const messages = {
-    set: "Set accepts Voltage, Current, or both. Blank fields are left unchanged.",
     "trigger-step": "Immediate starts from INIT, so Fire now is unavailable. For BUS, Wait complete requires Fire now in the same command and waits for the instrument-wide operation-complete event.",
     "trigger-list": "Wait complete with Leave configured off writes back the pre-run Trigger settings and LIST table after completion. The running LIST may be briefly visible; select Leave configured to retain the new LIST table and Trigger settings.",
     "trigger-fire": "Sends global *TRG to every armed BUS trigger on the instrument. Abort target channel does not limit Fire or Wait; it is used only if Wait complete times out or is interrupted."
@@ -479,6 +490,13 @@ function appendFieldDescription(label, param) {
   description.className = "field-description";
   description.textContent = param.description;
   label.appendChild(description);
+}
+
+function appendSetGuidance(label) {
+  const guidance = document.createElement("small");
+  guidance.className = "field-description set-field-guidance";
+  guidance.textContent = SET_PARTIAL_GUIDANCE;
+  label.appendChild(guidance);
 }
 
 function appendCommandNotes(form, command, params) {
@@ -2797,40 +2815,54 @@ async function startLive() {
   }
   try {
     stopLivePreviewSnapshot();
+    updateLiveMonitorButton(false, true);
     const response = await fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) });
     state.liveJobId = response.job_id;
-    document.getElementById("live-start").disabled = true;
-    document.getElementById("live-stop").disabled = false;
+    updateLiveMonitorButton(true, false);
     closeEventSource("liveEvents");
     state.liveEvents = new EventSource(response.events_url);
     state.liveEvents.addEventListener("progress", (event) => renderLivePanel(JSON.parse(event.data).data));
     state.liveEvents.addEventListener("finished", () => {
-      document.getElementById("live-start").disabled = false;
-      document.getElementById("live-stop").disabled = true;
+      state.liveJobId = null;
+      updateLiveMonitorButton(false, false);
       setLiveState("Not monitoring", "state-idle", "Live Data monitor is stopped.");
       closeEventSource("liveEvents");
     });
     state.liveEvents.addEventListener("failed", (event) => {
       const message = JSON.parse(event.data).data?.error || "Live Data monitor failed.";
       renderLivePanel({ status: "error", stale: true, message });
-      document.getElementById("live-start").disabled = false;
-      document.getElementById("live-stop").disabled = true;
+      state.liveJobId = null;
+      updateLiveMonitorButton(false, false);
       closeEventSource("liveEvents");
     });
   } catch (error) {
     renderLivePanel({ status: "error", stale: true, message: error.message || String(error) });
-    document.getElementById("live-start").disabled = false;
-    document.getElementById("live-stop").disabled = true;
+    state.liveJobId = null;
+    updateLiveMonitorButton(false, false);
+  }
+}
+
+async function toggleLiveMonitor() {
+  if (state.liveJobId || state.liveEvents) {
+    await stopLive();
+  } else {
+    await startLive();
   }
 }
 
 async function stopLive() {
   if (!state.liveJobId) return;
-  await fetchJson(`/api/live/${state.liveJobId}/stop`, { method: "POST" });
-  closeEventSource("liveEvents");
-  document.getElementById("live-start").disabled = false;
-  document.getElementById("live-stop").disabled = true;
-  setLiveState("Not monitoring", "state-idle", "Live Data monitor is stopped.");
+  updateLiveMonitorButton(true, true);
+  try {
+    await fetchJson(`/api/live/${state.liveJobId}/stop`, { method: "POST" });
+    state.liveJobId = null;
+    closeEventSource("liveEvents");
+    updateLiveMonitorButton(false, false);
+    setLiveState("Not monitoring", "state-idle", "Live Data monitor is stopped.");
+  } catch (error) {
+    renderLivePanel({ status: "error", stale: true, message: error.message || String(error) });
+    updateLiveMonitorButton(true, false);
+  }
 }
 
 async function startLivePreviewSnapshot(healthState, resource = null) {

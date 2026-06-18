@@ -173,8 +173,9 @@ def test_static_top_bar_uses_live_resource_defaults():
     assert 'id="resource" value="USB0::SIM::E36312A::INSTR"' not in index_html
     assert 'id="resource-select"' in index_html
     assert 'id="scan"' in index_html
+    assert 'class="secondary command-pill-button scan-button"' in index_html
     assert 'class="brand-subtitle"' in index_html
-    assert "Unofficial Controller v__WEBUI_VERSION__" in index_html
+    assert "Unofficial Tool v__WEBUI_VERSION__" in index_html
     assert 'id="server-state"' in index_html
     assert 'id="device-state"' in index_html
     assert 'id="live-state"' in index_html
@@ -200,6 +201,7 @@ def test_static_state_indicators_show_webui_command_and_live_state():
     refresh_health = extract_js_function(app_js, "refreshHealth")
     preview = extract_js_function(app_js, "startLivePreviewSnapshot")
     stop_live = extract_js_function(app_js, "stopLive")
+    monitor_button = extract_js_function(app_js, "updateLiveMonitorButton")
 
     for hook in ('class="state-dot"', 'class="state-text"', 'class="state-indicator', 'class="state-indicator live-indicator'):
         assert hook in index_html
@@ -215,6 +217,9 @@ def test_static_state_indicators_show_webui_command_and_live_state():
     assert 'setLiveState("Refreshing once...", "state-warning"' in preview
     assert 'setLiveState("Refresh blocked", "state-error"' in preview
     assert 'setLiveState("Not monitoring", "state-idle", "Live Data monitor is stopped.")' in stop_live
+    assert 'button.textContent = monitoring ? "Stop Monitor" : "Start Monitor";' in monitor_button
+    assert 'button.setAttribute("aria-pressed", String(monitoring));' in monitor_button
+    assert 'button.classList.toggle("on", monitoring);' in monitor_button
 
 
 def test_scan_resources_handles_missing_live_only_checkbox():
@@ -279,10 +284,15 @@ def test_static_live_data_uses_three_channel_panel_contract():
 
 
 def test_static_live_data_exposes_start_control():
-    index_html, _app_js, _styles_css = read_static_texts()
+    index_html, app_js, styles_css = read_static_texts()
 
     assert 'class="live-data-section"' in index_html
-    assert 'id="live-start"' in index_html
+    assert 'id="live-start" class="monitor-toggle off" type="button" aria-pressed="false"' in index_html
+    assert 'id="live-stop"' not in index_html
+    assert 'document.getElementById("live-start").addEventListener("click", toggleLiveMonitor);' in app_js
+    assert 'document.getElementById("live-stop")' not in app_js
+    assert ".monitor-toggle.on" in styles_css
+    assert ".monitor-toggle.off" in styles_css
 
 
 def test_static_layout_exposes_stable_structural_hooks():
@@ -330,7 +340,12 @@ def test_static_basic_command_panel_contract():
     assert ".basic-command-section" in styles_css
     assert ".basic-channel-grid" in styles_css
     assert ".basic-set {" in styles_css
+    assert '.basic-set[data-basic-set="2"]' in styles_css
+    assert '.basic-set[data-basic-set="3"]' in styles_css
     assert ".basic-toggle.on" in styles_css
+    assert "button#run" in styles_css
+    assert "button.scan-button" in styles_css
+    assert "button.command-pill-button" in styles_css
     assert 'button.advanced-command-button' in styles_css
     assert '--toggle-on: #0a84ff' in styles_css
     assert '.basic-toggle[data-basic-output="2"]' in styles_css
@@ -649,6 +664,13 @@ def test_static_channel_confirmation_and_job_detail_contracts():
     assert "{ ...params[1], optional: true }" in app_js
     assert "{ ...params[2], optional: true }" in app_js
     assert "Set accepts Voltage, Current, or both. Blank fields are left unchanged." in app_js
+    render_form = extract_js_function(app_js, "renderForm")
+    append_set_guidance = extract_js_function(app_js, "appendSetGuidance")
+    render_guidance = extract_js_function(app_js, "renderCommandGuidance")
+    assert 'if (command === "set" && param.name === "current") appendSetGuidance(label);' in render_form
+    assert 'guidance.className = "field-description set-field-guidance";' in append_set_guidance
+    assert "guidance.textContent = SET_PARTIAL_GUIDANCE;" in append_set_guidance
+    assert "Set accepts Voltage, Current, or both. Blank fields are left unchanged." not in render_guidance
     assert "setRequiresSetpointGuardReason(state.selected, parameters)" in app_js
     assert '"smoke-output": smokeOutputParams()' in app_js
     assert_param_contract(app_js, "channel", "select", ["1", "2", "3"])
@@ -877,7 +899,7 @@ def test_index_uses_cache_busted_assets_and_no_store(client: TestClient):
     assert response.headers["Cache-Control"] == "no-store"
     assert '/static/styles.css?v=' in response.text
     assert '/static/app.js?v=' in response.text
-    assert f"Unofficial Controller v{__version__}" in response.text
+    assert f"Unofficial Tool v{__version__}" in response.text
     assert "__WEBUI_VERSION__" not in response.text
 
 

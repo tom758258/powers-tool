@@ -10,7 +10,7 @@
   <header class="page-head">
     <div class="brand">
       <h1>Keysight Power</h1>
-      <p class="brand-subtitle">Unofficial Controller v__WEBUI_VERSION__</p>
+      <p class="brand-subtitle">Unofficial Tool v__WEBUI_VERSION__</p>
     </div>
 
     <div class="resource-row">
@@ -23,7 +23,7 @@
             <option value="">Scan to load live resources</option>
           </select>
         </label>
-        <button id="scan" class="secondary">Scan Device</button>
+        <button id="scan" class="secondary command-pill-button scan-button">Scan Device</button>
       </div>
     </div>
   </header>
@@ -34,8 +34,7 @@
       <div class="section-head">
         <strong>Live Data</strong>
         <div class="button-row">
-          <button id="live-start" class="secondary live-start-button">Start Monitor</button>
-          <button id="live-stop" class="secondary" disabled>Stop</button>
+          <button id="live-start" class="monitor-toggle off" type="button" aria-pressed="false">Start Monitor</button>
         </div>
       </div>
       <div class="live-data-note">Live Data monitor updates every 15 seconds. When the monitor is stopped, successful real hardware commands refresh this panel once after completion.</div>
