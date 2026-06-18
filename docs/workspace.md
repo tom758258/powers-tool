@@ -7,18 +7,19 @@ packages under `src/`: `keysight_power_core`, `keysight_power_cli`, and
 
 ## Workspace Workflow
 
-Use the root directory for dependency sync, tests, and builds. A standard
-Python virtual environment works without uv:
+Use the root directory for dependency sync, tests, and builds. Install uv if it
+is not already available:
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e ".[all,dev]"
+py -m pip install --user uv
+uv --version
 ```
 
-With uv, reproduce the development and test environment from the lock file:
+Create the project virtual environment and reproduce the development and test
+environment from the lock file:
 
 ```powershell
+uv venv .venv
 uv sync --all-extras --link-mode=copy
 ```
 
@@ -26,11 +27,26 @@ For CI-equivalent local checks, require the committed lock file to stay
 unchanged:
 
 ```powershell
-uv sync --locked --all-extras --link-mode=copy
+uv sync --all-extras --locked --link-mode=copy
 ```
 
 The `uv.lock` file is for development and CI reproducibility. It does not
 replace standard `pip install` workflows for package users.
+
+This project supports Python `>=3.10`. `uv venv .venv` uses an available
+compatible Python. If a specific interpreter is needed, request it explicitly:
+
+```powershell
+uv venv .venv --python 3.12
+```
+
+If you need pip directly, use the virtual environment's Python:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\python.exe -m pip install ".[webui]"
+.\.venv\Scripts\python.exe -m pip install -e ".[all,dev]"
+```
 
 Common validation commands:
 
@@ -53,8 +69,7 @@ directory. Run pytest from the repository root. If a specific run needs a
 separate basetemp, use `--basetemp .tmp_tests/<purpose>`. Do not write pytest
 temporary data or generated test artifacts under `Local/`.
 
-The tested Python range is 3.10 through 3.12. Package metadata constrains
-`requires-python` to `>=3.10,<3.13` until CI validates newer versions.
+CI tests Python 3.10 through 3.13. Package metadata allows Python `>=3.10`.
 
 Use `keysight-power ...` as the primary CLI entry point after syncing the
 project. `uv run python -m keysight_power_cli.cli ...` is retained only as a

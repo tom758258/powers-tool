@@ -7,7 +7,7 @@ name = "keysight-powers"
 version = "1.0.0"
 description = "Safe Python tooling for Keysight DC power supplies."
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [
   { name = "Keysight Power contributors" },
@@ -27,6 +27,7 @@ classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering",
   "Topic :: System :: Hardware :: Hardware Drivers",
   "Topic :: Utilities",

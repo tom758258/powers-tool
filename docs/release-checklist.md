@@ -24,11 +24,11 @@ git tag v1.0.0
 Run the no-hardware and package gates from the repository root:
 
 ```powershell
-uv sync --all-extras
+uv sync --all-extras --locked --link-mode=copy
 .\.venv\Scripts\python.exe -m pytest tests\core\test_import.py -q -p no:cacheprovider
 uv run keysight-power doctor --simulate --json
 .\scripts\no-hardware-regression.ps1
-python -m build
+.\.venv\Scripts\python.exe -m build
 git status --short
 ```
 

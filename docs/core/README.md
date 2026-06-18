@@ -4,7 +4,7 @@ Core library and driver layer for controlling Keysight DC power supplies safely.
 
 - Distribution: `keysight-powers` `1.0.0`
 - Import package: `keysight_power_core`
-- Python: `>=3.10,<3.13`
+- Python: `>=3.10`
 - Runtime dependencies: `pyvisa`, `PyYAML`, `tomli` on Python `<3.11`
 
 ## Purpose

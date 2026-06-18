@@ -1,9 +1,11 @@
+[English](README.md)
+
 # Keysight Powers
 
 Keysight Powers 是一個用於 Keysight 直流電源供應器的 Python 控制工具包。
 它提供一個可安裝的發行版 `keysight-powers` `1.0.0`，同時保留了三個匯入套件：`keysight_power_core`、`keysight_power_cli` 和 `keysight_power_webui`。
 
-該專案支援透過 VISA 進行 USB 和 LAN 通訊、命令列操作以及本地瀏覽器 WebUI。它專為需要明確安全檢查、模擬器支援和機器可讀輸出的電源供應器工作流程而設計。
+該專案支援透過 VISA 進行 USB 和 LAN 通訊、命令列操作以及本地瀏覽器 WebUI。它專為需要明確安全檢查、模擬器支援 and 機器可讀輸出的電源供應器工作流程而設計。
 
 ## 功能特性
 
@@ -46,27 +48,31 @@ scripts/
 
 ## 安裝
 
-基本 Core/CLI 安裝：
+首先開啟 PowerShell 並進入專案根目錄：
 
 ```powershell
-pip install .
+cd path\to\Keysight_Powers_Controller
 ```
 
-安裝 WebUI 執行期依賴項：
+若尚未安裝 uv，請先進行安裝：
 
 ```powershell
-pip install ".[webui]"
+py -m pip install --user uv
 ```
 
-安裝本地開發和測試所需的一切（不使用 uv）：
+驗證 uv：
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e ".[all,dev]"
+uv --version
 ```
 
-使用 uv 時，利用 lock 檔案重現開發和測試環境：
+在專案資料夾中建立專案虛擬環境：
+
+```powershell
+uv venv .venv
+```
+
+從 `uv.lock` 同步可重現的開發和測試環境：
 
 ```powershell
 uv sync --all-extras --link-mode=copy
@@ -75,10 +81,24 @@ uv sync --all-extras --link-mode=copy
 對於 CI 或嚴格的本地檢查，要求已提交的 lock 檔案保持不變：
 
 ```powershell
-uv sync --locked --all-extras --link-mode=copy
+uv sync --all-extras --locked --link-mode=copy
 ```
 
-`uv.lock` 檔案用於開發和 CI 的重現性。它並不能取代套件使用者標準的 `pip install` 命令。
+此專案支援 Python `>=3.10`。`uv venv .venv` 會使用現有相容的 Python。若您需要特定的 Python 版本，請明確指定：
+
+```powershell
+uv venv .venv --python 3.12
+```
+
+`uv.lock` 檔案由 uv 用於開發 and CI 的重現性。`pip install .` 會讀取 `pyproject.toml`，而非 `uv.lock`。未使用 uv 的使用者在套用鎖定的環境前，必須先安裝 uv。
+
+若您需要直接使用 pip，請使用虛擬環境的 Python：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\python.exe -m pip install ".[webui]"
+.\.venv\Scripts\python.exe -m pip install -e ".[all,dev]"
+```
 
 Windows 會建立虛擬環境主控台包裝器（如 `.\.venv\Scripts\keysight-power.exe` 和 `.\.venv\Scripts\keysight-power-webui.exe`）。
 
@@ -119,7 +139,7 @@ dist\keysight_powers-1.0.0-py3-none-any.whl
 dist\keysight_powers-1.0.0.tar.gz
 ```
 
-Python 套件建置不會建立 Windows 可執行檔。未來任何可執行檔的打包工作都應保留在獨立的腳本中，與 `python -m build` 分開。
+Python 套件建置不會建立 Windows 可 executable。未來任何可執行檔的打包工作都應保留在獨立的腳本中，與 `python -m build` 分開。
 
 ## 測試
 

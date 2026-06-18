@@ -5,7 +5,7 @@ CLI adapter for controlling Keysight DC power supplies.
 - Distribution: `keysight-powers` `1.0.0`
 - Import package: `keysight_power_cli`
 - Console command: `keysight-power`
-- Python: `>=3.10,<3.13`
+- Python: `>=3.10`
 - Runtime dependency: bundled `keysight_power_core` import package
 
 ## Purpose
