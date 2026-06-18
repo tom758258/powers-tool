@@ -90,6 +90,13 @@ uv run python -m pytest tests\integration -q -m hardware --resource "USB0::..."
 - Keep long-term agent rules in this file.
 - Keep implementation progress, temporary notes, and large status sections out
   of this file.
+- Default documentation edits should update English `.md` files only.
+- Do not update Traditional Chinese or localized docs unless explicitly
+  requested.
+- Do not update HTML or static UI copy as part of ordinary documentation work
+  unless explicitly requested or required by a user-facing UI change.
+- If localized docs exist and English docs change, mention the possible
+  follow-up instead of auto-syncing them.
 - Record reusable workflow and release information in `docs/workspace.md`,
   `docs/release-checklist.md`, package READMEs, or contract documents.
 - Do not commit private hardware notes, exact lab resource strings, or local

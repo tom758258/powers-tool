@@ -7,10 +7,34 @@ packages under `src/`: `keysight_power_core`, `keysight_power_cli`, and
 
 ## Workspace Workflow
 
-Use the root directory for dependency sync, tests, and builds:
+Use the root directory for dependency sync, tests, and builds. A standard
+Python virtual environment works without uv:
 
 ```powershell
-uv sync --all-extras
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".[all,dev]"
+```
+
+With uv, reproduce the development and test environment from the lock file:
+
+```powershell
+uv sync --all-extras --link-mode=copy
+```
+
+For CI-equivalent local checks, require the committed lock file to stay
+unchanged:
+
+```powershell
+uv sync --locked --all-extras --link-mode=copy
+```
+
+The `uv.lock` file is for development and CI reproducibility. It does not
+replace standard `pip install` workflows for package users.
+
+Common validation commands:
+
+```powershell
 uv run python -m pytest tests -q -p no:cacheprovider
 python -m build
 uv run keysight-power doctor --simulate --json

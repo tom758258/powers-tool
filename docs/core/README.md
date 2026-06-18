@@ -69,8 +69,7 @@ pip install .
 
 Runtime installs resolve `pyvisa`, PyYAML for sequence YAML support, and the
 Python-version TOML fallback where needed. The package does not include a
-console script. Test dependencies come from the workspace `dev` dependency
-group.
+console script. Test dependencies come from the root `dev` extra.
 
 ## Test
 

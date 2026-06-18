@@ -40,6 +40,11 @@ Do not assert full paragraphs or exact natural-language sentences unless the
 text is a safety warning, legal/privacy statement, public protocol definition,
 or package ownership rule.
 
+Do not require localized docs, translated docs, or HTML docs to remain
+prose-synchronized with English Markdown by default. Do not assert exact
+translated wording unless it is safety, legal/privacy, public protocol, or
+package ownership contract text.
+
 ## Frontend Static Tests
 
 Frontend static tests should protect integration contracts:
