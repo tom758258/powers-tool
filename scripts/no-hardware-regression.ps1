@@ -8,11 +8,11 @@ $ErrorActionPreference = "Stop"
 $commands = @(
     @{
         Name = "followup-features"
-        Args = @("-m", "pytest", "packages\cli\tests\test_followup_features.py", "-q")
+        Args = @("-m", "pytest", "tests\cli\test_followup_features.py", "-q")
     },
     @{
         Name = "json-contract-docs"
-        Args = @("-m", "pytest", "packages\cli\tests\test_cli_json_contract.py", "packages\cli\tests\test_supported_models_docs.py", "-q")
+        Args = @("-m", "pytest", "tests\cli\test_cli_json_contract.py", "tests\cli\test_supported_models_docs.py", "-q")
     },
     @{
         Name = "full-pytest"

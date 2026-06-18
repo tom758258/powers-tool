@@ -1,19 +1,18 @@
-﻿# Keysight Power Monorepo Workspace
+# Keysight Powers Workspace
 
-This root directory is a workspace-only container. It is not an importable
-Python package itself. The root `pyproject.toml` declares a non-package `uv`
-workspace (`tool.uv.package = false`) and the shared development dependency
-group. The root `uv.lock` is the single workspace lockfile and should be
-committed whenever dependency resolution changes.
+This repository builds one Python distribution, `keysight-powers`, from the
+root `pyproject.toml`. The distribution contains three independent import
+packages under `src/`: `keysight_power_core`, `keysight_power_cli`, and
+`keysight_power_webui`.
 
 ## Workspace Workflow
 
-Use the root directory for dependency sync and tests:
+Use the root directory for dependency sync, tests, and builds:
 
 ```powershell
-uv sync --locked --all-packages --dev
-uv run python -m pytest packages -q -p no:cacheprovider
-uv build --all-packages
+uv sync --all-extras
+uv run python -m pytest tests -q -p no:cacheprovider
+python -m build
 uv run keysight-power doctor --simulate --json
 ```
 
@@ -34,34 +33,29 @@ The tested Python range is 3.10 through 3.12. Package metadata constrains
 `requires-python` to `>=3.10,<3.13` until CI validates newer versions.
 
 Use `keysight-power ...` as the primary CLI entry point after syncing the
-workspace. `uv run python -m keysight_power_cli.cli ...` is retained only as a
+project. `uv run python -m keysight_power_cli.cli ...` is retained only as a
 fallback for diagnosing console-script installation issues.
 
-Sequence YAML files are supported by the `keysight-power-core` runtime
-dependency on PyYAML. The simple fallback parser remains in core for low
-dependency environments, but package installs should resolve PyYAML.
+Sequence YAML files are supported by the `keysight-powers` runtime dependency
+on PyYAML. The simple fallback parser remains in core for low dependency
+environments, but package installs should resolve PyYAML.
 
-## Packages
+## Import Packages
 
 The CLI and WebUI are parallel product interfaces. Both adapters build
 parser-neutral Core requests and must keep SCPI, cancellation, and cleanup
-behavior in `packages/core`.
+behavior in `src/keysight_power_core`.
 
-The project is structured into independent packages located inside the `packages/` directory:
+1. **Core (`keysight_power_core`)**
+   - Responsibility: driver, safety validation, models, transport, VISA helpers, simulator, and shared runtime.
+   - Rules: must not import from `keysight_power_cli` or `keysight_power_webui`.
 
-1. **`packages/core` (keysight-power-core)**
-   - **Responsibility**: Houses the core driver, safety validation, models, transport, VISA connection helpers, and the simulator/testing helpers.
-   - **Imports**: `keysight_power_core.*`
-   - **Rules**: Must NOT import from `keysight-power-cli` or `keysight-power-webui`.
+2. **CLI (`keysight_power_cli`)**
+   - Responsibility: command-line interface, JSON envelope handling, and local Power Worker.
+   - Dependencies: may import `keysight_power_core`; must not import `keysight_power_webui`.
 
-2. **`packages/cli` (keysight-power-cli)**
-   - **Responsibility**: Implements the command-line interface commands (`keysight-power`), CLI argument parsing, and JSON contract validation.
-   - **Imports**: `keysight_power_cli.*`
-   - **Dependencies**: Depends on `keysight-power-core`.
+3. **WebUI (`keysight_power_webui`)**
+   - Responsibility: FastAPI job/SSE adapter and static dashboard frontend for shared core command execution.
+   - Dependencies: may import `keysight_power_core`; must not import `keysight_power_cli`; must not contain direct VISA/SCPI command logic.
 
-3. **`packages/webui` (keysight-power-webui)**
-   - **Responsibility**: FastAPI job/SSE adapter and static dashboard frontend for shared core command execution.
-   - **Imports**: `keysight_power_webui.*`
-   - **Dependencies**: Depends on `keysight-power-core`.
-   - **Rules**: Must NOT import `keysight_power_cli`; must not contain direct VISA/SCPI command logic.
-   - **Status**: Active static WebUI package using shared core runners.
+All three import paths are public and must remain stable.

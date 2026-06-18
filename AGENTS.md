@@ -21,7 +21,8 @@ These instructions guide coding agents working in this repository. They are long
 - CLI and WebUI are parallel product interfaces over the shared Core runtime.
 - Keep adapter behavior aligned; neither CLI nor WebUI may own SCPI behavior.
 - Main environment is Windows.
-- Use the root `uv` workspace workflow. Install packages with `uv sync --all-packages --dev`.
+- Use the root single-distribution workflow. Install development dependencies
+  with `pip install -e ".[all,dev]"` or sync with `uv sync --all-extras`.
 - Primary communication interfaces are USB and LAN through PyVISA.
 
 ## 4. Architecture Rules
@@ -75,13 +76,13 @@ Do not change stop/release/local behavior without explicit confirmation.
 - After a project skeleton exists, the expected default test command is:
 
 ```powershell
-uv run python -m pytest packages -q -p no:cacheprovider
+uv run python -m pytest tests -q -p no:cacheprovider
 ```
 
 - Hardware validation should require an explicit resource, for example:
 
 ```powershell
-uv run python -m pytest packages\cli\tests\integration -q -m hardware --resource "USB0::..."
+uv run python -m pytest tests\integration -q -m hardware --resource "USB0::..."
 ```
 
 ## 8. Documentation Rules
@@ -97,11 +98,15 @@ uv run python -m pytest packages\cli\tests\integration -q -m hardware --resource
 
 ## 9. Monorepo Migration and Structure
 
-This repository is now organized as a Monorepo under the `packages/` directory:
-- `packages/core`: Core instrument driver, transport, and runtime layer (`keysight_power_core`).
-- `packages/cli`: Command line interface adapter (`keysight_power_cli`).
-- `packages/webui`: Web interface skeleton (`keysight_power_webui`).
+This repository is organized as a single-distribution Monorepo under the root
+`src/` directory:
+- `src/keysight_power_core`: Core instrument driver, transport, and runtime layer.
+- `src/keysight_power_cli`: Command line interface adapter.
+- `src/keysight_power_webui`: Web interface adapter and static dashboard.
 
-Always read the package-local code, configuration, and documentation (e.g., package-local `pyproject.toml`) before implementing or modifying features.
-- Never let `packages/core` import from `packages/cli` or `packages/webui`.
+Always read root `pyproject.toml` plus the relevant package-local code and
+docs under `docs/core`, `docs/cli`, or `docs/webui` before implementing or
+modifying features.
+- Never let `keysight_power_core` import from `keysight_power_cli` or
+  `keysight_power_webui`.
 - CLI commands are invoked via `keysight-power` or `python -m keysight_power_cli.cli`. The old `python -m keysight_power.cli` entry is no longer supported.

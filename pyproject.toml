@@ -1,26 +1,72 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "keysight-power-workspace"
-version = "0.1.0"
+name = "keysight-powers"
+version = "1.0.0"
+description = "Safe Python tooling for Keysight DC power supplies."
+readme = "README.md"
 requires-python = ">=3.10,<3.13"
+license = "MIT"
+authors = [
+  { name = "Keysight Power contributors" },
+]
+dependencies = [
+  "PyYAML>=6.0",
+  "pyvisa>=1.14",
+  "tomli>=2; python_version < '3.11'",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+  "Topic :: System :: Hardware :: Hardware Drivers",
+  "Topic :: Utilities",
+]
 
-[tool.uv]
-package = false
+[project.optional-dependencies]
+webui = [
+  "fastapi>=0.100.0",
+  "uvicorn>=0.23.0",
+]
+dev = [
+  "build>=1.2",
+  "httpx>=0.28.1",
+  "pytest>=8.0",
+]
+all = [
+  "fastapi>=0.100.0",
+  "uvicorn>=0.23.0",
+]
 
-[tool.uv.workspace]
-members = ["packages/core", "packages/cli", "packages/webui"]
+[project.scripts]
+keysight-power = "keysight_power_cli.cli:main"
+keysight-power-webui = "keysight_power_webui.server:main"
 
-[tool.uv.sources]
-keysight-power-core = { workspace = true }
-keysight-power-cli = { workspace = true }
-keysight-power-webui = { workspace = true }
+[tool.setuptools.packages.find]
+where = ["src"]
+include = [
+  "keysight_power_core*",
+  "keysight_power_cli*",
+  "keysight_power_webui*",
+]
 
-[dependency-groups]
-dev = ["pytest>=8.0"]
+[tool.setuptools.package-data]
+keysight_power_webui = [
+  "static/*.html",
+  "static/*.css",
+  "static/*.js",
+]
 
 [tool.pytest.ini_options]
 addopts = "--basetemp=.tmp_pytest"
-testpaths = [
-  "packages/core/tests",
-  "packages/cli/tests",
-  "packages/webui/tests"
-]
+testpaths = ["tests"]
+pythonpath = ["src"]

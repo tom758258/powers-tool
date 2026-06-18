@@ -1,41 +1,50 @@
-# Keysight Power Monorepo
+# Keysight Powers
 
 Safe Python tooling for Keysight DC power supplies.
 
-This workspace contains three separately installable packages:
+This repository builds one Python distribution, `keysight-powers` `1.0.0`,
+while preserving three independent import packages:
 
-- `packages/core`: `keysight-power-core` `1.0.0`, imported as
-  `keysight_power_core`
-- `packages/cli`: `keysight-power-cli` `1.0.0`, imported as
-  `keysight_power_cli`, console command `keysight-power`
-- `packages/webui`: `keysight-power-webui` `0.1.0`, imported as
-  `keysight_power_webui`
+- `keysight_power_core`: driver, safety, transport, simulator, and shared runtime.
+- `keysight_power_cli`: `keysight-power` CLI and local Power Worker adapter.
+- `keysight_power_webui`: `keysight-power-webui` FastAPI/static dashboard adapter.
 
-The CLI and WebUI are parallel product interfaces over the shared Core
-runtime. Neither adapter owns SCPI behavior.
-
-The root `pyproject.toml` is workspace tooling only. Package metadata lives in
-each package directory.
+The CLI and WebUI are parallel product interfaces over the shared Core runtime.
+Neither adapter owns SCPI behavior.
 
 ## Install
 
+Install the basic Core/CLI distribution:
+
 ```powershell
-uv sync --all-packages --dev
+pip install .
 ```
 
-For editable package installs without syncing the whole workspace:
+Install WebUI runtime dependencies:
 
 ```powershell
-uv pip install -e packages/core -e packages/cli -e packages/webui --link-mode=copy
+pip install ".[webui]"
+```
+
+Install everything needed for local development and tests:
+
+```powershell
+pip install -e ".[all,dev]"
+```
+
+With `uv`, the equivalent development sync is:
+
+```powershell
+uv sync --all-extras
 ```
 
 ## Test
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest packages\core\tests -q -p no:cacheprovider
-.\.venv\Scripts\python.exe -m pytest packages\cli\tests -q -p no:cacheprovider
-.\.venv\Scripts\python.exe -m pytest packages\webui\tests -q -p no:cacheprovider
-.\.venv\Scripts\python.exe -m pytest packages -q -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest tests\core -q -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest tests\cli -q -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest tests\webui -q -p no:cacheprovider
+.\.venv\Scripts\python.exe -m pytest tests -q -p no:cacheprovider
 ```
 
 Pytest uses the ignored repository-local `.tmp_pytest` directory by default,
@@ -79,23 +88,35 @@ defaults to a read-only live profile:
 .\scripts\live-smoke-validation-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE
 ```
 
-See the [CLI README scripted validation section](packages/cli/README.md#scripted-validation)
+See the [CLI README scripted validation section](docs/cli/README.md#scripted-validation)
 for batch examples, hardware pytest commands, parameters, and safety details.
 
-Build all packages:
+## Build
+
+Build the single wheel and source distribution:
 
 ```powershell
-uv build --all-packages
+python -m build
 ```
+
+The expected artifacts are:
+
+```text
+dist/
+  keysight_powers-1.0.0-py3-none-any.whl
+  keysight_powers-1.0.0.tar.gz
+```
+
+Building Python packages does not create Windows executables. Any future EXE
+packaging should stay in dedicated scripts separate from `python -m build`.
 
 ## Docs
 
-- Core: [README](packages/core/README.md)
-- CLI: [README](packages/cli/README.md), [CLI JSON contract](docs/contracts/power-cli-jsonl-contract.md),
+- Core: [README](docs/core/README.md), [supported models](docs/core/supported-models.md)
+- CLI: [README](docs/cli/README.md), [CLI JSON contract](docs/contracts/power-cli-jsonl-contract.md),
   [worker contract](docs/contracts/power-worker-contract.md), [orchestrator guide](docs/contracts/power-orchestrator-workflows.md)
-- WebUI: [README](packages/webui/README.md)
-- Workspace: [workspace overview](docs/workspace.md), [release checklist](docs/release-checklist.md),
-  [supported models](packages/core/docs/supported-models.md)
+- WebUI: [README](docs/webui/README.md)
+- Workspace: [workspace overview](docs/workspace.md), [release checklist](docs/release-checklist.md)
 - Testing guidelines: [testing-guidelines.md](docs/testing-guidelines.md)
 
 ## Safety
@@ -104,13 +125,15 @@ Default tests must run without hardware. Any command or test that can affect a
 real instrument output must remain explicit and opt-in. Real VISA resources must
 not be hard-coded in committed files.
 
-See `AGENTS.md`, `docs/workspace.md`, and the relevant package README before
+See `AGENTS.md`, `docs/workspace.md`, and the relevant interface README before
 making implementation changes.
 
 ## License and Disclaimer
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE).
 
-This project is an independent, unofficial project and is not affiliated with, endorsed by, or sponsored by Keysight Technologies.
+This project is an independent, unofficial project and is not affiliated with,
+endorsed by, or sponsored by Keysight Technologies.
 
-Users are responsible for complying with all applicable Keysight software, driver, instrument, and documentation license terms.
+Users are responsible for complying with all applicable Keysight software,
+driver, instrument, and documentation license terms.

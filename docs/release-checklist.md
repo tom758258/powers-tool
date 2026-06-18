@@ -1,24 +1,22 @@
 # Release Checklist
 
-Use this checklist before creating a release commit and package tags.
+Use this checklist before creating a release commit and package tag.
 
-## core-v1.0.0 and cli-v1.0.0
+## keysight-powers v1.0.0
 
-The `keysight-power-core` and `keysight-power-cli` packages are released
-together for this milestone. `keysight-power-webui` remains version `0.1.0`
-but is an active parallel product interface over the shared Core runtime.
+The repository now publishes one distribution, `keysight-powers`, containing
+the Core, CLI, and WebUI import packages.
 
 Recommended commit message:
 
 ```text
-release: prepare core and cli v1.0.0
+release: prepare keysight-powers v1.0.0
 ```
 
-Recommended tags on the release commit:
+Recommended tag on the release commit:
 
 ```powershell
-git tag core-v1.0.0
-git tag cli-v1.0.0
+git tag v1.0.0
 ```
 
 ## Pre-Tag Validation
@@ -26,27 +24,29 @@ git tag cli-v1.0.0
 Run the no-hardware and package gates from the repository root:
 
 ```powershell
-uv sync --locked --all-packages --dev
-.\.venv\Scripts\python.exe -m pytest packages\core\tests\test_import.py -q -p no:cacheprovider
+uv sync --all-extras
+.\.venv\Scripts\python.exe -m pytest tests\core\test_import.py -q -p no:cacheprovider
 uv run keysight-power doctor --simulate --json
 .\scripts\no-hardware-regression.ps1
-uv build --all-packages
+python -m build
 git status --short
 ```
 
-The `doctor --simulate --json` payload should report package
-`keysight-power-cli` version `1.0.0`. The final `git status --short` should
-show only intentional release, documentation, and lockfile changes before
-committing.
+The `doctor --simulate --json` payload should report adapter package
+`keysight-power-cli` with version `1.0.0`; that version is sourced from the
+single installed `keysight-powers` distribution. The final
+`git status --short` should show only intentional release, documentation, and
+lockfile changes before committing.
 
 ## Future EXE Packaging Prep
 
 This release does not add PyInstaller, Nuitka, or other packager dependencies.
-When EXE packaging work starts, keep the package entry point aligned with the
-current console script:
+When EXE packaging work starts, keep the package entry points aligned with the
+current console scripts:
 
 ```text
 keysight_power_cli.cli:main
+keysight_power_webui.server:main
 ```
 
 Minimum EXE smoke checks should include:

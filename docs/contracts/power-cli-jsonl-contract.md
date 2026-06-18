@@ -7,6 +7,10 @@ Numeric command fields follow the shared
 
 ## CLI Commands
 
+The installed Python distribution is `keysight-powers`. CLI JSON payloads keep
+the adapter identifier `keysight-power-cli` for compatibility, but the reported
+version is sourced from the single `keysight-powers` distribution.
+
 Lifecycle clients:
 
 - `send-command`
