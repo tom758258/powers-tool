@@ -39,8 +39,10 @@ webui = [
 ]
 dev = [
   "build>=1.2",
+  "fastapi>=0.100.0",
   "httpx>=0.28.1",
   "pytest>=8.0",
+  "uvicorn>=0.23.0",
 ]
 all = [
   "fastapi>=0.100.0",
