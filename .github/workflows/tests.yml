@@ -37,13 +37,18 @@ jobs:
           enable-cache: true
 
       - name: Install package
-        run: uv sync --locked --all-packages --dev
+        run: uv sync --locked --all-extras --reinstall-package keysight-powers
 
       - name: Run tests
-        run: uv run python -m pytest packages -q -p no:cacheprovider
+        run: uv run python -m pytest tests -q -p no:cacheprovider
 
-      - name: Build packages
-        run: uv build --all-packages
+      - name: Smoke console scripts
+        run: |
+          uv run keysight-power --help
+          uv run keysight-power-webui --help
+
+      - name: Build distribution
+        run: uv run python -m build
 
   pytest-windows:
     name: Windows Python ${{ matrix.python-version }}
@@ -72,7 +77,12 @@ jobs:
           enable-cache: true
 
       - name: Install package
-        run: uv sync --locked --all-packages --dev
+        run: uv sync --locked --all-extras --reinstall-package keysight-powers
 
       - name: Run tests
-        run: uv run python -m pytest packages -q -p no:cacheprovider
+        run: uv run python -m pytest tests -q -p no:cacheprovider
+
+      - name: Smoke console scripts
+        run: |
+          uv run keysight-power --help
+          uv run keysight-power-webui --help
