@@ -106,6 +106,14 @@ button.scan-button:hover {
   color: #14384c;
   box-shadow: 0 3px 10px rgba(36, 85, 111, .10), inset 0 1px 0 rgba(255, 255, 255, .95);
 }
+button.utility-button {
+  min-width: 72px;
+  color: #405266;
+}
+button.utility-button:hover {
+  color: #223140;
+  box-shadow: 0 3px 10px rgba(64, 82, 102, .10), inset 0 1px 0 rgba(255, 255, 255, .95);
+}
 button#run {
   min-width: 78px;
   border-radius: 999px;
@@ -126,6 +134,19 @@ button.icon-button {
   padding: 0;
   font-size: 16px;
   line-height: 1;
+}
+button.utility-icon-button {
+  border-radius: 999px;
+  border-color: #d5dde6;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .96) 0%, #f3f7fb 100%);
+  color: #405266;
+  font-weight: 750;
+  box-shadow: 0 1px 2px rgba(24, 32, 42, .08), inset 0 1px 0 rgba(255, 255, 255, .9);
+}
+button.utility-icon-button:hover {
+  border-color: #b9c8d6;
+  background: linear-gradient(180deg, #ffffff 0%, #eaf1f7 100%);
+  color: #223140;
 }
 
 .shell {
@@ -465,10 +486,11 @@ button.icon-button {
 canvas { display: block; width: 100%; height: 180px; background: #fbfcfd; border-bottom: 1px solid var(--border); }
 .live-data-section .section-head { border-bottom: 0; }
 .monitor-toggle {
-  --monitor-on: #64d2ff;
-  --monitor-on-strong: #0a84ff;
-  --monitor-soft: #eef8ff;
-  --monitor-border: #b9e5ff;
+  --monitor-on: #32d6c0;
+  --monitor-on-strong: #00a99d;
+  --monitor-soft: #effcfa;
+  --monitor-border: #b7eee7;
+  --monitor-text: #167267;
   min-width: 132px;
   border-radius: 999px;
   border-color: var(--monitor-border);
@@ -479,13 +501,13 @@ canvas { display: block; width: 100%; height: 180px; background: #fbfcfd; border
 }
 .monitor-toggle.off {
   background: linear-gradient(180deg, #ffffff 0%, var(--monitor-soft) 100%);
-  color: #1f5f99;
+  color: var(--monitor-text);
 }
 .monitor-toggle.on {
   background: linear-gradient(180deg, var(--monitor-on) 0%, var(--monitor-on-strong) 100%);
   border-color: var(--monitor-on-strong);
   color: #fff;
-  box-shadow: 0 0 0 3px rgba(10, 132, 255, .18), inset 0 1px 0 rgba(255, 255, 255, .26);
+  box-shadow: 0 0 0 3px rgba(0, 169, 157, .18), inset 0 1px 0 rgba(255, 255, 255, .26);
 }
 .monitor-toggle:hover {
   border-color: var(--monitor-on-strong);

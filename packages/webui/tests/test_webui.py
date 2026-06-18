@@ -293,6 +293,8 @@ def test_static_live_data_exposes_start_control():
     assert 'document.getElementById("live-stop")' not in app_js
     assert ".monitor-toggle.on" in styles_css
     assert ".monitor-toggle.off" in styles_css
+    assert "--monitor-on: #32d6c0" in styles_css
+    assert "--monitor-on-strong: #00a99d" in styles_css
 
 
 def test_static_layout_exposes_stable_structural_hooks():
@@ -309,6 +311,9 @@ def test_static_layout_exposes_stable_structural_hooks():
     assert 'id="job-result-panel"' in index_html
     assert 'id="job-history"' in index_html
     assert 'id="result-panel" class="result-panel collapsed"' in index_html
+    assert 'id="job-result-clear" class="secondary command-pill-button utility-button"' in index_html
+    assert 'id="job-result-toggle" class="secondary icon-button utility-icon-button"' in index_html
+    assert 'id="result-toggle" class="secondary icon-button utility-icon-button"' in index_html
     assert 'id="command-form"' in index_html
     assert 'id="workspace-summary-content"' in index_html
     assert 'class="rightbar"' not in index_html
@@ -345,6 +350,8 @@ def test_static_basic_command_panel_contract():
     assert ".basic-toggle.on" in styles_css
     assert "button#run" in styles_css
     assert "button.scan-button" in styles_css
+    assert "button.utility-button" in styles_css
+    assert "button.utility-icon-button" in styles_css
     assert "button.command-pill-button" in styles_css
     assert 'button.advanced-command-button' in styles_css
     assert '--toggle-on: #0a84ff' in styles_css
