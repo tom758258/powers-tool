@@ -138,6 +138,34 @@ input:focus, select:focus, textarea:focus {
   box-shadow: var(--shadow-focus);
 }
 
+/* ─── Per-Channel Focus Glow ──────────────────────────────────────────────
+   Override the generic blue focus ring inside each channel card so the glow
+   colour echoes that channel's accent (avoids clash with CH1's blue buttons).
+   Uses data-basic-channel attribute that already exists on the card divs;
+   no HTML changes required.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* CH1 – deeper blue (contrast against the blue Set/Toggle buttons) */
+[data-basic-channel="1"] input:focus,
+[data-basic-channel="1"] select:focus {
+  border-color: #006edb;
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.40);
+}
+
+/* CH2 – purple */
+[data-basic-channel="2"] input:focus,
+[data-basic-channel="2"] select:focus {
+  border-color: #9c3acb;
+  box-shadow: 0 0 0 3px rgba(191, 90, 242, 0.35);
+}
+
+/* CH3 – amber */
+[data-basic-channel="3"] input:focus,
+[data-basic-channel="3"] select:focus {
+  border-color: #db7d00;
+  box-shadow: 0 0 0 3px rgba(255, 159, 10, 0.35);
+}
+
 /* ─── Buttons ────────────────────────────────────────────────────────────── */
 button {
   display: inline-flex;
