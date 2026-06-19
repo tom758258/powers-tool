@@ -489,6 +489,8 @@ button.utility-icon-button:hover {
   color: var(--muted);
   line-height: 1.5;
   font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 /* ─── Trigger / Ramp / Sequence Editors ──────────────────────────────────── */
@@ -503,10 +505,53 @@ button.utility-icon-button:hover {
   margin-bottom: 12px;
 }
 
-.trigger-list-tabs .active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: linear-gradient(180deg, #eef6ff 0%, #e4f0ff 100%);
+.trigger-list-tabs button[data-trigger-list-channel] {
+  --trigger-channel: #0a84ff;
+  --trigger-channel-strong: #006edb;
+  --trigger-channel-soft: #edf5ff;
+  --trigger-channel-border: #b8d8ff;
+  --trigger-channel-glow: rgba(10, 132, 255, .18);
+  border-color: var(--trigger-channel-border);
+  background: linear-gradient(180deg, #ffffff 0%, var(--trigger-channel-soft) 100%);
+  color: var(--trigger-channel-strong);
+  font-weight: 700;
+}
+
+.trigger-list-tabs button[data-trigger-list-channel="1"] {
+  --trigger-channel: #0a84ff;
+  --trigger-channel-strong: #006edb;
+  --trigger-channel-soft: #edf5ff;
+  --trigger-channel-border: #b8d8ff;
+  --trigger-channel-glow: rgba(10, 132, 255, .18);
+}
+
+.trigger-list-tabs button[data-trigger-list-channel="2"] {
+  --trigger-channel: #bf5af2;
+  --trigger-channel-strong: #9c3acb;
+  --trigger-channel-soft: #fbf0ff;
+  --trigger-channel-border: #e8c8ff;
+  --trigger-channel-glow: rgba(191, 90, 242, .18);
+}
+
+.trigger-list-tabs button[data-trigger-list-channel="3"] {
+  --trigger-channel: #ff9f0a;
+  --trigger-channel-strong: #db7d00;
+  --trigger-channel-soft: #fff7e6;
+  --trigger-channel-border: #ffdda3;
+  --trigger-channel-glow: rgba(255, 159, 10, .20);
+}
+
+.trigger-list-tabs button[data-trigger-list-channel]:hover {
+  border-color: var(--trigger-channel);
+  color: var(--trigger-channel-strong);
+  box-shadow: 0 2px 8px var(--trigger-channel-glow), inset 0 1px 0 rgba(255, 255, 255, .95);
+}
+
+.trigger-list-tabs button[data-trigger-list-channel].active {
+  border-color: var(--trigger-channel-strong);
+  color: #fff;
+  background: linear-gradient(180deg, var(--trigger-channel) 0%, var(--trigger-channel-strong) 100%);
+  box-shadow: 0 0 0 3px var(--trigger-channel-glow), inset 0 1px 0 rgba(255, 255, 255, .20);
 }
 
 .trigger-list-controls label { min-width: 140px; }
@@ -621,6 +666,8 @@ button.utility-icon-button:hover {
   font-size: 12px;
   font-weight: 400;
   line-height: 1.45;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 /* ─── Command Notes ──────────────────────────────────────────────────────── */

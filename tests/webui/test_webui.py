@@ -294,8 +294,10 @@ def test_static_live_data_exposes_start_control():
     assert 'document.getElementById("live-stop")' not in app_js
     assert ".monitor-toggle.on" in styles_css
     assert ".monitor-toggle.off" in styles_css
-    assert "--monitor-on: #32d6c0" in styles_css
-    assert "--monitor-on-strong: #00a99d" in styles_css
+    assert "--monitor-on:" in styles_css
+    assert "#2ec4b6" in styles_css
+    assert "--monitor-on-strong:" in styles_css
+    assert "#009e92" in styles_css
 
 
 def test_static_layout_exposes_stable_structural_hooks():
@@ -355,7 +357,8 @@ def test_static_basic_command_panel_contract():
     assert "button.utility-icon-button" in styles_css
     assert "button.command-pill-button" in styles_css
     assert 'button.advanced-command-button' in styles_css
-    assert '--toggle-on: #0a84ff' in styles_css
+    assert '--toggle-on:' in styles_css
+    assert '#0a84ff' in styles_css
     assert '.basic-toggle[data-basic-output="2"]' in styles_css
     assert '.basic-toggle[data-basic-output="3"]' in styles_css
     assert ".basic-toggle[data-basic-all-output]" in styles_css
@@ -665,7 +668,7 @@ def test_static_trip_guard_and_clear_protection_recovery_contract():
 
 
 def test_static_channel_confirmation_and_job_detail_contracts():
-    _index_html, app_js, _styles_css = read_static_texts()
+    _index_html, app_js, styles_css = read_static_texts()
 
     assert 'set: setOutputParams()' in app_js
     assert 'function setOutputParams()' in app_js
@@ -679,6 +682,8 @@ def test_static_channel_confirmation_and_job_detail_contracts():
     assert 'guidance.className = "field-description set-field-guidance";' in append_set_guidance
     assert "guidance.textContent = SET_PARTIAL_GUIDANCE;" in append_set_guidance
     assert "Set accepts Voltage, Current, or both. Blank fields are left unchanged." not in render_guidance
+    field_description_css = styles_css[styles_css.index(".field-description {"):styles_css.index(".command-notes {")]
+    assert "text-transform: none;" in field_description_css
     assert "setRequiresSetpointGuardReason(state.selected, parameters)" in app_js
     assert '"smoke-output": smokeOutputParams()' in app_js
     assert_param_contract(app_js, "channel", "select", ["1", "2", "3"])
@@ -844,6 +849,8 @@ def test_static_trigger_guidance_explains_global_fire_and_wait_semantics():
     assert "Abort target channel does not limit Fire or Wait" in guidance
     assert "Wait complete requires an Abort target channel." in fire_guard
     assert ".command-guidance {" in styles_css
+    command_guidance_css = styles_css[styles_css.index(".command-guidance {"):styles_css.index(".trigger-list-editor {")]
+    assert "text-transform: none;" in command_guidance_css
 
 
 def test_static_trigger_status_has_human_readable_workspace_summary():
@@ -866,6 +873,7 @@ def test_static_trigger_list_uses_three_channel_workspace_editor():
 
     for text in ("Load Trigger List", "Save Trigger List", "Add Step", "Channel ${channel}", "BOST", "EOST"):
         assert text in render
+    assert "button.dataset.triggerListChannel = String(channel);" in render
     assert "steps.push({ ...steps[steps.length - 1] })" in app_js
     assert "steps.length >= 100" in app_js
     assert "steps.length <= 1" in app_js
@@ -876,6 +884,10 @@ def test_static_trigger_list_uses_three_channel_workspace_editor():
     assert 'exact(document.channels, ["1", "2", "3"]' in validator
     assert "contains unknown or missing fields" in validator
     assert ".trigger-list-editor {" in styles_css
+    assert '.trigger-list-tabs button[data-trigger-list-channel]' in styles_css
+    assert '.trigger-list-tabs button[data-trigger-list-channel="1"]' in styles_css
+    assert '.trigger-list-tabs button[data-trigger-list-channel="2"]' in styles_css
+    assert '.trigger-list-tabs button[data-trigger-list-channel="3"]' in styles_css
 
 
 def test_static_trigger_list_documents_restore_and_pulse_pin_guard():

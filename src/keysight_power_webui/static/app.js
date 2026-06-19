@@ -562,6 +562,7 @@ function renderTriggerListForm(form) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `secondary${state.triggerListActiveChannel === channel ? " active" : ""}`;
+    button.dataset.triggerListChannel = String(channel);
     button.textContent = `Channel ${channel}`;
     button.addEventListener("click", () => {
       state.triggerListActiveChannel = channel;
