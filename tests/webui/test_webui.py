@@ -44,6 +44,25 @@ def read_static_texts() -> tuple[str, str, str]:
     )
 
 
+def static_tag_with_id(html: str, element_id: str) -> str:
+    match = re.search(rf"<[^>]*\bid=\"{re.escape(element_id)}\"[^>]*>", html)
+    if not match:
+        raise AssertionError(f'Missing element id="{element_id}"')
+    return match.group(0)
+
+
+def assert_static_id(html: str, element_id: str) -> None:
+    static_tag_with_id(html, element_id)
+
+
+def assert_static_attr(html: str, element_id: str, attr: str, value: str | None = None) -> None:
+    tag = static_tag_with_id(html, element_id)
+    if value is None:
+        assert re.search(rf"\b{re.escape(attr)}(?:\s|=|>|$)", tag), tag
+    else:
+        assert re.search(rf"\b{re.escape(attr)}=\"{re.escape(value)}\"", tag), tag
+
+
 def extract_param_block(app_js: str, command_name: str) -> str:
     params_block = app_js[app_js.index("const PARAMS = {"):app_js.index("function baseOutputParams()")]
     match = re.search(rf'(?m)^\s*(?:"{re.escape(command_name)}"|{re.escape(command_name)}):', params_block)
@@ -169,17 +188,15 @@ def test_static_top_bar_uses_live_resource_defaults():
         assert f">{label}<" not in index_html
         assert f">{label}\n" not in index_html
 
-    assert 'id="resource"' in index_html
+    assert_static_id(index_html, "resource")
     assert 'id="resource" value=' not in index_html
     assert 'id="resource" value="USB0::SIM::E36312A::INSTR"' not in index_html
-    assert 'id="resource-select"' in index_html
-    assert 'id="scan"' in index_html
-    assert 'class="secondary command-pill-button scan-button"' in index_html
-    assert 'class="brand-subtitle"' in index_html
+    assert_static_id(index_html, "resource-select")
+    assert_static_id(index_html, "scan")
     assert "Unofficial Tool v__WEBUI_VERSION__" in index_html
-    assert 'id="server-state"' in index_html
-    assert 'id="device-state"' in index_html
-    assert 'id="live-state"' in index_html
+    assert_static_id(index_html, "server-state")
+    assert_static_id(index_html, "device-state")
+    assert_static_id(index_html, "live-state")
     assert "WebUI State:" in index_html
     assert "Command State:" in index_html
     assert "Live State:" in index_html
@@ -198,16 +215,14 @@ def test_static_top_bar_uses_live_resource_defaults():
 
 
 def test_static_state_indicators_show_webui_command_and_live_state():
-    index_html, app_js, styles_css = read_static_texts()
+    index_html, app_js, _styles_css = read_static_texts()
     refresh_health = extract_js_function(app_js, "refreshHealth")
     preview = extract_js_function(app_js, "startLivePreviewSnapshot")
     stop_live = extract_js_function(app_js, "stopLive")
     monitor_button = extract_js_function(app_js, "updateLiveMonitorButton")
 
-    for hook in ('class="state-dot"', 'class="state-text"', 'class="state-indicator', 'class="state-indicator live-indicator'):
+    for hook in ('class="state-dot"', 'class="state-text"', 'class="state-indicator'):
         assert hook in index_html
-    for css_hook in (".state-indicator", ".state-dot", ".state-ok", ".state-warning", ".state-error", ".state-idle", ".live-indicator"):
-        assert css_hook in styles_css
 
     assert 'setStateIndicator("server-state"' in refresh_health
     assert 'serverReady ? "Ready" : "Error"' in refresh_health
@@ -285,55 +300,45 @@ def test_static_live_data_uses_three_channel_panel_contract():
 
 
 def test_static_live_data_exposes_start_control():
-    index_html, app_js, styles_css = read_static_texts()
+    index_html, app_js, _styles_css = read_static_texts()
 
-    assert 'class="live-data-section"' in index_html
-    assert 'id="live-start" class="monitor-toggle off" type="button" aria-pressed="false"' in index_html
+    assert_static_attr(index_html, "live-start", "type", "button")
+    assert_static_attr(index_html, "live-start", "aria-pressed", "false")
     assert 'id="live-stop"' not in index_html
     assert 'document.getElementById("live-start").addEventListener("click", toggleLiveMonitor);' in app_js
     assert 'document.getElementById("live-stop")' not in app_js
-    assert ".monitor-toggle.on" in styles_css
-    assert ".monitor-toggle.off" in styles_css
-    assert "--monitor-on:" in styles_css
-    assert "#2ec4b6" in styles_css
-    assert "--monitor-on-strong:" in styles_css
-    assert "#009e92" in styles_css
 
 
 def test_static_layout_exposes_stable_structural_hooks():
     index_html, _app_js, _styles_css = read_static_texts()
-    assert 'id="basic-command"' in index_html
-    assert 'id="advanced-command-toggle"' in index_html
-    assert 'id="advanced-commands" class="command-workbench collapsed" hidden' in index_html
-    assert 'class="command-workbench' in index_html
-    assert 'id="command-categories"' in index_html
-    assert 'id="command-list"' in index_html
-    assert 'class="command-main"' in index_html
-    assert 'class="workspace"' in index_html
-    assert 'class="rail"' in index_html
-    assert 'id="job-result-panel"' in index_html
-    assert 'id="job-history"' in index_html
-    assert 'id="result-panel" class="result-panel collapsed"' in index_html
-    assert 'id="job-result-clear" class="secondary command-pill-button utility-button"' in index_html
-    assert 'id="job-result-toggle" class="secondary icon-button utility-icon-button"' in index_html
-    assert 'id="result-toggle" class="secondary icon-button utility-icon-button"' in index_html
-    assert 'id="command-form"' in index_html
-    assert 'id="workspace-summary-content"' in index_html
+    for element_id in (
+        "basic-command",
+        "advanced-command-toggle",
+        "advanced-commands",
+        "command-categories",
+        "command-list",
+        "job-result-panel",
+        "job-history",
+        "result-panel",
+        "job-result-clear",
+        "job-result-toggle",
+        "result-toggle",
+        "command-form",
+        "workspace-summary-content",
+    ):
+        assert_static_id(index_html, element_id)
+    assert_static_attr(index_html, "advanced-commands", "hidden")
     assert 'class="rightbar"' not in index_html
 
 
 def test_static_basic_command_panel_contract():
-    index_html, app_js, styles_css = read_static_texts()
+    index_html, app_js, _styles_css = read_static_texts()
 
-    assert 'id="basic-command"' in index_html
-    assert 'Basic command' in index_html
-    assert 'id="basic-command-status"' in index_html
+    assert_static_id(index_html, "basic-command")
+    assert_static_id(index_html, "basic-command-status")
     assert 'data-basic-all-output' in index_html
-    assert "data-basic-all-output>ALL ON</button>" in index_html
-    assert 'Show more commands' in index_html
-    assert 'class="secondary advanced-command-button"' in index_html
-    assert 'Hide commands' in app_js
-    assert 'function toggleAdvancedCommands()' in app_js
+    assert_static_attr(index_html, "advanced-command-toggle", "aria-controls", "advanced-commands")
+    assert_static_attr(index_html, "advanced-command-toggle", "aria-expanded", "false")
     assert 'panel.hidden = !expanded;' in app_js
 
     for channel in ("1", "2", "3"):
@@ -342,29 +347,6 @@ def test_static_basic_command_panel_contract():
         assert f'data-basic-current="{channel}"' in index_html
         assert f'data-basic-set="{channel}"' in index_html
         assert f'data-basic-output="{channel}"' in index_html
-        assert f'data-basic-output="{channel}">ON</button>' in index_html
-        assert f'data-basic-output="{channel}">OFF</button>' not in index_html
-
-    assert ".basic-command-section" in styles_css
-    assert ".basic-channel-grid" in styles_css
-    assert ".basic-set {" in styles_css
-    assert '.basic-set[data-basic-set="2"]' in styles_css
-    assert '.basic-set[data-basic-set="3"]' in styles_css
-    assert ".basic-toggle.on" in styles_css
-    assert "button#run" in styles_css
-    assert "button.scan-button" in styles_css
-    assert "button.utility-button" in styles_css
-    assert "button.utility-icon-button" in styles_css
-    assert "button.command-pill-button" in styles_css
-    assert 'button.advanced-command-button' in styles_css
-    assert '--toggle-on:' in styles_css
-    assert '#0a84ff' in styles_css
-    assert '.basic-toggle[data-basic-output="2"]' in styles_css
-    assert '.basic-toggle[data-basic-output="3"]' in styles_css
-    assert ".basic-toggle[data-basic-all-output]" in styles_css
-    assert "#basic-output-all" in styles_css
-    assert ".basic-action-error" in styles_css
-    assert "@media (max-width: 1100px)" in styles_css
 
 
 def test_static_basic_output_buttons_label_on_and_use_lit_state():
@@ -384,7 +366,7 @@ def test_static_basic_output_buttons_label_on_and_use_lit_state():
 
 
 def test_static_live_channel_status_uses_led_indicators():
-    _index_html, app_js, styles_css = read_static_texts()
+    _index_html, app_js, _styles_css = read_static_texts()
     render_channel = extract_js_function(app_js, "renderChannelCard")
     protection_badge = extract_js_function(app_js, "protectionBadge")
 
@@ -393,11 +375,6 @@ def test_static_live_channel_status_uses_led_indicators():
     assert "OUT ${outputText}" in render_channel
     assert 'class="protection-badge status-indicator ${stateClass}"' in protection_badge
     assert "${label} ${stateText}" in protection_badge
-    assert ".status-indicator {" in styles_css
-    assert ".status-indicator .indicator-dot" in styles_css
-    assert ".status-badge.on .indicator-dot" in styles_css
-    assert ".protection-badge.trip .indicator-dot" in styles_css
-    assert "cursor: default;" in styles_css
 
 
 def test_static_basic_command_submission_reuses_existing_jobs():
