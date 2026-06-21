@@ -85,22 +85,32 @@ uv run python -m pytest tests -q -p no:cacheprovider
 uv run python -m pytest tests\integration -q -m hardware --resource "USB0::..."
 ```
 
-## 8. Documentation Rules
+## 8. Documentation Boundary
 
 - Keep long-term agent rules in this file.
-- Keep implementation progress, temporary notes, and large status sections out
-  of this file.
-- Default documentation edits should update English `.md` files only.
-- Do not update Traditional Chinese or localized docs unless explicitly
-  requested.
-- Do not update HTML or static UI copy as part of ordinary documentation work
-  unless explicitly requested or required by a user-facing UI change.
+- Keep tracked public docs limited to README, changelog, workspace and release
+  notes, architecture, contracts, integration guides, user guides, supported
+  models, testing guidelines, and change rules.
+- Keep implementation progress, temporary notes, validation records, and
+  hardware-specific operator context outside tracked public docs.
+- Default documentation edits should update English `.md` source files only.
+- Do not update Traditional Chinese or localized docs, including
+  `README.zh-TW.md`, unless explicitly requested.
 - If localized docs exist and English docs change, mention the possible
   follow-up instead of auto-syncing them.
+- Generated or presentation-oriented documentation HTML may be updated only
+  when the task explicitly concerns published docs or documentation
+  presentation.
+- Do not update product WebUI HTML, CSS, JavaScript, static assets, or in-app
+  UI copy under `src/keysight_power_webui/static` as part of ordinary
+  documentation work unless explicitly requested or required by a user-facing
+  UI change.
 - Record reusable workflow and release information in `docs/workspace.md`,
   `docs/release-checklist.md`, package READMEs, or contract documents.
-- Do not commit private hardware notes, exact lab resource strings, or local
-  machine details to public documentation.
+- Do not commit private hardware notes, exact lab resource strings,
+  instrument serial numbers, local machine details, or link-local/private lab
+  IP addresses to public documentation.
+- Do not duplicate large status sections here.
 
 
 ## 9. Monorepo Migration and Structure
