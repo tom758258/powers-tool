@@ -1944,6 +1944,7 @@ async function runBasicSet(channel) {
 }
 
 async function runBasicOutput(channel) {
+  if (basicOutputLockAction(channel)) return;
   const current = basicLiveChannel(channel)?.output_enabled === true;
   const command = current ? "output-off" : "output-on";
   const desiredOutput = !current;
@@ -1951,6 +1952,7 @@ async function runBasicOutput(channel) {
 }
 
 async function runBasicOutputAll() {
+  if (basicOutputLockAction("all")) return;
   const allOn = basicAllOutputsOn();
   const command = allOn ? "output-off" : "output-on";
   const desiredOutput = !allOn;
@@ -1980,7 +1982,7 @@ async function submitBasicJob(command, parameters, actionKey, label, actionState
     parameters
   };
 
-  setBasicActionState(actionKey, "pending", "Command accepted locally.", { command, parameters, ...actionState });
+  setBasicActionState(actionKey, "pending", "Basic command running...", { command, parameters, ...actionState });
   try {
     const response = await submitJob(payload);
     state.basicJobActions[response.job_id] = { actionKey, command, parameters, ...actionState };
@@ -2484,8 +2486,7 @@ function shouldRefreshLiveAfterCommand(event, job) {
     && job?.command !== "list-resources"
     && Boolean(runtime?.resource)
     && runtime.simulate === false
-    && runtime.dry_run === false
-    && !state.liveEvents;
+    && runtime.dry_run === false;
 }
 
 function renderResult(data) {
@@ -2809,7 +2810,7 @@ function clearJobResults() {
 }
 
 async function startLive() {
-  const payload = { runtime: runtimePayload(), parameters: { interval_ms: 15000 } };
+  const payload = { runtime: runtimePayload(), parameters: { interval_ms: 5000 } };
   if (!payload.runtime.resource) {
     renderLivePanel({ status: "error", stale: true, message: "Select or enter a hardware resource before starting Live Data." });
     return;
@@ -2867,7 +2868,6 @@ async function stopLive() {
 }
 
 async function startLivePreviewSnapshot(healthState, resource = null) {
-  if (state.liveEvents) return;
   stopLivePreviewSnapshot();
   setLiveState("Refreshing once...", "state-warning", "Refreshing Live Data once after command completion.");
   if (!healthState?.serverReady || !healthState?.deviceIdle) {
@@ -2945,7 +2945,7 @@ function basicAllOutputsOn() {
 function setBasicActionState(actionKey, status, message = "", context = {}) {
   state.basicActionStates[actionKey] = { status, message, ...context };
   renderBasicActionState(actionKey);
-  setBasicStatus(status === "pending" ? "Basic command running..." : message || basicStatusText(status));
+  setBasicStatus(status === "pending" ? message || "Basic command running..." : message || basicStatusText(status));
 }
 
 function clearBasicActionState(actionKey) {
@@ -2957,11 +2957,16 @@ function clearBasicActionState(actionKey) {
 function renderBasicActionState(actionKey) {
   const action = state.basicActionStates[actionKey];
   const [kind, target] = actionKey.split(":");
-  const selector = kind === "set"
-    ? `[data-basic-set="${target}"]`
-    : target === "all"
-      ? "[data-basic-all-output]"
-      : `[data-basic-output="${target}"]`;
+  if (kind === "output") {
+    renderBasicOutputActionStates();
+    if (target === "all") {
+      [1, 2, 3].forEach((channel) => renderBasicChannelActionState(channel));
+    } else {
+      renderBasicChannelActionState(Number(target));
+    }
+    return;
+  }
+  const selector = `[data-basic-set="${target}"]`;
   const button = document.querySelector(selector);
   if (button) {
     button.classList.toggle("basic-action-pending", action?.status === "pending");
@@ -2977,16 +2982,23 @@ function renderBasicChannelActionState(channel) {
   if (!card) return;
   const setState = state.basicActionStates[basicActionKey("set", channel)]?.status;
   const outputState = state.basicActionStates[basicActionKey("output", channel)]?.status;
-  card.classList.toggle("basic-action-error", setState === "error" || outputState === "error");
-  card.classList.toggle("basic-action-pending", setState === "pending" || outputState === "pending");
+  const allOutputState = state.basicActionStates[basicActionKey("output", "all")]?.status;
+  card.classList.toggle("basic-action-error", setState === "error" || outputState === "error" || allOutputState === "error");
+  card.classList.toggle("basic-action-pending", setState === "pending" || outputState === "pending" || allOutputState === "pending");
 }
 
 function updateBasicActionFromJob(jobId, event, job) {
   const action = state.basicJobActions[jobId];
   if (!action) return;
   if (event.type === "finished" && job?.status === "finished") {
-    if (action.command === "set") clearBasicInputDirty(action.parameters.channel);
-    setBasicActionState(action.actionKey, "success", "Basic command completed.", action);
+    if (action.command === "set") {
+      clearBasicInputDirty(action.parameters.channel);
+      setBasicActionState(action.actionKey, "success", "Basic command completed.", action);
+    } else if (typeof action.desiredOutput === "boolean") {
+      setBasicActionState(action.actionKey, "pending", "Waiting for Live Data readback.", { ...action, awaitingReadback: true });
+    } else {
+      setBasicActionState(action.actionKey, "success", "Basic command completed.", action);
+    }
   } else {
     const detail = job?.error || event.data?.error || eventSummary(event);
     setBasicActionState(action.actionKey, "error", detail, action);
@@ -3006,6 +3018,7 @@ function syncBasicFromLivePanel(panel) {
     clearResolvedBasicErrors(channel, liveChannel, fresh);
   });
   renderBasicAllOutputButton(fresh ? panel.channels || [] : []);
+  renderBasicOutputActionStates();
 }
 
 function syncBasicSetpointInput(channel, kind, value, fresh) {
@@ -3047,6 +3060,42 @@ function renderBasicAllOutputButton(channels) {
   button.title = allOn ? "All outputs are ON." : "One or more outputs are OFF or unknown.";
 }
 
+function renderBasicOutputActionStates() {
+  [1, 2, 3].forEach((channel) => renderBasicOutputControlState(channel));
+  renderBasicOutputControlState("all");
+}
+
+function renderBasicOutputControlState(target) {
+  const button = target === "all"
+    ? document.querySelector("[data-basic-all-output]")
+    : document.querySelector(`[data-basic-output="${target}"]`);
+  if (!button) return;
+  const actionKey = basicActionKey("output", target);
+  const ownAction = state.basicActionStates[actionKey];
+  const lockAction = basicOutputLockAction(target);
+  button.disabled = Boolean(lockAction);
+  button.classList.toggle("basic-action-pending", Boolean(lockAction));
+  button.classList.toggle("basic-action-success", !lockAction && ownAction?.status === "success");
+  button.classList.toggle("basic-action-error", !lockAction && ownAction?.status === "error");
+  if (lockAction) {
+    button.title = lockAction.message || "Waiting for Live Data readback.";
+  } else if (ownAction?.message) {
+    button.title = ownAction.message;
+  }
+}
+
+function basicOutputLockAction(target) {
+  const allAction = state.basicActionStates[basicActionKey("output", "all")];
+  if (allAction?.status === "pending") return allAction;
+  if (target === "all") {
+    return [1, 2, 3]
+      .map((channel) => state.basicActionStates[basicActionKey("output", channel)])
+      .find((action) => action?.status === "pending") || null;
+  }
+  const channelAction = state.basicActionStates[basicActionKey("output", target)];
+  return channelAction?.status === "pending" ? channelAction : null;
+}
+
 function clearResolvedBasicErrors(channel, liveChannel, fresh) {
   if (!fresh || !liveChannel) return;
   const setKey = basicActionKey("set", channel);
@@ -3055,14 +3104,20 @@ function clearResolvedBasicErrors(channel, liveChannel, fresh) {
     clearBasicActionState(setKey);
   }
   const outputAction = state.basicActionStates[outputKey];
-  if (outputAction?.status === "error" && typeof outputAction.desiredOutput === "boolean" && liveChannel.output_enabled === outputAction.desiredOutput) {
+  if (outputAction?.status === "pending" && outputAction.awaitingReadback === true && typeof outputAction.desiredOutput === "boolean" && liveChannel.output_enabled === outputAction.desiredOutput) {
+    setBasicActionState(outputKey, "success", "Basic command completed.", outputAction);
+  } else if (outputAction?.status === "error" && typeof outputAction.desiredOutput === "boolean" && liveChannel.output_enabled === outputAction.desiredOutput) {
     clearBasicActionState(outputKey);
   }
   const allAction = state.basicActionStates[basicActionKey("output", "all")];
-  if (allAction?.status === "error" && typeof allAction.desiredOutput === "boolean") {
+  if (typeof allAction?.desiredOutput === "boolean") {
     const channels = state.livePanel?.channels || [];
     const allMatched = [1, 2, 3].every((item) => channels.find((entry) => Number(entry.channel) === item)?.output_enabled === allAction.desiredOutput);
-    if (allMatched) clearBasicActionState(basicActionKey("output", "all"));
+    if (allMatched && allAction.status === "pending" && allAction.awaitingReadback === true) {
+      setBasicActionState(basicActionKey("output", "all"), "success", "Basic command completed.", allAction);
+    } else if (allMatched && allAction.status === "error") {
+      clearBasicActionState(basicActionKey("output", "all"));
+    }
   }
 }
 

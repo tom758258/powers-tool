@@ -253,15 +253,18 @@ def test_scan_resources_handles_missing_live_only_checkbox():
 
 def test_static_finished_real_command_refreshes_live_snapshot():
     _index_html, app_js, _styles_css = read_static_texts()
+    refresh = extract_js_function(app_js, "shouldRefreshLiveAfterCommand")
     preview = extract_js_function(app_js, "startLivePreviewSnapshot")
 
     assert 'fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
     assert 'fetchJson(`/api/live/${state.liveJobId}/stop`, { method: "POST" })' in app_js
     assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
     assert "job.runtime.resource" in app_js
-    assert "runtime.simulate === false" in app_js
-    assert "runtime.dry_run === false" in app_js
-    assert "!state.liveEvents" in app_js
+    assert "runtime.simulate === false" in refresh
+    assert "runtime.dry_run === false" in refresh
+    assert "!state.liveEvents" not in refresh
+    assert "state.liveEvents" not in preview
+    assert 'closeEventSource("liveEvents")' not in preview
     assert 'setLiveState("Refreshing once...", "state-warning"' in preview
     assert 'stopLivePreviewSnapshot();\n  setLiveState("Not monitoring"' not in preview
 
@@ -275,7 +278,8 @@ def test_static_live_data_uses_three_channel_panel_contract():
     assert 'id="live-table"' not in index_html
 
     start_live = app_js[app_js.index("async function startLive()"):app_js.index("async function stopLive()")]
-    assert 'parameters: { interval_ms: 15000 }' in start_live
+    assert 'parameters: { interval_ms: 5000 }' in start_live
+    assert "Live Data monitor updates every 5 seconds." in index_html
     assert 'read_command: "measure-all"' not in start_live
     assert 'channel: "all"' not in start_live
     assert 'if (!payload.runtime.resource)' in start_live
@@ -363,6 +367,34 @@ def test_static_basic_output_buttons_label_on_and_use_lit_state():
     assert 'button.classList.toggle("off", !enabled);' in output_button
     assert 'button.classList.toggle("on", allOn);' in all_button
     assert 'button.classList.toggle("off", !allOn);' in all_button
+
+
+def test_static_basic_output_buttons_lock_until_matching_readback():
+    _index_html, app_js, _styles_css = read_static_texts()
+    run_output = extract_js_function(app_js, "runBasicOutput")
+    run_all = extract_js_function(app_js, "runBasicOutputAll")
+    update_basic = extract_js_function(app_js, "updateBasicActionFromJob")
+    render_states = extract_js_function(app_js, "renderBasicOutputActionStates")
+    render_control = extract_js_function(app_js, "renderBasicOutputControlState")
+    lock_action = extract_js_function(app_js, "basicOutputLockAction")
+    clear_resolved = extract_js_function(app_js, "clearResolvedBasicErrors")
+    render_channel = extract_js_function(app_js, "renderBasicChannelActionState")
+
+    assert 'if (basicOutputLockAction(channel)) return;' in run_output
+    assert 'if (basicOutputLockAction("all")) return;' in run_all
+    assert 'awaitingReadback: true' in update_basic
+    assert '"Waiting for Live Data readback."' in update_basic
+    assert 'button.disabled = Boolean(lockAction);' in render_control
+    assert 'button.classList.toggle("basic-action-pending", Boolean(lockAction));' in render_control
+    assert '[1, 2, 3].forEach((channel) => renderBasicOutputControlState(channel));' in render_states
+    assert 'renderBasicOutputControlState("all");' in render_states
+    assert 'const allAction = state.basicActionStates[basicActionKey("output", "all")];' in lock_action
+    assert 'if (allAction?.status === "pending") return allAction;' in lock_action
+    assert 'target === "all"' in lock_action
+    assert 'state.basicActionStates[basicActionKey("output", channel)]' in lock_action
+    assert 'setBasicActionState(outputKey, "success", "Basic command completed.", outputAction);' in clear_resolved
+    assert 'setBasicActionState(basicActionKey("output", "all"), "success", "Basic command completed.", allAction);' in clear_resolved
+    assert 'allOutputState === "pending"' in render_channel
 
 
 def test_static_live_channel_status_uses_led_indicators():
