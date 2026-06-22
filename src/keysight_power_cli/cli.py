@@ -199,6 +199,11 @@ def build_parser() -> argparse.ArgumentParser:
         prog="keysight-power",
         description="Safe CLI tools for Keysight DC power supplies.",
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"keysight-power {_package_version()}",
+    )
     subparsers = parser.add_subparsers(
         dest="command",
         required=True,

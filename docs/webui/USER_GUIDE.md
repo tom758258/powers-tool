@@ -16,6 +16,12 @@ local build:
 keysight-power-webui-launcher.exe
 ```
 
+To confirm the launcher version from PowerShell:
+
+```powershell
+.\keysight-power-webui-launcher.exe --version
+```
+
 Release folders may include a versioned launcher name, such as:
 
 ```text

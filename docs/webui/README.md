@@ -58,6 +58,7 @@ server beyond the local machine.
 The installed Windows GUI launcher wrapper is:
 
 ```powershell
+.\.venv\Scripts\keysight-power-webui.exe --version
 .\.venv\Scripts\keysight-power-webui-launcher.exe
 ```
 
@@ -233,6 +234,12 @@ the venv before rebuilding on a fresh machine:
 ```powershell
 uv pip install pyinstaller --python .\.venv\Scripts\python.exe
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_webui_exe.ps1
+```
+
+After building, confirm the launcher reports the package version:
+
+```powershell
+.\dist\keysight-power-webui-launcher.exe --version
 ```
 
 Numeric field limits come from the shared

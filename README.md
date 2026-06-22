@@ -162,6 +162,13 @@ dist\keysight-power.exe
 dist\keysight-power-webui-launcher.exe
 ```
 
+Check the built CLI executable without touching hardware:
+
+```powershell
+.\dist\keysight-power.exe --version
+.\dist\keysight-power.exe doctor --simulate --json
+```
+
 Build a release folder with wheel, sdist, standalone executables, and checksums:
 
 ```powershell

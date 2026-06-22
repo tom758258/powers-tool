@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 from queue import Empty, Queue
 import threading
 import time
@@ -12,6 +13,11 @@ from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 import webbrowser
+
+try:
+    from . import __version__ as WEBUI_VERSION
+except ImportError:  # pragma: no cover - PyInstaller script entry point
+    from keysight_power_webui import __version__ as WEBUI_VERSION
 
 try:
     from .jobs import job_manager
@@ -328,7 +334,15 @@ def _http_server_is_ready(url: str) -> bool:
         return False
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Keysight Power WebUI Launcher")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"keysight-power-webui-launcher {WEBUI_VERSION}",
+    )
+    parser.parse_args(argv)
+
     root = tk.Tk()
     LauncherApp(root)
     root.mainloop()

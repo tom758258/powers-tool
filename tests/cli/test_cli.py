@@ -17,6 +17,15 @@ WRITE_VERIFICATION_REQUEST_DEFAULTS = {
 }
 
 
+def test_root_version_prints_package_version(capsys) -> None:
+    assert cli.main(["--version"]) == 0
+
+    captured = capsys.readouterr()
+
+    assert captured.out.strip() == "keysight-power 1.0.0"
+    assert captured.err == ""
+
+
 class FakeSession:
     def __init__(
         self,

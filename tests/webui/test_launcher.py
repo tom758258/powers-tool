@@ -33,6 +33,22 @@ def test_build_local_url_uses_loopback_default_port() -> None:
     assert launcher.build_local_url(8000) == "http://127.0.0.1:8000"
 
 
+def test_launcher_version_prints_without_opening_gui(monkeypatch, capsys) -> None:
+    def fail_tk() -> object:
+        raise AssertionError("launcher GUI should not open for --version")
+
+    monkeypatch.setattr(launcher.tk, "Tk", fail_tk)
+
+    with pytest.raises(SystemExit) as excinfo:
+        launcher.main(["--version"])
+
+    captured = capsys.readouterr()
+
+    assert excinfo.value.code == 0
+    assert captured.out.strip() == "keysight-power-webui-launcher 1.0.0"
+    assert captured.err == ""
+
+
 @pytest.mark.parametrize("value", ["1", "8000", "65535", " 1234 "])
 def test_parse_port_accepts_valid_port(value: str) -> None:
     assert 1 <= launcher.parse_port(value) <= 65535

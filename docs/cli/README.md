@@ -70,6 +70,7 @@ pip install .
 The primary entry point is the installed console script:
 
 ```powershell
+uv run keysight-power --version
 uv run keysight-power doctor --simulate --json
 ```
 
@@ -78,6 +79,9 @@ The fallback module entry point is:
 ```powershell
 uv run python -m keysight_power_cli.cli doctor --simulate --json
 ```
+
+`--version` prints `keysight-power <package-version>` and exits without
+requiring a subcommand or opening VISA.
 
 ## Test
 
