@@ -17,14 +17,12 @@ def test_webui_docs_are_root_local():
 
     for path in (
         "USER_GUIDE.md",
-        "Webui-README.md",
-        "web-ui-ai-change-rules.md",
+        "web-ui-change-rules.md",
     ):
         assert (DOC_ROOT / path).exists()
 
     for cli_doc in (
         "cli-integration.md",
-        "README_CLI_EN.md",
         "power-cli-jsonl-contract.md",
         "power-worker-contract.md",
         "power-orchestrator-workflows.md",
@@ -37,8 +35,8 @@ def test_webui_docs_point_to_current_import_and_static_paths():
         read_webui_doc(*path)
         for path in (
             ("README.md",),
-            ("Webui-README.md",),
             ("USER_GUIDE.md",),
+            ("web-ui-change-rules.md",),
         )
     )
 

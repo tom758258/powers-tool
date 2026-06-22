@@ -109,8 +109,8 @@ commands, state-changing behavior, and report locations are documented in the
 - Core integration guide: `docs/integration.md`
 - Supported models: `docs/supported-models.md`
 - CLI JSON contract that consumes core envelopes: `../contracts/power-cli-jsonl-contract.md`
-- Workspace overview: `../workspace.md`
-- Release checklist: `../release-checklist.md`
+- Root workspace README: `../../README.md`
+- CLI validation scripts: `../cli/README.md#scripted-validation`
 - Commands parameter contract: `../contracts/commands-parameter-contract.md`
 
 ## Status

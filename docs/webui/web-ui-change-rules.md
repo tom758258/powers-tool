@@ -1,0 +1,328 @@
+# Web UI Change Rules
+
+This document is the maintainer and agent-facing working contract for WebUI
+polish and reorganization work. It is not an operator guide. It exists to let
+UI work move quickly without damaging power-supply, SCPI, VISA, job, live-data,
+or cleanup behavior underneath.
+
+Read this file before changing WebUI code. Also read `AGENTS.md`, the WebUI
+README, and the current task context.
+
+## Goal
+
+Improve the browser UI only:
+
+- Make the existing WebUI clearer, denser, more polished, or easier to use.
+- Preserve the current Core runtime behavior and browser API contracts.
+- Leave SCPI, VISA, output, trigger, protection, sequence, snapshot, live-data,
+  cancellation, and cleanup behavior untouched unless the user explicitly asks
+  for a backend change and confirms the risk.
+
+Assume connected Keysight power supplies are real hardware. A UI mistake can
+set the wrong voltage/current, enable the wrong output, clear the wrong
+protection state, or launch a risky workflow, so treat non-visual changes as
+high risk.
+
+## Files You May Change For UI Polish
+
+Preferred editable frontend files:
+
+- `src/keysight_power_webui/static/index.html`
+- `src/keysight_power_webui/static/styles.css`
+- `src/keysight_power_webui/static/app.js`
+
+Optional, only when a stable UI contract changes or a new public behavior needs
+coverage:
+
+- `tests/webui/test_webui.py`
+- `tests/webui/test_webui_docs_ownership.py`
+
+Optional documentation updates:
+
+- `docs/webui/README.md`
+- `docs/webui/USER_GUIDE.md`
+- `docs/webui/web-ui-change-rules.md`
+
+Keep edits surgical. Do not touch unrelated files.
+
+## Files And Behavior You Must Not Change
+
+Do not change Core, CLI, package metadata, or WebUI backend behavior for a
+visual UI task:
+
+- `src/keysight_power_core/**`
+- `src/keysight_power_cli/**`
+- `pyproject.toml`
+- Backend behavior in `src/keysight_power_webui/app.py`,
+  `commands.py`, `jobs.py`, or `server.py`
+
+Do not change any SCPI, VISA, output, trigger, protection, timeout, live-data,
+or cleanup behavior. Specifically do not change:
+
+- SCPI commands or command ordering.
+- VISA backend, resource selection, or timeout behavior.
+- Output-on, output-off, safe-off, apply, set, ramp, ramp-list, trigger, LIST,
+  protection, clear, restore, snapshot, or sequence semantics.
+- Safety-config interpretation or official rating limits.
+- Hardware-lock behavior and real-job serialization.
+- Live Data polling interval, hardware read path, stale/error semantics, or
+  post-command refresh behavior.
+- Cancellation, stop, release/local, close, and cleanup order.
+- JSON success/error envelopes, job status values, or event stream semantics.
+
+If a UI idea seems to require any of the above, stop and write the requested
+backend/API change as a proposal instead of implementing it.
+
+## Current WebUI Shape
+
+Developer runtime entry point:
+
+```powershell
+uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 8000
+```
+
+Local URL:
+
+```text
+http://127.0.0.1:8000/
+```
+
+The WebUI is an instrument control dashboard:
+
+- Backend: FastAPI/Uvicorn in `src/keysight_power_webui/app.py`.
+- Frontend: static HTML/CSS/JavaScript in `src/keysight_power_webui/static/`.
+- No Node build step.
+- No frontend package manager.
+- No external CDN dependency.
+- No framework migration unless explicitly approved by the user.
+
+## API Contract To Preserve
+
+Do not rename, remove, or repurpose these endpoints:
+
+- `GET /`
+- `GET /api/health`
+- `GET /api/commands`
+- `POST /api/jobs`
+- `GET /api/jobs/{job_id}`
+- `POST /api/jobs/{job_id}/cancel`
+- `GET /api/events?job_id=...`
+- `POST /api/live`
+- `POST /api/live/{job_id}/stop`
+- `GET /api/live/{job_id}/events`
+
+Do not change request payload names in `app.js` unless the backend, tests, and
+docs are intentionally changed together by a separate approved backend task.
+
+Important job payload fields currently sent by the UI include:
+
+- `command`
+- `runtime`
+- `parameters`
+- `artifacts`
+- `resource`
+- `simulate`
+- `dry_run`
+- `backend`
+- `confirm`
+- `channel`
+- `voltage`
+- `current`
+- `safety_config`
+- command-specific fields generated from `/api/commands`
+
+The UI must continue to use `/api/commands` as the source of truth for command
+metadata, confirmation requirements, supported models, disabled commands,
+parameter names, and generated forms. Do not invent command or parameter
+options in the frontend.
+
+## DOM And Form Contract To Preserve
+
+You may reorganize layout and visual grouping, but preserve functional IDs,
+`name` attributes, and `data-*` attributes unless the stable UI contract
+changes. Only update static tests for stable contracts; do not lock CSS colors,
+layout measurements, helper function names, local JavaScript variable names, or
+panel copy as a substitute for behavioral coverage. See the root
+[Testing Guidelines](../testing-guidelines.md).
+
+Important IDs and attributes include:
+
+- `resource`
+- `resource-select`
+- `scan`
+- `live-start`
+- `server-state`
+- `device-state`
+- `live-state`
+- `live-cards`
+- `basic-command`
+- `basic-output-all`
+- `advanced-command-toggle`
+- `basic-command-status`
+- `advanced-commands`
+- `command-filter`
+- `command-categories`
+- `command-list`
+- `selected-command`
+- `command-description`
+- `run`
+- `confirm`
+- `command-form`
+- `workspace-summary-content`
+- `job-result-panel`
+- `job-history`
+- `job-result-clear`
+- `job-result-toggle`
+- `result-panel`
+- `result-toggle`
+- `result`
+- `data-basic-channel`
+- `data-basic-output`
+- `data-basic-all-output`
+- `data-basic-set`
+- `data-basic-voltage`
+- `data-basic-current`
+- `data-channel-card`
+
+Hidden controls must not submit stale values. Disabled and unavailable states
+must stay visible enough for operators to understand why an action is blocked.
+
+## Behavior That Must Stay True
+
+The UI may look different, but these behaviors must remain true:
+
+- Health loads from `GET /api/health` and reports hardware-lock state.
+- Command metadata loads from `GET /api/commands`.
+- Scan Device submits the `list-resources` command through `POST /api/jobs`
+  with `live_only: true`.
+- Selecting a live resource copies it into the VISA resource input.
+- The command rail hides CLI-only, debug, live-data internal, and unsupported
+  commands while preserving direct backend rejection for invalid submissions.
+- The Basic command panel omits blank Voltage/Current values instead of
+  sending them as setpoints.
+- Basic output buttons represent fresh Live Data output state; unknown/off is
+  not displayed as confirmed ON.
+- Output-affecting commands require explicit confirmation for real hardware.
+- Real hardware jobs are serialized by the WebUI hardware lock.
+- Simulate, dry-run, offline metadata commands, and live-data jobs do not
+  occupy the real hardware command lock.
+- Cancelling an executing job uses the job cancellation path and does not
+  directly close VISA resources from the browser.
+- Job updates are streamed through `GET /api/events?job_id=...` and shown in
+  Job Result / Result Detail.
+- Live Data starts through `POST /api/live` and streams through
+  `GET /api/live/{job_id}/events`.
+- Live Data can be stopped through `POST /api/live/{job_id}/stop`.
+- Live Data reads are read-only and must not overlap real hardware command I/O.
+- Fresh Live Data can repair model support cache for the selected resource;
+  unknown/stale data must not invent support.
+- Fresh channel trip state adds a soft guard for direct output commands on that
+  channel; safe/off and recovery commands remain available.
+- Advanced command forms keep generated controls, JSON Load/Save workspaces,
+  Sequence limits, Ramp List limits, Trigger List channel workspaces, and pulse
+  option rules aligned with Core command metadata.
+- Rear digital pulse controls remain separate from output channels and
+  E36312A-only where applicable.
+
+## Visual Design Boundaries
+
+Allowed:
+
+- Improve layout, grouping, spacing, colors, typography, responsive behavior,
+  focus states, disabled states, and status readability.
+- Reword visible labels when the meaning stays identical.
+- Add static helper text only when it reduces operational ambiguity.
+- Add purely client-side affordances such as tabs, collapsible panels, badges,
+  warnings, summaries, or filters.
+- Add small CSS-only motion if it does not distract from instrument safety.
+
+Avoid:
+
+- Marketing-style landing pages. The first screen should remain the usable
+  control console.
+- Decorative changes that make controls harder to scan.
+- Hidden controls that still submit stale values.
+- Extra network dependencies.
+- A frontend build chain.
+- Broad rewrites of `app.js` when a small change is enough.
+
+For this project, clarity beats spectacle. The UI should feel like a power
+supply control console: readable, calm, direct, and hard to misuse.
+
+## When To Ask Before Continuing
+
+Ask the user before implementing if the request requires:
+
+- New backend endpoints.
+- New payload fields.
+- New commands or command groups.
+- New model support or capability rules.
+- Any change to SCPI, VISA, output state, trigger timing, LIST behavior,
+  timeout, cleanup, stop, release/local, protection, or safety behavior.
+- A new dependency, frontend framework, build tool, icon package, charting
+  library, or CDN.
+- Removing an existing control.
+- Changing what Run, Scan Device, Live Data, Cancel, or Basic output controls
+  do.
+
+If unsure whether a change is visual or behavioral, treat it as behavioral and
+ask.
+
+## Required Checks Before Completion
+
+Run the narrowest relevant checks first:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\webui -q -p no:cacheprovider
+```
+
+If `app.js` changed, also run:
+
+```powershell
+node --check src\keysight_power_webui\static\app.js
+```
+
+When practical, run broader no-hardware checks:
+
+```powershell
+uv run python -m pytest tests -q -p no:cacheprovider
+```
+
+If the local environment lacks dependencies, say exactly what could not run and
+why. Do not claim validation that did not happen.
+
+## Manual UI Smoke Checklist
+
+If you can run the app locally, verify:
+
+- The page loads at `http://127.0.0.1:8000/`.
+- No browser console errors appear on first load.
+- Scan Device updates the live resource selector or reports no live resources
+  cleanly.
+- Selecting a live resource fills the VISA resource input.
+- Basic Voltage/Current blank fields are omitted from setpoint payloads.
+- Output-affecting real commands require confirmation.
+- Command categories and filtering still expose supported WebUI commands.
+- Generated forms show required, optional, and disabled fields clearly.
+- Sequence, Ramp List, and Trigger List editors preserve Load/Save behavior.
+- Live Data Start/Stop changes state without overlapping command execution.
+- Job Result and Result Detail update after a simulated command.
+- Mobile width around 390 px does not overlap text or controls.
+- Desktop width around 1280 px remains dense but scannable.
+
+Do not perform real-instrument output or trigger experiments unless the user
+explicitly asks. If an instrument is connected and the user requests a smoke
+test, start with read-only checks, then low voltage/current, explicit channel,
+and output-off cleanup.
+
+## Completion Summary
+
+When finished, provide this short summary:
+
+- Files changed.
+- What visual/user workflow problem was addressed.
+- Any behavior intentionally preserved.
+- Tests and checks run, with pass/fail results.
+- Manual UI checks run, with viewport notes if relevant.
+- Any skipped validation and why.
+- Any risk or follow-up that requires backend approval.

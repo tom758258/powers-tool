@@ -4,7 +4,7 @@ These instructions guide coding agents working in this repository. They are long
 
 ## 1. Primary Project Documents
 
-- Read `docs/workspace.md`, `docs/release-checklist.md`, and the relevant package README before implementing features.
+- Read the root `README.md` and the relevant package README before implementing features.
 - Read the root contracts in `docs/contracts/` before changing adapter or worker behavior.
 - Keep temporary AI planning notes out of committed public documentation.
 
@@ -88,9 +88,14 @@ uv run python -m pytest tests\integration -q -m hardware --resource "USB0::..."
 ## 8. Documentation Boundary
 
 - Keep long-term agent rules in this file.
-- Keep tracked public docs limited to README, changelog, workspace and release
-  notes, architecture, contracts, integration guides, user guides, supported
-  models, testing guidelines, and change rules.
+- Keep tracked public docs limited to README, changelog, architecture,
+  contracts, integration guides, user guides, supported models, testing
+  guidelines, and change rules.
+- Keep `USER_GUIDE.md` files operator/user-facing. Avoid source-checkout,
+  virtualenv, build, validation, or maintainer workflow details there unless
+  explicitly needed for the user-facing task.
+- Keep `README.md` files available for engineering setup, build, validation,
+  detailed reference, automation, and maintainer boundaries.
 - Keep implementation progress, temporary notes, validation records, and
   hardware-specific operator context outside tracked public docs.
 - Default documentation edits should update English `.md` source files only.
@@ -105,8 +110,8 @@ uv run python -m pytest tests\integration -q -m hardware --resource "USB0::..."
   UI copy under `src/keysight_power_webui/static` as part of ordinary
   documentation work unless explicitly requested or required by a user-facing
   UI change.
-- Record reusable workflow and release information in `docs/workspace.md`,
-  `docs/release-checklist.md`, package READMEs, or contract documents.
+- Record reusable workflow and release information in the root README, package
+  READMEs, testing guidelines, changelog, or contract documents.
 - Do not commit private hardware notes, exact lab resource strings,
   instrument serial numbers, local machine details, or link-local/private lab
   IP addresses to public documentation.

@@ -8,6 +8,21 @@ CLI adapter for controlling Keysight DC power supplies.
 - Python: `>=3.10`
 - Runtime dependency: bundled `keysight_power_core` import package
 
+## Documentation Set
+
+- [CLI User Guide](USER_GUIDE.md) - operator workflow, live resource
+  selection, and safe first checks.
+- [CLI README](README.md) - engineering setup, validation scripts, detailed
+  command reference, automation, and maintainer boundaries.
+- [Power CLI JSON / JSONL Contract](../contracts/power-cli-jsonl-contract.md)
+  - command-line JSON envelope and JSONL rules.
+- [Power Worker Contract](../contracts/power-worker-contract.md) - local
+  worker REST, JSONL, and artifact contract.
+- [Power Orchestrator Workflows](../contracts/power-orchestrator-workflows.md)
+  - subprocess handoff and result polling guidance.
+- [Commands Parameter Contract](../contracts/commands-parameter-contract.md)
+  - stable command parameter boundaries.
+
 ## Purpose
 
 This package provides the `keysight-power` console script, command argument
@@ -17,6 +32,11 @@ orchestrators/agents.
 
 Hardware-affecting commands remain explicit and opt-in; the default package
 test suite runs without hardware.
+
+For normal operator workflows, start with the [CLI User Guide](USER_GUIDE.md).
+This README keeps the detailed command reference, validation paths,
+JSON/JSONL contracts, examples, and maintainer-facing CLI behavior in one
+place.
 
 ## Package Contents
 
@@ -92,6 +112,13 @@ Run all scripts from the repository root in PowerShell. Each script writes a
 machine-readable `report.json` and a human-readable `summary.md` under
 `.tmp_tests`.
 
+| Script | Hardware use | Purpose |
+| --- | --- | --- |
+| `scripts\no-hardware-regression.ps1` | No hardware | Runs focused follow-up checks, JSON/docs contract checks, and the full default pytest suite. Use this as the normal no-hardware regression gate. |
+| `scripts\preflight-smoke-validation.ps1` | No hardware | Runs target-specific dry-run and simulator smoke checks for E36312A or EDU36311A before live work. |
+| `scripts\live-smoke-validation-check.ps1` | Live hardware | Runs the matching no-hardware preflight, then performs bounded live smoke checks against one explicit `-Resource` after confirmation. |
+| `scripts\batch-validation.ps1` | Selected by switches | Runs only the selected simulated or live validation tasks and writes one batch report. |
+
 If the current Windows execution policy blocks `.ps1` files, use a
 process-local bypass for the selected script:
 
@@ -125,7 +152,17 @@ or touch hardware:
 Reports are written to `.tmp_tests\smoke_validation_preflight\<Target>`.
 
 Live smoke always runs the matching no-hardware preflight first and requires
-an explicit `-Resource`. It pauses for confirmation before opening VISA:
+an explicit `-Resource`. The script does not scan for resources, guess a
+resource, or read an environment default. Discover a live resource first, copy
+the exact value, then pass it explicitly:
+
+```powershell
+.\.venv\Scripts\keysight-power.exe list-resources --live-only --json
+```
+
+Use `list-resources --verify --json` instead when you need to diagnose stale
+VISA cache entries. After choosing the intended live resource, run the live
+smoke script. It pauses for confirmation before opening VISA:
 
 ```powershell
 $env:E36312A_USB_RESOURCE = "USB0::...::INSTR"
@@ -279,7 +316,18 @@ Run the simulator-only orchestrator smoke example:
 
 ## Examples
 
-List VISA resource strings reported by the selected backend:
+List only VISA resources that can be opened and queried with `*IDN?`:
+
+```powershell
+uv run keysight-power list-resources --live-only
+```
+
+Use this for normal live operation. Text output includes each resource's raw
+IDN response so the instrument model is visible. Add `--log-scpi` to show the
+verification query and response for each live check.
+
+List VISA resource strings reported by the selected backend without opening
+them:
 
 ```powershell
 uv run keysight-power list-resources
@@ -287,17 +335,6 @@ uv run keysight-power list-resources
 
 This is passive discovery only: a resource string can appear here even when the
 instrument is not currently reachable.
-
-List only resources that can be opened and queried with `*IDN?`:
-
-```powershell
-uv run keysight-power list-resources --live-only
-```
-
-This opens each listed resource and sends `*IDN?`. Resources that cannot be
-opened or do not respond to `*IDN?` are omitted. Text output includes each
-resource's raw IDN response so the instrument model is visible. Add `--log-scpi`
-to show the verification query and response for each live check.
 
 Verify that one resource can be opened and queried with `*IDN?`:
 
@@ -570,17 +607,6 @@ stays parseable. Every JSON success and error envelope includes
 - Hardware tests must require a user-provided resource.
 - Examples that enable output must set current limit before voltage and turn
   output off in cleanup.
-
-## Docs
-
-- Root workspace README: `../../README.md`
-- JSON envelope contract: `../contracts/power-cli-jsonl-contract.md`
-- Worker REST/event/artifact contract: `../contracts/power-worker-contract.md`
-- Orchestrator/agent worker handoff: `../contracts/power-orchestrator-workflows.md`
-- Supported models: `../core/supported-models.md`
-- Workspace overview: `../workspace.md`
-- Release checklist: `../release-checklist.md`
-- Commands parameter contract: `../contracts/commands-parameter-contract.md`
 
 ## Status
 

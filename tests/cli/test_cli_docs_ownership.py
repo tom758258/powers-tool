@@ -21,7 +21,7 @@ def test_cli_docs_are_root_local_and_contracts_are_root_level():
 
     for path in (
         "cli-integration.md",
-        "README_CLI_EN.md",
+        "USER_GUIDE.md",
     ):
         assert (DOC_ROOT / path).exists()
 
@@ -42,8 +42,6 @@ def test_cli_docs_are_root_local_and_contracts_are_root_level():
         "power-orchestrator-workflows.md",
     ):
         assert (REPO_ROOT / "docs" / "contracts" / contract).exists()
-
-    assert not (DOC_ROOT / "Webui-README.md").exists()
 
 
 def test_cli_integration_keeps_cli_fields_out_of_core_schema():

@@ -2,6 +2,11 @@
 
 FastAPI and static-asset WebUI adapter for Keysight Power.
 
+This README is the WebUI behavior, API, validation, and maintainer guide. For
+normal operator workflows, use the [WebUI User Guide](USER_GUIDE.md). For
+developer and agent UI-change boundaries, use the
+[Web UI Change Rules](web-ui-change-rules.md).
+
 The WebUI and CLI are parallel product interfaces over the shared Core
 runtime.
 
@@ -9,6 +14,31 @@ runtime.
 - Import package: `keysight_power_webui`
 - Runtime dependency: bundled `keysight_power_core` import package plus the `webui` extra
 - Frontend: static `index.html`, `styles.css`, and `app.js`; no Node toolchain
+
+## Purpose
+
+The WebUI adapter provides a local FastAPI and browser interface around the
+shared Core runtime in `keysight_power_core`.
+
+The WebUI owns:
+
+- Browser interface and static assets under `src/keysight_power_webui/static/`.
+- FastAPI route shape in `src/keysight_power_webui/app.py`.
+- Browser-facing request and response serialization.
+- Job submission, job state display, and SSE event presentation.
+- Live Data display state derived from read-only Core operations.
+- Resource scanning display and command metadata rendering.
+
+Core owns:
+
+- SCPI command generation and instrument I/O.
+- Runtime request validation and dry-run planning.
+- Output, protection, trigger, sequence, ramp, snapshot, and restore behavior.
+- Safety limits and model capability decisions.
+- Stop, cancellation, release/local, close, and cleanup behavior.
+
+The WebUI must use Core public APIs instead of importing CLI adapter code or
+reimplementing instrument behavior.
 
 ## Run
 
@@ -19,6 +49,9 @@ uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 8000
 ```
 
 Open `http://127.0.0.1:8000/`.
+
+Keep the host as `127.0.0.1` unless there is a deliberate reason to expose the
+server beyond the local machine.
 
 ## API
 
@@ -159,9 +192,29 @@ run from this package by default.
 uv run python -m pytest tests/webui -q -p no:cacheprovider
 ```
 
+After editing `src/keysight_power_webui/static/app.js`, also run:
+
+```powershell
+node --check src\keysight_power_webui\static\app.js
+```
+
+Broader no-hardware validation when practical:
+
+```powershell
+uv run python -m pytest tests -q -p no:cacheprovider
+```
+
 Numeric field limits come from the shared
 [Commands parameter contract](../contracts/commands-parameter-contract.md).
 After a resource model is identified, the UI applies verified official
 independent-channel DC output ratings and disables Run for known over-rating
 requests. Unknown models do not receive invented limits; Core remains
 authoritative.
+
+## Documentation Map
+
+- [WebUI User Guide](USER_GUIDE.md): operator-facing WebUI usage guide.
+- [WebUI README](README.md): this WebUI behavior, API, validation, and
+  maintainer guide.
+- [Web UI Change Rules](web-ui-change-rules.md): maintainer and agent-facing
+  rules for UI changes.

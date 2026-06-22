@@ -120,11 +120,15 @@ Windows creates virtualenv console wrappers such as
 
 ## Run
 
-List VISA resources:
+List only VISA resources that currently answer `*IDN?`:
 
 ```powershell
-.\.venv\Scripts\keysight-power.exe list-resources
+.\.venv\Scripts\keysight-power.exe list-resources --live-only
 ```
+
+Plain `list-resources` is passive VISA discovery and can show stale cached
+resources. Use `--live-only` for normal live operation and `--verify` when
+diagnosing stale entries.
 
 Run a simulator-only health check:
 
@@ -161,6 +165,12 @@ packaging should stay in dedicated scripts separate from `python -m build`.
 
 ## Test
 
+Pytest uses the ignored repository-local `.tmp_pytest` directory by default,
+so no-hardware tests do not depend on access to the Windows system temporary
+directory. Run pytest from the repository root. If a specific run needs a
+separate basetemp, use `--basetemp .tmp_tests/<purpose>`. Do not write pytest
+temporary data or generated test artifacts under `Local/`.
+
 Run focused tests while iterating:
 
 ```powershell
@@ -178,12 +188,40 @@ Run the full no-hardware suite:
 Hardware validation is explicit and opt-in. See the CLI README for live smoke
 checks, hardware pytest commands, and safety details.
 
+## Release Validation
+
+Before creating release commits or package tags, run the no-hardware and
+package gates from the repository root:
+
+```powershell
+uv sync --all-extras --locked --link-mode=copy
+.\.venv\Scripts\python.exe -m pytest tests\core\test_import.py -q -p no:cacheprovider
+uv run keysight-power doctor --simulate --json
+.\scripts\no-hardware-regression.ps1
+.\.venv\Scripts\python.exe -m build
+git status --short
+```
+
+The final `git status --short` should show only intentional release,
+documentation, and lockfile changes before committing.
+
+This release does not add PyInstaller, Nuitka, or other packager dependencies.
+Future EXE packaging should keep the package entry points aligned with the
+current console scripts:
+
+```text
+keysight_power_cli.cli:main
+keysight_power_webui.server:main
+```
+
 ## Documentation
 
 - [Core README](docs/core/README.md)
+- [CLI User Guide](docs/cli/USER_GUIDE.md)
 - [CLI README](docs/cli/README.md)
 - [WebUI README](docs/webui/README.md)
 - [WebUI User Guide](docs/webui/USER_GUIDE.md)
+- [Web UI Change Rules](docs/webui/web-ui-change-rules.md)
 - [Monorepo Architecture](docs/architecture/monorepo-layout.md)
 - [Testing Guidelines](docs/testing-guidelines.md)
 - [Public Contracts](docs/contracts)

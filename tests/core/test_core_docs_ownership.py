@@ -22,8 +22,6 @@ def test_core_docs_are_root_local():
 
     for adapter_doc in (
         "cli-integration.md",
-        "README_CLI_EN.md",
-        "Webui-README.md",
         "power-cli-jsonl-contract.md",
         "power-worker-contract.md",
     ):
