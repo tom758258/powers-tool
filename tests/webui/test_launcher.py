@@ -131,6 +131,8 @@ def test_create_uvicorn_server_uses_loopback_and_selected_port() -> None:
 
     assert server.config.host == "127.0.0.1"
     assert server.config.port == 8123
+    assert server.config.log_config is None
+    assert server.config.access_log is False
 
 
 def test_pyproject_declares_launcher_script() -> None:

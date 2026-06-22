@@ -59,7 +59,13 @@ def create_uvicorn_server(port: int) -> Any:
         except ModuleNotFoundError as exc:
             raise _missing_webui_dependency_error(exc) from exc
 
-    config = uvicorn.Config(app, host=DEFAULT_HOST, port=port)
+    config = uvicorn.Config(
+        app,
+        host=DEFAULT_HOST,
+        port=port,
+        log_config=None,
+        access_log=False,
+    )
     return uvicorn.Server(config)
 
 
