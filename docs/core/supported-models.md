@@ -11,7 +11,7 @@ validation wrapper workflow.
 
 | Target | Connection | dry-run | simulate | live | Notes |
 | --- | --- | --- | --- | --- | --- |
-| E36312A | USB-local | yes | yes | yes | Full output smoke is supported by `scripts/live-smoke-validation-check.ps1`; Phase 1-8 USB validation passed on 2026-05-22. |
+| E36312A | USB-local | yes | yes | yes | Full output smoke runs read-only checks, protection-status reads, and low-power CH1-CH3 output smoke through `scripts/live-smoke-validation-check.ps1`; Phase 1-8 USB validation passed on 2026-05-22. |
 | E36312A | LAN-network | yes | yes | yes | Full output smoke is allowed only with an explicit `-Resource`; no LAN scan is performed. |
 | EDU36311A | USB-local or LAN-network | yes | yes | yes | Default live smoke is read-only. USB output profile is opt-in with `-Profile output` and uses 1 V / 0.05 A. LAN remains read-only pending a separate live pass. |
 

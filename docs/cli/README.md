@@ -176,8 +176,10 @@ $env:EDU36311A_USB_RESOURCE = "USB0::...::INSTR"
 .\scripts\live-smoke-validation-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE
 ```
 
-E36312A live smoke sets all channels to 1 V / 0.05 A, leaves all outputs off,
-and briefly enables channel 1 for about 500 ms. EDU36311A defaults to a
+E36312A live smoke is the normal hardware acceptance gate. It runs read-only
+checks first, reads protection status without changing protection settings,
+sets all channels to 1 V / 0.05 A with outputs off, and briefly enables CH1,
+CH2, and CH3 one at a time for about 500 ms each. EDU36311A defaults to a
 read-only profile. `-Connection LAN` is also supported when an explicit LAN
 VISA resource is supplied. Use `-Backend "@ivi"` or another backend only when
 the local VISA setup requires it.
@@ -200,10 +202,11 @@ task only, so run hardware pytest directly when required.
 
 ### Optional Hardware Pytest
 
-The live smoke script is the normal first hardware validation path. Run
-hardware pytest only when you need deeper repeatable hardware regression, when
-a changed feature has matching hardware tests, or when validating SCPI/output/
-trigger/protection behavior beyond the smoke script.
+The live smoke script is the normal hardware OK gate for operator acceptance.
+Run hardware pytest only when you need deeper repeatable hardware regression,
+when a changed feature has matching hardware tests, or when validating SCPI,
+trigger, protection-setting, or intentional protection-trip behavior beyond
+the smoke script.
 
 Hardware integration tests are excluded from normal use unless an explicit
 resource is passed. If deeper hardware pytest is needed, run the read-only

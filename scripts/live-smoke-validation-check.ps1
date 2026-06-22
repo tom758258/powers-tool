@@ -260,6 +260,76 @@ function Invoke-SafeOffCleanup {
         -Required:$false | Out-Null
 }
 
+function Invoke-LiveReadOnlyChecks {
+    param(
+        [Parameter(Mandatory = $true)][string]$LogPrefix,
+        [bool]$IncludeSequence = $false
+    )
+
+    $logCsvPath = Join-Path $OutputDir ($LogPrefix + ".csv")
+    $logJsonlPath = Join-Path $OutputDir ($LogPrefix + ".jsonl")
+
+    Invoke-LiveCliJsonCommand `
+        -Name "verify" `
+        -Arguments @("verify", "--json", "--resource", $Resource, "--log-scpi") `
+        -JsonFileName "verify.json" | Out-Null
+
+    Invoke-LiveCliJsonCommand `
+        -Name "identify" `
+        -Arguments @("identify", "--json", "--resource", $Resource, "--log-scpi") `
+        -JsonFileName "identify.json" | Out-Null
+
+    foreach ($channel in @(1, 2, 3)) {
+        Invoke-LiveCliJsonCommand `
+            -Name ("measure-ch" + $channel) `
+            -Arguments @("measure", "--json", "--resource", $Resource, "--channel", [string]$channel, "--log-scpi") `
+            -JsonFileName ("measure-ch" + $channel + ".json") | Out-Null
+
+        Invoke-LiveCliJsonCommand `
+            -Name ("output-state-ch" + $channel) `
+            -Arguments @("output-state", "--json", "--resource", $Resource, "--channel", [string]$channel, "--log-scpi") `
+            -JsonFileName ("output-state-ch" + $channel + ".json") | Out-Null
+    }
+
+    Invoke-LiveCliJsonCommand `
+        -Name "read-status" `
+        -Arguments @("read-status", "--json", "--resource", $Resource, "--all", "--log-scpi") `
+        -JsonFileName "read-status.json" | Out-Null
+
+    Invoke-LiveCliJsonCommand `
+        -Name "readback" `
+        -Arguments @("readback", "--json", "--resource", $Resource, "--all", "--log-scpi") `
+        -JsonFileName "readback.json" | Out-Null
+
+    Invoke-LiveCliJsonCommand `
+        -Name "validate-readonly" `
+        -Arguments @("validate-readonly", "--json", "--resource", $Resource, "--log-scpi") `
+        -JsonFileName "validate-readonly.json" | Out-Null
+
+    Invoke-LiveCliJsonCommand `
+        -Name "protection-status" `
+        -Arguments @("protection-status", "--json", "--resource", $Resource, "--all", "--log-scpi") `
+        -JsonFileName "protection-status.json" | Out-Null
+
+    Invoke-LiveCliJsonCommand `
+        -Name "log" `
+        -Arguments @("log", "--json", "--resource", $Resource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--csv", $logCsvPath, "--jsonl", $logJsonlPath, "--log-scpi") `
+        -JsonFileName "log.json" | Out-Null
+
+    if ($IncludeSequence) {
+        $sequenceFilePath = Join-Path $RepoRoot "examples\sequence-readonly-edu.yaml"
+        Invoke-LiveCliJsonCommand `
+            -Name "sequence-readonly" `
+            -Arguments @("sequence", "--json", "--resource", $Resource, "--file", $sequenceFilePath, "--log-scpi") `
+            -JsonFileName "sequence-readonly.json" | Out-Null
+    }
+
+    Invoke-LiveCliJsonCommand `
+        -Name "capabilities" `
+        -Arguments @("capabilities", "--json", "--resource", $Resource, "--log-scpi") `
+        -JsonFileName "capabilities.json" | Out-Null
+}
+
 function Any-CommandTouchedHardware {
     foreach ($record in $script:CommandRecords) {
         if ($record.hardware_touched -eq $true) {
@@ -291,7 +361,7 @@ function Write-LiveArtifacts {
         backend = $Backend
         restore = $Restore
         parameters = [pscustomobject]@{
-            channel = 1
+            channels = @(1, 2, 3)
             voltage = if ($script:IsEduReadonly) { $null } else { 1.0 }
             current = if ($script:IsEduReadonly) { $null } else { 0.05 }
             duration_ms = if ($script:IsEduReadonly) { $null } else { 500 }
@@ -381,13 +451,15 @@ Write-Host "This will open VISA for the selected resource and send SCPI commands
 if ($isEduReadonly) {
     Write-Host "State-changing operations: none. EDU36311A live smoke is read-only."
     Write-Host "Read-only checks: verify, identify, channel measurements, output-state,"
-    Write-Host "status, readback, validate-readonly, one log sample, read-only sequence, and capabilities."
+    Write-Host "status, readback, validate-readonly, protection-status, one log sample,"
+    Write-Host "read-only sequence, and capabilities."
 }
 else {
     Write-Host "State-changing operations:"
     Write-Host "- Set CH1-CH3 current limits to 0.05 A and voltage setpoints to 1 V."
     Write-Host "- Turn CH1-CH3 outputs OFF."
-    Write-Host "- Briefly turn CH1 output ON for about 500 ms, then turn it OFF."
+    Write-Host "- Briefly turn CH1, CH2, and CH3 ON one at a time for about 500 ms each, then turn them OFF."
+    Write-Host "- Read protection status only; protection settings are not changed or cleared."
 }
 Write-Host ""
 Write-Host "Possible final state changes:"
@@ -413,7 +485,7 @@ Write-Host ""
 Write-Host "Physical instrument checks before pressing Enter:"
 Write-Host "- Confirm this is the target $Target and the $connectionLabel resource is expected."
 if (-not $isEduReadonly) {
-    Write-Host "- Confirm CH1 has no DUT connected, or only a known safe load."
+    Write-Host "- Confirm CH1, CH2, and CH3 have no DUT connected, or only known safe loads."
     Write-Host "- Confirm output indicators are currently OFF."
     Write-Host "- Confirm no OVP/OCP/error/protection abnormal indicators are shown."
 }
@@ -423,7 +495,7 @@ if ($isEduReadonly) {
     Write-Host "- Output indicators should not change."
 }
 else {
-    Write-Host "- CH1 output indicator should turn ON only briefly for about 0.5 seconds."
+    Write-Host "- CH1, CH2, and CH3 output indicators should turn ON one at a time for about 0.5 seconds each."
     Write-Host "- After execution, CH1/CH2/CH3 output indicators should all be OFF."
     Write-Host "- No new protection/error indicators should appear."
 }
@@ -436,69 +508,20 @@ $script:IsEduReadonly = $isEduReadonly
 $failures = New-Object System.Collections.Generic.List[string]
 $startedAt = Get-Date
 $result = "passed"
-$logCsv = Join-Path $OutputDir "edu-readonly.csv"
-$logJsonl = Join-Path $OutputDir "edu-readonly.jsonl"
-$sequenceFile = Join-Path $RepoRoot "examples\sequence-readonly-edu.yaml"
 
 try {
     if ($isEduReadonly) {
-        Invoke-LiveCliJsonCommand `
-            -Name "verify" `
-            -Arguments @("verify", "--json", "--resource", $Resource, "--log-scpi") `
-            -JsonFileName "verify.json" | Out-Null
-
-        Invoke-LiveCliJsonCommand `
-            -Name "identify" `
-            -Arguments @("identify", "--json", "--resource", $Resource, "--log-scpi") `
-            -JsonFileName "identify.json" | Out-Null
-
-        foreach ($channel in @(1, 2, 3)) {
-            Invoke-LiveCliJsonCommand `
-                -Name ("measure-ch" + $channel) `
-                -Arguments @("measure", "--json", "--resource", $Resource, "--channel", [string]$channel, "--log-scpi") `
-                -JsonFileName ("measure-ch" + $channel + ".json") | Out-Null
-
-            Invoke-LiveCliJsonCommand `
-                -Name ("output-state-ch" + $channel) `
-                -Arguments @("output-state", "--json", "--resource", $Resource, "--channel", [string]$channel, "--log-scpi") `
-                -JsonFileName ("output-state-ch" + $channel + ".json") | Out-Null
-        }
-
-        Invoke-LiveCliJsonCommand `
-            -Name "read-status" `
-            -Arguments @("read-status", "--json", "--resource", $Resource, "--all", "--log-scpi") `
-            -JsonFileName "read-status.json" | Out-Null
-
-        Invoke-LiveCliJsonCommand `
-            -Name "readback" `
-            -Arguments @("readback", "--json", "--resource", $Resource, "--all", "--log-scpi") `
-            -JsonFileName "readback.json" | Out-Null
-
-        Invoke-LiveCliJsonCommand `
-            -Name "validate-readonly" `
-            -Arguments @("validate-readonly", "--json", "--resource", $Resource, "--log-scpi") `
-            -JsonFileName "validate-readonly.json" | Out-Null
-
-        Invoke-LiveCliJsonCommand `
-            -Name "log" `
-            -Arguments @("log", "--json", "--resource", $Resource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--csv", $logCsv, "--jsonl", $logJsonl, "--log-scpi") `
-            -JsonFileName "log.json" | Out-Null
-
-        Invoke-LiveCliJsonCommand `
-            -Name "sequence-readonly" `
-            -Arguments @("sequence", "--json", "--resource", $Resource, "--file", $sequenceFile, "--log-scpi") `
-            -JsonFileName "sequence-readonly.json" | Out-Null
-
-        Invoke-LiveCliJsonCommand `
-            -Name "capabilities" `
-            -Arguments @("capabilities", "--json", "--resource", $Resource, "--log-scpi") `
-            -JsonFileName "capabilities.json" | Out-Null
+        Invoke-LiveReadOnlyChecks -LogPrefix "readonly" -IncludeSequence:$true
     }
     else {
-        Invoke-LiveCliJsonCommand `
-            -Name "before" `
-            -Arguments @("snapshot", "--json", "--resource", $Resource, "--log-scpi") `
-            -JsonFileName "before.json" | Out-Null
+        Invoke-LiveReadOnlyChecks -LogPrefix "output-smoke"
+
+        if ($normalizedTarget -eq "E36312A") {
+            Invoke-LiveCliJsonCommand `
+                -Name "snapshot-before" `
+                -Arguments @("snapshot", "--json", "--resource", $Resource, "--log-scpi") `
+                -JsonFileName "snapshot-before.json" | Out-Null
+        }
 
         Invoke-LiveCliJsonCommand `
             -Name "apply-no-output" `
@@ -510,10 +533,12 @@ try {
             -Arguments @("safe-off", "--json", "--resource", $Resource, "--channel", "all", "--log-scpi") `
             -JsonFileName "safe-off-before.json" | Out-Null
 
-        Invoke-LiveCliJsonCommand `
-            -Name "smoke-output" `
-            -Arguments @("smoke-output", "--json", "--resource", $Resource, "--channel", "1", "--voltage", "1", "--current", "0.05", "--duration-ms", "500", "--log-scpi") `
-            -JsonFileName "smoke-output.json" | Out-Null
+        foreach ($channel in @(1, 2, 3)) {
+            Invoke-LiveCliJsonCommand `
+                -Name ("smoke-output-ch" + $channel) `
+                -Arguments @("smoke-output", "--json", "--resource", $Resource, "--channel", [string]$channel, "--voltage", "1", "--current", "0.05", "--duration-ms", "500", "--log-scpi") `
+                -JsonFileName ("smoke-output-ch" + $channel + ".json") | Out-Null
+        }
 
         if ($Restore) {
             Invoke-LiveCliJsonCommand `
@@ -522,10 +547,12 @@ try {
                 -JsonFileName "safe-off-cleanup.json" | Out-Null
         }
 
-        Invoke-LiveCliJsonCommand `
-            -Name "after" `
-            -Arguments @("snapshot", "--json", "--resource", $Resource, "--log-scpi") `
-            -JsonFileName "after.json" | Out-Null
+        if ($normalizedTarget -eq "E36312A") {
+            Invoke-LiveCliJsonCommand `
+                -Name "snapshot-after" `
+                -Arguments @("snapshot", "--json", "--resource", $Resource, "--log-scpi") `
+                -JsonFileName "snapshot-after.json" | Out-Null
+        }
     }
 }
 catch {

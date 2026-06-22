@@ -728,6 +728,13 @@ def test_smoke_validation_scripts_use_instrument_read_status_command():
 
     assert 'Args = @("read-status", "--simulate"' in preflight
     assert '-Arguments @("read-status", "--json"' in live
+    assert 'Args = @("protection-status", "--simulate"' in preflight
+    assert '-Arguments @("protection-status", "--json"' in live
+    for channel in ("1", "2", "3"):
+        assert f'Name = "smoke-output-ch{channel}-dry-run"' in preflight
+        assert f'Json = "smoke-output-ch{channel}.json"' in preflight
+    assert "foreach ($channel in @(1, 2, 3))" in live
+    assert '-Name ("smoke-output-ch" + $channel)' in live
 
 
 def test_sequence_failure_cleanup_errors_do_not_replace_original_failure(monkeypatch, tmp_path, capsys):
