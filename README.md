@@ -116,7 +116,8 @@ If you need pip directly, use the virtual environment's Python:
 
 Windows creates virtualenv console wrappers such as
 `.\.venv\Scripts\keysight-power.exe` and
-`.\.venv\Scripts\keysight-power-webui.exe`.
+`.\.venv\Scripts\keysight-power-webui.exe`. The WebUI launcher wrapper is
+`.\.venv\Scripts\keysight-power-webui-launcher.exe`.
 
 ## Build
 
@@ -134,8 +135,48 @@ dist\keysight_powers-1.0.0-py3-none-any.whl
 dist\keysight_powers-1.0.0.tar.gz
 ```
 
-Python package builds do not create Windows executables. Any future executable
-packaging should stay in dedicated scripts separate from `python -m build`.
+Standalone executables are separate PyInstaller workflows. Install PyInstaller
+before building exe artifacts:
+
+```powershell
+uv pip install pyinstaller --python .\.venv\Scripts\python.exe
+```
+
+If your virtual environment uses pip directly:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install pyinstaller
+```
+
+Build the standalone CLI and WebUI launcher executables:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_cli_exe.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_webui_exe.ps1
+```
+
+By default, these commands produce:
+
+```text
+dist\keysight-power.exe
+dist\keysight-power-webui-launcher.exe
+```
+
+Build a release folder with wheel, sdist, standalone executables, and checksums:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_release.ps1
+```
+
+This produces versioned release artifacts:
+
+```text
+release\1.0.0\keysight-power-1.0.0.exe
+release\1.0.0\keysight-power-webui-launcher-1.0.0.exe
+release\1.0.0\keysight_powers-1.0.0-py3-none-any.whl
+release\1.0.0\keysight_powers-1.0.0.tar.gz
+release\1.0.0\checksums.txt
+```
 
 ## Test
 

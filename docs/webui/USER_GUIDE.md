@@ -9,17 +9,46 @@ UI change boundaries are documented in the [WebUI README](README.md) and
 
 ## Start The WebUI
 
-Start the local server from the repository root:
+For normal use, double-click the WebUI launcher provided with the release or
+local build:
+
+```text
+keysight-power-webui-launcher.exe
+```
+
+Release folders may include a versioned launcher name, such as:
+
+```text
+keysight-power-webui-launcher-1.0.0.exe
+```
+
+In the launcher window:
+
+1. Keep `Use default port 8000` selected unless that port is already in use.
+2. Click `Start`.
+3. Wait for the browser to open. The launcher starts a local WebUI server on
+   this computer and opens the browser page for you.
+4. Click `Quit` in the launcher when you are done with the WebUI.
+
+If the browser does not open automatically, open this address manually:
+
+```text
+http://127.0.0.1:8000/
+```
+
+Developers or source-checkout users can start the server from a terminal:
 
 ```powershell
 uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000/`.
+See the [WebUI README](README.md) for source-checkout, validation, API, and
+build details.
 
 The WebUI runs on the same Windows computer that has access to the instrument.
-It is a local tool, not a cloud service. Closing the browser tab does not always
-stop the server; stop the terminal process when you are done.
+It is a local tool, not a cloud service. Closing the browser tab does not
+always stop the server; use `Quit` in the launcher or stop the terminal process
+when you are done.
 
 ## Screen Overview
 
@@ -137,6 +166,10 @@ Do not close the browser or kill the process to interrupt normal cleanup unless
 there is an external safety reason. Cleanup and release/local behavior belong
 to Core and may take time.
 
+The launcher blocks `Quit` while a hardware command is active. Stop or cancel
+the command in the browser first, then wait for cleanup before quitting the
+launcher.
+
 ## Common Problems
 
 ### The page does not load
@@ -149,6 +182,12 @@ http://127.0.0.1:8000/
 
 If the port is already in use, start the server on a different port and open
 that URL.
+
+### The launcher says the port is already in use
+
+If another Keysight Power WebUI server is already running on that port, the
+launcher opens it. If a different service owns the port, choose another port or
+stop that service before starting the launcher.
 
 ### Scan Device finds nothing
 

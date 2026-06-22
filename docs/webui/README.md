@@ -13,6 +13,7 @@ runtime.
 - Distribution: `keysight-powers` `1.0.0`
 - Import package: `keysight_power_webui`
 - Runtime dependency: bundled `keysight_power_core` import package plus the `webui` extra
+- Console commands: `keysight-power-webui` and `keysight-power-webui-launcher`
 - Frontend: static `index.html`, `styles.css`, and `app.js`; no Node toolchain
 
 ## Purpose
@@ -24,6 +25,7 @@ The WebUI owns:
 
 - Browser interface and static assets under `src/keysight_power_webui/static/`.
 - FastAPI route shape in `src/keysight_power_webui/app.py`.
+- Local Tkinter launcher behavior in `src/keysight_power_webui/launcher.py`.
 - Browser-facing request and response serialization.
 - Job submission, job state display, and SSE event presentation.
 - Live Data display state derived from read-only Core operations.
@@ -52,6 +54,19 @@ Open `http://127.0.0.1:8000/`.
 
 Keep the host as `127.0.0.1` unless there is a deliberate reason to expose the
 server beyond the local machine.
+
+The installed Windows GUI launcher wrapper is:
+
+```powershell
+.\.venv\Scripts\keysight-power-webui-launcher.exe
+```
+
+The launcher defaults to `127.0.0.1:8000`, opens the browser after Start, and
+keeps the window available so Quit can stop the local Uvicorn server. If the
+selected port already hosts Keysight Power WebUI, the launcher opens that page
+instead of starting a second server. If the port is used by another service,
+startup is rejected. Quit is blocked while a hardware command is active; stop
+or cancel the command in the browser first and wait for cleanup.
 
 ## API
 
@@ -192,6 +207,12 @@ run from this package by default.
 uv run python -m pytest tests/webui -q -p no:cacheprovider
 ```
 
+Focused launcher and package validation:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\webui\test_launcher.py tests\webui\test_webui_import.py tests\core\test_distribution_metadata.py -q -p no:cacheprovider
+```
+
 After editing `src/keysight_power_webui/static/app.js`, also run:
 
 ```powershell
@@ -202,6 +223,16 @@ Broader no-hardware validation when practical:
 
 ```powershell
 uv run python -m pytest tests -q -p no:cacheprovider
+```
+
+Build the optional local WebUI launcher exe with PyInstaller from an
+environment that already has `keysight-powers` installed. PyInstaller is a
+local release-build tool, not a WebUI runtime dependency, so install it into
+the venv before rebuilding on a fresh machine:
+
+```powershell
+uv pip install pyinstaller --python .\.venv\Scripts\python.exe
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_webui_exe.ps1
 ```
 
 Numeric field limits come from the shared

@@ -53,6 +53,7 @@ all = [
 [project.scripts]
 keysight-power = "keysight_power_cli.cli:main"
 keysight-power-webui = "keysight_power_webui.server:main"
+keysight-power-webui-launcher = "keysight_power_webui.launcher:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

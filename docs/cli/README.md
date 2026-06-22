@@ -194,10 +194,16 @@ resources. `-RunE36312AOutput` is state-changing; `-RunEDUReadOnly` is
 read-only. The current `-RunIntegrationPytest` batch switch records a skipped
 task only, so run hardware pytest directly when required.
 
-### Hardware Pytest
+### Optional Hardware Pytest
+
+The live smoke script is the normal first hardware validation path. Run
+hardware pytest only when you need deeper repeatable hardware regression, when
+a changed feature has matching hardware tests, or when validating SCPI/output/
+trigger/protection behavior beyond the smoke script.
 
 Hardware integration tests are excluded from normal use unless an explicit
-resource is passed. Run the read-only hardware suite first:
+resource is passed. If deeper hardware pytest is needed, run the read-only
+hardware suite first:
 
 ```powershell
 uv run python -m pytest tests\integration -q -m hardware --resource "$env:E36312A_USB_RESOURCE" --expected-model E36312A
