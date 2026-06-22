@@ -118,32 +118,6 @@ Windows creates virtualenv console wrappers such as
 `.\.venv\Scripts\keysight-power.exe` and
 `.\.venv\Scripts\keysight-power-webui.exe`.
 
-## Run
-
-List only VISA resources that currently answer `*IDN?`:
-
-```powershell
-.\.venv\Scripts\keysight-power.exe list-resources --live-only
-```
-
-Plain `list-resources` is passive VISA discovery and can show stale cached
-resources. Use `--live-only` for normal live operation and `--verify` when
-diagnosing stale entries.
-
-Run a simulator-only health check:
-
-```powershell
-.\.venv\Scripts\keysight-power.exe doctor --simulate --json
-```
-
-Start the WebUI:
-
-```powershell
-.\.venv\Scripts\keysight-power-webui.exe --host 127.0.0.1 --port 8000
-```
-
-Open `http://127.0.0.1:8000/`.
-
 ## Build
 
 Build the wheel and source distribution. This uses the `build` package from
@@ -185,34 +159,8 @@ Run the full no-hardware suite:
 .\.venv\Scripts\python.exe -m pytest tests -q -p no:cacheprovider
 ```
 
-Hardware validation is explicit and opt-in. See the CLI README for live smoke
-checks, hardware pytest commands, and safety details.
-
-## Release Validation
-
-Before creating release commits or package tags, run the no-hardware and
-package gates from the repository root:
-
-```powershell
-uv sync --all-extras --locked --link-mode=copy
-.\.venv\Scripts\python.exe -m pytest tests\core\test_import.py -q -p no:cacheprovider
-uv run keysight-power doctor --simulate --json
-.\scripts\no-hardware-regression.ps1
-.\.venv\Scripts\python.exe -m build
-git status --short
-```
-
-The final `git status --short` should show only intentional release,
-documentation, and lockfile changes before committing.
-
-This release does not add PyInstaller, Nuitka, or other packager dependencies.
-Future EXE packaging should keep the package entry points aligned with the
-current console scripts:
-
-```text
-keysight_power_cli.cli:main
-keysight_power_webui.server:main
-```
+Scripted no-hardware and live validation workflows are documented in the
+[CLI README](docs/cli/README.md).
 
 ## Documentation
 
