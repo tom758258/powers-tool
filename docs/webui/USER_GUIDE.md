@@ -1,11 +1,10 @@
 # Keysight Power WebUI User Guide
 
-The WebUI is a local browser dashboard for safe Keysight DC power supply
-inspection and command submission.
-
-This guide is operator-facing. Developer setup, API behavior, validation, and
-UI change boundaries are documented in the [WebUI README](README.md) and
-[Web UI Change Rules](web-ui-change-rules.md).
+This guide is for operators who receive the built WebUI launcher and use it to
+inspect and control supported Keysight DC power supplies. It avoids developer
+details and focuses on normal local WebUI workflows. Developer setup, API
+behavior, validation, and UI change boundaries are documented in the
+[WebUI README](README.md) and [Web UI Change Rules](web-ui-change-rules.md).
 
 ## Start The WebUI
 
@@ -42,14 +41,8 @@ If the browser does not open automatically, open this address manually:
 http://127.0.0.1:8000/
 ```
 
-Developers or source-checkout users can start the server from a terminal:
-
-```powershell
-uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 8000
-```
-
-See the [WebUI README](README.md) for source-checkout, validation, API, and
-build details.
+Developers or source-checkout users should use the [WebUI README](README.md)
+for terminal commands, validation, API, and build details.
 
 The WebUI runs on the same Windows computer that has access to the instrument.
 It is a local tool, not a cloud service. Closing the browser tab does not

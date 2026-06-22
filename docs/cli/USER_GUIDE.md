@@ -1,25 +1,35 @@
 # Keysight Power CLI User Guide
 
-This guide is for operators who use an already-installed `keysight-power`
-command to control supported Keysight DC power supplies. It focuses on normal
-live workflows, resource selection, and safe first checks. For source-checkout
-setup, validation scripts, pytest, build, release, JSON contracts, and
+This guide is for operators who receive the built CLI executable or an
+already-installed `keysight-power` command to control supported Keysight DC
+power supplies. It focuses on normal live workflows, resource selection, and
+safe first checks. For developer setup, detailed command reference, and
 automation details, see the [CLI README](README.md).
 
 ## Start The CLI
 
-Open PowerShell in the environment where `keysight-power` is installed and
-check the command:
+Open PowerShell in the folder that contains the CLI executable and check it:
 
 ```powershell
-keysight-power doctor --simulate --json
+.\keysight-power.exe --version
 ```
 
-If you are using a project virtual environment, the command may be available
-through the generated wrapper:
+Release folders may include a versioned executable name, such as:
+
+```text
+keysight-power-1.0.0.exe
+```
+
+Use that file name in the commands below if your release folder uses a
+versioned executable. Developers or source-checkout users should use the
+[CLI README](README.md) for virtual environment, module, validation, and build
+commands.
+
+For an already-installed command, replace `.\keysight-power.exe` with
+`keysight-power`:
 
 ```powershell
-.\.venv\Scripts\keysight-power.exe doctor --simulate --json
+keysight-power --version
 ```
 
 ## First Live Check
@@ -32,21 +42,21 @@ supply setup.
 2. List only VISA resources that currently answer `*IDN?`:
 
 ```powershell
-keysight-power list-resources --live-only
+.\keysight-power.exe list-resources --live-only
 ```
 
 3. Copy the exact resource string for the intended instrument.
 4. Run a read-only identity check:
 
 ```powershell
-keysight-power verify --resource "<VISA_RESOURCE>" --log-scpi
+.\keysight-power.exe verify --resource "<VISA_RESOURCE>" --log-scpi
 ```
 
 5. Run a read-only measurement or status check before any output action:
 
 ```powershell
-keysight-power measure --resource "<VISA_RESOURCE>" --channel 1 --log-scpi
-keysight-power read-status --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe measure --resource "<VISA_RESOURCE>" --channel 1 --log-scpi
+.\keysight-power.exe read-status --resource "<VISA_RESOURCE>" --json --log-scpi
 ```
 
 Use an explicit resource string for live commands. Do not rely on a script or
@@ -57,7 +67,7 @@ unattended workflow to guess which instrument should be used.
 For normal live use, prefer:
 
 ```powershell
-keysight-power list-resources --live-only
+.\keysight-power.exe list-resources --live-only
 ```
 
 Plain `list-resources` is passive VISA discovery. It can show stale cached
@@ -69,13 +79,13 @@ Use `--verify` when diagnosing stale entries because it reports both live and
 failed resources:
 
 ```powershell
-keysight-power list-resources --verify
+.\keysight-power.exe list-resources --verify
 ```
 
 Add `--json` when copying results into automation:
 
 ```powershell
-keysight-power list-resources --live-only --json
+.\keysight-power.exe list-resources --live-only --json
 ```
 
 ## Read-Only Workflow
@@ -83,10 +93,10 @@ keysight-power list-resources --live-only --json
 Use read-only commands first when validating an instrument:
 
 ```powershell
-keysight-power identify --resource "<VISA_RESOURCE>" --json --log-scpi
-keysight-power readback --resource "<VISA_RESOURCE>" --json --log-scpi
-keysight-power protection-status --resource "<VISA_RESOURCE>" --json --log-scpi
-keysight-power validate-readonly --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe identify --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe readback --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe protection-status --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe validate-readonly --resource "<VISA_RESOURCE>" --json --log-scpi
 ```
 
 These commands query identity, programmed setpoints, measured values, status,
@@ -101,25 +111,25 @@ settings.
 Set low setpoints without enabling output:
 
 ```powershell
-keysight-power set --resource "<VISA_RESOURCE>" --channel 1 --voltage 1 --current 0.05 --json --log-scpi
+.\keysight-power.exe set --resource "<VISA_RESOURCE>" --channel 1 --voltage 1 --current 0.05 --json --log-scpi
 ```
 
 Read back the programmed state:
 
 ```powershell
-keysight-power readback --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe readback --resource "<VISA_RESOURCE>" --json --log-scpi
 ```
 
 Enable output only after the setpoints are known safe:
 
 ```powershell
-keysight-power output-on --resource "<VISA_RESOURCE>" --channel 1 --json --log-scpi
+.\keysight-power.exe output-on --resource "<VISA_RESOURCE>" --channel 1 --json --log-scpi
 ```
 
 Turn output off when the check is complete:
 
 ```powershell
-keysight-power output-off --resource "<VISA_RESOURCE>" --channel 1 --json --log-scpi
+.\keysight-power.exe output-off --resource "<VISA_RESOURCE>" --channel 1 --json --log-scpi
 ```
 
 For a short smoke action, keep voltage and current low and use the documented
@@ -143,6 +153,10 @@ against an unknown resource.
 | `safe-off` | Turn output off using the supported safety path. |
 
 ## Common Problems
+
+If `keysight-power.exe` is missing, confirm you are in the release folder that
+contains the CLI executable. If your release uses a versioned name such as
+`keysight-power-1.0.0.exe`, use that file name in the commands.
 
 If no live resources are found, check instrument power, USB/LAN cabling, VISA
 driver visibility, and whether another program is holding the instrument.
