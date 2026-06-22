@@ -17,7 +17,7 @@ Open PowerShell in the folder that contains the CLI executable and check it:
 Release folders may include a versioned executable name, such as:
 
 ```text
-keysight-power-1.0.0.exe
+keysight-power-<version>.exe
 ```
 
 Use that file name in the commands below if your release folder uses a
@@ -154,9 +154,8 @@ against an unknown resource.
 
 ## Common Problems
 
-If `keysight-power.exe` is missing, confirm you are in the release folder that
-contains the CLI executable. If your release uses a versioned name such as
-`keysight-power-1.0.0.exe`, use that file name in the commands.
+If `keysight-power.exe` is missing, confirm you are in the folder that contains
+the CLI executable and use the actual filename from that folder.
 
 If no live resources are found, check instrument power, USB/LAN cabling, VISA
 driver visibility, and whether another program is holding the instrument.

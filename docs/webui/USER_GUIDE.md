@@ -24,7 +24,7 @@ To confirm the launcher version from PowerShell:
 Release folders may include a versioned launcher name, such as:
 
 ```text
-keysight-power-webui-launcher-1.0.0.exe
+keysight-power-webui-launcher-<version>.exe
 ```
 
 In the launcher window:

@@ -175,14 +175,14 @@ Build a release folder with wheel, sdist, standalone executables, and checksums:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_release.ps1
 ```
 
-This produces versioned release artifacts:
+This produces release artifacts named with the selected project version:
 
 ```text
-release\1.0.0\keysight-power-1.0.0.exe
-release\1.0.0\keysight-power-webui-launcher-1.0.0.exe
-release\1.0.0\keysight_powers-1.0.0-py3-none-any.whl
-release\1.0.0\keysight_powers-1.0.0.tar.gz
-release\1.0.0\checksums.txt
+release\<version>\keysight-power-<version>.exe
+release\<version>\keysight-power-webui-launcher-<version>.exe
+release\<version>\keysight_powers-<version>-py3-none-any.whl
+release\<version>\keysight_powers-<version>.tar.gz
+release\<version>\checksums.txt
 ```
 
 ## Test
