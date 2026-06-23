@@ -15,6 +15,26 @@ These instructions guide coding agents working in this repository. They are long
 - Keep code comments short and useful.
 - Prefer clear public documentation and focused issue notes over long chat-only explanations.
 
+## 2.1 Encoding And Line Endings
+
+- Save edited Markdown, plain-text, JSON, YAML, TOML, Python, and similar text
+  files as UTF-8 without BOM.
+- Preserve the file's existing line-ending style unless the task explicitly
+  requires normalization. Avoid unrelated CRLF/LF churn in documentation-only
+  or code-only edits.
+- Prefer LF for new Markdown files unless a repository-level rule says
+  otherwise.
+- Do not use Windows PowerShell 5.1 `Set-Content -Encoding UTF8` or
+  `Out-File -Encoding utf8` for final writes, because they can write a UTF-8
+  BOM.
+- In Windows PowerShell 5.1, use
+  `[System.IO.File]::WriteAllText(..., (New-Object System.Text.UTF8Encoding($false)))`
+  when a script must write text. In PowerShell 7+, `Set-Content -Encoding utf8`
+  is acceptable.
+- After rewriting files or editing non-ASCII text, verify the first three bytes
+  are not `EF BB BF`, check for mojibake, and inspect `git diff` to confirm
+  line endings were not unintentionally normalized.
+
 ## 3. Project Direction
 
 - Build a Python package for Keysight DC power supplies.
