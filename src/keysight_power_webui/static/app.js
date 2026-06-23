@@ -3276,26 +3276,32 @@ function renderChannelCard(channel, sample) {
   card.innerHTML = `
     <div class="live-card-head">
       <strong>CH${channel.channel}</strong>
-      <div class="live-status-badges">
-        ${protectionBadge("OVP", channel.over_voltage_tripped)}
-        ${protectionBadge("OCP", channel.over_current_tripped)}
-        <span class="status-badge status-indicator ${outputClass}">
-          <span class="indicator-dot" aria-hidden="true"></span>
-          <span class="indicator-text">OUT ${outputText}</span>
-        </span>
+      <span class="status-badge status-indicator output-status ${outputClass}">
+        <span class="indicator-dot" aria-hidden="true"></span>
+        <span class="indicator-text">OUT ${outputText}</span>
+      </span>
+    </div>
+    <div class="live-output-section">
+      <div class="live-measured">
+        <div><span>${formatNum(channel.measured_voltage)}</span><small>OUT V</small></div>
+        <div><span>${formatNum(channel.measured_current)}</span><small>OUT A</small></div>
       </div>
     </div>
-    <div class="live-measured">
-      <div><span>${formatNum(channel.measured_voltage)}</span><small>OUT V</small></div>
-      <div><span>${formatNum(channel.measured_current)}</span><small>OUT A</small></div>
-    </div>
-    <div class="live-setpoints">
-      <div><span>${formatNum(channel.set_voltage)}</span><small>SET V</small></div>
-      <div><span>${formatNum(channel.set_current)}</span><small>SET A</small></div>
-    </div>
-    <div class="protection-settings">
-      <div><span>${formatProtectionVoltage(channel.over_voltage_protection_level)}</span><small>OVP</small></div>
-      <div><span>${formatProtectionState(channel.over_current_protection_enabled)}</span><small>OCP</small></div>
+    <div class="live-control-section">
+      <div class="live-setpoints">
+        <div><span>${formatNum(channel.set_voltage)}</span><small>SET V</small></div>
+        <div><span>${formatNum(channel.set_current)}</span><small>SET A</small></div>
+      </div>
+      <div class="live-protection-section">
+        <div class="live-protection-badges">
+          ${protectionBadge("OVP", channel.over_voltage_tripped)}
+          ${protectionBadge("OCP", channel.over_current_tripped)}
+        </div>
+        <div class="protection-settings">
+          <div><span>${formatProtectionVoltage(channel.over_voltage_protection_level)}</span><small>OVP</small></div>
+          <div><span>${formatProtectionState(channel.over_current_protection_enabled)}</span><small>OCP</small></div>
+        </div>
+      </div>
     </div>
     ${channel.protection_tripped === true && !sample.stale
       ? `<button type="button" class="clear-protection-shortcut" data-clear-protection-channel="${channel.channel}">Clear Protection</button>`

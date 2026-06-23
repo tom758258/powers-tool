@@ -412,15 +412,27 @@ def test_static_basic_output_buttons_lock_until_matching_readback():
 
 
 def test_static_live_channel_status_uses_led_indicators():
-    _index_html, app_js, _styles_css = read_static_texts()
+    _index_html, app_js, styles_css = read_static_texts()
     render_channel = extract_js_function(app_js, "renderChannelCard")
     protection_badge = extract_js_function(app_js, "protectionBadge")
 
-    assert 'class="status-badge status-indicator ${outputClass}"' in render_channel
+    assert 'class="status-badge status-indicator output-status ${outputClass}"' in render_channel
     assert 'class="indicator-dot"' in render_channel
     assert "OUT ${outputText}" in render_channel
+    assert '<div class="live-status-badges">' not in render_channel
+    assert '<div class="live-control-section">' in render_channel
+    assert '<div class="live-protection-section">' in render_channel
+    assert '<div class="live-protection-badges">' in render_channel
+    assert '${protectionBadge("OVP", channel.over_voltage_tripped)}' in render_channel
+    assert '${protectionBadge("OCP", channel.over_current_tripped)}' in render_channel
+    assert render_channel.index('class="status-badge status-indicator output-status ${outputClass}"') < render_channel.index('<div class="live-control-section">')
+    assert render_channel.index('<div class="live-protection-badges">') < render_channel.index('${protectionBadge("OVP", channel.over_voltage_tripped)}')
     assert 'class="protection-badge status-indicator ${stateClass}"' in protection_badge
     assert "${label} ${stateText}" in protection_badge
+    assert ".output-status .indicator-dot" in styles_css
+    assert ".output-status.off" in styles_css
+    assert ".live-control-section" in styles_css
+    assert ".live-protection-section" in styles_css
 
 
 def test_static_basic_command_submission_reuses_existing_jobs():

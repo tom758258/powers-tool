@@ -1165,7 +1165,8 @@ canvas {
 }
 
 /* ─── Status Badges ──────────────────────────────────────────────────────── */
-.live-status-badges {
+.live-status-badges,
+.live-protection-badges {
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
@@ -1204,6 +1205,27 @@ canvas {
   color: var(--muted);
 }
 
+.output-status {
+  min-height: 38px;
+  gap: 9px;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #f4f6f8;
+}
+
+.output-status .indicator-dot {
+  width: 16px;
+  height: 16px;
+  flex-basis: 16px;
+  box-shadow: 0 0 0 3px rgba(174, 184, 194, .16);
+}
+
+.output-status .indicator-text {
+  font-size: 14px;
+  line-height: 18px;
+}
+
 .status-badge.on .indicator-dot,
 .protection-badge.ok .indicator-dot {
   background: var(--ok);
@@ -1213,6 +1235,25 @@ canvas {
 .status-badge.on .indicator-text,
 .protection-badge.ok .indicator-text { color: var(--ok); }
 
+.output-status.on {
+  border-color: #8fd3b0;
+  background: #ecfdf3;
+}
+
+.output-status.on .indicator-dot {
+  box-shadow: 0 0 0 3px rgba(22, 121, 76, .14), 0 0 11px rgba(22, 121, 76, .34);
+}
+
+.output-status.off {
+  border-color: #c4ccd5;
+  background: #f1f4f7;
+}
+
+.output-status.unknown {
+  border-color: #cbd3dc;
+  background: #f7f9fb;
+}
+
 .status-badge.off .indicator-dot,
 .status-badge.unknown .indicator-dot,
 .protection-badge.unknown .indicator-dot {
@@ -1220,10 +1261,23 @@ canvas {
   box-shadow: 0 0 0 2px rgba(174, 184, 194, .14);
 }
 
-.status-badge.unknown .indicator-dot,
+.status-badge.unknown:not(.output-status) .indicator-dot,
 .protection-badge.unknown .indicator-dot {
   background: transparent;
   border: 1px dashed #9aa6b2;
+}
+
+.output-status.off .indicator-dot {
+  background: #7f8a96;
+  box-shadow: inset 0 0 0 3px #f7f9fb, 0 0 0 3px rgba(127, 138, 150, .18);
+}
+
+.output-status.off .indicator-text { color: #53606d; }
+
+.output-status.unknown .indicator-dot {
+  background: transparent;
+  border: 2px dashed #8a96a3;
+  box-shadow: none;
 }
 
 .protection-badge.trip .indicator-dot {
@@ -1248,6 +1302,24 @@ canvas {
 }
 
 /* ─── Protection Settings ────────────────────────────────────────────────── */
+.live-control-section {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.live-protection-section {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.live-protection-badges {
+  justify-content: flex-start;
+}
+
 .protection-settings {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1290,8 +1362,6 @@ canvas {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
 }
 
 .live-setpoints div { display: grid; gap: 2px; min-width: 0; }
