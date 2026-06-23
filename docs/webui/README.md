@@ -148,29 +148,41 @@ Sequence YAML/JSON support is unchanged and has no WebUI step limit.
 Job Result history is expanded by default and can be collapsed or cleared
 without changing Result Detail.
 
+### Pulse Workflows
+
 Cycle Output exposes an optional finished pulse. Ramp exposes mutually
-exclusive Segment complete and Every-step pulse controls. Ramp List Load/Save preserves its global pulse
-configuration, and Sequence includes a Trigger pulse action. Pulse rear pins
-are independent of output channels and are E36312A-only. Controls are disabled
-when the selected resource is known to be another model.
+exclusive Segment complete and Every-step pulse controls. Ramp List Load/Save
+preserves its global pulse configuration, and Sequence includes a Trigger pulse
+action.
+
+Pulse rear pins are independent of output channels and are E36312A-only.
+Controls are disabled when the selected resource is known to be another model.
 Pulse detail fields in Cycle Output and Ramp appear only after a pulse option
 is enabled. Rear-pin fields use a selector for every valid pin combination,
 including All. Ramp and Ramp List Every-step pulse accept a zero millisecond
 additional delay.
+
 Workflow completion pulses are software-scheduled post-action `*TRG` pulses,
 not native LIST execution. They temporarily modify and restore trigger/rear-pin
-settings, and global `*TRG` may affect other armed BUS behavior.
-Sequence Trigger pulse `Leave configured` controls only whether those settings
-are restored after the pulse; it does not keep the pulse trigger armed and may
+settings, and global `*TRG` may affect other armed BUS behavior. Sequence
+Trigger pulse `Leave configured` controls only whether those settings are
+restored after the pulse; it does not keep the pulse trigger armed and may
 affect later Sequence steps or other BUS triggers.
+
+### Trigger Execution
+
 Trigger Fire sends global `*TRG` to every armed BUS trigger. Its Abort target
 channel is required only when Wait complete is enabled and is used only if the
 instrument-wide completion wait times out or is interrupted.
+
 For Trigger Step and Trigger List, Immediate starts when `INIT` is sent, so
 Fire now is cleared and disabled. BUS Wait complete requires Fire now in the
 same command. A LIST that starts without Wait complete requires Leave
 configured; select Wait complete to restore after completion or Leave
 configured for asynchronous execution.
+
+### Trigger List Workspace
+
 Trigger List uses a dedicated three-channel workspace editor. Each channel
 keeps its own count and 1 to 100 step rows with Voltage, Current, Dwell, BOST,
 and EOST. Run submits only the selected channel. Load/Save uses strict

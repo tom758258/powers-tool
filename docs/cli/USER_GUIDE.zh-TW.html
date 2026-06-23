@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keysight Power CLI 使用者指南</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg-body: #ffffff;
+            --bg-sidebar: #f8fafc;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --border-color: #e2e8f0;
+            --bg-code: #1e293b;
+            --text-code: #f8fafc;
+            --bg-inline-code: #f1f5f9;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans TC", sans-serif;
+            line-height: 1.7;
+            color: var(--text-main);
+            background-color: var(--bg-body);
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar Navigation */
+        aside {
+            width: 280px;
+            background-color: var(--bg-sidebar);
+            border-right: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+            padding: 2rem 1.5rem;
+            flex-shrink: 0;
+        }
+
+        aside h3 {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+
+        nav {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .toc-link {
+            text-decoration: none;
+            color: var(--text-main);
+            font-size: 0.95rem;
+            padding: 0.4rem 0.75rem;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .toc-link:hover, .toc-link.active {
+            background-color: #e2e8f0;
+            color: var(--primary);
+        }
+
+        /* Main Content */
+        main {
+            flex: 1;
+            padding: 3rem 4rem;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.02em;
+        }
+
+        h2 {
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-top: 3rem;
+            margin-bottom: 1.25rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            scroll-margin-top: 2rem;
+        }
+
+        h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            color: #1e293b;
+        }
+
+        p {
+            margin-bottom: 1.25rem;
+            color: var(--text-muted);
+        }
+
+        ul, ol {
+            margin-bottom: 1.25rem;
+            padding-left: 1.5rem;
+            color: var(--text-muted);
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        /* Code Blocks & Inline Code */
+        code {
+            font-family: "Fira Code", "Consolas", monospace;
+            font-size: 0.9em;
+        }
+
+        p > code, li > code, td > code {
+            background-color: var(--bg-inline-code);
+            color: #be123c;
+            padding: 0.2em 0.4em;
+            border-radius: 4px;
+        }
+
+        .code-wrapper {
+            position: relative;
+            margin-bottom: 1.5rem;
+            border-radius: 8px;
+            overflow: hidden;
+            background-color: var(--bg-code);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        pre {
+            margin: 0;
+            padding: 1.25rem;
+            overflow-x: auto;
+        }
+
+        pre code {
+            color: var(--text-code);
+            background: transparent;
+            padding: 0;
+            border-radius: 0;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.8rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Tables */
+        .table-container {
+            overflow-x: auto;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 0.875rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background-color: #f1f5f9;
+            font-weight: 600;
+            color: var(--text-main);
+            white-space: nowrap;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background-color: #f8fafc;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+            }
+            aside {
+                width: 100%;
+                height: auto;
+                position: relative;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+            }
+            main {
+                padding: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <aside>
+        <h3>目錄 (Table of Contents)</h3>
+        <nav id="toc">
+            <!-- JavaScript 會自動產生側邊導航 -->
+        </nav>
+    </aside>
+
+    <main>
+        <h1>Keysight Power CLI 使用者指南</h1>
+
+        <p>本指南針對取得已建置之 CLI 執行檔或已安裝 <code>keysight-power</code> 命令的操作員，說明如何控制支援的 Keysight 直流電源供應器。重點涵蓋常規的實機 (live) 工作流程、資源選擇與安全優先檢查。有關開發人員環境設定、詳細指令參考與自動化細節，請參見 <a href="README.zh-TW.html">CLI README</a>。</p>
+
+        <h2 id="startup">啟動 CLI</h2>
+        <p>在包含 CLI 執行檔的資料夾中開啟 PowerShell 並檢查：</p>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe --version</code></pre></div>
+
+        <p>發佈資料夾可能包含帶有版本號的執行檔名稱，例如：</p>
+        <div class="code-wrapper"><pre><code>keysight-power-&lt;version&gt;.exe</code></pre></div>
+
+        <p>如果您的發佈資料夾使用的是帶有版本號的執行檔，請在以下的命令中使用該檔名。開發人員或簽出原始碼的使用者請參閱 <a href="README.zh-TW.html">CLI README</a> 以了解虛擬環境、模組、驗證與建置命令。</p>
+
+        <p>若為已安裝的命令，請將 <code>.\keysight-power.exe</code> 替換為 <code>keysight-power</code>：</p>
+        <div class="code-wrapper"><pre><code>keysight-power --version</code></pre></div>
+
+        <h2 id="first-live-check">首次實機檢查 (First Live Check)</h2>
+        <p>在檢查新電腦、VISA runtime、連線或電源供應器設定時，請使用此流程。</p>
+        <ol>
+            <li>確認該儀器可安全地進行查詢，且任何連接的受測物 (DUT) 均能承受現有的輸出狀態。</li>
+            <li>僅列出目前能回應 <code>*IDN?</code> 的 VISA 資源：
+                <div class="code-wrapper"><pre><code>.\keysight-power.exe list-resources --live-only</code></pre></div>
+            </li>
+            <li>複製目標儀器確切的資源字串。</li>
+            <li>執行唯讀的身分檢查：
+                <div class="code-wrapper"><pre><code>.\keysight-power.exe verify --resource "&lt;VISA_RESOURCE&gt;" --log-scpi</code></pre></div>
+            </li>
+            <li>在執行任何輸出動作前，進行唯讀的測量或狀態檢查：
+                <div class="code-wrapper"><pre><code>.\keysight-power.exe measure --resource "&lt;VISA_RESOURCE&gt;" --channel 1 --log-scpi
+.\keysight-power.exe read-status --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi</code></pre></div>
+            </li>
+        </ol>
+        <p>對於實機命令，請使用明確的資源字串。請勿依賴腳本或無人值守的工作流程來猜測應使用哪台儀器。</p>
+
+        <h2 id="list-resources">資源列表</h2>
+        <p>對於正常的實機使用，建議使用：</p>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe list-resources --live-only</code></pre></div>
+
+        <p>單純的 <code>list-resources</code> 是被動的 VISA 探索。當裝置斷線或無法使用時，它可能會顯示過時的快取資源。<code>--live-only</code> 會開啟每個找到的資源，查詢 <code>*IDN?</code>，並只印出有回應的資源。</p>
+
+        <p>診斷過時項目時請使用 <code>--verify</code>，因為它會同時回報實機存活與連線失敗的資源：</p>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe list-resources --verify</code></pre></div>
+
+        <p>將結果複製到自動化流程時，請加上 <code>--json</code>：</p>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe list-resources --live-only --json</code></pre></div>
+
+        <h2 id="readonly-workflow">唯讀工作流程</h2>
+        <p>驗證儀器時，請先使用唯讀命令：</p>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe identify --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi
+.\keysight-power.exe readback --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi
+.\keysight-power.exe protection-status --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi
+.\keysight-power.exe validate-readonly --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi</code></pre></div>
+        <p>這些命令會查詢身分、程式設定點、測量值、狀態或保護狀態。它們不會刻意啟用輸出。</p>
+
+        <h2 id="output-workflow">影響輸出的工作流程</h2>
+        <p>影響輸出的命令需要明確指定。使用前，請確認儀器型號、通道、DUT 接線、電壓、電流限制與保護設定。</p>
+
+        <p>在不啟用輸出的情況下設定較低的設定點：</p>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe set --resource "&lt;VISA_RESOURCE&gt;" --channel 1 --voltage 1 --current 0.05 --json --log-scpi</code></pre></div>
+
+        <p>讀回已設定的狀態：</p>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe readback --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi</code></pre></div>
+
+        <p>僅在確認設定點安全後才啟用輸出：</p>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe output-on --resource "&lt;VISA_RESOURCE&gt;" --channel 1 --json --log-scpi</code></pre></div>
+
+        <p>檢查完成後關閉輸出：</p>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe output-off --resource "&lt;VISA_RESOURCE&gt;" --channel 1 --json --log-scpi</code></pre></div>
+
+        <p>若要進行簡短的快速測試動作 (smoke action)，請將電壓與電流保持在低位，並使用 CLI README 中記錄的有限度命令。請勿針對未知的資源在無人值守的情況下執行輸出工作流程。</p>
+
+        <h2 id="common-commands">常用指令</h2>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>指令</th>
+                        <th>典型用途</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>list-resources --live-only</code></td>
+                        <td>尋找目前能回應 <code>*IDN?</code> 的資源。</td>
+                    </tr>
+                    <tr>
+                        <td><code>verify</code></td>
+                        <td>確認單一明確資源可被開啟並回應。</td>
+                    </tr>
+                    <tr>
+                        <td><code>identify</code></td>
+                        <td>讀取型號身分。</td>
+                    </tr>
+                    <tr>
+                        <td><code>measure</code></td>
+                        <td>讀取單一通道的電壓/電流。</td>
+                    </tr>
+                    <tr>
+                        <td><code>read-status</code></td>
+                        <td>讀取輸出狀態。</td>
+                    </tr>
+                    <tr>
+                        <td><code>readback</code></td>
+                        <td>讀取程式設定點與測量值。</td>
+                    </tr>
+                    <tr>
+                        <td><code>protection-status</code></td>
+                        <td>讀取保護狀態。</td>
+                    </tr>
+                    <tr>
+                        <td><code>validate-readonly</code></td>
+                        <td>執行一次唯讀診斷。</td>
+                    </tr>
+                    <tr>
+                        <td><code>set</code></td>
+                        <td>設定電壓/電流而不啟用輸出。</td>
+                    </tr>
+                    <tr>
+                        <td><code>output-on</code> / <code>output-off</code></td>
+                        <td>明確啟用或停用輸出。</td>
+                    </tr>
+                    <tr>
+                        <td><code>safe-off</code></td>
+                        <td>使用支援的安全路徑關閉輸出。</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h2 id="faq">常見問題</h2>
+        <p>如果找不到 <code>keysight-power.exe</code>，請確認您位於包含 CLI 執行檔的資料夾中，並使用該資料夾中實際的檔名。</p>
+        <p>如果找不到實機存活的資源，請檢查儀器電源、USB/LAN 纜線、VISA 驅動程式可見度，以及是否有其他程式佔用了該儀器。</p>
+        <p>如果單純的 <code>list-resources</code> 顯示舊項目，請在常規操作流程改用 <code>--live-only</code> 重新執行，或使用 <code>--verify</code> 來診斷過時的 VISA 快取項目。</p>
+        <p>如果命令拒絕執行，請在重試前閱讀驗證訊息。CLI 會在執行風險動作前，刻意拒絕不支援的型號、通道、不安全的設定點，以及缺少確認的操作。</p>
+        <p>如果日誌或自動化需要 JSON 輸出，請加上 <code>--json</code>。來自 <code>--log-scpi</code> 的診斷 SCPI 日誌會分開寫入 (stderr)，讓 JSON stdout 保持可解析狀態。</p>
+
+        <h2 id="more-docs">更多 CLI 文件</h2>
+        <ul>
+            <li><a href="README.zh-TW.html">CLI README</a>：工程建置、驗證腳本、完整指令參考、JSON 行為、worker 細節與維護者筆記。</li>
+            <li><a href="../contracts/power-cli-jsonl-contract.md">Power CLI JSON / JSONL 契約</a>：結構化的命令列輸出規則。</li>
+            <li><a href="../contracts/power-worker-contract.md">Power Worker 契約</a>：本機 worker REST、JSONL 與產物 (artifact) 契約。</li>
+            <li><a href="../core/supported-models.md">支援型號</a>：特定型號的支援狀態與驗證筆記。</li>
+        </ul>
+
+    </main>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            // 自動產生 TOC 側邊導航欄
+            const toc = document.getElementById("toc");
+            const headers = document.querySelectorAll("h2");
+
+            headers.forEach(h2 => {
+                if (!h2.id) {
+                    h2.id = h2.innerText.replace(/\s+/g, '-').toLowerCase();
+                }
+                const a = document.createElement("a");
+                a.href = "#" + h2.id;
+                a.innerText = h2.innerText;
+                a.className = "toc-link";
+                toc.appendChild(a);
+            });
+
+            // 加入「複製程式碼」功能
+            document.querySelectorAll(".code-wrapper pre").forEach(pre => {
+                const btn = document.createElement("button");
+                btn.innerText = "複製";
+                btn.className = "copy-btn";
+
+                // 將按鈕加入 code-wrapper，而非 pre 內，避免排版問題
+                pre.parentElement.appendChild(btn);
+
+                btn.onclick = () => {
+                    const code = pre.querySelector("code").innerText;
+                    navigator.clipboard.writeText(code).then(() => {
+                        btn.innerText = "已複製!";
+                        btn.style.backgroundColor = "rgba(16, 185, 129, 0.8)";
+                        setTimeout(() => {
+                            btn.innerText = "複製";
+                            btn.style.backgroundColor = "";
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('複製失敗:', err);
+                    });
+                };
+            });
+
+            // 滾動時標記目前章節 (Scrollspy)
+            const tocLinks = document.querySelectorAll('.toc-link');
+            const observerOptions = {
+                root: null,
+                rootMargin: '0px 0px -80% 0px',
+                threshold: 0
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        tocLinks.forEach(link => {
+                            link.classList.remove('active');
+                            if (link.getAttribute('href') === `#${entry.target.id}`) {
+                                link.classList.add('active');
+                            }
+                        });
+                    }
+                });
+            }, observerOptions);
+
+            headers.forEach(header => observer.observe(header));
+        });
+    </script>
+</body>
+</html>
