@@ -255,6 +255,7 @@ def test_static_finished_real_command_refreshes_live_snapshot():
     _index_html, app_js, _styles_css = read_static_texts()
     refresh = extract_js_function(app_js, "shouldRefreshLiveAfterCommand")
     preview = extract_js_function(app_js, "startLivePreviewSnapshot")
+    fresh_preview = extract_js_function(app_js, "isFreshLivePreviewSample")
 
     assert 'fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
     assert 'fetchJson(`/api/live/${state.liveJobId}/stop`, { method: "POST" })' in app_js
@@ -266,6 +267,14 @@ def test_static_finished_real_command_refreshes_live_snapshot():
     assert "state.liveEvents" not in preview
     assert 'closeEventSource("liveEvents")' not in preview
     assert 'setLiveState("Refreshing once...", "state-warning"' in preview
+    assert "handledFreshSample" in preview
+    assert "handledFirstSample" not in preview
+    assert "renderLivePanel(sample);" in preview
+    assert "if (!isFreshLivePreviewSample(sample)) return;" in preview
+    assert "sample.stale === false" in fresh_preview
+    assert 'sample.status !== "busy"' in fresh_preview
+    assert 'sample.status !== "error"' in fresh_preview
+    assert "Array.isArray(sample.channels)" in fresh_preview
     assert 'stopLivePreviewSnapshot();\n  setLiveState("Not monitoring"' not in preview
 
 
@@ -371,6 +380,7 @@ def test_static_basic_output_buttons_label_on_and_use_lit_state():
 
 def test_static_basic_output_buttons_lock_until_matching_readback():
     _index_html, app_js, _styles_css = read_static_texts()
+    set_action = extract_js_function(app_js, "setBasicActionState")
     run_output = extract_js_function(app_js, "runBasicOutput")
     run_all = extract_js_function(app_js, "runBasicOutputAll")
     update_basic = extract_js_function(app_js, "updateBasicActionFromJob")
@@ -380,6 +390,8 @@ def test_static_basic_output_buttons_lock_until_matching_readback():
     clear_resolved = extract_js_function(app_js, "clearResolvedBasicErrors")
     render_channel = extract_js_function(app_js, "renderBasicChannelActionState")
 
+    assert 'state.basicActionStates[actionKey] = { ...context, status, message };' in set_action
+    assert 'state.basicActionStates[actionKey] = { status, message, ...context };' not in set_action
     assert 'if (basicOutputLockAction(channel)) return;' in run_output
     assert 'if (basicOutputLockAction("all")) return;' in run_all
     assert 'awaitingReadback: true' in update_basic
@@ -394,6 +406,8 @@ def test_static_basic_output_buttons_lock_until_matching_readback():
     assert 'state.basicActionStates[basicActionKey("output", channel)]' in lock_action
     assert 'setBasicActionState(outputKey, "success", "Basic command completed.", outputAction);' in clear_resolved
     assert 'setBasicActionState(basicActionKey("output", "all"), "success", "Basic command completed.", allAction);' in clear_resolved
+    assert '"success", "Basic command completed.", outputAction' in clear_resolved
+    assert '"success", "Basic command completed.", allAction' in clear_resolved
     assert 'allOutputState === "pending"' in render_channel
 
 
@@ -1829,7 +1843,11 @@ def test_live_data_panel_sample_normalizes_numeric_values():
         {
             "resource": "USB0::FAKE::E36312A::INSTR",
             "idn": {"model": "E36312A"},
-            "outputs": [{"channel": 1, "enabled": True}],
+            "outputs": [
+                {"channel": 1, "enabled": "0"},
+                {"channel": 2, "enabled": "OFF"},
+                {"channel": 3, "enabled": 2},
+            ],
             "readback": [
                 {"channel": 1, "setpoints": {"voltage": "1", "current": "0.1"}},
                 {"channel": 2, "setpoints": {"voltage": "", "current": None}},
@@ -1841,6 +1859,7 @@ def test_live_data_panel_sample_normalizes_numeric_values():
             "channels": [
                 {
                     "channel": 1,
+                    "output_enabled": "ON",
                     "over_voltage_tripped": "0",
                     "over_current_tripped": "1",
                     "over_voltage_protection_level": "5.5",
@@ -1848,6 +1867,7 @@ def test_live_data_panel_sample_normalizes_numeric_values():
                 },
                 {
                     "channel": 2,
+                    "output_enabled": "unknown",
                     "over_voltage_tripped": None,
                     "over_current_tripped": None,
                     "protection_tripped": "false",
@@ -1866,6 +1886,7 @@ def test_live_data_panel_sample_normalizes_numeric_values():
     assert sample["channels"][0]["measured_current"] == 0.000019
     assert sample["channels"][0]["set_voltage"] == 1.0
     assert sample["channels"][0]["set_current"] == 0.1
+    assert [channel["output_enabled"] for channel in sample["channels"]] == [True, False, None]
     assert sample["channels"][1]["measured_voltage"] is None
     assert sample["channels"][1]["measured_current"] is None
     assert sample["channels"][1]["set_voltage"] is None

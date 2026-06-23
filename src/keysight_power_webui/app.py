@@ -430,10 +430,11 @@ def _live_panel_sample_from_reading(reading: dict[str, Any], runtime: dict[str, 
         output = outputs.get(channel, {})
         setpoints = live_channel.get("setpoints") or readback.get(channel, {}).get("setpoints") or {}
         measured = live_channel.get("measurements") or measurements.get(channel, {}).get("measurements") or {}
+        output_enabled = _first_output_state_bool_or_none(live_channel.get("output_enabled"), output.get("enabled"))
         channels.append(
             {
                 "channel": channel,
-                "output_enabled": live_channel.get("output_enabled", output.get("enabled")),
+                "output_enabled": output_enabled,
                 "measured_voltage": _number_or_none(measured.get("voltage")),
                 "measured_current": _number_or_none(measured.get("current")),
                 "set_voltage": _number_or_none(setpoints.get("voltage")),
@@ -591,6 +592,36 @@ def _bool_or_none(value: Any) -> bool | None:
         return value
     if isinstance(value, (int, float)):
         return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "on", "true", "yes"}:
+            return True
+        if normalized in {"0", "off", "false", "no"}:
+            return False
+    return None
+
+
+def _first_output_state_bool_or_none(*values: Any) -> bool | None:
+    for value in values:
+        parsed = _output_state_bool_or_none(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _output_state_bool_or_none(value: Any) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if not math.isfinite(value):
+            return None
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+        return None
     if isinstance(value, str):
         normalized = value.strip().lower()
         if normalized in {"1", "on", "true", "yes"}:

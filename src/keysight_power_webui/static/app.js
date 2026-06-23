@@ -2885,12 +2885,14 @@ async function startLivePreviewSnapshot(healthState, resource = null) {
   try {
     const response = await fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) });
     state.previewJobId = response.job_id;
-    let handledFirstSample = false;
+    let handledFreshSample = false;
     state.previewEvents = new EventSource(response.events_url);
     state.previewEvents.addEventListener("progress", (event) => {
-      if (handledFirstSample) return;
-      handledFirstSample = true;
-      renderLivePanel(JSON.parse(event.data).data);
+      if (handledFreshSample) return;
+      const sample = JSON.parse(event.data).data;
+      renderLivePanel(sample);
+      if (!isFreshLivePreviewSample(sample)) return;
+      handledFreshSample = true;
       stopLivePreviewSnapshot();
     });
     state.previewEvents.addEventListener("failed", (event) => {
@@ -2904,6 +2906,16 @@ async function startLivePreviewSnapshot(healthState, resource = null) {
     renderBlankLivePanel("error", message);
     setLiveState(liveStateText("error", Date.now() / 1000, message), "state-error", message);
   }
+}
+
+function isFreshLivePreviewSample(sample) {
+  return Boolean(
+    sample
+    && sample.stale === false
+    && sample.status !== "busy"
+    && sample.status !== "error"
+    && Array.isArray(sample.channels)
+  );
 }
 
 function stopLivePreviewSnapshot() {
@@ -2943,7 +2955,7 @@ function basicAllOutputsOn() {
 }
 
 function setBasicActionState(actionKey, status, message = "", context = {}) {
-  state.basicActionStates[actionKey] = { status, message, ...context };
+  state.basicActionStates[actionKey] = { ...context, status, message };
   renderBasicActionState(actionKey);
   setBasicStatus(status === "pending" ? message || "Basic command running..." : message || basicStatusText(status));
 }
