@@ -4,40 +4,28 @@ These instructions guide coding agents working in this repository. They are long
 
 ## 1. Primary Project Documents
 
-- Read the root `README.md` and the relevant package README before implementing features.
-- Read the root contracts in `docs/contracts/` before changing adapter or worker behavior.
+- Read the root `README.md`, root `pyproject.toml`, relevant package README,
+  and relevant docs under `docs/core`, `docs/cli`, or `docs/webui` before
+  implementing features.
+- Read the root contracts in `docs/contracts/` before changing adapter or
+  worker behavior.
 - Keep temporary AI planning notes out of committed public documentation.
 
-## 2. Communication And Writing Rules
+## 2. Text File Hygiene Additions
 
-- Discuss with the user in Traditional Chinese.
-- Write repository files in English unless the user explicitly requests otherwise.
-- Keep code comments short and useful.
-- Prefer clear public documentation and focused issue notes over long chat-only explanations.
-
-## 2.1 Encoding And Line Endings
-
-- Save edited Markdown, plain-text, JSON, YAML, TOML, Python, and similar text
-  files as UTF-8 without BOM.
-- Preserve the file's existing line-ending style unless the task explicitly
-  requires normalization. Avoid unrelated CRLF/LF churn in documentation-only
-  or code-only edits.
-- Prefer LF for new Markdown files unless a repository-level rule says
-  otherwise.
 - Do not use Windows PowerShell 5.1 `Set-Content -Encoding UTF8` or
   `Out-File -Encoding utf8` for final writes, because they can write a UTF-8
-  BOM.
-- In Windows PowerShell 5.1, use
-  `[System.IO.File]::WriteAllText(..., (New-Object System.Text.UTF8Encoding($false)))`
-  when a script must write text. In PowerShell 7+, `Set-Content -Encoding utf8`
+  BOM. Use `[System.IO.File]::WriteAllText(..., (New-Object System.Text.UTF8Encoding($false)))`
+  if PowerShell 5.1 must write text. In PowerShell 7+, `Set-Content -Encoding utf8`
   is acceptable.
 - After rewriting files or editing non-ASCII text, verify the first three bytes
-  are not `EF BB BF`, check for mojibake, and inspect `git diff` to confirm
-  line endings were not unintentionally normalized.
+  are not `EF BB BF`, check for mojibake, and inspect `git diff` for unintended
+  line-ending churn.
 
 ## 3. Project Direction
 
-- Build a Python package for Keysight DC power supplies.
+- Maintain the existing single-distribution `keysight-powers` project for
+  Keysight DC power supplies.
 - CLI and WebUI are parallel product interfaces over the shared Core runtime.
 - Keep adapter behavior aligned; neither CLI nor WebUI may own SCPI behavior.
 - Main environment is Windows.
@@ -85,15 +73,13 @@ Do not change stop/release/local behavior without explicit confirmation.
 
 ## 7. Testing Rules
 
-- Run the narrowest relevant tests first, then broader tests when practical.
 - On Windows, run the uv/pytest no-hardware gates from an Administrator PowerShell.
 - Run pytest from the repository root. Use the default `.tmp_pytest` basetemp,
   or place intentional per-run output under `.tmp_tests/<purpose>`.
 - Never use `Local/` as a pytest basetemp or test-artifact output directory.
 - Default tests must run without hardware.
 - Hardware tests should live under an integration path or require a marker such as `hardware`.
-- Do not hide failed or skipped verification. State exactly what ran and what did not.
-- After a project skeleton exists, the expected default test command is:
+- Default no-hardware test command:
 
 ```powershell
 uv run python -m pytest tests -q -p no:cacheprovider
@@ -126,10 +112,7 @@ uv run python -m pytest tests\integration -q -m hardware --resource "USB0::..."
 - Generated or presentation-oriented documentation HTML may be updated only
   when the task explicitly concerns published docs or documentation
   presentation.
-- Do not update product WebUI HTML, CSS, JavaScript, static assets, or in-app
-  UI copy under `src/keysight_power_webui/static` as part of ordinary
-  documentation work unless explicitly requested or required by a user-facing
-  UI change.
+- Before WebUI UI/static work, read `docs/webui/web-ui-change-rules.md`.
 - Record reusable workflow and release information in the root README, package
   READMEs, testing guidelines, changelog, or contract documents.
 - Do not commit private hardware notes, exact lab resource strings,
@@ -137,18 +120,15 @@ uv run python -m pytest tests\integration -q -m hardware --resource "USB0::..."
   IP addresses to public documentation.
 - Do not duplicate large status sections here.
 
+## 9. Repository Structure
 
-## 9. Monorepo Migration and Structure
-
-This repository is organized as a single-distribution Monorepo under the root
+This repository is organized as a single-distribution project under the root
 `src/` directory:
+
 - `src/keysight_power_core`: Core instrument driver, transport, and runtime layer.
 - `src/keysight_power_cli`: Command line interface adapter.
 - `src/keysight_power_webui`: Web interface adapter and static dashboard.
 
-Always read root `pyproject.toml` plus the relevant package-local code and
-docs under `docs/core`, `docs/cli`, or `docs/webui` before implementing or
-modifying features.
 - Never let `keysight_power_core` import from `keysight_power_cli` or
   `keysight_power_webui`.
 - CLI commands are invoked via `keysight-power` or `python -m keysight_power_cli.cli`. The old `python -m keysight_power.cli` entry is no longer supported.
