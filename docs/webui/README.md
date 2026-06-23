@@ -204,7 +204,7 @@ error queue.
 
 ## Limits
 
-CLI-only or not-yet-shared commands are marked disabled by `/api/commands` and
+Commands outside the WebUI surface are marked disabled by `/api/commands` and
 return `not_implemented_in_webui` if submitted directly. No hardware tests are
 run from this package by default.
 

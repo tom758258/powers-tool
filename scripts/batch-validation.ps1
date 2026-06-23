@@ -34,6 +34,16 @@ function ConvertTo-RepoRelativePath {
     return $fullPath
 }
 
+function Write-Utf8NoBomFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$LiteralPath,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Value
+    )
+
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($LiteralPath, $Value, $encoding)
+}
+
 function Add-BackendArgument {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
     if (-not [string]::IsNullOrWhiteSpace($Backend)) {
@@ -197,7 +207,7 @@ $report = [pscustomobject]@{
     }
     records = $records.ToArray()
 }
-$report | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $reportPath -Encoding UTF8
+Write-Utf8NoBomFile -LiteralPath $reportPath -Value @($report | ConvertTo-Json -Depth 20)
 
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add("# Keysight Power Batch Validation")
@@ -215,7 +225,7 @@ foreach ($record in $records) {
     }
     $lines.Add("| ``" + $record.name + "`` | " + $record.status + " | " + $reason + " | ``" + $record.json_path + "`` |")
 }
-$lines | Set-Content -LiteralPath $summaryPath -Encoding UTF8
+Write-Utf8NoBomFile -LiteralPath $summaryPath -Value $lines
 
 Write-Host "Batch validation $result."
 Write-Host "Report: $(ConvertTo-RepoRelativePath -Path $reportPath)"

@@ -5,6 +5,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Write-Utf8NoBomFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$LiteralPath,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Value
+    )
+
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($LiteralPath, $Value, $encoding)
+}
+
 $commands = @(
     @{
         Name = "followup-features"
@@ -55,7 +65,7 @@ $report = [ordered]@{
 
 $reportJson = Join-Path $OutputDir "report.json"
 $summaryMd = Join-Path $OutputDir "summary.md"
-$report | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 -Path $reportJson
+Write-Utf8NoBomFile -LiteralPath $reportJson -Value @($report | ConvertTo-Json -Depth 5)
 
 $summary = @()
 $summary += "# No-Hardware Regression"
@@ -71,7 +81,7 @@ if ($failed) {
     $summary += ""
     $summary += "Failed command: ``$($results[-1].command)``"
 }
-$summary | Set-Content -Encoding UTF8 -Path $summaryMd
+Write-Utf8NoBomFile -LiteralPath $summaryMd -Value $summary
 
 if ($failed) {
     exit 1

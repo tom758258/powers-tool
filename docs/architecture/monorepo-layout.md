@@ -1,4 +1,4 @@
-# Monorepo Layout
+# Repository Layout
 
 ```text
 src/
@@ -33,6 +33,7 @@ version is owned by `[project].version` in the root `pyproject.toml`; use
 ## Ownership
 
 Root `pyproject.toml` owns distribution metadata, dependencies, console
-scripts, package discovery, and WebUI package data. Root docs own workspace
-planning, architecture notes, release checklists, and canonical cross-package
-contracts under `../contracts/`.
+scripts, package discovery, and WebUI package data for the single
+`keysight-powers` distribution. Root docs own repository planning,
+architecture notes, release checklists, and canonical cross-package contracts
+under `../contracts/`.

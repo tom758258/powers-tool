@@ -127,6 +127,16 @@ function Format-CommandArgument {
     return $Argument
 }
 
+function Write-Utf8NoBomFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$LiteralPath,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Value
+    )
+
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($LiteralPath, $Value, $encoding)
+}
+
 function Protect-ValidationArgument {
     param([Parameter(Mandatory = $true)][string]$Argument)
 
@@ -376,7 +386,7 @@ function Write-LiveArtifacts {
         failures = $Failures
         commands = $script:CommandRecords.ToArray()
     }
-    $report | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $reportPath -Encoding UTF8
+    Write-Utf8NoBomFile -LiteralPath $reportPath -Value @($report | ConvertTo-Json -Depth 20)
 
     $lines = New-Object System.Collections.Generic.List[string]
     $modeLabel = if ($script:IsEduReadonly) { "Read-Only Live Smoke Validation" } else { "Full Output Live Smoke Validation" }
@@ -404,7 +414,7 @@ function Write-LiveArtifacts {
             $lines.Add("- " + $failure)
         }
     }
-    $lines | Set-Content -LiteralPath $summaryPath -Encoding UTF8
+    Write-Utf8NoBomFile -LiteralPath $summaryPath -Value $lines
 }
 
 function Assert-LiveArtifacts {

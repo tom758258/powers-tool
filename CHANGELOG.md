@@ -2,9 +2,12 @@
 
 ## 1.0.0
 
-- Consolidated the repository into the single `keysight-powers` distribution.
-- Preserved the existing `keysight_power_core`, `keysight_power_cli`, and
-  `keysight_power_webui` import packages under the root `src/` layout.
-- Preserved the `keysight-power` and `keysight-power-webui` console commands.
-- Retained the existing Core and CLI 1.0.0 behavior while bringing WebUI into
-  the unified package version.
+- First stable release of `keysight-powers` for Keysight DC power supply
+  workflows.
+- Provides the shared Core runtime, `keysight-power` CLI, local WebUI server,
+  and Windows WebUI launcher in one installable distribution.
+- Supports USB and LAN VISA communication, simulator and dry-run workflows,
+  JSON/JSONL automation output, ramp, sequence, trigger, snapshot, restore,
+  and protection operations.
+- Keeps real hardware output opt-in; default tests and simulator flows do not
+  enable instrument output.
