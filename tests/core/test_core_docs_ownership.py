@@ -13,6 +13,7 @@ def read_core_doc(*parts: str) -> str:
 def test_core_docs_are_root_local():
     assert (DOC_ROOT / "README.md").exists()
     assert (REPO_ROOT / "CHANGELOG.md").exists()
+    assert not (DOC_ROOT / "CHANGELOG.md").exists()
 
     for path in (
         "integration.md",

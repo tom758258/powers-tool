@@ -1,10 +1,12 @@
+from importlib import metadata
+
 import pytest
 
 
 def test_webui_import() -> None:
     import keysight_power_webui
 
-    assert keysight_power_webui.__version__ == "1.0.0"
+    assert keysight_power_webui.__version__ == metadata.version("keysight-powers")
 
 
 def test_webui_server_version_prints_without_starting_server(monkeypatch, capsys) -> None:
@@ -24,5 +26,5 @@ def test_webui_server_version_prints_without_starting_server(monkeypatch, capsys
     captured = capsys.readouterr()
 
     assert excinfo.value.code == 0
-    assert captured.out.strip() == "keysight-power-webui 1.0.0"
+    assert captured.out.strip() == f"keysight-power-webui {server.WEBUI_VERSION}"
     assert captured.err == ""

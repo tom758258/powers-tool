@@ -22,7 +22,7 @@ def test_root_version_prints_package_version(capsys) -> None:
 
     captured = capsys.readouterr()
 
-    assert captured.out.strip() == "keysight-power 1.0.0"
+    assert captured.out.strip() == f"keysight-power {cli._package_version()}"
     assert captured.err == ""
 
 

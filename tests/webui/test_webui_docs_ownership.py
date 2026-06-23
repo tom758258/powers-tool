@@ -14,6 +14,7 @@ def read_webui_doc(*parts: str) -> str:
 def test_webui_docs_are_root_local():
     assert (DOC_ROOT / "README.md").exists()
     assert (REPO_ROOT / "CHANGELOG.md").exists()
+    assert not (DOC_ROOT / "CHANGELOG.md").exists()
 
     for path in (
         "USER_GUIDE.md",

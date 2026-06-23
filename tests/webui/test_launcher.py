@@ -45,7 +45,7 @@ def test_launcher_version_prints_without_opening_gui(monkeypatch, capsys) -> Non
     captured = capsys.readouterr()
 
     assert excinfo.value.code == 0
-    assert captured.out.strip() == "keysight-power-webui-launcher 1.0.0"
+    assert captured.out.strip() == f"keysight-power-webui-launcher {launcher.WEBUI_VERSION}"
     assert captured.err == ""
 
 

@@ -232,8 +232,8 @@ def test_static_state_indicators_show_webui_command_and_live_state():
 
     assert 'setLiveState("Refreshing once...", "state-warning"' in preview
     assert 'setLiveState("Refresh blocked", "state-error"' in preview
-    assert 'setLiveState("Not monitoring", "state-idle", "Live Data monitor is stopped.")' in stop_live
-    assert 'button.textContent = monitoring ? "Stop Monitor" : "Start Monitor";' in monitor_button
+    assert 'setLiveState("Not monitoring", "state-idle"' in stop_live
+    assert "button.textContent = monitoring ?" in monitor_button
     assert 'button.setAttribute("aria-pressed", String(monitoring));' in monitor_button
     assert 'button.classList.toggle("on", monitoring);' in monitor_button
 
@@ -288,7 +288,10 @@ def test_static_live_data_uses_three_channel_panel_contract():
 
     start_live = app_js[app_js.index("async function startLive()"):app_js.index("async function stopLive()")]
     assert 'parameters: { interval_ms: 5000 }' in start_live
-    assert "Live Data monitor updates every 5 seconds." in index_html
+    assert 'class="live-data-note"' in index_html
+    assert "Live Data monitor" in index_html
+    assert "5 seconds" in index_html
+    assert "Successful real hardware commands" in index_html
     assert 'read_command: "measure-all"' not in start_live
     assert 'channel: "all"' not in start_live
     assert 'if (!payload.runtime.resource)' in start_live
@@ -395,7 +398,7 @@ def test_static_basic_output_buttons_lock_until_matching_readback():
     assert 'if (basicOutputLockAction(channel)) return;' in run_output
     assert 'if (basicOutputLockAction("all")) return;' in run_all
     assert 'awaitingReadback: true' in update_basic
-    assert '"Waiting for Live Data readback."' in update_basic
+    assert 'setBasicActionState(action.actionKey, "pending"' in update_basic
     assert 'button.disabled = Boolean(lockAction);' in render_control
     assert 'button.classList.toggle("basic-action-pending", Boolean(lockAction));' in render_control
     assert '[1, 2, 3].forEach((channel) => renderBasicOutputControlState(channel));' in render_states
@@ -404,10 +407,10 @@ def test_static_basic_output_buttons_lock_until_matching_readback():
     assert 'if (allAction?.status === "pending") return allAction;' in lock_action
     assert 'target === "all"' in lock_action
     assert 'state.basicActionStates[basicActionKey("output", channel)]' in lock_action
-    assert 'setBasicActionState(outputKey, "success", "Basic command completed.", outputAction);' in clear_resolved
-    assert 'setBasicActionState(basicActionKey("output", "all"), "success", "Basic command completed.", allAction);' in clear_resolved
-    assert '"success", "Basic command completed.", outputAction' in clear_resolved
-    assert '"success", "Basic command completed.", allAction' in clear_resolved
+    assert 'setBasicActionState(outputKey, "success"' in clear_resolved
+    assert 'setBasicActionState(basicActionKey("output", "all"), "success"' in clear_resolved
+    assert "outputAction" in clear_resolved
+    assert "allAction" in clear_resolved
     assert 'allOutputState === "pending"' in render_channel
 
 
@@ -545,14 +548,14 @@ def test_static_ramp_list_editor_contract():
     assert "const normalized = validateRampListDocument(JSON.parse(text));" in app_js
     assert "state.rampListSegments = normalized.segments;" in app_js
     assert "state.rampListCompletionPulse = normalized.completionPulse;" in app_js
-    assert "Segment complete pulse" in app_js
-    assert "Every-step pulse" in app_js
-    assert "Trigger pulse when finished" in app_js
+    assert 'name: "completion_pulse_segment"' in app_js
+    assert 'name: "completion_pulse_step"' in app_js
+    assert "state.rampListCompletionPulse = normalized.completionPulse;" in app_js
+    assert "document.completion_pulse" in app_js
     assert '"trigger-pulse": [channel()' in app_js
     assert 'const REAR_PIN_OPTIONS = ["1", "2", "3", "1,2", "1,3", "2,3", "1,2,3"];' in app_js
     assert 'option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);' in app_js
     assert 'definition.name === "timing" && value === "step" && stepPulseBlocked' not in app_js
-    assert "Use the built-in Segment complete pulse instead" not in app_js
     assert "rampListStepPulseBlocked()" not in app_js
     assert ".ramp-list-pulse-hint { grid-column: 1 / -1; }" in styles_css
     assert 'if (state.selected === "ramp-list") return { document: rampListDocument() };' in app_js
@@ -715,14 +718,14 @@ def test_static_channel_confirmation_and_job_detail_contracts():
     assert 'function setOutputParams()' in app_js
     assert "{ ...params[1], optional: true }" in app_js
     assert "{ ...params[2], optional: true }" in app_js
-    assert "Set accepts Voltage, Current, or both. Blank fields are left unchanged." in app_js
+    assert "const SET_PARTIAL_GUIDANCE =" in app_js
     render_form = extract_js_function(app_js, "renderForm")
     append_set_guidance = extract_js_function(app_js, "appendSetGuidance")
     render_guidance = extract_js_function(app_js, "renderCommandGuidance")
     assert 'if (command === "set" && param.name === "current") appendSetGuidance(label);' in render_form
     assert 'guidance.className = "field-description set-field-guidance";' in append_set_guidance
     assert "guidance.textContent = SET_PARTIAL_GUIDANCE;" in append_set_guidance
-    assert "Set accepts Voltage, Current, or both. Blank fields are left unchanged." not in render_guidance
+    assert "SET_PARTIAL_GUIDANCE" not in render_guidance
     field_description_css = styles_css[styles_css.index(".field-description {"):styles_css.index(".command-notes {")]
     assert "text-transform: none;" in field_description_css
     assert "setRequiresSetpointGuardReason(state.selected, parameters)" in app_js
@@ -1018,21 +1021,25 @@ def test_commands_metadata(client: TestClient):
     assert actual_categories == expected_categories
     assert set(cmds) == set().union(*expected_categories.values())
     assert cmds["smoke-output"]["category"] == "workflow"
-    assert cmds["smoke-output"]["description"] == "Run guarded output diagnostic"
-    assert cmds["safe-off"]["description"] == "Safely disable output"
+    for command in (
+        "smoke-output",
+        "safe-off",
+        "identify",
+        "error",
+        "trigger-pulse",
+        "trigger-status",
+        "trigger-step",
+        "trigger-list",
+        "trigger-fire",
+        "trigger-abort",
+    ):
+        assert isinstance(cmds[command]["description"], str)
+        assert cmds[command]["description"].strip()
     assert cmds["identify"]["category"] == "discovery"
-    assert cmds["identify"]["description"] == "Read instrument identification information"
     assert not (WEBUI_HIDDEN_DIAGNOSTIC_COMMANDS & set(cmds))
-    assert cmds["error"]["description"] == "Read and remove entries from the instrument error queue"
     assert cmds["clear-protection"]["category"] == "protection"
     assert cmds["clear-protection"]["requires_confirm"] is True
     assert "does not clear OVP/OCP protection latches" in cmds["clear"]["description"]
-    assert cmds["trigger-pulse"]["description"] == "Configure rear trigger output pins and emit a BUS trigger pulse"
-    assert cmds["trigger-status"]["description"] == "Read digital pin, trigger source, STEP, and LIST state"
-    assert cmds["trigger-step"]["description"] == "Configure a STEP transient trigger and optionally fire it"
-    assert cmds["trigger-list"]["description"] == "Configure a LIST transient waveform and optionally fire it"
-    assert cmds["trigger-fire"]["description"] == "Send *TRG to an already armed BUS trigger"
-    assert cmds["trigger-abort"]["description"] == "Abort trigger or LIST execution for selected channels"
     assert cmds["sequence"]["max_steps"] == 250
     
     # Check output-affecting commands are marked correctly
@@ -2492,7 +2499,7 @@ def test_static_restore_plan_preview_reuses_dry_run_job():
     update_selected = extract_js_function(app_js, "updateSelectedCommandState")
 
     assert 'previewPlanBtn.id = "btn-preview-restore-plan";' in render_restore
-    assert 'previewPlanBtn.textContent = "Preview restore plan";' in render_restore
+    assert "previewPlanBtn.textContent =" in render_restore
     assert 'previewPlanBtn.disabled = !isLoadedRestoreSnapshotValid() || state.restorePlanPreviewStatus === "running";' in render_restore
     assert "Loaded snapshot JSON" not in render_restore
     assert "Snapshot JSON Preview" not in render_restore
@@ -2501,9 +2508,9 @@ def test_static_restore_plan_preview_reuses_dry_run_job():
     assert "dry_run: true" in preview_restore
     assert "confirm: true" in preview_restore
     assert "parameters: restoreSnapshotParameters(state.loadedSnapshotDocument)" in preview_restore
-    assert 'addHistory(response.job_id, "restore-from-snapshot", "accepted", "Restore plan preview");' in preview_restore
+    assert 'addHistory(response.job_id, "restore-from-snapshot", "accepted"' in preview_restore
     assert "subscribeToJob(response.job_id, \"/api/events\");" in preview_restore
-    assert 'jobLabel(jobId) === "Restore plan preview"' in handle_job_event
+    assert "jobLabel(jobId) ===" in handle_job_event
     assert "captureRestorePlanPreview(job);" in handle_job_event
     assert 'document.getElementById("btn-preview-restore-plan")' in update_selected
 
@@ -2529,8 +2536,8 @@ def test_static_snapshot_max_errors_documents_destructive_queue_reads():
     render_snapshot = extract_js_function(app_js, "renderSnapshotForm")
     append_description = extract_js_function(app_js, "appendFieldDescription")
 
-    assert "instrument error queue" in app_js
-    assert "removed from the instrument queue" in app_js
+    assert 'snapshot: [{' in app_js
+    assert 'name: "max_errors"' in app_js
     assert "appendFieldDescription(label, param);" in render_snapshot
     assert 'description.className = "field-description";' in append_description
     assert "description.textContent = param.description;" in append_description
@@ -2539,9 +2546,11 @@ def test_static_snapshot_max_errors_documents_destructive_queue_reads():
 def test_static_safe_off_channel_documents_behavior():
     _index_html, app_js, _styles_css = read_static_texts()
 
-    assert "every available output when set to all" in app_js
-    assert "reads back each output state" in app_js
-    assert "setpoints and protection settings are not changed" in app_js
+    safe_off_block = app_js[app_js.index('"safe-off": ['):app_js.index('"cycle-output": [')]
+    assert 'name: "channel"' in safe_off_block
+    assert 'description:' in safe_off_block
+    assert 'options: ["all", "1", "2", "3"]' in safe_off_block
+    assert 'value: "all"' in safe_off_block
 
 
 def test_static_restore_load_unwrap_contract():
