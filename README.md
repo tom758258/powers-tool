@@ -3,7 +3,7 @@
 # Keysight Powers
 
 Keysight Powers is a Python control toolkit for Keysight DC power supplies.
-It provides one installable distribution, `keysight-powers` `1.0.0`, while
+It provides one installable distribution, `keysight-powers` `<version>`, while
 preserving three import packages: `keysight_power_core`,
 `keysight_power_cli`, and `keysight_power_webui`.
 
@@ -29,9 +29,10 @@ matter.
 
 ## Project Structure
 
-The repository has one distribution and one version number:
+The repository has one distribution and one version number. In examples,
+`<version>` means `[project].version` from the root `pyproject.toml`:
 
-- Distribution: `keysight-powers` `1.0.0`
+- Distribution: `keysight-powers` `<version>`
 - Core import: `keysight_power_core`
 - CLI import: `keysight_power_cli`
 - WebUI import: `keysight_power_webui`
@@ -131,8 +132,8 @@ the `dev` extra installed above:
 This produces only one Python distribution:
 
 ```text
-dist\keysight_powers-1.0.0-py3-none-any.whl
-dist\keysight_powers-1.0.0.tar.gz
+dist\keysight_powers-<version>-py3-none-any.whl
+dist\keysight_powers-<version>.tar.gz
 ```
 
 Standalone executables are separate PyInstaller workflows. Install PyInstaller

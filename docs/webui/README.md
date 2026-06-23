@@ -10,11 +10,17 @@ developer and agent UI-change boundaries, use the
 The WebUI and CLI are parallel product interfaces over the shared Core
 runtime.
 
-- Distribution: `keysight-powers` `1.0.0`
-- Import package: `keysight_power_webui`
-- Runtime dependency: bundled `keysight_power_core` import package plus the `webui` extra
-- Console commands: `keysight-power-webui` and `keysight-power-webui-launcher`
-- Frontend: static `index.html`, `styles.css`, and `app.js`; no Node toolchain
+The WebUI ships inside the single `keysight-powers` distribution while
+preserving the `keysight_power_webui` import boundary. It depends on the
+shared `keysight_power_core` runtime and the distribution's `webui` extra.
+Its frontend is static `index.html`, `styles.css`, and `app.js`; no Node
+toolchain is required.
+
+## Package And Entry Point
+
+The WebUI exposes the `keysight-power-webui` console command for the local
+FastAPI server and the `keysight-power-webui-launcher` wrapper for the Windows
+launcher.
 
 ## Purpose
 

@@ -4,11 +4,9 @@
 supplies. Adapter packages should build parser-neutral request objects and call
 the shared command runners instead of constructing SCPI directly.
 
-Public package metadata:
-
-- Distribution: `keysight-powers`
-- Import package: `keysight_power_core`
-- Current version: `1.0.0`
+`keysight_power_core` ships as part of the single `keysight-powers`
+distribution. Its installed version follows `[project].version` from the root
+`pyproject.toml`, while the import boundary remains `keysight_power_core`.
 
 The package exposes `__version__` through `keysight_power_core.__all__`.
 

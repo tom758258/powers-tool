@@ -2,10 +2,9 @@
 
 Core library and driver layer for controlling Keysight DC power supplies safely.
 
-- Distribution: `keysight-powers` `1.0.0`
-- Import package: `keysight_power_core`
-- Python: `>=3.10`
-- Runtime dependencies: `pyvisa`, `PyYAML`, `tomli` on Python `<3.11`
+Core ships inside the single `keysight-powers` distribution while preserving
+the `keysight_power_core` import boundary. It owns hardware-facing behavior
+and is shared by the CLI and WebUI adapters.
 
 ## Purpose
 
@@ -69,7 +68,8 @@ pip install .
 
 Runtime installs resolve `pyvisa`, PyYAML for sequence YAML support, and the
 Python-version TOML fallback where needed. The package does not include a
-console script. Test dependencies come from the root `dev` extra.
+console script. This project supports Python `>=3.10`; test dependencies come
+from the root `dev` extra.
 
 ## Test
 

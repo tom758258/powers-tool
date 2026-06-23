@@ -19,11 +19,16 @@ docs/
 
 ## Package Names
 
+Core, CLI, and WebUI are separate import packages and maintenance boundaries,
+released together as one `keysight-powers` distribution. The distribution
+version is owned by `[project].version` in the root `pyproject.toml`; use
+`<version>` in examples where the installed release version is substituted.
+
 | Area | Distribution | Import | Version | Console command |
 | --- | --- | --- | --- | --- |
-| Core | `keysight-powers` | `keysight_power_core` | `1.0.0` | None |
-| CLI | `keysight-powers` | `keysight_power_cli` | `1.0.0` | `keysight-power` |
-| WebUI | `keysight-powers` | `keysight_power_webui` | `1.0.0` | `keysight-power-webui` |
+| Core | `keysight-powers` | `keysight_power_core` | distribution version | None |
+| CLI | `keysight-powers` | `keysight_power_cli` | distribution version | `keysight-power` |
+| WebUI | `keysight-powers` | `keysight_power_webui` | distribution version | `keysight-power-webui`, `keysight-power-webui-launcher` |
 
 ## Ownership
 
