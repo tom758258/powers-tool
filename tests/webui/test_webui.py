@@ -696,8 +696,14 @@ def test_static_trip_guard_and_clear_protection_recovery_contract():
     assert 'const TRIP_GUARDED_COMMANDS = new Set(["output-on", "cycle-output", "ramp", "ramp-list", "smoke-output", "apply"]);' in app_js
     assert 'if (command === "apply" && parameters.no_output === true) return "";' in app_js
     assert "if (!panel || panel.stale || !resource || panel.resource !== resource) return [];" in app_js
+    assert "function setAdvancedCommandsExpanded(expanded)" in app_js
+    assert "setAdvancedCommandsExpanded(panel.hidden);" in app_js
+    assert "setAdvancedCommandsExpanded(true);" in app_js
+    assert 'state.activeCategory = "protection";' in app_js
     assert 'selectCommand("clear-protection");' in app_js
     assert 'data-clear-protection-channel="${channel.channel}"' in app_js
+    assert 'workspace.scrollIntoView({ behavior: "smooth", block: "nearest" });' in app_js
+    assert "focusTarget.focus({ preventScroll: true });" in app_js
     assert 'input.value = channels.length === 1 ? String(channels[0]) : "";' in app_js
     assert 'const stateText = tripped === true ? "TRIP" : tripped === false ? "CLEAR" : "--";' in app_js
 

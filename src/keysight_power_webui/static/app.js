@@ -1925,8 +1925,12 @@ async function scanResources() {
 
 function toggleAdvancedCommands() {
   const panel = document.getElementById("advanced-commands");
+  setAdvancedCommandsExpanded(panel.hidden);
+}
+
+function setAdvancedCommandsExpanded(expanded) {
+  const panel = document.getElementById("advanced-commands");
   const button = document.getElementById("advanced-command-toggle");
-  const expanded = panel.hidden;
   panel.hidden = !expanded;
   panel.classList.toggle("collapsed", !expanded);
   button.textContent = expanded ? "Hide commands" : "Show more commands";
@@ -3321,11 +3325,16 @@ function protectionBadge(label, tripped) {
 }
 
 function openClearProtection(channel) {
-  state.activeCategory = "discovery";
+  setAdvancedCommandsExpanded(true);
+  state.activeCategory = "protection";
   selectCommand("clear-protection");
   const input = document.getElementById("param-channel");
   if (input) input.value = String(channel);
   updateSelectedCommandState();
+  const workspace = document.querySelector(".workspace");
+  if (workspace) workspace.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  const focusTarget = input || document.getElementById("run");
+  if (focusTarget) focusTarget.focus({ preventScroll: true });
 }
 
 function prefillClearProtectionChannel() {
