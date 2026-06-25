@@ -737,6 +737,19 @@ def test_smoke_validation_scripts_use_instrument_read_status_command():
     assert '-Name ("smoke-output-ch" + $channel)' in live
 
 
+def test_edu36311a_live_smoke_defaults_to_output_profile():
+    preflight = Path("scripts/preflight-smoke-validation.ps1").read_text(encoding="utf-8")
+    live = Path("scripts/live-smoke-validation-check.ps1").read_text(encoding="utf-8")
+
+    assert '[string]$Profile = "auto"' in preflight
+    assert '$isEduReadonly = $normalizedTarget -eq "EDU36311A" -and $normalizedProfile -eq "readonly"' in preflight
+    assert '$isEduReadonly = $normalizedTarget -eq "EDU36311A" -and $normalizedProfile -eq "readonly"' in live
+    assert '& $preflightScript -Target $Target -Profile $Profile' in live
+    assert 'Invoke-LiveReadOnlyChecks -LogPrefix "output-smoke" -IncludeSequence:($normalizedTarget -eq "EDU36311A")' in live
+    assert 'Name = "sequence-readonly-simulate"' in preflight
+    assert 'Name = "apply-no-output-dry-run"' in preflight
+
+
 def test_sequence_failure_cleanup_errors_do_not_replace_original_failure(monkeypatch, tmp_path, capsys):
     sequence = tmp_path / "sequence.yaml"
     sequence.write_text("version: 1\nsteps:\n  - action: measure\n    channel: 1\n", encoding="utf-8")

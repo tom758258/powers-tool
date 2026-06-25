@@ -13,13 +13,13 @@ validation wrapper workflow.
 | --- | --- | --- | --- | --- | --- |
 | E36312A | USB-local | yes | yes | yes | Full output smoke runs read-only checks, protection-status reads, and low-power CH1-CH3 output smoke through `scripts/live-smoke-validation-check.ps1`; Phase 1-8 USB validation passed on 2026-05-22. |
 | E36312A | LAN-network | yes | yes | yes | Full output smoke is allowed only with an explicit `-Resource`; no LAN scan is performed. |
-| EDU36311A | USB-local or LAN-network | yes | yes | yes | Default live smoke is read-only. USB output profile is opt-in with `-Profile output` and uses 1 V / 0.05 A. LAN remains read-only pending a separate live pass. |
+| EDU36311A | USB-local or LAN-network | yes | yes | yes | Default live smoke is low-power CH1-CH3 output smoke at 1 V / 0.05 A. The legacy read-only profile remains available with `-Profile readonly`. |
 
 EDU36311A USB read-only, output/write, and protection commands are enabled for
-real execution after staged validation. The live wrapper still defaults to the
-read-only profile; run `scripts/live-smoke-validation-check.ps1 -Target
-EDU36311A -Connection USB -Resource ... -Profile output` only for intentional
-no-DUT low-power output validation. EDU36311A `protection-set` and
+real execution after staged validation. The live wrapper defaults to no-DUT
+low-power output validation; run `scripts/live-smoke-validation-check.ps1
+-Target EDU36311A -Connection USB -Resource ... -Profile readonly` only for
+legacy read-only validation. EDU36311A `protection-set` and
 `clear-protection` require `--confirm` for real execution and report
 `hardware_validation=validated`.
 
@@ -47,7 +47,8 @@ command-level facts:
 - Ramp always uses software setpoint steps. Native LIST execution is confined
   to `trigger-list`.
 - EDU36311A USB-local read-only/output/protection commands are enabled; LAN
-  remains read-only pending a separate live pass.
+  uses the same explicit-resource smoke wrapper and must be validated with the
+  target instrument before acceptance.
 - E36312A and EDU36311A OVP/OCP trip status is queried per channel. Aggregate
   `protection-status` flags are the OR of the selected channel results.
 - EDU36311A real trigger commands remain disabled. `capabilities --json`

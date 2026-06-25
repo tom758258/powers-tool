@@ -152,6 +152,9 @@ or touch hardware:
 .\scripts\preflight-smoke-validation.ps1 -Target EDU36311A
 ```
 
+Pass `-Profile readonly` with `-Target EDU36311A` only when you need the
+legacy read-only preflight instead of the default output-smoke preflight.
+
 Reports are written to `.tmp_tests\smoke_validation_preflight\<Target>`.
 
 Live smoke always runs the matching no-hardware preflight first and requires
@@ -175,13 +178,14 @@ $env:EDU36311A_USB_RESOURCE = "USB0::...::INSTR"
 .\scripts\live-smoke-validation-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE
 ```
 
-E36312A live smoke is the normal hardware acceptance gate. It runs read-only
-checks first, reads protection status without changing protection settings,
-sets all channels to 1 V / 0.05 A with outputs off, and briefly enables CH1,
-CH2, and CH3 one at a time for about 500 ms each. EDU36311A defaults to a
-read-only profile. `-Connection LAN` is also supported when an explicit LAN
-VISA resource is supplied. Use `-Backend "@ivi"` or another backend only when
-the local VISA setup requires it.
+E36312A and EDU36311A live smoke are the normal hardware acceptance gates.
+They run read-only checks first, read protection status without changing
+protection settings, set all channels to 1 V / 0.05 A with outputs off, and
+briefly enable CH1, CH2, and CH3 one at a time for about 500 ms each.
+EDU36311A can still run the legacy read-only profile with `-Profile readonly`.
+`-Connection LAN` is also supported when an explicit LAN VISA resource is
+supplied. Use `-Backend "@ivi"` or another backend only when the local VISA
+setup requires it.
 
 Batch validation runs only the checks selected by switches. Simulated
 resources are useful for checking the batch/report workflow without hardware:

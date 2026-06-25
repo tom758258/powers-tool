@@ -1,5 +1,6 @@
 param(
-    [string]$Target = "E36312A"
+    [string]$Target = "E36312A",
+    [string]$Profile = "auto"
 )
 
 Set-StrictMode -Version 3.0
@@ -10,11 +11,17 @@ if ($normalizedTarget -notin @("E36312A", "EDU36311A")) {
     [Console]::Error.WriteLine("Smoke validation preflight supports only Target E36312A or EDU36311A.")
     exit 2
 }
+$normalizedProfile = $Profile.Trim().ToLowerInvariant()
+if ($normalizedProfile -notin @("auto", "readonly", "output", "output_smoke")) {
+    [Console]::Error.WriteLine("Unsupported -Profile. Use auto, readonly, or output.")
+    exit 2
+}
+$isEduReadonly = $normalizedTarget -eq "EDU36311A" -and $normalizedProfile -eq "readonly"
 
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $TmpRoot = Join-Path $RepoRoot ".tmp_tests"
 $OutputDir = Join-Path (Join-Path $TmpRoot "smoke_validation_preflight") $Target
-$ProfileName = if ($normalizedTarget -eq "EDU36311A") { "readonly" } else { "output_smoke" }
+$ProfileName = if ($isEduReadonly) { "readonly" } else { "output_smoke" }
 $StateChanging = $false
 $PythonExe = Join-Path (Join-Path $RepoRoot ".venv") "Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $PythonExe)) {
@@ -284,50 +291,40 @@ $script:SimResource = $simResource
 $records = New-Object System.Collections.Generic.List[object]
 $failures = New-Object System.Collections.Generic.List[string]
 
+$commands = @(
+    [pscustomobject]@{ Name = "verify-simulate"; Json = "verify.json"; Args = @("verify", "--simulate", "--json", "--resource", $simResource) },
+    [pscustomobject]@{ Name = "identify-simulate"; Json = "identify.json"; Args = @("identify", "--simulate", "--json", "--resource", $simResource) },
+    [pscustomobject]@{ Name = "measure-ch1-simulate"; Json = "measure-ch1.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "1") },
+    [pscustomobject]@{ Name = "measure-ch2-simulate"; Json = "measure-ch2.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "2") },
+    [pscustomobject]@{ Name = "measure-ch3-simulate"; Json = "measure-ch3.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "3") },
+    [pscustomobject]@{ Name = "output-state-ch1-simulate"; Json = "output-state-ch1.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "1") },
+    [pscustomobject]@{ Name = "output-state-ch2-simulate"; Json = "output-state-ch2.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "2") },
+    [pscustomobject]@{ Name = "output-state-ch3-simulate"; Json = "output-state-ch3.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "3") },
+    [pscustomobject]@{ Name = "read-status-simulate"; Json = "read-status.json"; Args = @("read-status", "--simulate", "--json", "--resource", $simResource, "--all") },
+    [pscustomobject]@{ Name = "readback-simulate"; Json = "readback.json"; Args = @("readback", "--simulate", "--json", "--resource", $simResource, "--all") },
+    [pscustomobject]@{ Name = "validate-readonly-simulate"; Json = "validate-readonly.json"; Args = @("validate-readonly", "--simulate", "--json", "--resource", $simResource) },
+    [pscustomobject]@{ Name = "protection-status-simulate"; Json = "protection-status.json"; Args = @("protection-status", "--simulate", "--json", "--resource", $simResource, "--all") },
+    [pscustomobject]@{ Name = "log-simulate"; Json = "log.json"; Args = @("log", "--simulate", "--json", "--resource", $simResource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--csv", (Join-Path $OutputDir ($normalizedTarget.ToLowerInvariant() + "-smoke.csv")), "--jsonl", (Join-Path $OutputDir ($normalizedTarget.ToLowerInvariant() + "-smoke.jsonl"))) }
+)
 if ($normalizedTarget -eq "EDU36311A") {
-    $commands = @(
-        [pscustomobject]@{ Name = "verify-simulate"; Json = "verify.json"; Args = @("verify", "--simulate", "--json", "--resource", $simResource) },
-        [pscustomobject]@{ Name = "identify-simulate"; Json = "identify.json"; Args = @("identify", "--simulate", "--json", "--resource", $simResource) },
-        [pscustomobject]@{ Name = "measure-ch1-simulate"; Json = "measure-ch1.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "1") },
-        [pscustomobject]@{ Name = "measure-ch2-simulate"; Json = "measure-ch2.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "2") },
-        [pscustomobject]@{ Name = "measure-ch3-simulate"; Json = "measure-ch3.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "3") },
-        [pscustomobject]@{ Name = "output-state-ch1-simulate"; Json = "output-state-ch1.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "1") },
-        [pscustomobject]@{ Name = "output-state-ch2-simulate"; Json = "output-state-ch2.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "2") },
-        [pscustomobject]@{ Name = "output-state-ch3-simulate"; Json = "output-state-ch3.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "3") },
-        [pscustomobject]@{ Name = "read-status-simulate"; Json = "read-status.json"; Args = @("read-status", "--simulate", "--json", "--resource", $simResource, "--all") },
-        [pscustomobject]@{ Name = "readback-simulate"; Json = "readback.json"; Args = @("readback", "--simulate", "--json", "--resource", $simResource, "--all") },
-        [pscustomobject]@{ Name = "validate-readonly-simulate"; Json = "validate-readonly.json"; Args = @("validate-readonly", "--simulate", "--json", "--resource", $simResource) },
-        [pscustomobject]@{ Name = "protection-status-simulate"; Json = "protection-status.json"; Args = @("protection-status", "--simulate", "--json", "--resource", $simResource, "--all") },
-        [pscustomobject]@{ Name = "log-simulate"; Json = "log.json"; Args = @("log", "--simulate", "--json", "--resource", $simResource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--csv", (Join-Path $OutputDir "edu-readonly.csv"), "--jsonl", (Join-Path $OutputDir "edu-readonly.jsonl")) },
-        [pscustomobject]@{ Name = "sequence-readonly-simulate"; Json = "sequence.json"; Args = @("sequence", "--simulate", "--json", "--resource", $simResource, "--file", (Join-Path $RepoRoot "examples\sequence-readonly-edu.yaml")) },
-        [pscustomobject]@{ Name = "capabilities-simulate"; Json = "capabilities.json"; Args = @("capabilities", "--simulate", "--json", "--resource", $simResource) }
-    )
+    $commands += [pscustomobject]@{ Name = "sequence-readonly-simulate"; Json = "sequence.json"; Args = @("sequence", "--simulate", "--json", "--resource", $simResource, "--file", (Join-Path $RepoRoot "examples\sequence-readonly-edu.yaml")) }
 }
-else {
-    $commands = @(
-        [pscustomobject]@{ Name = "verify-simulate"; Json = "verify.json"; Args = @("verify", "--simulate", "--json", "--resource", $simResource) },
-        [pscustomobject]@{ Name = "identify-simulate"; Json = "identify.json"; Args = @("identify", "--simulate", "--json", "--resource", $simResource) },
-        [pscustomobject]@{ Name = "measure-ch1-simulate"; Json = "measure-ch1.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "1") },
-        [pscustomobject]@{ Name = "measure-ch2-simulate"; Json = "measure-ch2.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "2") },
-        [pscustomobject]@{ Name = "measure-ch3-simulate"; Json = "measure-ch3.json"; Args = @("measure", "--simulate", "--json", "--resource", $simResource, "--channel", "3") },
-        [pscustomobject]@{ Name = "output-state-ch1-simulate"; Json = "output-state-ch1.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "1") },
-        [pscustomobject]@{ Name = "output-state-ch2-simulate"; Json = "output-state-ch2.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "2") },
-        [pscustomobject]@{ Name = "output-state-ch3-simulate"; Json = "output-state-ch3.json"; Args = @("output-state", "--simulate", "--json", "--resource", $simResource, "--channel", "3") },
-        [pscustomobject]@{ Name = "read-status-simulate"; Json = "read-status.json"; Args = @("read-status", "--simulate", "--json", "--resource", $simResource, "--all") },
-        [pscustomobject]@{ Name = "readback-simulate"; Json = "readback.json"; Args = @("readback", "--simulate", "--json", "--resource", $simResource, "--all") },
-        [pscustomobject]@{ Name = "validate-readonly-simulate"; Json = "validate-readonly.json"; Args = @("validate-readonly", "--simulate", "--json", "--resource", $simResource) },
-        [pscustomobject]@{ Name = "protection-status-simulate"; Json = "protection-status.json"; Args = @("protection-status", "--simulate", "--json", "--resource", $simResource, "--all") },
-        [pscustomobject]@{ Name = "log-simulate"; Json = "log.json"; Args = @("log", "--simulate", "--json", "--resource", $simResource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--csv", (Join-Path $OutputDir "e36312a-smoke.csv"), "--jsonl", (Join-Path $OutputDir "e36312a-smoke.jsonl")) },
-        [pscustomobject]@{ Name = "capabilities-simulate"; Json = "capabilities.json"; Args = @("capabilities", "--simulate", "--json", "--resource", $simResource) },
-        [pscustomobject]@{ Name = "snapshot-before-simulate"; Json = "snapshot-before.json"; Args = @("snapshot", "--simulate", "--json", "--resource", $simResource) },
+$commands += [pscustomobject]@{ Name = "capabilities-simulate"; Json = "capabilities.json"; Args = @("capabilities", "--simulate", "--json", "--resource", $simResource) }
+if (-not $isEduReadonly) {
+    if ($normalizedTarget -eq "E36312A") {
+        $commands += [pscustomobject]@{ Name = "snapshot-before-simulate"; Json = "snapshot-before.json"; Args = @("snapshot", "--simulate", "--json", "--resource", $simResource) }
+    }
+    $commands += @(
         [pscustomobject]@{ Name = "apply-no-output-dry-run"; Json = "apply-no-output.json"; Args = @("apply", "--dry-run", "--json", "--resource", $simResource, "--channel", "all", "--voltage", "1", "--current", "0.05", "--no-output") },
         [pscustomobject]@{ Name = "safe-off-before-dry-run"; Json = "safe-off-before.json"; Args = @("safe-off", "--dry-run", "--json", "--resource", $simResource, "--channel", "all") },
         [pscustomobject]@{ Name = "smoke-output-ch1-dry-run"; Json = "smoke-output-ch1.json"; Args = @("smoke-output", "--dry-run", "--json", "--resource", $simResource, "--channel", "1", "--voltage", "1", "--current", "0.05", "--duration-ms", "500") },
         [pscustomobject]@{ Name = "smoke-output-ch2-dry-run"; Json = "smoke-output-ch2.json"; Args = @("smoke-output", "--dry-run", "--json", "--resource", $simResource, "--channel", "2", "--voltage", "1", "--current", "0.05", "--duration-ms", "500") },
         [pscustomobject]@{ Name = "smoke-output-ch3-dry-run"; Json = "smoke-output-ch3.json"; Args = @("smoke-output", "--dry-run", "--json", "--resource", $simResource, "--channel", "3", "--voltage", "1", "--current", "0.05", "--duration-ms", "500") },
-        [pscustomobject]@{ Name = "safe-off-cleanup-dry-run"; Json = "safe-off-cleanup.json"; Args = @("safe-off", "--dry-run", "--json", "--resource", $simResource, "--channel", "all") },
-        [pscustomobject]@{ Name = "snapshot-after-simulate"; Json = "snapshot-after.json"; Args = @("snapshot", "--simulate", "--json", "--resource", $simResource) }
+        [pscustomobject]@{ Name = "safe-off-cleanup-dry-run"; Json = "safe-off-cleanup.json"; Args = @("safe-off", "--dry-run", "--json", "--resource", $simResource, "--channel", "all") }
     )
+    if ($normalizedTarget -eq "E36312A") {
+        $commands += [pscustomobject]@{ Name = "snapshot-after-simulate"; Json = "snapshot-after.json"; Args = @("snapshot", "--simulate", "--json", "--resource", $simResource) }
+    }
 }
 
 foreach ($command in $commands) {

@@ -6146,6 +6146,34 @@ def test_identify_real_reads_identity_queries(monkeypatch, capsys) -> None:
     assert payload["data"]["remote_lockout_state"] == "RWLock"
 
 
+def test_identify_edu36311a_real_reads_only_idn(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,EDU36311A,SERIAL0000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["identify", "--json", "--resource", OUTPUT_RESOURCE]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.queries == ["*IDN?"]
+    assert payload["data"]["idn"]["model"] == "EDU36311A"
+    assert payload["data"]["options"] is None
+    assert payload["data"]["scpi_version"] is None
+    assert payload["data"]["remote_lockout_state"] is None
+
+
+def test_identify_extended_query_failure_is_json_error(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["identify", "--json", "--resource", OUTPUT_RESOURCE]) == 1
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.queries == ["*IDN?", "*OPT?"]
+    assert payload["error"]["code"] == "identify_failed"
+    assert "No fake response for '*OPT?'" in payload["error"]["message"]
+    assert "Traceback" not in captured.err
+
+
 def test_snapshot_real_reads_full_state(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",

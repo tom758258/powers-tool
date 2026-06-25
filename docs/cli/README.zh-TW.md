@@ -119,6 +119,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\preflight-smok
 .\scripts\preflight-smoke-validation.ps1 -Target EDU36311A
 ```
 
+只有在需要舊版 EDU36311A 唯讀行前檢查，而不是預設的輸出快速測試行前檢查時，才搭配 `-Target EDU36311A` 傳入 `-Profile readonly`。
+
 報告會寫入 `.tmp_tests\smoke_validation_preflight\<Target>`。
 
 實機快速測試 (Live smoke) 永遠會先執行對應的無硬體行前檢查，並需要明確的 `-Resource` 參數。該腳本不會掃描資源、猜測資源或讀取環境預設值。請先尋找實機資源，複製確切的值，然後明確傳遞：
@@ -137,7 +139,7 @@ $env:EDU36311A_USB_RESOURCE = "USB0::...::INSTR"
 .\scripts\live-smoke-validation-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE
 ```
 
-E36312A 實機快速測試是常規的硬體驗收閘口。它會先執行唯讀檢查，在不更改保護設定的情況下讀取保護狀態，將所有通道設定為 1 V / 0.05 A (輸出關閉)，接著短暫啟用 CH1、CH2 與 CH3 (每次一個通道約 500 ms)。EDU36311A 預設為唯讀設定檔。提供明確的 LAN VISA 資源時，也支援 `-Connection LAN`。只有在本機 VISA 設定有需求時才使用 `-Backend "@ivi"` 或其他後端。
+E36312A 與 EDU36311A 實機快速測試是常規的硬體驗收閘口。它們會先執行唯讀檢查，在不更改保護設定的情況下讀取保護狀態，將所有通道設定為 1 V / 0.05 A (輸出關閉)，接著短暫啟用 CH1、CH2 與 CH3 (每次一個通道約 500 ms)。EDU36311A 仍可使用 `-Profile readonly` 執行舊版唯讀設定檔。提供明確的 LAN VISA 資源時，也支援 `-Connection LAN`。只有在本機 VISA 設定有需求時才使用 `-Backend "@ivi"` 或其他後端。
 
 批次驗證僅執行開關選擇的檢查。模擬資源適合在無硬體的情況下檢查批次/報告工作流程：
 

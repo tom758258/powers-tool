@@ -18,6 +18,11 @@ from keysight_power_core.transport import dry_run_plan
 
 CLEAR_STATUS_COMMAND = "*CLS"
 IDN_QUERY = "*IDN?"
+EXTENDED_IDENTITY_QUERIES = {
+    "options": "*OPT?",
+    "scpi_version": "SYST:VERS?",
+    "remote_lockout_state": "SYST:COMM:RLST?",
+}
 
 
 def run_instrument_io(
@@ -136,13 +141,26 @@ def _run_identify(
     instrument, idn = _open_power_supply(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
         session = instrument.session
-        return {
+        idn_info = parse_idn(idn)
+        data = {
             "resource": resource,
-            "idn": parse_idn(idn).to_dict(),
-            "options": session.query("*OPT?").strip(),
-            "scpi_version": session.query("SYST:VERS?").strip(),
-            "remote_lockout_state": session.query("SYST:COMM:RLST?").strip(),
+            "idn": idn_info.to_dict(),
+            "options": None,
+            "scpi_version": None,
+            "remote_lockout_state": None,
         }
+        try:
+            for field, query in _identity_queries_for_model(idn_info.model).items():
+                data[field] = session.query(query).strip()
+        except (VisaConnectionError, ValueError, TypeError) as exc:
+            raise CoreIoError(f"{request.command} failed: {exc}", opened=True) from exc
+        return data
+
+
+def _identity_queries_for_model(model: str | None) -> dict[str, str]:
+    if model is not None and model.strip().upper() == "EDU36311A":
+        return {}
+    return EXTENDED_IDENTITY_QUERIES
 
 
 class _ManagedSession:

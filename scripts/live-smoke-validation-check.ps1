@@ -47,7 +47,7 @@ $normalizedProfile = $Profile.Trim().ToLowerInvariant()
 if ($normalizedProfile -notin @("auto", "readonly", "output", "output_smoke")) {
     Fail-Validation "Unsupported -Profile. Use auto, readonly, or output."
 }
-$isEduReadonly = $normalizedTarget -eq "EDU36311A" -and $normalizedProfile -ne "output" -and $normalizedProfile -ne "output_smoke"
+$isEduReadonly = $normalizedTarget -eq "EDU36311A" -and $normalizedProfile -eq "readonly"
 $ProfileName = if ($isEduReadonly) { "readonly" } else { "output_smoke" }
 $StateChanging = -not $isEduReadonly
 
@@ -441,7 +441,7 @@ if (-not (Test-Path -LiteralPath $preflightScript)) {
 }
 
 Write-Host "Running hardware-free preflight before live smoke..."
-& $preflightScript -Target $Target
+& $preflightScript -Target $Target -Profile $Profile
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Preflight failed. Live smoke will not run."
     exit 1
@@ -524,7 +524,7 @@ try {
         Invoke-LiveReadOnlyChecks -LogPrefix "readonly" -IncludeSequence:$true
     }
     else {
-        Invoke-LiveReadOnlyChecks -LogPrefix "output-smoke"
+        Invoke-LiveReadOnlyChecks -LogPrefix "output-smoke" -IncludeSequence:($normalizedTarget -eq "EDU36311A")
 
         if ($normalizedTarget -eq "E36312A") {
             Invoke-LiveCliJsonCommand `

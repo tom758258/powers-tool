@@ -507,7 +507,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     identify_parser = subparsers.add_parser(
         "identify",
-        help="Read IDN, options, SCPI version, and remote/local state.",
+        help="Read instrument identity and supported model-specific identity details.",
     )
     _add_output_resource_arguments(identify_parser)
     _add_json_argument(identify_parser)
