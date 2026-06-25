@@ -1,4 +1,6 @@
 from importlib import metadata
+import sys
+import types
 
 import pytest
 
@@ -28,3 +30,29 @@ def test_webui_server_version_prints_without_starting_server(monkeypatch, capsys
     assert excinfo.value.code == 0
     assert captured.out.strip() == f"keysight-power-webui {server.WEBUI_VERSION}"
     assert captured.err == ""
+
+
+def test_webui_server_defaults_to_port_7999(monkeypatch, capsys) -> None:
+    from keysight_power_webui import app, server
+
+    run_args: dict[str, object] = {}
+
+    def fake_run(*args: object, **kwargs: object) -> None:
+        run_args["args"] = args
+        run_args["kwargs"] = kwargs
+
+    monkeypatch.setitem(
+        sys.modules,
+        "uvicorn",
+        types.SimpleNamespace(run=fake_run),
+    )
+
+    assert server.main([]) == 0
+
+    captured = capsys.readouterr()
+
+    assert captured.out.strip() == "Starting Keysight Power WebUI on http://127.0.0.1:7999"
+    assert run_args == {
+        "args": (app.app,),
+        "kwargs": {"host": "127.0.0.1", "port": 7999, "reload": False},
+    }

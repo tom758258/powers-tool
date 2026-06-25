@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover - PyInstaller script entry point
 
 PACKAGE_NAME = "keysight-power-webui"
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8000
+DEFAULT_PORT = 7999
 
 
 def build_local_url(port: int) -> str:

@@ -78,13 +78,13 @@ backend/API change as a proposal instead of implementing it.
 Developer runtime entry point:
 
 ```powershell
-uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 8000
+uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 7999
 ```
 
 Local URL:
 
 ```text
-http://127.0.0.1:8000/
+http://127.0.0.1:7999/
 ```
 
 The WebUI is an instrument control dashboard:
@@ -295,7 +295,7 @@ why. Do not claim validation that did not happen.
 
 If you can run the app locally, verify:
 
-- The page loads at `http://127.0.0.1:8000/`.
+- The page loads at `http://127.0.0.1:7999/`.
 - No browser console errors appear on first load.
 - Scan Device updates the live resource selector or reports no live resources
   cleanly.

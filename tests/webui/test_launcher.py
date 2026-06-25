@@ -29,8 +29,8 @@ class FakeResponse:
 
 def test_build_local_url_uses_loopback_default_port() -> None:
     assert launcher.DEFAULT_HOST == "127.0.0.1"
-    assert launcher.DEFAULT_PORT == 8000
-    assert launcher.build_local_url(8000) == "http://127.0.0.1:8000"
+    assert launcher.DEFAULT_PORT == 7999
+    assert launcher.build_local_url(launcher.DEFAULT_PORT) == "http://127.0.0.1:7999"
 
 
 def test_launcher_version_prints_without_opening_gui(monkeypatch, capsys) -> None:
@@ -49,7 +49,7 @@ def test_launcher_version_prints_without_opening_gui(monkeypatch, capsys) -> Non
     assert captured.err == ""
 
 
-@pytest.mark.parametrize("value", ["1", "8000", "65535", " 1234 "])
+@pytest.mark.parametrize("value", ["1", "7999", "65535", " 1234 "])
 def test_parse_port_accepts_valid_port(value: str) -> None:
     assert 1 <= launcher.parse_port(value) <= 65535
 
@@ -61,50 +61,60 @@ def test_parse_port_rejects_invalid_port(value: str) -> None:
 
 
 def test_server_is_ready_accepts_keysight_power_webui_health(monkeypatch) -> None:
+    health_url = f"{launcher.build_local_url(launcher.DEFAULT_PORT)}/api/health"
+
     def fake_urlopen(url: str, timeout: float) -> FakeResponse:
-        assert url == "http://127.0.0.1:8000/api/health"
+        assert url == health_url
         assert timeout == 0.5
         return FakeResponse({"status": "ok", "package": "keysight-power-webui"})
 
     monkeypatch.setattr(launcher, "urlopen", fake_urlopen)
 
-    assert launcher._server_is_ready("http://127.0.0.1:8000/api/health") is True
+    assert launcher._server_is_ready(health_url) is True
 
 
 def test_server_is_ready_rejects_other_http_service(monkeypatch) -> None:
+    health_url = f"{launcher.build_local_url(launcher.DEFAULT_PORT)}/api/health"
+
     def fake_urlopen(_url: str, timeout: float) -> FakeResponse:
         return FakeResponse({"status": "ok", "package": "other-service"})
 
     monkeypatch.setattr(launcher, "urlopen", fake_urlopen)
 
-    assert launcher._server_is_ready("http://127.0.0.1:8000/api/health") is False
+    assert launcher._server_is_ready(health_url) is False
 
 
 def test_http_server_is_ready_detects_any_http_response(monkeypatch) -> None:
+    url = launcher.build_local_url(launcher.DEFAULT_PORT)
+
     def fake_urlopen(_url: str, timeout: float) -> FakeResponse:
         return FakeResponse({}, status=404)
 
     monkeypatch.setattr(launcher, "urlopen", fake_urlopen)
 
-    assert launcher._http_server_is_ready("http://127.0.0.1:8000") is True
+    assert launcher._http_server_is_ready(url) is True
 
 
 def test_http_server_is_ready_accepts_http_error(monkeypatch) -> None:
+    url = launcher.build_local_url(launcher.DEFAULT_PORT)
+
     def fake_urlopen(_url: str, timeout: float) -> FakeResponse:
-        raise HTTPError("http://127.0.0.1:8000", 503, "busy", {}, None)
+        raise HTTPError(url, 503, "busy", {}, None)
 
     monkeypatch.setattr(launcher, "urlopen", fake_urlopen)
 
-    assert launcher._http_server_is_ready("http://127.0.0.1:8000") is True
+    assert launcher._http_server_is_ready(url) is True
 
 
 def test_http_server_is_ready_rejects_connection_error(monkeypatch) -> None:
+    url = launcher.build_local_url(launcher.DEFAULT_PORT)
+
     def fake_urlopen(_url: str, timeout: float) -> FakeResponse:
         raise URLError("connection refused")
 
     monkeypatch.setattr(launcher, "urlopen", fake_urlopen)
 
-    assert launcher._http_server_is_ready("http://127.0.0.1:8000") is False
+    assert launcher._http_server_is_ready(url) is False
 
 
 def test_launcher_does_not_import_cli_adapter() -> None:

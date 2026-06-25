@@ -29,19 +29,19 @@ keysight-power-webui-launcher-<version>.exe
 
 In the launcher window:
 
-1. Keep `Use default port 8000` selected unless that port is already in use.
+1. Keep `Use default port 7999` selected unless that port is already in use.
 2. Click `Start`.
 3. Wait for the browser to open. The launcher starts a local WebUI server on
    this computer and opens the browser page for you.
 4. Click `Quit` in the launcher when you are done with the WebUI.
 
-If port 8000 is already in use, clear `Use default port 8000`, enter an
-available local port such as `7999`, then click `Start`.
+If port 7999 is already in use, clear `Use default port 7999`, enter an
+available local port such as `8001`, then click `Start`.
 
 If the browser does not open automatically, open this address manually:
 
 ```text
-http://127.0.0.1:8000/
+http://127.0.0.1:7999/
 ```
 
 Developers or source-checkout users should use the [WebUI README](README.md)
@@ -179,7 +179,7 @@ launcher.
 Confirm the server is still running and open:
 
 ```text
-http://127.0.0.1:8000/
+http://127.0.0.1:7999/
 ```
 
 If the port is already in use, start the server on a different port and open

@@ -283,9 +283,9 @@
 
         <h2 id="execution">執行</h2>
         <p>從 repository 根目錄：</p>
-        <div class="code-wrapper"><pre><code>uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 8000</code></pre></div>
+        <div class="code-wrapper"><pre><code>uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 7999</code></pre></div>
 
-        <p>開啟 <code>http://127.0.0.1:8000/</code>。</p>
+        <p>開啟 <code>http://127.0.0.1:7999/</code>。</p>
 
         <p>除非有刻意的原因需要將伺服器暴露給本機以外的網路，否則請保持 host 為 <code>127.0.0.1</code>。</p>
 
@@ -293,7 +293,7 @@
         <div class="code-wrapper"><pre><code>.\.venv\Scripts\keysight-power-webui.exe --version
 .\.venv\Scripts\keysight-power-webui-launcher.exe</code></pre></div>
 
-        <p>啟動器預設使用 <code>127.0.0.1:8000</code>，在點擊「Start」後開啟瀏覽器，並保持視窗存在，以便透過「Quit」停止本機的 Uvicorn 伺服器。如果所選的 port 上已經執行了 Keysight Power WebUI，啟動器會直接開啟該頁面而不會啟動第二個伺服器。如果該 port 被其他服務占用，則會拒絕啟動。硬體命令處於活動狀態時，「Quit」會被封鎖；請先在瀏覽器中停止或取消命令，並等待清理完成。</p>
+        <p>啟動器預設使用 <code>127.0.0.1:7999</code>，在點擊「Start」後開啟瀏覽器，並保持視窗存在，以便透過「Quit」停止本機的 Uvicorn 伺服器。如果所選的 port 上已經執行了 Keysight Power WebUI，啟動器會直接開啟該頁面而不會啟動第二個伺服器。如果該 port 被其他服務占用，則會拒絕啟動。硬體命令處於活動狀態時，「Quit」會被封鎖；請先在瀏覽器中停止或取消命令，並等待清理完成。</p>
 
         <h2 id="api">API</h2>
         <ul>

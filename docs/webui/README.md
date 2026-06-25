@@ -53,10 +53,10 @@ reimplementing instrument behavior.
 From the repository root:
 
 ```powershell
-uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 8000
+uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 7999
 ```
 
-Open `http://127.0.0.1:8000/`.
+Open `http://127.0.0.1:7999/`.
 
 Keep the host as `127.0.0.1` unless there is a deliberate reason to expose the
 server beyond the local machine.
@@ -68,7 +68,7 @@ The installed Windows GUI launcher wrapper is:
 .\.venv\Scripts\keysight-power-webui-launcher.exe
 ```
 
-The launcher defaults to `127.0.0.1:8000`, opens the browser after Start, and
+The launcher defaults to `127.0.0.1:7999`, opens the browser after Start, and
 keeps the window available so Quit can stop the local Uvicorn server. If the
 selected port already hosts Keysight Power WebUI, the launcher opens that page
 instead of starting a second server. If the port is used by another service,
