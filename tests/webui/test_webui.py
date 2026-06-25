@@ -214,6 +214,35 @@ def test_static_top_bar_uses_live_resource_defaults():
     assert "safety_config: null" in app_js
 
 
+def test_static_resource_selection_refreshes_live_preview():
+    index_html, app_js, _styles_css = read_static_texts()
+    sync_selected = extract_js_function(app_js, "syncSelectedResource")
+    refresh_preview = extract_js_function(app_js, "refreshSelectedResourcePreview")
+
+    assert_static_id(index_html, "resource")
+    assert_static_id(index_html, "resource-select")
+    assert 'document.getElementById("resource-select").addEventListener("change", syncSelectedResource);' in app_js
+
+    assert "const input = document.getElementById(\"resource\");" in sync_selected
+    assert "const previous = input.value;" in sync_selected
+    assert "const value = document.getElementById(\"resource-select\").value;" in sync_selected
+    assert "input.value = value;" in sync_selected
+    assert "if (value !== previous) await refreshSelectedResourcePreview(value);" in sync_selected
+
+    assert "fetchJson(\"/api/live\"" not in refresh_preview
+    assert "stopLivePreviewSnapshot();" in refresh_preview
+    assert "renderBlankLivePanel();" in refresh_preview
+    assert "if (!resource)" in refresh_preview
+    assert 'setLiveState("Not monitoring", "state-idle", "No hardware resource is selected.");' in refresh_preview
+    assert "const healthState = await refreshHealth();" in refresh_preview
+    assert "await startLivePreviewSnapshot(healthState, resource);" in refresh_preview
+    assert refresh_preview.index("stopLivePreviewSnapshot();") < refresh_preview.index("renderBlankLivePanel();")
+    assert refresh_preview.index("renderBlankLivePanel();") < refresh_preview.index("const healthState = await refreshHealth();")
+    assert refresh_preview.index("const healthState = await refreshHealth();") < refresh_preview.index(
+        "await startLivePreviewSnapshot(healthState, resource);"
+    )
+
+
 def test_static_state_indicators_show_webui_command_and_live_state():
     index_html, app_js, _styles_css = read_static_texts()
     refresh_health = extract_js_function(app_js, "refreshHealth")

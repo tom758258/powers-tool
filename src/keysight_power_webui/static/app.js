@@ -2703,14 +2703,17 @@ function resourceLabel(resource, name) {
   return [name, manufacturer, model].filter(Boolean).join(" - ");
 }
 
-function syncSelectedResource() {
+async function syncSelectedResource() {
+  const input = document.getElementById("resource");
+  const previous = input.value;
   const value = document.getElementById("resource-select").value;
-  if (value) document.getElementById("resource").value = value;
+  input.value = value;
   refreshBasicInputConstraints();
   syncBasicFromLivePanel(state.livePanel);
   renderWorkspaceSummary();
   if (state.selected) selectCommand(state.selected);
   else renderCommands();
+  if (value !== previous) await refreshSelectedResourcePreview(value);
 }
 
 function updateResourceModels(resources) {
@@ -2931,6 +2934,17 @@ function stopLivePreviewSnapshot() {
       console.error("Live preview stop failed", error);
     });
   }
+}
+
+async function refreshSelectedResourcePreview(resource) {
+  stopLivePreviewSnapshot();
+  renderBlankLivePanel();
+  if (!resource) {
+    setLiveState("Not monitoring", "state-idle", "No hardware resource is selected.");
+    return;
+  }
+  const healthState = await refreshHealth();
+  await startLivePreviewSnapshot(healthState, resource);
 }
 
 function basicActionKey(action, channel) {
