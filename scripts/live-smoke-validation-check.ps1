@@ -130,7 +130,7 @@ function Format-CommandArgument {
 function Write-Utf8NoBomFile {
     param(
         [Parameter(Mandatory = $true)][string]$LiteralPath,
-        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Value
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Value
     )
 
     $encoding = New-Object System.Text.UTF8Encoding($false)
