@@ -1,5 +1,6 @@
 from keysight_power_core.drivers.base import DriverCapabilities
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
+from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
 from keysight_power_core.electrical_ratings import E36312A_ELECTRICAL_RATINGS, EDU36311A_ELECTRICAL_RATINGS
@@ -36,6 +37,11 @@ def test_first_target_models_are_recognized() -> None:
     assert edu36311a.driver_class is EDU36311APowerSupply
     assert edu36311a.reason == "model_specific_driver"
 
+    e3646a = select_driver("KEYSIGHT,E3646A,SERIAL0000,1.0")
+    assert e3646a.model_info is not None
+    assert e3646a.driver_class is E3646APowerSupply
+    assert e3646a.reason == "model_specific_driver"
+
 
 def test_first_target_drivers_expose_conservative_capabilities() -> None:
     e36312a_expected = DriverCapabilities(
@@ -56,6 +62,12 @@ def test_first_target_drivers_expose_conservative_capabilities() -> None:
 
     assert e36312a.capabilities == e36312a_expected
     assert edu36311a.capabilities == edu36311a_expected
+
+    assert select_driver("KEYSIGHT,E3646A,SERIAL0000,1.0").capabilities == DriverCapabilities(
+        channels=(1, 2),
+        simulated_measure_channels=(1, 2),
+        real_measure_channels=(1, 2),
+    )
 
 
 def test_generic_fallback_exposes_channel_one_measure_capability() -> None:

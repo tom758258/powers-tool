@@ -207,6 +207,67 @@ def test_verify_prints_idn_response(monkeypatch, capsys) -> None:
     assert opened == [("USB0::FAKE::INSTR", "@py", 1234)]
 
 
+def test_verify_serial_flags_are_forwarded_to_opener(monkeypatch, capsys) -> None:
+    opened = []
+
+    def fake_open_resource(resource, *, backend=None, timeout_ms=5000, **kwargs):
+        opened.append((resource, backend, timeout_ms, kwargs))
+        return FakeSession("KEYSIGHT,E3646A,SERIAL0000,1.0")
+
+    monkeypatch.setattr(cli, "open_resource", fake_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "verify",
+                "--resource",
+                "ASRL1::INSTR",
+                "--serial-baud-rate",
+                "9600",
+                "--serial-data-bits",
+                "8",
+                "--serial-parity",
+                "none",
+                "--serial-stop-bits",
+                "2",
+                "--serial-flow-control",
+                "dtr_dsr",
+                "--serial-remote",
+                "--serial-local-on-close",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == "KEYSIGHT,E3646A,SERIAL0000,1.0\n"
+    serial_options = opened[0][3]["serial_options"]
+    assert serial_options.baud_rate == 9600
+    assert serial_options.data_bits == 8
+    assert serial_options.parity == "none"
+    assert serial_options.stop_bits == "2"
+    assert serial_options.flow_control == "dtr_dsr"
+    assert opened[0][3]["serial_remote"] is True
+    assert opened[0][3]["serial_local_on_close"] is True
+
+
+def test_verify_json_omits_serial_options_when_not_provided(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        cli,
+        "open_resource",
+        lambda resource, *, backend=None, timeout_ms=5000: FakeSession(
+            "KEYSIGHT,E3646A,SERIAL0000,1.0"
+        ),
+    )
+
+    assert cli.main(["verify", "--resource", "ASRL1::INSTR", "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert "serial_options" not in payload["request"]
+    assert "serial_remote" not in payload["request"]
+    assert "serial_local_on_close" not in payload["request"]
+
+
 def test_verify_returns_failure_when_resource_cannot_be_queried(monkeypatch, capsys) -> None:
     def fake_open_resource(resource, *, backend=None, timeout_ms=5000):
         raise VisaConnectionError("not reachable")
@@ -419,6 +480,7 @@ def test_list_resources_simulate_does_not_create_real_resource_manager(monkeypat
         "TCPIP0::SIM::E36232A::INSTR\n"
         "USB0::SIM::E36312A::INSTR\n"
         "USB0::SIM::EDU36311A::INSTR\n"
+        "ASRL1::SIM::E3646A::INSTR\n"
     )
     assert captured.err == ""
 
@@ -467,14 +529,21 @@ def test_list_resources_simulate_live_only_json_logs_scpi_to_stderr(monkeypatch,
             reachable=True,
             idn="KEYSIGHT,E36312A,SIM000003,1.0",
         ),
-        expected_resource(
-            "USB0::SIM::EDU36311A::INSTR",
-            simulated=True,
-            reachable=True,
-            idn="KEYSIGHT,EDU36311A,SIM000004,1.0",
-        ),
-    ]
-    assert payload["data"]["count"] == 4
+            expected_resource(
+                "USB0::SIM::EDU36311A::INSTR",
+                simulated=True,
+                reachable=True,
+                idn="KEYSIGHT,EDU36311A,SIM000004,1.0",
+            ),
+            expected_resource(
+                "ASRL1::SIM::E3646A::INSTR",
+                interface="ASRL",
+                simulated=True,
+                reachable=True,
+                idn="KEYSIGHT,E3646A,SIM000005,1.0",
+            ),
+        ]
+    assert payload["data"]["count"] == 5
     assert payload["warnings"] == []
     assert payload["error"] is None
     assert payload["metadata"]["duration_ms"] >= 0

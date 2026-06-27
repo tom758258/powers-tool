@@ -37,7 +37,7 @@ from keysight_power_cli.cli_io import (
     set_json_save_path,
     set_json_start_time,
 )
-from keysight_power_core.connection import DEFAULT_TIMEOUT_MS, list_resources, open_resource
+from keysight_power_core.connection import DEFAULT_TIMEOUT_MS, SerialOptions, list_resources, open_resource
 from keysight_power_core.core import (
     ConfirmationRequiredError,
     CoreExecutionError,
@@ -218,6 +218,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_simulate_argument(list_parser)
     _add_backend_argument(list_parser)
     _add_timeout_argument(list_parser)
+    _add_serial_arguments(list_parser)
     list_parser.add_argument(
         "--live-only",
         action="store_true",
@@ -239,6 +240,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_simulate_argument(verify_parser)
     _add_backend_argument(verify_parser)
     _add_timeout_argument(verify_parser)
+    _add_serial_arguments(verify_parser)
     verify_parser.add_argument(
         "--log-scpi",
         action="store_true",
@@ -303,6 +305,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_simulate_argument(measure_parser)
     _add_backend_argument(measure_parser)
     _add_timeout_argument(measure_parser)
+    _add_serial_arguments(measure_parser)
     measure_parser.add_argument(
         "--log-scpi",
         action="store_true",
@@ -361,6 +364,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_safety_config_argument(status_parser)
     _add_backend_argument(status_parser)
     _add_timeout_argument(status_parser)
+    _add_serial_arguments(status_parser)
     status_parser.add_argument(
         "--log-scpi",
         action="store_true",
@@ -402,6 +406,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_safety_config_argument(readback_parser)
     _add_backend_argument(readback_parser)
     _add_timeout_argument(readback_parser)
+    _add_serial_arguments(readback_parser)
     readback_parser.add_argument(
         "--log-scpi",
         action="store_true",
@@ -515,6 +520,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_safety_config_argument(identify_parser)
     _add_backend_argument(identify_parser)
     _add_timeout_argument(identify_parser)
+    _add_serial_arguments(identify_parser)
     identify_parser.add_argument(
         "--log-scpi",
         action="store_true",
@@ -834,6 +840,38 @@ def _add_timeout_argument(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=DEFAULT_TIMEOUT_MS,
         help="VISA timeout in milliseconds.",
+    )
+
+
+def _add_serial_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--serial-baud-rate", type=int, help="Optional ASRL baud rate.")
+    parser.add_argument("--serial-data-bits", type=int, help="Optional ASRL data bits.")
+    parser.add_argument(
+        "--serial-parity",
+        choices=("none", "odd", "even", "mark", "space"),
+        help="Optional ASRL parity.",
+    )
+    parser.add_argument(
+        "--serial-stop-bits",
+        choices=("1", "1.5", "2"),
+        help="Optional ASRL stop bits.",
+    )
+    parser.add_argument(
+        "--serial-flow-control",
+        choices=("none", "xon_xoff", "rts_cts", "dtr_dsr"),
+        help="Optional ASRL flow control.",
+    )
+    parser.add_argument("--serial-read-termination", help="Optional ASRL read termination.")
+    parser.add_argument("--serial-write-termination", help="Optional ASRL write termination.")
+    parser.add_argument(
+        "--serial-remote",
+        action="store_true",
+        help="Send SYST:REM after opening an ASRL resource.",
+    )
+    parser.add_argument(
+        "--serial-local-on-close",
+        action="store_true",
+        help="Best-effort send SYST:LOC before closing an ASRL resource.",
     )
 
 
@@ -4742,8 +4780,19 @@ def _run_core_output_real(args: argparse.Namespace) -> int:
         *,
         backend: str | None = None,
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
+        serial_options: SerialOptions | None = None,
+        serial_remote: bool = False,
+        serial_local_on_close: bool = False,
     ):
-        return _open_resource(resource, manager, backend=backend, timeout_ms=timeout_ms)
+        return _open_resource(
+            resource,
+            manager,
+            backend=backend,
+            timeout_ms=timeout_ms,
+            serial_options=serial_options,
+            serial_remote=serial_remote,
+            serial_local_on_close=serial_local_on_close,
+        )
 
     try:
         data = operations.run_operation(
@@ -7776,15 +7825,45 @@ def _open_resource(
     *,
     backend: str | None,
     timeout_ms: int,
+    serial_options: SerialOptions | None = None,
+    serial_remote: bool = False,
+    serial_local_on_close: bool = False,
 ):
+    serial_kwargs = _serial_open_kwargs(
+        serial_options=serial_options,
+        serial_remote=serial_remote,
+        serial_local_on_close=serial_local_on_close,
+    )
     if resource_manager is None:
-        return open_resource(resource, backend=backend, timeout_ms=timeout_ms)
+        return open_resource(
+            resource,
+            backend=backend,
+            timeout_ms=timeout_ms,
+            **serial_kwargs,
+        )
     return open_resource(
         resource,
         resource_manager,
         backend=backend,
         timeout_ms=timeout_ms,
+        **serial_kwargs,
     )
+
+
+def _serial_open_kwargs(
+    *,
+    serial_options: SerialOptions | None,
+    serial_remote: bool,
+    serial_local_on_close: bool,
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    if serial_options is not None:
+        kwargs["serial_options"] = serial_options
+    if serial_remote:
+        kwargs["serial_remote"] = True
+    if serial_local_on_close:
+        kwargs["serial_local_on_close"] = True
+    return kwargs
 
 
 def _mode_for_args(args: argparse.Namespace) -> str:
@@ -7815,6 +7894,46 @@ def _validation_execution_from_argv(argv: Sequence[str]) -> dict[str, Any]:
     }
 
 
+def _with_serial_request_fields(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, Any]:
+    serial_options = {
+        "baud_rate": getattr(args, "serial_baud_rate", None),
+        "data_bits": getattr(args, "serial_data_bits", None),
+        "parity": getattr(args, "serial_parity", None),
+        "stop_bits": getattr(args, "serial_stop_bits", None),
+        "flow_control": getattr(args, "serial_flow_control", None),
+        "read_termination": getattr(args, "serial_read_termination", None),
+        "write_termination": getattr(args, "serial_write_termination", None),
+    }
+    serial_options = {key: value for key, value in serial_options.items() if value is not None}
+    if serial_options:
+        payload["serial_options"] = serial_options
+    if getattr(args, "serial_remote", False):
+        payload["serial_remote"] = True
+    if getattr(args, "serial_local_on_close", False):
+        payload["serial_local_on_close"] = True
+    return payload
+
+
+def _with_serial_request_fields_from_argv(argv: Sequence[str], payload: dict[str, Any]) -> dict[str, Any]:
+    serial_options = {
+        "baud_rate": _int_option_from_argv(argv, "--serial-baud-rate", None),
+        "data_bits": _int_option_from_argv(argv, "--serial-data-bits", None),
+        "parity": _option_value(argv, "--serial-parity"),
+        "stop_bits": _option_value(argv, "--serial-stop-bits"),
+        "flow_control": _option_value(argv, "--serial-flow-control"),
+        "read_termination": _option_value(argv, "--serial-read-termination"),
+        "write_termination": _option_value(argv, "--serial-write-termination"),
+    }
+    serial_options = {key: value for key, value in serial_options.items() if value is not None}
+    if serial_options:
+        payload["serial_options"] = serial_options
+    if "--serial-remote" in argv:
+        payload["serial_remote"] = True
+    if "--serial-local-on-close" in argv:
+        payload["serial_local_on_close"] = True
+    return payload
+
+
 def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "safety":
         return {
@@ -7835,17 +7954,17 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "explain": getattr(args, "explain", False),
         }
     if args.command == "list-resources":
-        return {
+        return _with_serial_request_fields(args, {
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             "live_only": getattr(args, "live_only", False),
-        }
+        })
     if args.command == "verify":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-        }
+        })
     if args.command == "clear":
         return {
             "resource": args.resource,
@@ -7860,12 +7979,12 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "max_reads": args.max_reads,
         }
     if args.command == "measure":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "channel": args.channel,
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-        }
+        })
     if args.command == "measure-all":
         return {
             "resource": args.resource,
@@ -7918,14 +8037,14 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             **_completion_request_fields(args),
         }
     if args.command == "output-state":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-        }
+        })
     if args.command == "cycle-output":
         return {
             "resource": args.resource,
@@ -8056,7 +8175,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
         }
     if args.command == "read-status":
         channel = "all" if getattr(args, "all", False) else args.channel
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": channel,
@@ -8064,7 +8183,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-        }
+        })
     if args.command in {"send-command", "status", "stop", "wait-ready"}:
         return {
             "url": getattr(args, "url", None),
@@ -8083,7 +8202,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
         }
     if args.command in {"readback", "protection-status"}:
         channel = "all" if getattr(args, "all", False) else args.channel
-        return {
+        payload = {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": channel,
@@ -8091,6 +8210,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
+        return _with_serial_request_fields(args, payload) if args.command == "readback" else payload
     if args.command == "protection-set":
         return {
             "resource": args.resource,
@@ -8125,13 +8245,13 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     if args.command == "identify":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-        }
+        })
     if args.command == "snapshot":
         return {
             "resource": args.resource,
@@ -8241,17 +8361,17 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "explain": "--explain" in argv,
         }
     if command == "list-resources":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
             "live_only": "--live-only" in argv,
-        }
+        })
     if command == "verify":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
-        }
+        })
     if command == "clear":
         return {
             "resource": _option_value(argv, "--resource"),
@@ -8266,12 +8386,12 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "max_reads": _max_reads_from_argv(argv),
         }
     if command == "measure":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "channel": _channel_from_argv(argv),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
-        }
+        })
     if command == "measure-all":
         return {
             "resource": _option_value(argv, "--resource"),
@@ -8324,7 +8444,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             **_completion_request_fields_from_argv(argv),
         }
     if command == "output-state":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": _channel_from_argv(argv),
@@ -8332,7 +8452,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
             **_completion_request_fields_from_argv(argv),
-        }
+        })
     if command == "cycle-output":
         return {
             "resource": _option_value(argv, "--resource"),
@@ -8475,7 +8595,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
         }
     if command == "read-status":
         channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": channel,
@@ -8483,7 +8603,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
-        }
+        })
     if command == "validate-readonly":
         return {
             "resource": _option_value(argv, "--resource"),
@@ -8495,7 +8615,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
         }
     if command in {"readback", "protection-status"}:
         channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")
-        return {
+        payload = {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": channel,
@@ -8503,6 +8623,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
         }
+        return _with_serial_request_fields_from_argv(argv, payload) if command == "readback" else payload
     if command == "protection-set":
         channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")
         return {
@@ -8530,13 +8651,13 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
         }
     if command == "identify":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
-        }
+        })
     if command == "snapshot":
         return {
             "resource": _option_value(argv, "--resource"),
@@ -9152,6 +9273,9 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
             confirm=getattr(args, "confirm", False),
+            serial_options=_serial_options_for_args(args),
+            serial_remote=getattr(args, "serial_remote", False),
+            serial_local_on_close=getattr(args, "serial_local_on_close", False),
         ),
         parameters=parameters,
     )
@@ -9181,20 +9305,48 @@ def _target_core_request_for_args(args: argparse.Namespace) -> OperationRequest:
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
             confirm=getattr(args, "confirm", False),
+            serial_options=_serial_options_for_args(args),
+            serial_remote=getattr(args, "serial_remote", False),
+            serial_local_on_close=getattr(args, "serial_local_on_close", False),
         ),
         parameters=parameters,
     )
 
 
+def _serial_options_for_args(args: argparse.Namespace) -> SerialOptions | None:
+    options = SerialOptions(
+        baud_rate=getattr(args, "serial_baud_rate", None),
+        data_bits=getattr(args, "serial_data_bits", None),
+        parity=getattr(args, "serial_parity", None),
+        stop_bits=getattr(args, "serial_stop_bits", None),
+        flow_control=getattr(args, "serial_flow_control", None),
+        read_termination=getattr(args, "serial_read_termination", None),
+        write_termination=getattr(args, "serial_write_termination", None),
+    )
+    return options if options.has_explicit_values() else None
+
+
 def _core_opener_for_args(args: argparse.Namespace):
     manager = _resource_manager_for_args(args)
 
-    def opener(resource: str, resource_manager: Any = None, *, backend: str | None, timeout_ms: int):
+    def opener(
+        resource: str,
+        resource_manager: Any = None,
+        *,
+        backend: str | None,
+        timeout_ms: int,
+        serial_options: SerialOptions | None = None,
+        serial_remote: bool = False,
+        serial_local_on_close: bool = False,
+    ):
         return _open_resource(
             resource,
             resource_manager if resource_manager is not None else manager,
             backend=backend,
             timeout_ms=timeout_ms,
+            serial_options=serial_options,
+            serial_remote=serial_remote,
+            serial_local_on_close=serial_local_on_close,
         )
 
     return opener

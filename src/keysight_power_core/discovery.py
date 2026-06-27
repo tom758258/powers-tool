@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from keysight_power_core.connection import list_resources, open_resource
+from keysight_power_core.connection import list_resources, open_resource, serial_open_kwargs
 from keysight_power_core.core import CoreIoError, CoreValidationError, OperationRequest
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.models import parse_idn, resource_interface
@@ -89,7 +89,17 @@ def _query_idn(
     scpi_logger: Callable[[str, str, str], None] | None,
 ) -> str | None:
     try:
-        with opener(resource, manager, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
+        with opener(
+            resource,
+            manager,
+            backend=request.runtime.backend,
+            timeout_ms=request.runtime.timeout_ms,
+            **serial_open_kwargs(
+                serial_options=request.runtime.serial_options,
+                serial_remote=request.runtime.serial_remote,
+                serial_local_on_close=request.runtime.serial_local_on_close,
+            ),
+        ) as instrument:
             session = (
                 ScpiLoggingSession(resource, instrument, scpi_logger)
                 if request.runtime.log_scpi and scpi_logger is not None

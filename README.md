@@ -7,14 +7,15 @@ It provides one installable distribution, `keysight-powers` `<version>`, while
 preserving three import packages: `keysight_power_core`,
 `keysight_power_cli`, and `keysight_power_webui`.
 
-The project supports USB and LAN communication through VISA, command-line
+The project supports USB, LAN, and explicit RS-232/ASRL communication through VISA, command-line
 operation, and a local browser WebUI. It is designed for power-supply workflows
 where explicit safety checks, simulator support, and machine-readable output
 matter.
 
 ## Features
 
-- Control supported Keysight DC power supplies over USB or LAN using VISA
+- Control supported Keysight DC power supplies over USB, LAN, or explicit
+  RS-232/ASRL settings using VISA
 - Use either the `keysight-power` CLI or the local `keysight-power-webui`
   dashboard
 - Preview hardware-affecting commands with dry-run mode before opening VISA

@@ -100,6 +100,27 @@ def test_output_plan_set_requires_one_setpoint() -> None:
         output_plan(OperationRequest(command="set", runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", dry_run=True), parameters=params))
 
 
+def test_e3646a_output_state_all_is_read_only_real_operation() -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E3646A,SERIAL0000,1.0",
+        responses={
+            "INST:NSEL?": "1",
+            "OUTP?": "0",
+        },
+    )
+    core_request = OperationRequest(
+        command="output-state",
+        runtime=RuntimeOptions(resource="ASRL1::SIM::E3646A::INSTR"),
+        parameters={"channel": "all"},
+    )
+
+    data = run_operation(core_request, opener=lambda *args, **kwargs: session)
+
+    assert data["channel"] == "all"
+    assert data["outputs"] == [{"channel": 1, "enabled": False}, {"channel": 2, "enabled": False}]
+    assert session.writes == ["INST:NSEL 1", "INST:NSEL 1", "INST:NSEL 2", "INST:NSEL 1"]
+
+
 def test_real_set_voltage_only_writes_only_voltage() -> None:
     session = FakeSession()
     params = request("set").parameters

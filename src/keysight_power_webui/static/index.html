@@ -26,6 +26,58 @@
         <button id="scan" class="secondary command-pill-button scan-button">Scan Device</button>
       </div>
     </div>
+    <details class="serial-panel">
+      <summary>Advanced Serial</summary>
+      <div class="serial-grid">
+        <label>Baud rate
+          <input id="serial-baud-rate" type="number" step="1" inputmode="numeric" placeholder="Use VISA setting">
+        </label>
+        <label>Data bits
+          <input id="serial-data-bits" type="number" step="1" inputmode="numeric" placeholder="Use VISA setting">
+        </label>
+        <label>Parity
+          <select id="serial-parity">
+            <option value="">Use VISA setting</option>
+            <option value="none">None</option>
+            <option value="odd">Odd</option>
+            <option value="even">Even</option>
+            <option value="mark">Mark</option>
+            <option value="space">Space</option>
+          </select>
+        </label>
+        <label>Stop bits
+          <select id="serial-stop-bits">
+            <option value="">Use VISA setting</option>
+            <option value="1">1</option>
+            <option value="1.5">1.5</option>
+            <option value="2">2</option>
+          </select>
+        </label>
+        <label>Flow control
+          <select id="serial-flow-control">
+            <option value="">Use VISA setting</option>
+            <option value="none">None</option>
+            <option value="xon_xoff">XON/XOFF</option>
+            <option value="rts_cts">RTS/CTS</option>
+            <option value="dtr_dsr">DTR/DSR</option>
+          </select>
+        </label>
+        <label>Read termination
+          <input id="serial-read-termination" placeholder="Use VISA setting">
+        </label>
+        <label>Write termination
+          <input id="serial-write-termination" placeholder="Use VISA setting">
+        </label>
+        <label class="serial-check">
+          <input id="serial-remote" type="checkbox">
+          Serial remote
+        </label>
+        <label class="serial-check">
+          <input id="serial-local-on-close" type="checkbox">
+          Local on close
+        </label>
+      </div>
+    </details>
   </header>
 
   <main class="shell">

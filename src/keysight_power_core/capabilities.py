@@ -96,6 +96,13 @@ def hardware_validation_status(model: str | None) -> dict[str, Any]:
                 "real": False,
             },
         }
+    if normalized == "E3646A":
+        return {
+            "read_only": "rs232_read_only",
+            "output": "not_enabled",
+            "protection": "not_enabled",
+            "trigger": "not_enabled",
+        }
     return {
         "read_only": "generic_channel_1_only",
         "output": "not_enabled",
@@ -113,6 +120,7 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
         "protection-set",
         "clear-protection",
     }
+    e3646a_real = {"identify", "measure", "output-state", "readback", "read-status", "capabilities"}
     edu36311a_planning_trigger = {"trigger-step", "trigger-fire", "trigger-abort"}
     commands = sorted(READ_ONLY_COMMANDS | OUTPUT_COMMANDS | _E36312A_EXTRA_COMMANDS | OFFLINE_COMMANDS)
     support: dict[str, dict[str, Any]] = {}
@@ -186,6 +194,10 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
                         "hardware_validation": "not_supported_by_model",
                     }
                 )
+        elif normalized == "E3646A":
+            if command in e3646a_real:
+                entry["real"] = True
+                entry["hardware_validation"] = "rs232_read_only"
         else:
             if command in {"identify", "measure", "doctor", "capabilities"}:
                 entry["real"] = True
@@ -197,7 +209,7 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
 def known_capability_commands() -> set[str]:
     """Return all commands accepted by the capabilities command filter."""
 
-    return set(command_support("E36312A")) | set(command_support("EDU36311A")) | set(command_support(None))
+    return set(command_support("E36312A")) | set(command_support("E3646A")) | set(command_support("EDU36311A")) | set(command_support(None))
 
 
 def capabilities_static_groups() -> dict[str, list[str]]:

@@ -6,6 +6,7 @@ from keysight_power_core.connection import (
     DEFAULT_TIMEOUT_MS,
     DEFAULT_WRITE_TERMINATION,
     InstrumentSession,
+    SerialOptions,
     list_resources,
     open_resource,
 )
@@ -134,3 +135,53 @@ def test_closed_session_rejects_io() -> None:
 def test_open_resource_requires_resource_name() -> None:
     with pytest.raises(ValueError, match="resource_name"):
         open_resource("", FakeResourceManager())
+
+
+def test_open_resource_applies_explicit_serial_options_to_asrl_only() -> None:
+    manager = FakeResourceManager(("ASRL1::INSTR",))
+
+    open_resource(
+        "ASRL1::INSTR",
+        manager,
+        serial_options=SerialOptions(
+            baud_rate=9600,
+            data_bits=8,
+            parity="none",
+            stop_bits="2",
+            flow_control="dtr_dsr",
+            read_termination="\r\n",
+            write_termination="\r\n",
+        ),
+    )
+
+    resource = manager.resource
+    assert resource.baud_rate == 9600
+    assert resource.data_bits == 8
+    assert resource.read_termination == "\r\n"
+    assert resource.write_termination == "\r\n"
+    assert resource.parity is not None
+    assert resource.stop_bits is not None
+    assert resource.flow_control is not None
+
+
+def test_open_resource_rejects_serial_options_on_non_asrl() -> None:
+    with pytest.raises(VisaConnectionError, match="Could not open VISA resource"):
+        open_resource(
+            "USB0::FAKE::INSTR",
+            FakeResourceManager(),
+            serial_options=SerialOptions(baud_rate=9600),
+        )
+
+
+def test_serial_remote_and_local_on_close_are_asrl_only() -> None:
+    manager = FakeResourceManager(("ASRL1::INSTR",))
+
+    session = open_resource(
+        "ASRL1::INSTR",
+        manager,
+        serial_remote=True,
+        serial_local_on_close=True,
+    )
+    session.close()
+
+    assert manager.resource.commands == ["SYST:REM", "SYST:LOC"]

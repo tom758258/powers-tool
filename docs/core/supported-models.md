@@ -14,6 +14,7 @@ validation wrapper workflow.
 | E36312A | USB-local | yes | yes | yes | Full output smoke runs read-only checks, protection-status reads, and low-power CH1-CH3 output smoke through `scripts/live-smoke-validation-check.ps1`; Phase 1-8 USB validation passed on 2026-05-22. |
 | E36312A | LAN-network | yes | yes | yes | Full output smoke is allowed only with an explicit `-Resource`; no LAN scan is performed. |
 | EDU36311A | USB-local or LAN-network | yes | yes | yes | Default live smoke is low-power CH1-CH3 output smoke at 1 V / 0.05 A. The legacy read-only profile remains available with `-Profile readonly`. |
+| E3646A | RS-232 / ASRL | yes | yes | read-only | Phase 1 support is limited to identity, measurement, readback, read-status, and output-state. Serial settings are applied only when explicitly provided. |
 
 EDU36311A USB read-only, output/write, and protection commands are enabled for
 real execution after staged validation. The live wrapper defaults to no-DUT
@@ -54,6 +55,10 @@ command-level facts:
 - EDU36311A real trigger commands remain disabled. `capabilities --json`
   reports STEP trigger planning as `hardware_validation=planning_only` and
   native LIST as `not_supported_by_model`.
+- E3646A RS-232 support is read-only/status only. It uses `INST:NSEL` channel
+  preselection for channels 1 and 2 and does not enable setpoint writes,
+  protection changes, trigger workflows, snapshot, restore, ramp, sequence, or
+  output-on/off commands.
 - `snapshot-diff`, `snapshot-diff --summary`, `hardware-report`, and
   `sequence --lint` are offline/no-hardware tools and never open VISA.
 

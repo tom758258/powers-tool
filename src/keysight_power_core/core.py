@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from keysight_power_core.connection import DEFAULT_TIMEOUT_MS
+from keysight_power_core.connection import DEFAULT_TIMEOUT_MS, SerialOptions
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,9 @@ class RuntimeOptions:
     timeout_ms: int = DEFAULT_TIMEOUT_MS
     log_scpi: bool = False
     confirm: bool = False
+    serial_options: SerialOptions | None = None
+    serial_remote: bool = False
+    serial_local_on_close: bool = False
 
 
 @dataclass(frozen=True)

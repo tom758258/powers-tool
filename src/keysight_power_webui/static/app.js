@@ -2107,7 +2107,7 @@ async function runSelected() {
 }
 
 function runtimePayload() {
-  return {
+  const runtime = {
     resource: valueOrNull("resource"),
     backend: null,
     timeout_ms: 5000,
@@ -2116,6 +2116,37 @@ function runtimePayload() {
     dry_run: false,
     confirm: document.getElementById("confirm").checked
   };
+  const serialOptions = serialOptionsPayload();
+  if (Object.keys(serialOptions).length) runtime.serial_options = serialOptions;
+  if (document.getElementById("serial-remote")?.checked) runtime.serial_remote = true;
+  if (document.getElementById("serial-local-on-close")?.checked) runtime.serial_local_on_close = true;
+  return runtime;
+}
+
+function serialOptionsPayload() {
+  const payload = {};
+  const baudRate = optionalIntegerValue("serial-baud-rate");
+  const dataBits = optionalIntegerValue("serial-data-bits");
+  const parity = valueOrNull("serial-parity");
+  const stopBits = valueOrNull("serial-stop-bits");
+  const flowControl = valueOrNull("serial-flow-control");
+  const readTermination = valueOrNull("serial-read-termination");
+  const writeTermination = valueOrNull("serial-write-termination");
+  if (baudRate !== null) payload.baud_rate = baudRate;
+  if (dataBits !== null) payload.data_bits = dataBits;
+  if (parity !== null) payload.parity = parity;
+  if (stopBits !== null) payload.stop_bits = stopBits;
+  if (flowControl !== null) payload.flow_control = flowControl;
+  if (readTermination !== null) payload.read_termination = readTermination;
+  if (writeTermination !== null) payload.write_termination = writeTermination;
+  return payload;
+}
+
+function optionalIntegerValue(id) {
+  const raw = valueOrNull(id);
+  if (raw === null) return null;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) ? parsed : null;
 }
 
 function parameterPayload() {

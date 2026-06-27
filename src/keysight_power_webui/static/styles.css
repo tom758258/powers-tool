@@ -91,6 +91,43 @@ button, input, select, textarea { font: inherit; }
   align-items: end;
 }
 
+.serial-panel {
+  margin-top: 10px;
+  padding: 12px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.serial-panel summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.serial-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.serial-check {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  align-content: end;
+  min-height: var(--control-h);
+  padding-top: 18px;
+}
+
+.serial-check input {
+  width: auto;
+  height: auto;
+}
+
 /* ─── Labels ─────────────────────────────────────────────────────────────── */
 label {
   display: grid;
@@ -1545,7 +1582,7 @@ pre {
 
 /* ─── Responsive: 1100px ─────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
-  .resource-row, .shell, .command-workbench { grid-template-columns: 1fr; }
+  .resource-row, .shell, .command-workbench, .serial-grid { grid-template-columns: 1fr; }
   .page-head, .shell { width: min(100vw - 24px, 1560px); }
   .rail, .workspace { height: auto; }
   .live-resource-field { grid-template-columns: 1fr; }

@@ -31,6 +31,17 @@ def test_readonly_simulate_readback():
     assert "voltage" in res["channels"][0]["setpoints"]
     assert "current" in res["channels"][0]["setpoints"]
 
+
+def test_readonly_simulate_e3646a_readback_all_channels():
+    runtime = RuntimeOptions(resource="ASRL1::SIM::E3646A::INSTR", simulate=True)
+    req = OperationRequest(command="readback", runtime=runtime, parameters={"channel": "all"})
+
+    res = run_readonly(req, opener=sim_opener)
+
+    assert "E3646A" in res["idn_raw"]
+    assert [channel["channel"] for channel in res["channels"]] == [1, 2]
+    assert res["channels"][1]["setpoints"] == {"voltage": 2.0, "current": 0.1}
+
 def test_readonly_simulate_measure_all_e36312a():
     runtime = RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", simulate=True)
     req = OperationRequest(command="measure-all", runtime=runtime)

@@ -54,6 +54,54 @@ def test_worker_config_overrides():
     assert config["control_host"] == "127.0.0.1"
 
 
+def test_worker_serial_settings_pass_through_to_runtime(tmp_path, monkeypatch):
+    config = {
+        "id": "power_1",
+        "type": "power",
+        "enabled": True,
+        "mode": "live",
+        "control_host": "127.0.0.1",
+        "control_port": 0,
+        "artifacts_dir": str(tmp_path),
+        "events_jsonl": None,
+        "settings": {
+            "resource": "ASRL1::INSTR",
+            "backend": None,
+            "timeout_ms": 5000,
+            "serial_options": {"baud_rate": 9600, "data_bits": 8},
+            "serial_remote": True,
+            "serial_local_on_close": True,
+            "safety_config": None,
+            "allow_output_writes": False,
+        },
+    }
+    state = WorkerState(config, 0)
+    captured = {}
+
+    def fake_run_core_command(request, **kwargs):
+        captured["runtime"] = request.runtime
+        return {"ok": True}
+
+    monkeypatch.setattr(worker_mod, "run_core_command", fake_run_core_command)
+
+    _run_job_impl(
+        state,
+        {
+            "job_id": None,
+            "worker_job_id": "job_serial",
+            "command": "identify",
+            "arguments": {},
+            "dir": tmp_path,
+        },
+    )
+
+    runtime = captured["runtime"]
+    assert runtime.serial_options.baud_rate == 9600
+    assert runtime.serial_options.data_bits == 8
+    assert runtime.serial_remote is True
+    assert runtime.serial_local_on_close is True
+
+
 @pytest.fixture
 def running_worker(tmp_path):
     artifacts_dir = tmp_path / "artifacts"

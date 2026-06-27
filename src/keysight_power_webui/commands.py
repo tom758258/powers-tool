@@ -7,7 +7,7 @@ from typing import Any
 
 from keysight_power_core import capabilities as core_capabilities
 from keysight_power_core.command_runner import run_core_command
-from keysight_power_core.connection import open_resource
+from keysight_power_core.connection import SerialOptions, open_resource
 from keysight_power_core.core import (
     CommandCancelled,
     ConfirmationRequiredError,
@@ -107,6 +107,9 @@ def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
         timeout_ms=int(runtime_dict.get("timeout_ms", 5000)),
         log_scpi=bool(runtime_dict.get("log_scpi", False)),
         confirm=bool(runtime_dict.get("confirm", False)),
+        serial_options=_serial_options_from_runtime(runtime_dict),
+        serial_remote=bool(runtime_dict.get("serial_remote", False)),
+        serial_local_on_close=bool(runtime_dict.get("serial_local_on_close", False)),
     )
 
 
@@ -177,9 +180,39 @@ def webui_command_support(command_names: set[str]) -> dict[str, dict[str, dict[s
         for model_key, model in {
             "E36312A": "E36312A",
             "EDU36311A": "EDU36311A",
+            "E3646A": "E3646A",
             "GENERIC": None,
         }.items()
     }
+
+
+def _serial_options_from_runtime(runtime_dict: dict[str, Any]) -> SerialOptions | None:
+    serial = runtime_dict.get("serial_options")
+    if not isinstance(serial, dict):
+        return None
+    options = SerialOptions(
+        baud_rate=_optional_int(serial.get("baud_rate")),
+        data_bits=_optional_int(serial.get("data_bits")),
+        parity=_optional_str(serial.get("parity")),
+        stop_bits=serial.get("stop_bits"),
+        flow_control=_optional_str(serial.get("flow_control")),
+        read_termination=_optional_str(serial.get("read_termination")),
+        write_termination=_optional_str(serial.get("write_termination")),
+    )
+    return options if options.has_explicit_values() else None
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text if text != "" else None
 
 
 def _normalize_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
@@ -211,7 +244,15 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
     if runtime.resource:
         manager = SimulatedResourceManager() if runtime.simulate else None
         try:
-            with open_resource(runtime.resource, manager, backend=runtime.backend, timeout_ms=runtime.timeout_ms) as instrument:
+            with open_resource(
+                runtime.resource,
+                manager,
+                backend=runtime.backend,
+                timeout_ms=runtime.timeout_ms,
+                serial_options=runtime.serial_options,
+                serial_remote=runtime.serial_remote,
+                serial_local_on_close=runtime.serial_local_on_close,
+            ) as instrument:
                 idn_raw = instrument.query(IDN_QUERY)
         except VisaConnectionError as exc:
             raise CoreValidationError(f"capabilities failed: {exc}") from exc

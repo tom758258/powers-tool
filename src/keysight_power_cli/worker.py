@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from keysight_power_core.connection import open_resource
+from keysight_power_core.connection import SerialOptions, open_resource
 from keysight_power_core.core import (
     RuntimeOptions,
     OperationRequest,
@@ -465,12 +465,45 @@ def record_no_session_stop_cleanup(state: WorkerState) -> None:
 def get_opener(state: WorkerState) -> Callable[..., Any]:
     """Return a connection opener that correctly utilizes simulated or live PyVISA resources."""
     if state.sim_mgr is not None:
-        def opener(resource: str, resource_manager: Any = None, *, backend: str | None = None, timeout_ms: int = 5000) -> Any:
-            return open_resource(resource, state.sim_mgr, backend=backend, timeout_ms=timeout_ms)
+        def opener(
+            resource: str,
+            resource_manager: Any = None,
+            *,
+            backend: str | None = None,
+            timeout_ms: int = 5000,
+            serial_options: SerialOptions | None = None,
+            serial_remote: bool = False,
+            serial_local_on_close: bool = False,
+        ) -> Any:
+            return open_resource(
+                resource,
+                state.sim_mgr,
+                backend=backend,
+                timeout_ms=timeout_ms,
+                serial_options=serial_options,
+                serial_remote=serial_remote,
+                serial_local_on_close=serial_local_on_close,
+            )
         return opener
     else:
-        def opener(resource: str, resource_manager: Any = None, *, backend: str | None = None, timeout_ms: int = 5000) -> Any:
-            return open_resource(resource, backend=backend, timeout_ms=timeout_ms)
+        def opener(
+            resource: str,
+            resource_manager: Any = None,
+            *,
+            backend: str | None = None,
+            timeout_ms: int = 5000,
+            serial_options: SerialOptions | None = None,
+            serial_remote: bool = False,
+            serial_local_on_close: bool = False,
+        ) -> Any:
+            return open_resource(
+                resource,
+                backend=backend,
+                timeout_ms=timeout_ms,
+                serial_options=serial_options,
+                serial_remote=serial_remote,
+                serial_local_on_close=serial_local_on_close,
+            )
         return opener
 
 
@@ -540,6 +573,9 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
         backend=settings.get("backend"),
         timeout_ms=settings.get("timeout_ms", 5000),
         confirm=confirm_req,
+        serial_options=_serial_options_from_settings(settings),
+        serial_remote=bool(settings.get("serial_remote", False)),
+        serial_local_on_close=bool(settings.get("serial_local_on_close", False)),
     )
 
     opener = get_opener(state)
@@ -783,6 +819,9 @@ def load_worker_config(args: argparse.Namespace) -> dict[str, Any]:
             "resource_alias": None,
             "backend": None,
             "timeout_ms": 5000,
+            "serial_options": {},
+            "serial_remote": False,
+            "serial_local_on_close": False,
             "safety_config": None,
             "allow_output_writes": False,
         }
@@ -855,6 +894,41 @@ def _validate_worker_config(config: dict[str, Any]) -> None:
         raise ValueError("Worker settings must be an object")
     if "default_action" in settings:
         raise ValueError("settings.default_action is not supported; use POST /command")
+    serial_options = settings.get("serial_options")
+    if serial_options is not None and not isinstance(serial_options, dict):
+        raise ValueError("settings.serial_options must be an object")
+    for key in ("serial_remote", "serial_local_on_close"):
+        if key in settings and not isinstance(settings[key], bool):
+            raise ValueError(f"settings.{key} must be a boolean")
+
+
+def _serial_options_from_settings(settings: dict[str, Any]) -> SerialOptions | None:
+    serial = settings.get("serial_options")
+    if not isinstance(serial, dict):
+        return None
+    options = SerialOptions(
+        baud_rate=_optional_int(serial.get("baud_rate")),
+        data_bits=_optional_int(serial.get("data_bits")),
+        parity=_optional_str(serial.get("parity")),
+        stop_bits=serial.get("stop_bits"),
+        flow_control=_optional_str(serial.get("flow_control")),
+        read_termination=_optional_str(serial.get("read_termination")),
+        write_termination=_optional_str(serial.get("write_termination")),
+    )
+    return options if options.has_explicit_values() else None
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    return int(value)
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text if text != "" else None
 
 
 def _validate_event_sink(config: dict[str, Any]) -> None:

@@ -73,6 +73,7 @@ def test_known_model_registry_lookup() -> None:
         "E36312A",
         "EDU36311A",
         "E36313A",
+        "E3646A",
         "E36103B",
         "E36232A",
         "E36233A",

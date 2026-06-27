@@ -12,6 +12,7 @@ SIMULATED_RESOURCES = (
     "TCPIP0::SIM::E36232A::INSTR",
     "USB0::SIM::E36312A::INSTR",
     "USB0::SIM::EDU36311A::INSTR",
+    "ASRL1::SIM::E3646A::INSTR",
 )
 
 SIMULATED_IDN = {
@@ -19,6 +20,7 @@ SIMULATED_IDN = {
     "TCPIP0::SIM::E36232A::INSTR": "KEYSIGHT,E36232A,SIM000002,1.0",
     "USB0::SIM::E36312A::INSTR": "KEYSIGHT,E36312A,SIM000003,1.0",
     "USB0::SIM::EDU36311A::INSTR": "KEYSIGHT,EDU36311A,SIM000004,1.0",
+    "ASRL1::SIM::E3646A::INSTR": "KEYSIGHT,E3646A,SIM000005,1.0",
 }
 
 SIMULATED_MEASUREMENTS = {
@@ -38,6 +40,10 @@ SIMULATED_MEASUREMENTS = {
         2: {"voltage": "2.020", "current": "0.202"},
         3: {"voltage": "3.030", "current": "0.303"},
     },
+    "ASRL1::SIM::E3646A::INSTR": {
+        1: {"voltage": "1.460", "current": "0.146"},
+        2: {"voltage": "2.460", "current": "0.246"},
+    },
 }
 
 SIMULATED_OUTPUT_STATES = {
@@ -45,6 +51,7 @@ SIMULATED_OUTPUT_STATES = {
     "TCPIP0::SIM::E36232A::INSTR": {1: False},
     "USB0::SIM::E36312A::INSTR": {1: False, 2: False, 3: False},
     "USB0::SIM::EDU36311A::INSTR": {1: False, 2: False, 3: False},
+    "ASRL1::SIM::E3646A::INSTR": {1: False, 2: False},
 }
 
 SIMULATED_PROGRAMMED_SETPOINTS = {
@@ -57,6 +64,10 @@ SIMULATED_PROGRAMMED_SETPOINTS = {
         1: {"voltage": "1.000", "current": "0.050"},
         2: {"voltage": "2.000", "current": "0.100"},
         3: {"voltage": "3.000", "current": "0.150"},
+    },
+    "ASRL1::SIM::E3646A::INSTR": {
+        1: {"voltage": "1.000", "current": "0.050"},
+        2: {"voltage": "2.000", "current": "0.100"},
     },
 }
 
@@ -265,10 +276,19 @@ class SimulatedResource:
         self.write_termination: str | None = None
         self.commands: list[str] = []
         self.closed = False
+        self.selected_channel = 1
 
     def write(self, command: str) -> None:
         self._ensure_open()
         self.commands.append(command)
+        if command.startswith("INST:NSEL "):
+            channel = int(float(command.removeprefix("INST:NSEL ").strip()))
+            if channel not in SIMULATED_OUTPUT_STATES.get(self.resource_name, {}):
+                raise VisaConnectionError(f"No simulated response for {command!r}")
+            self.selected_channel = channel
+            return
+        if command in {"SYST:REM", "SYST:LOC"}:
+            return
         if _simulated_status_write(self.resource_name, command):
             return
         if _simulated_trigger_write(self.resource_name, command):
@@ -299,6 +319,8 @@ class SimulatedResource:
             return SIMULATED_IDN[self.resource_name]
         if command == "SYST:ERR?":
             return '0,"No error"'
+        if command == "INST:NSEL?":
+            return str(self.selected_channel)
         if command == "*OPT?":
             return SIMULATED_OPTIONS.get(self.resource_name, "0")
         if command == "SYST:VERS?":
@@ -327,7 +349,7 @@ class SimulatedResource:
                 raise VisaConnectionError(f"No simulated response for {command!r}") from exc
         output_state = _simulated_output_state(command)
         if output_state is not None:
-            channel = output_state
+            channel = self.selected_channel if output_state == 0 else output_state
             try:
                 return "ON" if SIMULATED_OUTPUT_STATES[self.resource_name][channel] else "OFF"
             except KeyError as exc:
@@ -335,6 +357,8 @@ class SimulatedResource:
         measurement = _simulated_measurement(command)
         if measurement is not None:
             measurement_name, channel = measurement
+            if channel == 0:
+                channel = self.selected_channel
             try:
                 return SIMULATED_MEASUREMENTS[self.resource_name][channel][measurement_name]
             except KeyError as exc:
@@ -342,6 +366,8 @@ class SimulatedResource:
         setpoint = _simulated_setpoint(command)
         if setpoint is not None:
             setpoint_name, channel = setpoint
+            if channel == 0:
+                channel = self.selected_channel
             try:
                 return SIMULATED_PROGRAMMED_SETPOINTS[self.resource_name][channel][setpoint_name]
             except KeyError as exc:
@@ -363,9 +389,9 @@ class SimulatedResource:
 
 def _simulated_measurement(command: str) -> tuple[str, int] | None:
     if command == "MEAS:VOLT?":
-        return ("voltage", 1)
+        return ("voltage", 0)
     if command == "MEAS:CURR?":
-        return ("current", 1)
+        return ("current", 0)
     if command.startswith("MEAS:VOLT? (@") and command.endswith(")"):
         return ("voltage", _parse_channel_list(command, "MEAS:VOLT? (@"))
     if command.startswith("MEAS:CURR? (@") and command.endswith(")"):
@@ -375,9 +401,9 @@ def _simulated_measurement(command: str) -> tuple[str, int] | None:
 
 def _simulated_setpoint(command: str) -> tuple[str, int] | None:
     if command == "VOLT?":
-        return ("voltage", 1)
+        return ("voltage", 0)
     if command == "CURR?":
-        return ("current", 1)
+        return ("current", 0)
     if command.startswith("VOLT? (@") and command.endswith(")"):
         return ("voltage", _parse_channel_list(command, "VOLT? (@"))
     if command.startswith("CURR? (@") and command.endswith(")"):
@@ -406,7 +432,7 @@ def _simulated_output_change(command: str) -> tuple[int, bool] | None:
 
 def _simulated_output_state(command: str) -> int | None:
     if command == "OUTP?":
-        return 1
+        return 0
     if command.startswith("OUTP? (@") and command.endswith(")"):
         return _parse_channel_list(command, "OUTP? (@")
     return None

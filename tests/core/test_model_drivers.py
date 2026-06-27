@@ -1,6 +1,7 @@
 import pytest
 
 from keysight_power_core.drivers.e36312a import E36312APowerSupply, TriggerSnapshot
+from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.drivers.generic_scpi import NoChannelStrategy
 from keysight_power_core.safety import SafetyLimits, SafetyValidationError
@@ -240,3 +241,41 @@ def test_e36312a_trigger_mode_switch_always_passes_through_fix() -> None:
         "CURR:MODE STEP,(@1)",
         "VOLT:MODE LIST,(@1)",
     ]
+
+
+def test_e3646a_driver_preselects_and_restores_channel_for_readback() -> None:
+    session = FakeSession(
+        {
+            "INST:NSEL?": "1",
+            "VOLT?": "2.000",
+            "CURR?": "0.100",
+            "OUTP?": "0",
+        }
+    )
+    power_supply = E3646APowerSupply(session)
+
+    assert power_supply.programmed_voltage(channel=2) == 2.0
+    assert power_supply.programmed_current(channel=2) == 0.1
+    assert power_supply.output_state(channel=2) is False
+
+    assert session.commands == [
+        "INST:NSEL?",
+        "INST:NSEL 2",
+        "VOLT?",
+        "INST:NSEL 1",
+        "INST:NSEL?",
+        "INST:NSEL 2",
+        "CURR?",
+        "INST:NSEL 1",
+        "INST:NSEL?",
+        "INST:NSEL 2",
+        "OUTP?",
+        "INST:NSEL 1",
+    ]
+
+
+def test_e3646a_driver_disables_output_writes() -> None:
+    power_supply = E3646APowerSupply(FakeSession())
+
+    with pytest.raises(NotImplementedError, match="disabled"):
+        power_supply.output_on(channel=1)

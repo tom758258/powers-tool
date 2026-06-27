@@ -153,6 +153,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     runtime._add_dry_run_argument(output_state_parser)
     runtime._add_backend_argument(output_state_parser)
     runtime._add_timeout_argument(output_state_parser)
+    runtime._add_serial_arguments(output_state_parser)
     output_state_parser.add_argument(
         "--log-scpi",
         action="store_true",

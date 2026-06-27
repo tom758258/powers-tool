@@ -15,6 +15,7 @@ def test_simulator_lists_first_target_resources() -> None:
         "TCPIP0::SIM::E36232A::INSTR",
         "USB0::SIM::E36312A::INSTR",
         "USB0::SIM::EDU36311A::INSTR",
+        "ASRL1::SIM::E3646A::INSTR",
     )
     assert SimulatedResourceManager().list_resources() == SIMULATED_RESOURCES
 

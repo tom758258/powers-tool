@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from keysight_power_core.drivers.base import DriverCapabilities
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
+from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.drivers.generic_scpi import ChannelStrategy, GenericScpiPowerSupply
 from keysight_power_core.models import IdnInfo, ModelInfo, lookup_model, parse_idn
@@ -14,6 +15,7 @@ from keysight_power_core.transport import SessionLike
 
 MODEL_DRIVERS: dict[str, type[GenericScpiPowerSupply]] = {
     "E36312A": E36312APowerSupply,
+    "E3646A": E3646APowerSupply,
     "EDU36311A": EDU36311APowerSupply,
 }
 

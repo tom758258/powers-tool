@@ -13,9 +13,10 @@ from keysight_power_core.core import (
     UnsupportedChannelError,
     CoreIoError,
 )
-from keysight_power_core.connection import open_resource
+from keysight_power_core.connection import open_resource, serial_open_kwargs
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
+from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.models import parse_idn
@@ -54,9 +55,9 @@ def run_readonly(
             idn_raw = instrument.query(IDN_QUERY)
             power_supply = create_power_supply(instrument, idn_raw)
 
-            if not isinstance(power_supply, (E36312APowerSupply, EDU36311APowerSupply)):
+            if not isinstance(power_supply, (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)):
                 raise UnsupportedModelError(
-                    f"{request.command} is only supported for E36312A or EDU36311A; "
+                    f"{request.command} is only supported for E36312A, E3646A, or EDU36311A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
 
@@ -160,9 +161,9 @@ def run_live_panel_read(
 
             idn_raw = instrument.query(IDN_QUERY)
             power_supply = create_power_supply(instrument, idn_raw)
-            if not isinstance(power_supply, (E36312APowerSupply, EDU36311APowerSupply)):
+            if not isinstance(power_supply, (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)):
                 raise UnsupportedModelError(
-                    f"live-panel is only supported for E36312A or EDU36311A; "
+                    f"live-panel is only supported for E36312A, E3646A, or EDU36311A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
 
@@ -171,7 +172,9 @@ def run_live_panel_read(
                 "idn_raw": idn_raw,
                 "idn": parse_idn(idn_raw).to_dict(),
                 "channels": [
-                    _live_channel_payload(power_supply, channel)
+                    _e3646a_live_channel_payload(power_supply, channel)
+                    if isinstance(power_supply, E3646APowerSupply)
+                    else _live_channel_payload(power_supply, channel)
                     for channel in power_supply.capabilities.channels
                 ],
             }
@@ -272,6 +275,26 @@ def _live_channel_payload(power_supply: Any, channel: int) -> dict[str, Any]:
     }
 
 
+def _e3646a_live_channel_payload(power_supply: Any, channel: int) -> dict[str, Any]:
+    return {
+        "channel": channel,
+        "output_enabled": power_supply.output_state(channel=channel),
+        "over_voltage_tripped": None,
+        "over_current_tripped": None,
+        "protection_tripped": None,
+        "over_voltage_protection_level": None,
+        "over_current_protection_enabled": None,
+        "setpoints": {
+            "voltage": power_supply.programmed_voltage(channel=channel),
+            "current": power_supply.programmed_current(channel=channel),
+        },
+        "measurements": {
+            "voltage": power_supply.measure_voltage(channel=channel),
+            "current": power_supply.measure_current(channel=channel),
+        },
+    }
+
+
 def _open_readonly_resource(request: OperationRequest, opener: Callable[..., Any]) -> Any:
     resource_manager = SimulatedResourceManager() if request.runtime.simulate else None
     if resource_manager is not None and _accepts_resource_manager(opener):
@@ -280,11 +303,21 @@ def _open_readonly_resource(request: OperationRequest, opener: Callable[..., Any
             resource_manager,
             backend=request.runtime.backend,
             timeout_ms=request.runtime.timeout_ms,
+            **serial_open_kwargs(
+                serial_options=request.runtime.serial_options,
+                serial_remote=request.runtime.serial_remote,
+                serial_local_on_close=request.runtime.serial_local_on_close,
+            ),
         )
     return opener(
         request.runtime.resource,
         backend=request.runtime.backend,
         timeout_ms=request.runtime.timeout_ms,
+        **serial_open_kwargs(
+            serial_options=request.runtime.serial_options,
+            serial_remote=request.runtime.serial_remote,
+            serial_local_on_close=request.runtime.serial_local_on_close,
+        ),
     )
 
 

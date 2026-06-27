@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from keysight_power_core.errors import VisaConnectionError
+from keysight_power_core.models import resource_interface
 from keysight_power_core.transport import ResourceManagerLike
 
 DEFAULT_TIMEOUT_MS = 5000
@@ -12,12 +14,46 @@ DEFAULT_READ_TERMINATION = "\n"
 DEFAULT_WRITE_TERMINATION = "\n"
 
 
+@dataclass(frozen=True)
+class SerialOptions:
+    """Optional ASRL settings to apply only when explicitly requested."""
+
+    baud_rate: int | None = None
+    data_bits: int | None = None
+    parity: str | None = None
+    stop_bits: float | int | str | None = None
+    flow_control: str | None = None
+    read_termination: str | None = None
+    write_termination: str | None = None
+
+    def has_explicit_values(self) -> bool:
+        return any(
+            value is not None
+            for value in (
+                self.baud_rate,
+                self.data_bits,
+                self.parity,
+                self.stop_bits,
+                self.flow_control,
+                self.read_termination,
+                self.write_termination,
+            )
+        )
+
+
 class InstrumentSession:
     """Thin wrapper around a VISA resource."""
 
-    def __init__(self, resource: Any, resource_name: str | None = None) -> None:
+    def __init__(
+        self,
+        resource: Any,
+        resource_name: str | None = None,
+        *,
+        serial_local_on_close: bool = False,
+    ) -> None:
         self._resource = resource
         self.resource_name = resource_name
+        self._serial_local_on_close = serial_local_on_close
         self._closed = False
 
     def __enter__(self) -> InstrumentSession:
@@ -83,6 +119,11 @@ class InstrumentSession:
             return
 
         try:
+            if self._serial_local_on_close:
+                try:
+                    self._resource.write("SYST:LOC")
+                except Exception:
+                    pass
             self._resource.close()
         except Exception as exc:  # pragma: no cover - exception type depends on backend
             raise VisaConnectionError("VISA close failed") from exc
@@ -128,11 +169,16 @@ def open_resource(
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
     read_termination: str = DEFAULT_READ_TERMINATION,
     write_termination: str = DEFAULT_WRITE_TERMINATION,
+    serial_options: SerialOptions | None = None,
+    serial_remote: bool = False,
+    serial_local_on_close: bool = False,
 ) -> InstrumentSession:
     if not resource_name:
         raise ValueError("resource_name is required")
     if timeout_ms < 1:
         raise ValueError("timeout_ms must be at least 1")
+    if (serial_remote or serial_local_on_close) and resource_interface(resource_name) != "ASRL":
+        raise ValueError("serial remote/local flags can only be used with ASRL resources")
 
     manager = resource_manager or create_resource_manager(backend)
     try:
@@ -140,12 +186,115 @@ def open_resource(
         resource.timeout = timeout_ms
         resource.read_termination = read_termination
         resource.write_termination = write_termination
+        _apply_serial_options(resource, resource_name, serial_options)
+        if serial_remote:
+            resource.write("SYST:REM")
     except Exception as exc:
         raise VisaConnectionError(f"Could not open VISA resource {resource_name!r}") from exc
 
-    return InstrumentSession(resource, resource_name=resource_name)
+    return InstrumentSession(
+        resource,
+        resource_name=resource_name,
+        serial_local_on_close=serial_local_on_close,
+    )
 
 
 def _is_no_error(response: str) -> bool:
     normalized = response.strip().lstrip("+")
     return normalized == "0" or normalized.startswith("0,")
+
+
+def serial_open_kwargs(
+    *,
+    serial_options: SerialOptions | None,
+    serial_remote: bool,
+    serial_local_on_close: bool,
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    if serial_options is not None:
+        kwargs["serial_options"] = serial_options
+    if serial_remote:
+        kwargs["serial_remote"] = True
+    if serial_local_on_close:
+        kwargs["serial_local_on_close"] = True
+    return kwargs
+
+
+def _apply_serial_options(resource: Any, resource_name: str, options: SerialOptions | None) -> None:
+    if options is None or not options.has_explicit_values():
+        return
+    if resource_interface(resource_name) != "ASRL":
+        raise ValueError("serial options can only be applied to ASRL resources")
+
+    assignments = {
+        "baud_rate": options.baud_rate,
+        "data_bits": options.data_bits,
+        "parity": _pyvisa_parity(options.parity),
+        "stop_bits": _pyvisa_stop_bits(options.stop_bits),
+        "flow_control": _pyvisa_flow_control(options.flow_control),
+        "read_termination": options.read_termination,
+        "write_termination": options.write_termination,
+    }
+    for name, value in assignments.items():
+        if value is not None:
+            setattr(resource, name, value)
+
+
+def _pyvisa_parity(value: str | None) -> Any:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    aliases = {
+        "none": "none",
+        "n": "none",
+        "odd": "odd",
+        "o": "odd",
+        "even": "even",
+        "e": "even",
+        "mark": "mark",
+        "m": "mark",
+        "space": "space",
+        "s": "space",
+    }
+    if normalized not in aliases:
+        raise ValueError("serial parity must be none, odd, even, mark, or space")
+    return _pyvisa_constant("Parity", aliases[normalized], fallback=aliases[normalized])
+
+
+def _pyvisa_stop_bits(value: float | int | str | None) -> Any:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    aliases = {"1": "one", "1.0": "one", "1.5": "one_and_a_half", "2": "two", "2.0": "two"}
+    if normalized not in aliases:
+        raise ValueError("serial stop bits must be 1, 1.5, or 2")
+    return _pyvisa_constant("StopBits", aliases[normalized], fallback=value)
+
+
+def _pyvisa_flow_control(value: str | None) -> Any:
+    if value is None:
+        return None
+    normalized = value.strip().lower().replace("-", "_")
+    aliases = {
+        "none": "none",
+        "xon_xoff": "xon_xoff",
+        "xonxoff": "xon_xoff",
+        "rts_cts": "rts_cts",
+        "rtscts": "rts_cts",
+        "dtr_dsr": "dtr_dsr",
+        "dtrdsr": "dtr_dsr",
+    }
+    if normalized not in aliases:
+        raise ValueError("serial flow control must be none, xon_xoff, rts_cts, or dtr_dsr")
+    return _pyvisa_constant("ControlFlow", aliases[normalized], fallback=aliases[normalized])
+
+
+def _pyvisa_constant(type_name: str, member: str, *, fallback: Any) -> Any:
+    try:
+        import pyvisa.constants as constants
+    except ImportError:
+        return fallback
+    enum_type = getattr(constants, type_name, None)
+    if enum_type is None:
+        return fallback
+    return getattr(enum_type, member, fallback)

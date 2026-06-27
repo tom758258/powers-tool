@@ -179,6 +179,33 @@ def test_import_smoke():
     from keysight_power_webui.server import main
     assert app is not None
     assert job_manager is not None
+    assert JobStatus is not None
+    assert execute_job_command is not None
+    assert main is not None
+
+
+def test_static_ui_exposes_advanced_serial_controls():
+    html, app_js, styles_css = read_static_texts()
+
+    for element_id in (
+        "serial-baud-rate",
+        "serial-data-bits",
+        "serial-parity",
+        "serial-stop-bits",
+        "serial-flow-control",
+        "serial-read-termination",
+        "serial-write-termination",
+        "serial-remote",
+        "serial-local-on-close",
+    ):
+        assert_static_id(html, element_id)
+
+    runtime_block = extract_js_function(app_js, "runtimePayload")
+    assert "serialOptionsPayload()" in runtime_block
+    assert "runtime.serial_options = serialOptions" in runtime_block
+    assert "runtime.serial_remote = true" in runtime_block
+    assert "runtime.serial_local_on_close = true" in runtime_block
+    assert ".serial-grid" in styles_css
 
 
 def test_static_top_bar_uses_live_resource_defaults():
@@ -1173,12 +1200,14 @@ def test_commands_metadata_includes_model_aware_support(client: TestClient):
     data = response.json()
     support = data["command_support_by_model"]
 
-    assert set(support) == {"E36312A", "EDU36311A", "GENERIC"}
+    assert set(support) == {"E36312A", "E3646A", "EDU36311A", "GENERIC"}
     assert support["E36312A"]["trigger-list"]["real"] is True
     assert support["EDU36311A"]["trigger-list"]["real"] is False
     assert support["EDU36311A"]["trigger-list"]["hardware_validation"] == "not_supported_by_model"
+    assert support["E3646A"]["identify"]["real"] is True
+    assert support["E3646A"]["set"]["real"] is False
     assert support["GENERIC"]["set"]["real"] is False
-    for model in ("E36312A", "EDU36311A", "GENERIC"):
+    for model in ("E36312A", "E3646A", "EDU36311A", "GENERIC"):
         assert support[model]["clear"]["real"] is True
         assert support[model]["error"]["real"] is True
         assert "verify" not in support[model]

@@ -6,7 +6,7 @@ import math
 import time
 from typing import Any, Callable, Sequence
 
-from keysight_power_core.connection import open_resource
+from keysight_power_core.connection import open_resource, serial_open_kwargs
 from keysight_power_core.cancellation import StopRequested, interruptible_sleep, raise_if_cancelled
 from keysight_power_core.core import (
     ConfirmationRequiredError,
@@ -19,6 +19,7 @@ from keysight_power_core.core import (
     UnsupportedModelError,
 )
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
+from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
@@ -38,6 +39,7 @@ from keysight_power_core.workflow_validation import validate_general_workflow_pa
 
 IDN_QUERY = "*IDN?"
 OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
+OUTPUT_STATE_POWER_SUPPLY_TYPES = (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)
 
 
 class ScpiLoggingSession:
@@ -256,7 +258,16 @@ def _run_output_write_operation(
         raise CoreValidationError("resource is required")
 
     try:
-        with opener(resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
+        with opener(
+            resource,
+            backend=request.runtime.backend,
+            timeout_ms=request.runtime.timeout_ms,
+            **serial_open_kwargs(
+                serial_options=request.runtime.serial_options,
+                serial_remote=request.runtime.serial_remote,
+                serial_local_on_close=request.runtime.serial_local_on_close,
+            ),
+        ) as instrument:
             opened = True
             session = (
                 ScpiLoggingSession(resource, instrument, scpi_logger)
@@ -265,9 +276,15 @@ def _run_output_write_operation(
             )
             idn = session.query(IDN_QUERY)
             power_supply = create_power_supply(session, idn)
-            if not isinstance(power_supply, OUTPUT_WRITE_POWER_SUPPLY_TYPES):
+            allowed_types = (
+                OUTPUT_STATE_POWER_SUPPLY_TYPES
+                if request.command == "output-state"
+                else OUTPUT_WRITE_POWER_SUPPLY_TYPES
+            )
+            if not isinstance(power_supply, allowed_types):
+                supported_models = "E36312A, E3646A, or EDU36311A" if request.command == "output-state" else "E36312A or EDU36311A"
                 raise UnsupportedModelError(
-                    f"{request.command} real execution is only supported for E36312A or EDU36311A; "
+                    f"{request.command} real execution is only supported for {supported_models}; "
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
             return _execute_output_write(
