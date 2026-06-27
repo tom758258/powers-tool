@@ -1,4 +1,4 @@
-﻿"""Parser-neutral read-only core operations."""
+"""Parser-neutral read-only core operations."""
 
 from __future__ import annotations
 

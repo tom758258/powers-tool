@@ -54,6 +54,7 @@ from keysight_power_core.core import (
     UnsupportedModelError,
 )
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
+from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
 from keysight_power_core.errors import VisaConnectionError
@@ -3232,14 +3233,23 @@ def _run_read_only_command(
         )
     opened = False
     try:
-        with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
+        with _open_resource(
+            args.resource,
+            manager,
+            backend=args.backend,
+            timeout_ms=args.timeout_ms,
+            serial_options=_serial_options_for_args(args),
+            serial_remote=getattr(args, "serial_remote", False),
+            serial_local_on_close=getattr(args, "serial_local_on_close", False),
+            scpi_logger=_connection_scpi_logger_for_args(args),
+        ) as instrument:
             opened = True
             session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
             idn = session.query(IDN_QUERY)
             power_supply = create_power_supply(session, idn)
-            if not isinstance(power_supply, (E36312APowerSupply, EDU36311APowerSupply)):
+            if not isinstance(power_supply, (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)):
                 raise _ReadOnlyModelError(
-                    f"{command_label} is only supported for E36312A or EDU36311A; "
+                    f"{command_label} is only supported for E36312A, E3646A, or EDU36311A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
             channels = _read_only_channels_from_selection(
@@ -4792,6 +4802,7 @@ def _run_core_output_real(args: argparse.Namespace) -> int:
             serial_options=serial_options,
             serial_remote=serial_remote,
             serial_local_on_close=serial_local_on_close,
+            scpi_logger=_connection_scpi_logger_for_args(args),
         )
 
     try:
@@ -7828,6 +7839,7 @@ def _open_resource(
     serial_options: SerialOptions | None = None,
     serial_remote: bool = False,
     serial_local_on_close: bool = False,
+    scpi_logger: Any = None,
 ):
     serial_kwargs = _serial_open_kwargs(
         serial_options=serial_options,
@@ -7835,12 +7847,16 @@ def _open_resource(
         serial_local_on_close=serial_local_on_close,
     )
     if resource_manager is None:
+        if scpi_logger is not None:
+            serial_kwargs["scpi_logger"] = scpi_logger
         return open_resource(
             resource,
             backend=backend,
             timeout_ms=timeout_ms,
             **serial_kwargs,
         )
+    if scpi_logger is not None:
+        serial_kwargs["scpi_logger"] = scpi_logger
     return open_resource(
         resource,
         resource_manager,
@@ -9326,6 +9342,14 @@ def _serial_options_for_args(args: argparse.Namespace) -> SerialOptions | None:
     return options if options.has_explicit_values() else None
 
 
+def _connection_scpi_logger_for_args(args: argparse.Namespace):
+    if not getattr(args, "log_scpi", False):
+        return None
+    if not (getattr(args, "serial_remote", False) or getattr(args, "serial_local_on_close", False)):
+        return None
+    return _log_scpi
+
+
 def _core_opener_for_args(args: argparse.Namespace):
     manager = _resource_manager_for_args(args)
 
@@ -9347,6 +9371,7 @@ def _core_opener_for_args(args: argparse.Namespace):
             serial_options=serial_options,
             serial_remote=serial_remote,
             serial_local_on_close=serial_local_on_close,
+            scpi_logger=_connection_scpi_logger_for_args(args),
         )
 
     return opener

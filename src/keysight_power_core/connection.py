@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -50,10 +51,12 @@ class InstrumentSession:
         resource_name: str | None = None,
         *,
         serial_local_on_close: bool = False,
+        scpi_logger: Callable[[str, str, str], None] | None = None,
     ) -> None:
         self._resource = resource
         self.resource_name = resource_name
         self._serial_local_on_close = serial_local_on_close
+        self._scpi_logger = scpi_logger
         self._closed = False
 
     def __enter__(self) -> InstrumentSession:
@@ -121,6 +124,7 @@ class InstrumentSession:
         try:
             if self._serial_local_on_close:
                 try:
+                    _log_scpi(self._scpi_logger, self.resource_name, ">>", "SYST:LOC")
                     self._resource.write("SYST:LOC")
                 except Exception:
                     pass
@@ -172,6 +176,7 @@ def open_resource(
     serial_options: SerialOptions | None = None,
     serial_remote: bool = False,
     serial_local_on_close: bool = False,
+    scpi_logger: Callable[[str, str, str], None] | None = None,
 ) -> InstrumentSession:
     if not resource_name:
         raise ValueError("resource_name is required")
@@ -181,27 +186,52 @@ def open_resource(
         raise ValueError("serial remote/local flags can only be used with ASRL resources")
 
     manager = resource_manager or create_resource_manager(backend)
+    resource = None
     try:
         resource = manager.open_resource(resource_name)
         resource.timeout = timeout_ms
-        resource.read_termination = read_termination
-        resource.write_termination = write_termination
+        if resource_interface(resource_name) != "ASRL":
+            resource.read_termination = read_termination
+            resource.write_termination = write_termination
         _apply_serial_options(resource, resource_name, serial_options)
         if serial_remote:
+            _log_scpi(scpi_logger, resource_name, ">>", "SYST:REM")
             resource.write("SYST:REM")
     except Exception as exc:
+        if resource is not None:
+            if serial_remote:
+                try:
+                    _log_scpi(scpi_logger, resource_name, ">>", "SYST:LOC")
+                    resource.write("SYST:LOC")
+                except Exception:
+                    pass
+            try:
+                resource.close()
+            except Exception:
+                pass
         raise VisaConnectionError(f"Could not open VISA resource {resource_name!r}") from exc
 
     return InstrumentSession(
         resource,
         resource_name=resource_name,
         serial_local_on_close=serial_local_on_close,
+        scpi_logger=scpi_logger,
     )
 
 
 def _is_no_error(response: str) -> bool:
     normalized = response.strip().lstrip("+")
     return normalized == "0" or normalized.startswith("0,")
+
+
+def _log_scpi(
+    scpi_logger: Callable[[str, str, str], None] | None,
+    resource_name: str | None,
+    direction: str,
+    payload: str,
+) -> None:
+    if scpi_logger is not None and resource_name is not None:
+        scpi_logger(resource_name, direction, payload)
 
 
 def serial_open_kwargs(

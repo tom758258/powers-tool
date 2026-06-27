@@ -5441,6 +5441,156 @@ def test_readback_real_edu36311a_sends_expected_scpi(monkeypatch, capsys) -> Non
     ]
 
 
+def test_readback_real_forwards_serial_options_to_opener(monkeypatch, capsys) -> None:
+    opened = []
+
+    def fake_open_resource(resource, *, backend=None, timeout_ms=5000, **kwargs):
+        opened.append((resource, backend, timeout_ms, kwargs))
+        return FakeSession(
+            idn="KEYSIGHT,E3646A,SERIAL0000,1.0",
+            query_responses={
+                "INST:NSEL?": "1",
+                "VOLT?": "1.0",
+                "CURR?": "0.05",
+            },
+        )
+
+    monkeypatch.setattr(cli, "open_resource", fake_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "readback",
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                "--channel",
+                "1",
+                "--serial-baud-rate",
+                "9600",
+                "--serial-read-termination",
+                "\\n",
+                "--serial-write-termination",
+                "\\r",
+                "--serial-remote",
+                "--serial-local-on-close",
+            ]
+        )
+        == 0
+    )
+
+    json.loads(capsys.readouterr().out)
+    serial_options = opened[0][3]["serial_options"]
+    assert serial_options.baud_rate == 9600
+    assert serial_options.read_termination == "\\n"
+    assert serial_options.write_termination == "\\r"
+    assert opened[0][3]["serial_remote"] is True
+    assert opened[0][3]["serial_local_on_close"] is True
+
+
+def test_readback_real_e3646a_preselects_and_restores_channel(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E3646A,SERIAL0000,1.0",
+        query_responses={
+            "INST:NSEL?": "1",
+            "VOLT?": "2.0",
+            "CURR?": "0.10",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "readback",
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                "--channel",
+                "2",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.events == [
+        "query:*IDN?",
+        "query:INST:NSEL?",
+        "write:INST:NSEL 2",
+        "query:VOLT?",
+        "write:INST:NSEL 1",
+        "query:INST:NSEL?",
+        "write:INST:NSEL 2",
+        "query:CURR?",
+        "write:INST:NSEL 1",
+    ]
+    assert payload["data"]["channels"] == [
+        {"channel": 2, "setpoints": {"voltage": 2.0, "current": 0.1}},
+    ]
+
+
+def test_readback_real_e3646a_rejects_channel_outside_driver_capabilities(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E3646A,SERIAL0000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["readback", "--json", "--resource", "ASRL1::INSTR", "--channel", "3"]) == 2
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+    assert "supported: (1, 2)" in payload["error"]["message"]
+
+
+def test_readback_serial_remote_local_log_scpi_stays_on_stderr(monkeypatch, capsys) -> None:
+    class FakeSerialSession(FakeSession):
+        def __init__(self, resource: str, scpi_logger):
+            super().__init__(
+                idn="KEYSIGHT,E3646A,SERIAL0000,1.0",
+                query_responses={
+                    "INST:NSEL?": "1",
+                    "VOLT?": "1.0",
+                    "CURR?": "0.05",
+                },
+            )
+            self.resource = resource
+            self.scpi_logger = scpi_logger
+
+        def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            if self.scpi_logger is not None:
+                self.scpi_logger(self.resource, ">>", "SYST:LOC")
+            super().__exit__(exc_type, exc, traceback)
+
+    def fake_open_resource(resource, *, backend=None, timeout_ms=5000, **kwargs):
+        scpi_logger = kwargs.get("scpi_logger")
+        if kwargs.get("serial_remote") and scpi_logger is not None:
+            scpi_logger(resource, ">>", "SYST:REM")
+        return FakeSerialSession(resource, scpi_logger if kwargs.get("serial_local_on_close") else None)
+
+    monkeypatch.setattr(cli, "open_resource", fake_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "readback",
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                "--channel",
+                "1",
+                "--log-scpi",
+                "--serial-remote",
+                "--serial-local-on-close",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    json.loads(captured.out)
+    assert "ASRL1::INSTR SCPI >> SYST:REM" in captured.err
+    assert "ASRL1::INSTR SCPI >> SYST:LOC" in captured.err
+
+
 def test_log_simulate_json_writes_csv(tmp_path, capsys) -> None:
     csv_path = tmp_path / "edu-log.csv"
 

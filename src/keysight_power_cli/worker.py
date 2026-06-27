@@ -1,4 +1,4 @@
-﻿"""keysight-power worker daemon implementation."""
+"""keysight-power worker daemon implementation."""
 
 from __future__ import annotations
 
