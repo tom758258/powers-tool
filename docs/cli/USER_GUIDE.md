@@ -90,10 +90,12 @@ Add `--json` when copying results into automation:
 
 ## E3646A RS-232 / ASRL
 
-E3646A support is currently read-only/status only over RS-232/ASRL. Supported
-live commands are `identify`, `verify`, `measure`, `readback`, `read-status`,
-`output-state`, and `capabilities`. Output-affecting commands remain disabled
-for E3646A until live hardware validation is completed.
+E3646A support is currently read-only/status only over RS-232/ASRL.
+Model-supported live commands are `identify`, `measure`, `readback`,
+`read-status`, `output-state`, and `capabilities`. `verify` is also available
+as a model-independent connection diagnostic that opens the selected resource
+and queries `*IDN?`. Output-affecting commands remain disabled for E3646A
+until live hardware validation is completed.
 
 Plain `list-resources` normally does not need serial settings:
 

@@ -70,6 +70,7 @@ def test_command_support_generic_fallback() -> None:
 def test_command_support_e3646a_rs232_read_only_boundary() -> None:
     support = capabilities.command_support("E3646A")
 
+    assert "verify" not in support
     for command in ("identify", "measure", "readback", "read-status", "output-state", "capabilities"):
         assert support[command]["real"] is True
         assert support[command]["hardware_validation"] == "rs232_read_only"
@@ -99,6 +100,7 @@ def test_command_support_e3646a_rs232_read_only_boundary() -> None:
 def test_known_capability_commands_include_cli_queryable_commands() -> None:
     commands = capabilities.known_capability_commands()
 
+    assert "verify" not in commands
     assert {
         "capabilities",
         "validate-readonly",

@@ -361,11 +361,13 @@ uv run keysight-power verify --resource "USB0::...::INSTR" --log-scpi
 
 ### E3646A RS-232 / ASRL Read-Only Use
 
-E3646A support is currently RS-232/ASRL read-only/status only. Real supported
-commands are limited to `identify`, `verify`, `measure`, `readback`,
-`read-status`, `output-state`, and `capabilities`. Output-affecting commands,
-protection writes, trigger workflows, snapshot restore, ramp, ramp-list, and
-sequence output steps remain disabled until live hardware validation is done.
+E3646A support is currently RS-232/ASRL read-only/status only. Model-supported
+commands are limited to `identify`, `measure`, `readback`, `read-status`,
+`output-state`, and `capabilities`. `verify` is also available as a
+model-independent connection diagnostic that opens the selected resource and
+queries `*IDN?`. Output-affecting commands, protection writes, trigger
+workflows, snapshot restore, ramp, ramp-list, and sequence output steps remain
+disabled until live hardware validation is done.
 
 Plain resource discovery does not need serial options:
 
