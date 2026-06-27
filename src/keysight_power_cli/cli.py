@@ -37,7 +37,7 @@ from keysight_power_cli.cli_io import (
     set_json_save_path,
     set_json_start_time,
 )
-from keysight_power_core.connection import DEFAULT_TIMEOUT_MS, SerialOptions, list_resources, open_resource
+from keysight_power_core.connection import DEFAULT_TIMEOUT_MS, SerialOptions, list_resources, normalize_serial_termination, open_resource
 from keysight_power_core.core import (
     ConfirmationRequiredError,
     CoreExecutionError,
@@ -862,8 +862,16 @@ def _add_serial_arguments(parser: argparse.ArgumentParser) -> None:
         choices=("none", "xon_xoff", "rts_cts", "dtr_dsr"),
         help="Optional ASRL flow control.",
     )
-    parser.add_argument("--serial-read-termination", help="Optional ASRL read termination.")
-    parser.add_argument("--serial-write-termination", help="Optional ASRL write termination.")
+    parser.add_argument(
+        "--serial-read-termination",
+        type=normalize_serial_termination,
+        help="Optional ASRL read termination. Aliases: CR, LF, CRLF, NONE.",
+    )
+    parser.add_argument(
+        "--serial-write-termination",
+        type=normalize_serial_termination,
+        help="Optional ASRL write termination. Aliases: CR, LF, CRLF, NONE.",
+    )
     parser.add_argument(
         "--serial-remote",
         action="store_true",
@@ -7937,8 +7945,8 @@ def _with_serial_request_fields_from_argv(argv: Sequence[str], payload: dict[str
         "parity": _option_value(argv, "--serial-parity"),
         "stop_bits": _option_value(argv, "--serial-stop-bits"),
         "flow_control": _option_value(argv, "--serial-flow-control"),
-        "read_termination": _option_value(argv, "--serial-read-termination"),
-        "write_termination": _option_value(argv, "--serial-write-termination"),
+        "read_termination": normalize_serial_termination(_option_value(argv, "--serial-read-termination")),
+        "write_termination": normalize_serial_termination(_option_value(argv, "--serial-write-termination")),
     }
     serial_options = {key: value for key, value in serial_options.items() if value is not None}
     if serial_options:
@@ -9336,8 +9344,8 @@ def _serial_options_for_args(args: argparse.Namespace) -> SerialOptions | None:
         parity=getattr(args, "serial_parity", None),
         stop_bits=getattr(args, "serial_stop_bits", None),
         flow_control=getattr(args, "serial_flow_control", None),
-        read_termination=getattr(args, "serial_read_termination", None),
-        write_termination=getattr(args, "serial_write_termination", None),
+        read_termination=normalize_serial_termination(getattr(args, "serial_read_termination", None)),
+        write_termination=normalize_serial_termination(getattr(args, "serial_write_termination", None)),
     )
     return options if options.has_explicit_values() else None
 

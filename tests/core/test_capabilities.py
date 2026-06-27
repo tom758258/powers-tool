@@ -67,6 +67,35 @@ def test_command_support_generic_fallback() -> None:
     assert support["set"]["hardware_validation"] == "not_enabled"
 
 
+def test_command_support_e3646a_rs232_read_only_boundary() -> None:
+    support = capabilities.command_support("E3646A")
+
+    for command in ("identify", "measure", "readback", "read-status", "output-state", "capabilities"):
+        assert support[command]["real"] is True
+        assert support[command]["hardware_validation"] == "rs232_read_only"
+    for command in (
+        "set",
+        "apply",
+        "output-on",
+        "output-off",
+        "safe-off",
+        "cycle-output",
+        "ramp",
+        "ramp-list",
+        "smoke-output",
+        "protection-set",
+        "clear-protection",
+        "restore-from-snapshot",
+        "trigger-step",
+        "trigger-list",
+        "trigger-fire",
+        "trigger-abort",
+        "snapshot",
+    ):
+        assert support[command]["real"] is False
+        assert support[command]["hardware_validation"] == "not_enabled"
+
+
 def test_known_capability_commands_include_cli_queryable_commands() -> None:
     commands = capabilities.known_capability_commands()
 

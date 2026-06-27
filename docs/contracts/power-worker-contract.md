@@ -150,6 +150,15 @@ omitted setpoint is left unchanged on the instrument and must not be replaced
 with zero or readback-derived values. Requests with neither `voltage` nor
 `current` return HTTP 400 before artifact creation or queue mutation.
 
+Worker runtime settings may include optional ASRL serial fields under
+`settings.serial_options`: `baud_rate`, `data_bits`, `parity`, `stop_bits`,
+`flow_control`, `read_termination`, and `write_termination`. Empty or omitted
+fields are not applied and do not override the VISA backend or Connection
+Expert settings. `read_termination` and `write_termination` accept `CR`, `LF`,
+`CRLF`, and `NONE` aliases; `NONE` means no termination override. The boolean
+settings `serial_remote` and `serial_local_on_close` request explicit
+`SYST:REM` and best-effort cleanup `SYST:LOC` for ASRL resources only.
+
 Ramp List documents are JSON objects with `kind: "keysight-power-ramp-list"`,
 `version: 1`, and 1 to 10 ordered `segments`. Each segment contains `channel`,
 `current`, `start_voltage`, `stop_voltage`, `step_voltage`, `delay_ms`, and

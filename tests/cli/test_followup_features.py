@@ -277,6 +277,34 @@ def test_restore_from_snapshot_dry_run_restores_ocp_delay_settings(tmp_path, cap
     assert steps[4]["command"] == "CURR:PROT:DEL:STAR CCTR,(@1)"
 
 
+def test_restore_from_snapshot_real_e3646a_remains_disabled(monkeypatch, tmp_path, capsys):
+    snapshot = tmp_path / "snapshot.json"
+    _write_snapshot(snapshot)
+    session = FakeSession(idn="KEYSIGHT,E3646A,SERIAL0000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "restore-from-snapshot",
+                "--json",
+                "--snapshot",
+                str(snapshot),
+                "--resource",
+                "ASRL1::INSTR",
+                "--channel",
+                "1",
+                "--confirm",
+            ]
+        )
+        == 2
+    )
+
+    payload = _payload(capsys)
+    assert payload["error"]["type"] in {"validation", "unsupported_model"}
+    assert not any(command.startswith(("VOLT", "CURR", "OUTP")) for command in session.writes)
+
+
 def test_restore_from_snapshot_plan_json_requires_dry_run(monkeypatch, tmp_path, capsys):
     snapshot = tmp_path / "snapshot.json"
     _write_snapshot(snapshot)

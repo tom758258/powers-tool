@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from keysight_power_core.connection import SerialOptions, open_resource
+from keysight_power_core.connection import SerialOptions, normalize_serial_termination, open_resource
 from keysight_power_core.core import (
     RuntimeOptions,
     OperationRequest,
@@ -912,8 +912,8 @@ def _serial_options_from_settings(settings: dict[str, Any]) -> SerialOptions | N
         parity=_optional_str(serial.get("parity")),
         stop_bits=serial.get("stop_bits"),
         flow_control=_optional_str(serial.get("flow_control")),
-        read_termination=_optional_str(serial.get("read_termination")),
-        write_termination=_optional_str(serial.get("write_termination")),
+        read_termination=normalize_serial_termination(serial.get("read_termination")),
+        write_termination=normalize_serial_termination(serial.get("write_termination")),
     )
     return options if options.has_explicit_values() else None
 

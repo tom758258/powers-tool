@@ -7,7 +7,7 @@ from typing import Any
 
 from keysight_power_core import capabilities as core_capabilities
 from keysight_power_core.command_runner import run_core_command
-from keysight_power_core.connection import SerialOptions, open_resource
+from keysight_power_core.connection import SerialOptions, normalize_serial_termination, open_resource
 from keysight_power_core.core import (
     CommandCancelled,
     ConfirmationRequiredError,
@@ -196,8 +196,8 @@ def _serial_options_from_runtime(runtime_dict: dict[str, Any]) -> SerialOptions 
         parity=_optional_str(serial.get("parity")),
         stop_bits=serial.get("stop_bits"),
         flow_control=_optional_str(serial.get("flow_control")),
-        read_termination=_optional_str(serial.get("read_termination")),
-        write_termination=_optional_str(serial.get("write_termination")),
+        read_termination=normalize_serial_termination(serial.get("read_termination")),
+        write_termination=normalize_serial_termination(serial.get("write_termination")),
     )
     return options if options.has_explicit_values() else None
 

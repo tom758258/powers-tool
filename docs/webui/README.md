@@ -125,6 +125,12 @@ The static UI is a three-panel dashboard:
 Machine-facing command IDs remain kebab-case. Human-facing WebUI command names
 use spaces and sentence case.
 
+The connection area includes an advanced serial section for ASRL resources.
+Serial fields are optional; blank fields are omitted from the runtime payload
+and do not override VISA backend or Connection Expert settings. Read/write
+termination fields accept `CR`, `LF`, `CRLF`, and `NONE` aliases. `NONE`,
+blank, or omitted termination means no termination override is applied.
+
 The `set` command accepts Voltage, Current, or both in Basic command and
 Commands. Blank setpoint fields are omitted from the job payload and left
 unchanged by Core; Live Data/readback remains the source for complete

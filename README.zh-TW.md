@@ -207,6 +207,7 @@ Scripted no-hardware 與 live validation 工作流程記錄在
 ## 文件
 
 - [Core README](docs/core/README.zh-TW.md)
+- [Supported Models](docs/core/supported-models.md)
 - [CLI 使用者指南](docs/cli/USER_GUIDE.zh-TW.md)
 - [CLI README](docs/cli/README.zh-TW.md)
 - [WebUI README](docs/webui/README.zh-TW.md)

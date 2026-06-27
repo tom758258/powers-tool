@@ -215,6 +215,7 @@ Scripted no-hardware and live validation workflows are documented in the
 ## Documentation
 
 - [Core README](docs/core/README.md)
+- [Supported Models](docs/core/supported-models.md)
 - [CLI User Guide](docs/cli/USER_GUIDE.md)
 - [CLI README](docs/cli/README.md)
 - [WebUI README](docs/webui/README.md)

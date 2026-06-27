@@ -26,6 +26,13 @@ class FakeSession:
         pass
 
 
+class RestoreFailingSession(FakeSession):
+    def write(self, command: str) -> None:
+        self.commands.append(command)
+        if command == "INST:NSEL 1":
+            raise RuntimeError("restore failed")
+
+
 @pytest.mark.parametrize(
     "driver_class",
     [E36312APowerSupply, EDU36311APowerSupply],
@@ -270,6 +277,24 @@ def test_e3646a_driver_preselects_and_restores_channel_for_readback() -> None:
         "INST:NSEL?",
         "INST:NSEL 2",
         "OUTP?",
+        "INST:NSEL 1",
+    ]
+
+
+def test_e3646a_driver_tolerates_best_effort_channel_restore_failure() -> None:
+    session = RestoreFailingSession(
+        {
+            "INST:NSEL?": "1",
+            "MEAS:VOLT?": "2.100",
+        }
+    )
+    power_supply = E3646APowerSupply(session)
+
+    assert power_supply.measure_voltage(channel=2) == 2.1
+    assert session.commands == [
+        "INST:NSEL?",
+        "INST:NSEL 2",
+        "MEAS:VOLT?",
         "INST:NSEL 1",
     ]
 

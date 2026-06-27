@@ -359,6 +359,64 @@ uv run keysight-power verify --resource "USB0::...::INSTR"
 uv run keysight-power verify --resource "USB0::...::INSTR" --log-scpi
 ```
 
+### E3646A RS-232 / ASRL Read-Only Use
+
+E3646A support is currently RS-232/ASRL read-only/status only. Real supported
+commands are limited to `identify`, `verify`, `measure`, `readback`,
+`read-status`, `output-state`, and `capabilities`. Output-affecting commands,
+protection writes, trigger workflows, snapshot restore, ramp, ramp-list, and
+sequence output steps remain disabled until live hardware validation is done.
+
+Plain resource discovery does not need serial options:
+
+```powershell
+keysight-power list-resources
+```
+
+If Connection Expert already has the ASRL resource configured and verified,
+you can let VISA use those settings:
+
+```powershell
+keysight-power verify --resource "ASRL1::INSTR"
+```
+
+Serial settings are explicit only. If omitted, the CLI does not overwrite
+VISA backend, Keysight IO Libraries Suite, or Connection Expert serial
+settings. If supplied, only those supplied fields are applied to ASRL
+resources. The E3646A factory example is 9600 baud, 8 data bits, none parity,
+2 stop bits, and DTR/DSR handshake, but the actual instrument front-panel
+settings may differ:
+
+```powershell
+keysight-power verify --resource "ASRL1::INSTR" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
+```
+
+`--serial-remote` sends `SYST:REM` after opening the ASRL resource.
+`--serial-local-on-close` best-effort sends `SYST:LOC` during cleanup. These
+commands affect the instrument remote/local state and are never sent unless
+explicitly requested.
+
+Read-only examples:
+
+```powershell
+keysight-power identify --resource "ASRL1::INSTR" --serial-remote --serial-local-on-close
+keysight-power readback --resource "ASRL1::INSTR" --channel 1 --serial-remote --serial-local-on-close
+keysight-power measure --resource "ASRL1::INSTR" --channel 2 --serial-remote --serial-local-on-close
+keysight-power output-state --resource "ASRL1::INSTR" --channel 1 --serial-remote --serial-local-on-close
+```
+
+For serial terminations, prefer aliases in PowerShell:
+
+```powershell
+keysight-power verify --resource "ASRL1::INSTR" --serial-read-termination CRLF --serial-write-termination LF
+```
+
+Supported aliases are `CR`, `LF`, `CRLF`, and `NONE`/`none`. `NONE` means do
+not set that termination option. Omitted or empty termination fields also mean
+do not override the VISA setting. Custom raw strings are still accepted, but
+PowerShell may pass values such as `\r` as a literal backslash plus `r`; use
+the aliases when you need actual control characters.
+
 Clear instrument status and the error queue with `*CLS`:
 
 ```powershell

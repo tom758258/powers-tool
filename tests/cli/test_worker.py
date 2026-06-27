@@ -68,7 +68,12 @@ def test_worker_serial_settings_pass_through_to_runtime(tmp_path, monkeypatch):
             "resource": "ASRL1::INSTR",
             "backend": None,
             "timeout_ms": 5000,
-            "serial_options": {"baud_rate": 9600, "data_bits": 8},
+            "serial_options": {
+                "baud_rate": 9600,
+                "data_bits": 8,
+                "read_termination": "CRLF",
+                "write_termination": "LF",
+            },
             "serial_remote": True,
             "serial_local_on_close": True,
             "safety_config": None,
@@ -98,6 +103,8 @@ def test_worker_serial_settings_pass_through_to_runtime(tmp_path, monkeypatch):
     runtime = captured["runtime"]
     assert runtime.serial_options.baud_rate == 9600
     assert runtime.serial_options.data_bits == 8
+    assert runtime.serial_options.read_termination == "\r\n"
+    assert runtime.serial_options.write_termination == "\n"
     assert runtime.serial_remote is True
     assert runtime.serial_local_on_close is True
 

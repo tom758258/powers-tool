@@ -88,6 +88,52 @@ Add `--json` when copying results into automation:
 .\keysight-power.exe list-resources --live-only --json
 ```
 
+## E3646A RS-232 / ASRL
+
+E3646A support is currently read-only/status only over RS-232/ASRL. Supported
+live commands are `identify`, `verify`, `measure`, `readback`, `read-status`,
+`output-state`, and `capabilities`. Output-affecting commands remain disabled
+for E3646A until live hardware validation is completed.
+
+Plain `list-resources` normally does not need serial settings:
+
+```powershell
+keysight-power list-resources
+```
+
+If Keysight IO Libraries Suite / Connection Expert already has the ASRL
+resource configured, try a read-only check without overriding those settings:
+
+```powershell
+keysight-power verify --resource "ASRL1::INSTR"
+```
+
+To explicitly apply serial settings for one command, pass only the fields you
+want to override. The E3646A factory example is 9600 baud, 8 data bits, none
+parity, 2 stop bits, and DTR/DSR handshake, but the instrument front-panel
+settings may have been changed:
+
+```powershell
+keysight-power verify --resource "ASRL1::INSTR" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
+```
+
+`--serial-remote` sends `SYST:REM`. `--serial-local-on-close` best-effort
+sends `SYST:LOC` during cleanup. These affect remote/local state and are sent
+only when explicitly requested.
+
+Useful read-only examples:
+
+```powershell
+keysight-power identify --resource "ASRL1::INSTR" --serial-remote --serial-local-on-close
+keysight-power readback --resource "ASRL1::INSTR" --channel 1 --serial-remote --serial-local-on-close
+keysight-power measure --resource "ASRL1::INSTR" --channel 2 --serial-remote --serial-local-on-close
+keysight-power output-state --resource "ASRL1::INSTR" --channel 1 --serial-remote --serial-local-on-close
+```
+
+For serial read/write termination in PowerShell, use aliases when possible:
+`CR`, `LF`, `CRLF`, or `NONE`. `NONE`, omitted, or blank termination means do
+not override the VISA setting.
+
 ## Read-Only Workflow
 
 Use read-only commands first when validating an instrument:

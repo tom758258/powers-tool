@@ -13,6 +13,11 @@ from keysight_power_core.transport import ResourceManagerLike
 DEFAULT_TIMEOUT_MS = 5000
 DEFAULT_READ_TERMINATION = "\n"
 DEFAULT_WRITE_TERMINATION = "\n"
+SERIAL_TERMINATION_ALIASES = {
+    "CR": "\r",
+    "LF": "\n",
+    "CRLF": "\r\n",
+}
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,20 @@ class SerialOptions:
                 self.write_termination,
             )
         )
+
+
+def normalize_serial_termination(value: Any) -> str | None:
+    """Normalize user-facing termination aliases before building SerialOptions."""
+
+    if value is None:
+        return None
+    text = str(value)
+    if text == "":
+        return None
+    normalized = text.strip().upper()
+    if normalized == "NONE":
+        return None
+    return SERIAL_TERMINATION_ALIASES.get(normalized, text)
 
 
 class InstrumentSession:

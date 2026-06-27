@@ -251,6 +251,82 @@ def test_verify_serial_flags_are_forwarded_to_opener(monkeypatch, capsys) -> Non
     assert opened[0][3]["serial_local_on_close"] is True
 
 
+@pytest.mark.parametrize(
+    ("flag", "alias", "attribute", "expected"),
+    [
+        ("--serial-read-termination", "CR", "read_termination", "\r"),
+        ("--serial-write-termination", "LF", "write_termination", "\n"),
+        ("--serial-read-termination", "CRLF", "read_termination", "\r\n"),
+    ],
+)
+def test_verify_serial_termination_aliases_are_normalized_for_runtime(
+    monkeypatch,
+    capsys,
+    flag: str,
+    alias: str,
+    attribute: str,
+    expected: str,
+) -> None:
+    opened = []
+
+    def fake_open_resource(resource, *, backend=None, timeout_ms=5000, **kwargs):
+        opened.append(kwargs)
+        return FakeSession("KEYSIGHT,E3646A,SERIAL0000,1.0")
+
+    monkeypatch.setattr(cli, "open_resource", fake_open_resource)
+
+    assert cli.main(["verify", "--resource", "ASRL1::INSTR", flag, alias]) == 0
+
+    capsys.readouterr()
+    serial_options = opened[0]["serial_options"]
+    assert getattr(serial_options, attribute) == expected
+
+
+def test_verify_serial_termination_none_does_not_create_serial_options(monkeypatch, capsys) -> None:
+    opened = []
+
+    def fake_open_resource(resource, *, backend=None, timeout_ms=5000, **kwargs):
+        opened.append(kwargs)
+        return FakeSession("KEYSIGHT,E3646A,SERIAL0000,1.0")
+
+    monkeypatch.setattr(cli, "open_resource", fake_open_resource)
+
+    assert cli.main(["verify", "--resource", "ASRL1::INSTR", "--serial-read-termination", "NONE"]) == 0
+
+    capsys.readouterr()
+    assert "serial_options" not in opened[0]
+
+
+def test_verify_json_serial_termination_alias_uses_normalized_request_value(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        cli,
+        "open_resource",
+        lambda resource, *, backend=None, timeout_ms=5000, **kwargs: FakeSession(
+            "KEYSIGHT,E3646A,SERIAL0000,1.0"
+        ),
+    )
+
+    assert (
+        cli.main(
+            [
+                "verify",
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                "--serial-read-termination",
+                "CRLF",
+                "--serial-write-termination",
+                "LF",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["request"]["serial_options"]["read_termination"] == "\r\n"
+    assert payload["request"]["serial_options"]["write_termination"] == "\n"
+
+
 def test_verify_json_omits_serial_options_when_not_provided(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         cli,
@@ -5589,6 +5665,82 @@ def test_readback_serial_remote_local_log_scpi_stays_on_stderr(monkeypatch, caps
     json.loads(captured.out)
     assert "ASRL1::INSTR SCPI >> SYST:REM" in captured.err
     assert "ASRL1::INSTR SCPI >> SYST:LOC" in captured.err
+
+
+E3646A_FORBIDDEN_WRITE_PREFIXES = (
+    "VOLT",
+    "CURR",
+    "OUTP",
+    "APPL",
+    "TRIG",
+    "INIT",
+    "ABOR",
+    "*TRG",
+    "LIST:",
+    "DIG:",
+)
+
+
+@pytest.mark.parametrize(
+    ("command", "extra_args"),
+    [
+        ("set", ["--channel", "1", "--voltage", "1", "--current", "0.05"]),
+        ("apply", ["--channel", "1", "--voltage", "1", "--current", "0.05", "--confirm"]),
+        ("output-on", ["--channel", "1", "--confirm"]),
+        ("output-off", ["--channel", "1"]),
+        ("safe-off", ["--channel", "1"]),
+        ("cycle-output", ["--channel", "1", "--duration-ms", "1", "--confirm"]),
+        ("ramp", ["--channel", "1", "--start-voltage", "0", "--stop-voltage", "1", "--step-voltage", "1", "--current", "0.05"]),
+        ("ramp-list", ["--segment", "1", "0.05", "0", "1", "1", "0", "0"]),
+        ("smoke-output", ["--channel", "1", "--voltage", "1", "--current", "0.05", "--confirm"]),
+        ("protection-set", ["--channel", "1", "--ovp-voltage", "5", "--confirm"]),
+        ("clear-protection", ["--channel", "1", "--confirm"]),
+    ],
+)
+def test_e3646a_real_output_affecting_commands_remain_disabled(monkeypatch, capsys, command, extra_args) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E3646A,SERIAL0000,1.0",
+        query_responses={
+            "INST:NSEL?": "1",
+            "VOLT?": "1.0",
+            "CURR?": "0.05",
+            "OUTP?": "0",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main([command, "--json", "--resource", "ASRL1::INSTR", *extra_args]) == 2
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["type"] in {"validation", "unsupported_model"}
+    assert payload["error"]["code"] != "connection_failed"
+    assert not any(
+        write.startswith(E3646A_FORBIDDEN_WRITE_PREFIXES)
+        for write in session.writes
+    )
+
+
+@pytest.mark.parametrize(
+    ("command", "extra_args"),
+    [
+        ("trigger-step", ["--channel", "1", "--source", "bus", "--fire"]),
+        ("trigger-list", ["--channel", "1", "--voltage-list", "0,1", "--current-list", "0.05", "--dwell-list", "0.01", "--fire", "--wait-complete"]),
+        ("trigger-fire", []),
+        ("trigger-abort", ["--channel", "1"]),
+    ],
+)
+def test_e3646a_real_trigger_write_workflows_remain_disabled(monkeypatch, capsys, command, extra_args) -> None:
+    session = FakeSession(idn="KEYSIGHT,E3646A,SERIAL0000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main([command, "--json", "--resource", "ASRL1::INSTR", *extra_args]) == 2
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["type"] in {"validation", "unsupported_model"}
+    assert not any(
+        write.startswith(E3646A_FORBIDDEN_WRITE_PREFIXES)
+        for write in session.writes
+    )
 
 
 def test_log_simulate_json_writes_csv(tmp_path, capsys) -> None:

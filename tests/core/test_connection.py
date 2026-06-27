@@ -8,6 +8,7 @@ from keysight_power_core.connection import (
     InstrumentSession,
     SerialOptions,
     list_resources,
+    normalize_serial_termination,
     open_resource,
 )
 from keysight_power_core.errors import VisaConnectionError
@@ -189,6 +190,46 @@ def test_open_resource_applies_asrl_termination_only_from_explicit_serial_option
 
     assert manager.resource.read_termination == "\r\n"
     assert manager.resource.write_termination == "\r"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("CR", "\r"),
+        ("LF", "\n"),
+        ("CRLF", "\r\n"),
+        ("none", None),
+        ("NONE", None),
+        ("\\r", "\\r"),
+    ],
+)
+def test_normalize_serial_termination_aliases(value: str, expected: str | None) -> None:
+    assert normalize_serial_termination(value) == expected
+
+
+def test_open_resource_applies_asrl_termination_alias_result_as_control_character() -> None:
+    manager = FakeResourceManager(("ASRL1::INSTR",))
+
+    open_resource(
+        "ASRL1::INSTR",
+        manager,
+        serial_options=SerialOptions(
+            read_termination=normalize_serial_termination("CRLF"),
+            write_termination=normalize_serial_termination("LF"),
+        ),
+    )
+
+    assert manager.resource.read_termination == "\r\n"
+    assert manager.resource.write_termination == "\n"
+
+
+def test_open_resource_leaves_asrl_termination_unset_when_serial_options_are_omitted() -> None:
+    manager = FakeResourceManager(("ASRL1::INSTR",))
+
+    open_resource("ASRL1::INSTR", manager)
+
+    assert manager.resource.read_termination is None
+    assert manager.resource.write_termination is None
 
 
 def test_open_resource_rejects_serial_options_on_non_asrl() -> None:
