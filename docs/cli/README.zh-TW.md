@@ -194,9 +194,10 @@ Ramp `--completion-pulse-timing segment` 會保留一個完成脈波。`--comple
 Ramp List 版本 1 可能包含全域的 `completion_pulse` 物件。內聯 (Inline) 的 `--segment` 用法接受 `--completion-pulse-timing`、`--completion-pulse-pins` 與 `--completion-pulse-polarity`；若使用 `--file`，則以文件為準，CLI 的脈波覆寫選項將被拒絕。
 
 ```powershell
+$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
 uv run keysight-power ramp-list --lint --json --file example.ramp-list.json
-uv run keysight-power ramp-list --dry-run --json --file example.ramp-list.json --resource "USB0::...::INSTR"
-uv run keysight-power ramp-list --json --resource "USB0::...::INSTR" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
+uv run keysight-power ramp-list --dry-run --json --file example.ramp-list.json --resource "$env:KEYSIGHT_POWER_RESOURCE"
+uv run keysight-power ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
 ```
 
 ## Power Worker Daemon (背景服務)
@@ -239,52 +240,58 @@ uv run keysight-power list-resources
 
 這僅是被動探索：即使目前無法連線到該儀器，資源字串也可能出現在這裡。
 
+以下實機 USB 範例請先在 PowerShell 工作階段設定 VISA 資源一次：
+
+```powershell
+$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
+```
+
 驗證單一資源可被開啟並透過 `*IDN?` 查詢：
 
 ```powershell
-uv run keysight-power verify --resource "USB0::...::INSTR"
-uv run keysight-power verify --resource "USB0::...::INSTR" --log-scpi
+uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_RESOURCE"
+uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 透過 `*CLS` 清除儀器狀態與錯誤佇列：
 
 ```powershell
-uv run keysight-power clear --resource "USB0::...::INSTR" --log-scpi
+uv run keysight-power clear --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 uv run keysight-power clear --dry-run --json --resource "USB0::SIM::E36103B::INSTR"
 ```
 
 讀取儀器錯誤佇列但不改變輸出狀態：
 
 ```powershell
-uv run keysight-power error --resource "USB0::...::INSTR" --max-reads 20 --log-scpi
+uv run keysight-power error --resource "$env:KEYSIGHT_POWER_RESOURCE" --max-reads 20 --log-scpi
 ```
 
 測量電壓與電流：
 
 ```powershell
-uv run keysight-power measure --resource "USB0::...::INSTR" --channel 1 --log-scpi
-uv run keysight-power measure --resource "USB0::...::INSTR" --channel 2 --log-scpi
+uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
+uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 2 --log-scpi
 uv run keysight-power measure --simulate --json --resource "USB0::SIM::E36312A::INSTR" --channel 2
 ```
 
 測量所有 E36312A 通道並讀取輸出狀態：
 
 ```powershell
-uv run keysight-power measure-all --json --resource "USB0::...::INSTR" --log-scpi
-uv run keysight-power read-status --json --resource "USB0::...::INSTR" --log-scpi
+uv run keysight-power measure-all --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run keysight-power read-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 在 E36312A 或 EDU36311A 上執行一次完整的唯讀驗證：
 
 ```powershell
-uv run keysight-power validate-readonly --json --resource "USB0::...::INSTR" --log-scpi --save-json logs\validate-readonly.json
+uv run keysight-power validate-readonly --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi --save-json logs\validate-readonly.json
 ```
 
 讀取設定的 E36312A 設定點與保護狀態：
 
 ```powershell
-uv run keysight-power readback --json --resource "USB0::...::INSTR" --log-scpi
-uv run keysight-power protection-status --json --resource "USB0::...::INSTR" --log-scpi
+uv run keysight-power readback --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run keysight-power protection-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 對於 E36312A 與 EDU36311A，`protection-status` 會讀取各通道的 OVP/OCP 觸發旗標。現有的總和旗標仍然可用，並計算為所選通道結果的 OR 邏輯運算。
@@ -292,9 +299,9 @@ uv run keysight-power protection-status --json --resource "USB0::...::INSTR" --l
 擷取並比較 E36312A 快照 (snapshots)：
 
 ```powershell
-uv run keysight-power identify --json --resource "USB0::...::INSTR" --log-scpi
-uv run keysight-power snapshot --json --resource "USB0::...::INSTR" --log-scpi
-uv run keysight-power snapshot --json --resource "USB0::...::INSTR" --compare logs\e36312a-baseline.json
+uv run keysight-power identify --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run keysight-power snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run keysight-power snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --compare logs\e36312a-baseline.json
 uv run keysight-power snapshot --simulate --json --redact-resource --resource "USB0::SIM::E36312A::INSTR"
 uv run keysight-power snapshot-diff --summary --json --before logs\before.json --after logs\after.json
 ```
@@ -302,23 +309,23 @@ uv run keysight-power snapshot-diff --summary --json --before logs\before.json -
 預覽還原計畫並儲存計畫資料而不開啟 VISA：
 
 ```powershell
-uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\before.json --resource "USB0::...::INSTR" --channel all --plan-json logs\restore-plan.json
+uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\before.json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --plan-json logs\restore-plan.json
 ```
 
 預覽或確認 E36312A 保護動作：
 
 ```powershell
-uv run keysight-power clear-protection --dry-run --json --resource "USB0::...::INSTR" --all
-uv run keysight-power clear-protection --json --resource "USB0::...::INSTR" --all --confirm --log-scpi
-uv run keysight-power protection-set --dry-run --json --resource "USB0::...::INSTR" --channel all --ovp-voltage 5 --ocp on
-uv run keysight-power protection-set --dry-run --json --resource "USB0::...::INSTR" --channel 1 --ocp-delay 0.5 --ocp-delay-trigger setting-change
-uv run keysight-power protection-set --json --resource "USB0::...::INSTR" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
+uv run keysight-power clear-protection --dry-run --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --all
+uv run keysight-power clear-protection --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --all --confirm --log-scpi
+uv run keysight-power protection-set --dry-run --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --ovp-voltage 5 --ocp on
+uv run keysight-power protection-set --dry-run --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --ocp-delay 0.5 --ocp-delay-trigger setting-change
+uv run keysight-power protection-set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
 ```
 
 將 E36312A 後面板數位腳位設定為觸發輸出，對一個輸出通道 arm 一組無變化的 STEP 觸發序列，並發出 `*TRG`：
 
 ```powershell
-uv run keysight-power trigger-pulse --json --resource "USB0::...::INSTR" --pin 1 --channel 1 --polarity positive --log-scpi
+uv run keysight-power trigger-pulse --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --pin 1 --channel 1 --polarity positive --log-scpi
 ```
 
 使用 `--dry-run` 在不開啟 VISA 的情況下預覽 trigger-pulse SCPI。最後發出的 `*TRG` 可能也會觸發任何已 arm 的 BUS 觸發儀器行為。真實執行時，會在影響輸出的寫入動作後檢查 `SYST:ERR?`，如果儀器回報錯誤則該指令會失敗。
@@ -326,12 +333,12 @@ uv run keysight-power trigger-pulse --json --resource "USB0::...::INSTR" --pin 1
 原生 E36312A 觸發/LIST 命令：
 
 ```powershell
-uv run keysight-power trigger-status --json --resource "USB0::...::INSTR" --channel all
-uv run keysight-power trigger-step --json --resource "USB0::...::INSTR" --channel 1 --source bus --fire --wait-complete
-uv run keysight-power trigger-list --json --resource "USB0::...::INSTR" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --completion-pulse-pins 1 --fire --wait-complete
-uv run keysight-power trigger-list --json --resource "USB0::...::INSTR" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --bost-list on,off --eost-list off,on --trigger-output-pins 1 --source immediate --wait-complete
-uv run keysight-power trigger-fire --json --resource "USB0::...::INSTR" --channel 1 --wait-complete
-uv run keysight-power trigger-abort --json --resource "USB0::...::INSTR" --channel all
+uv run keysight-power trigger-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all
+uv run keysight-power trigger-step --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --source bus --fire --wait-complete
+uv run keysight-power trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --completion-pulse-pins 1 --fire --wait-complete
+uv run keysight-power trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --bost-list on,off --eost-list off,on --trigger-output-pins 1 --source immediate --wait-complete
+uv run keysight-power trigger-fire --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --wait-complete
+uv run keysight-power trigger-abort --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all
 ```
 
 對於原生 BUS 觸發，`trigger-step` 與 `trigger-list` 預設僅執行 arm；加入 `--fire` 以在同一命令中發送 `*TRG`。BUS `--wait-complete` 需要 `--fire`。Immediate 來源在發送 `INIT` 時即啟動，並拒絕接受 `--fire`。僅 arm 的 LIST 需要 `--leave-trigger-configured`；沒有 `--wait-complete` 就啟動的 LIST 也需要 `--leave-trigger-configured`，否則還原動作會中止它。Trigger Step 保持其現有非等待行為。對於 `trigger-fire`，`--channel N` 僅在使用 `--wait-complete` 時才需要；它會選擇在全儀器範圍的完成等待逾時或被中斷時要 abort 的輸出通道。它不限制 `*TRG` 或完成等待的作用範圍。`trigger-pulse` 是舊有的動作後脈波輔助工具，與原生的 trigger/list 子系統是分開的。規範的 Trigger LIST 檔案與旗標接受每一步驟的 `bost_list`、`eost_list` 加上 `trigger_output_pins` 與 `trigger_output_polarity`。啟用的脈波需要明確的輸出腳位。舊版的 `--completion-pulse-pins` 仍維持最後一步的 EOST 脈波，且不能與規範欄位混用。除非選擇了 `--leave-trigger-configured`，否則等待完成後會還原執行前的觸發設定與 LIST 表格。
@@ -364,8 +371,8 @@ uv run keysight-power set --dry-run --json --resource "USB0::SIM::E36103B::INSTR
 在不啟用輸出的情況下設定較低的 E36312A 或 EDU36311A 設定點：
 
 ```powershell
-uv run keysight-power set --json --resource "USB0::...::INSTR" --channel 1 --voltage 1 --current 0.05 --log-scpi
-uv run keysight-power set --json --resource "USB0::...::INSTR" --channel 1 --voltage 1 --log-scpi
+uv run keysight-power set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --log-scpi
+uv run keysight-power set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --log-scpi
 ```
 
 真實的 `set` 會先透過 `*IDN?` 確認選擇的資源為 E36312A 或 EDU36311A，然後僅寫入所要求的設定點欄位。1、2、3 以外的通道會被拒絕。
@@ -373,8 +380,8 @@ uv run keysight-power set --json --resource "USB0::...::INSTR" --channel 1 --vol
 僅在設定點已經安全時，才啟用 E36312A 或 EDU36311A 的輸出：
 
 ```powershell
-uv run keysight-power output-on --json --resource "USB0::...::INSTR" --channel 1 --log-scpi
-uv run keysight-power output-on --json --resource "USB0::...::INSTR" --channel all --log-scpi
+uv run keysight-power output-on --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
+uv run keysight-power output-on --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --log-scpi
 ```
 
 真實的 `output-on` 會先透過 `*IDN?` 確認資源為 E36312A 或 EDU36311A，讀取已設定的電壓/電流設定點，然後發送 `OUTP ON,(@N)`。它不會改變電壓或電流設定點。
@@ -382,9 +389,9 @@ uv run keysight-power output-on --json --resource "USB0::...::INSTR" --channel a
 讀回並循環切換輸出狀態：
 
 ```powershell
-uv run keysight-power output-state --json --resource "USB0::...::INSTR" --channel 1 --log-scpi
-uv run keysight-power cycle-output --json --resource "USB0::...::INSTR" --channel 1 --duration-ms 500 --log-scpi
-uv run keysight-power cycle-output --json --resource "USB0::...::INSTR" --channel all --duration-ms 500 --log-scpi
+uv run keysight-power output-state --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
+uv run keysight-power cycle-output --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --duration-ms 500 --log-scpi
+uv run keysight-power cycle-output --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --duration-ms 500 --log-scpi
 ```
 
 對於 `cycle-output --channel all`，CLI 會依序啟用通道 1、2 與 3，等待 `--duration-ms` 一次，然後依序停用通道 1、2 與 3。
@@ -392,16 +399,16 @@ uv run keysight-power cycle-output --json --resource "USB0::...::INSTR" --channe
 套用較低的設定點並啟用輸出：
 
 ```powershell
-uv run keysight-power apply --json --resource "USB0::...::INSTR" --channel 1 --voltage 1 --current 0.05 --log-scpi
-uv run keysight-power apply --json --resource "USB0::...::INSTR" --channel all --voltage 1 --current 0.05 --log-scpi
-uv run keysight-power apply --json --resource "USB0::...::INSTR" --channel all --voltage 1 --current 0.05 --no-output --log-scpi
+uv run keysight-power apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --log-scpi
+uv run keysight-power apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --voltage 1 --current 0.05 --log-scpi
+uv run keysight-power apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --voltage 1 --current 0.05 --no-output --log-scpi
 ```
 
 斜坡步進電壓設定點，不改變輸出狀態：
 
 ```powershell
-uv run keysight-power ramp --json --resource "USB0::...::INSTR" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
-uv run keysight-power ramp --json --resource "USB0::...::INSTR" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
+uv run keysight-power ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
+uv run keysight-power ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
 ```
 
 加入明確的安全設定檔 (safety config)，將本機的全域限制應用於輸出計畫中：
@@ -436,7 +443,7 @@ uv run keysight-power set --dry-run --json --safety-config examples\safety-confi
 
 ```powershell
 .\.venv\Scripts\python.exe examples\01_list_resources.py
-.\.venv\Scripts\python.exe examples\02_identify.py --resource "USB0::..."
+.\.venv\Scripts\python.exe examples\02_identify.py --resource "$env:KEYSIGHT_POWER_RESOURCE"
 ```
 
 在支援的 CLI 命令中加入 `--json`，以使用穩定且機器可讀的 v1 契約。診斷日誌 (例如 `--log-scpi`) 會保留在 stderr，讓 JSON stdout 保持可解析。每個 JSON 成功與錯誤封裝皆包含 `metadata.duration_ms`。

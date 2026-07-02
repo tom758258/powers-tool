@@ -35,18 +35,23 @@ keysight-power --version
 .\keysight-power.exe list-resources --live-only
 ```
 
-3. 複製目標儀器確切的資源字串。
+3. 複製目標儀器確切的資源字串，並設定工作階段變數：
+
+```powershell
+$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
+```
+
 4. 執行唯讀的身分檢查：
 
 ```powershell
-.\keysight-power.exe verify --resource "<VISA_RESOURCE>" --log-scpi
+.\keysight-power.exe verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 5. 在執行任何輸出動作前，進行唯讀的測量或狀態檢查：
 
 ```powershell
-.\keysight-power.exe measure --resource "<VISA_RESOURCE>" --channel 1 --log-scpi
-.\keysight-power.exe read-status --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
+.\keysight-power.exe read-status --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 ```
 
 對於實機命令，請使用明確的資源字串。請勿依賴腳本或無人值守的工作流程來猜測應使用哪台儀器。
@@ -78,10 +83,10 @@ keysight-power --version
 驗證儀器時，請先使用唯讀命令：
 
 ```powershell
-.\keysight-power.exe identify --resource "<VISA_RESOURCE>" --json --log-scpi
-.\keysight-power.exe readback --resource "<VISA_RESOURCE>" --json --log-scpi
-.\keysight-power.exe protection-status --resource "<VISA_RESOURCE>" --json --log-scpi
-.\keysight-power.exe validate-readonly --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe identify --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\keysight-power.exe protection-status --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\keysight-power.exe validate-readonly --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 ```
 
 這些命令會查詢身分、程式設定點、測量值、狀態或保護狀態。它們不會刻意啟用輸出。
@@ -93,25 +98,25 @@ keysight-power --version
 在不啟用輸出的情況下設定較低的設定點：
 
 ```powershell
-.\keysight-power.exe set --resource "<VISA_RESOURCE>" --channel 1 --voltage 1 --current 0.05 --json --log-scpi
+.\keysight-power.exe set --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --json --log-scpi
 ```
 
 讀回已設定的狀態：
 
 ```powershell
-.\keysight-power.exe readback --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 ```
 
 僅在確認設定點安全後才啟用輸出：
 
 ```powershell
-.\keysight-power.exe output-on --resource "<VISA_RESOURCE>" --channel 1 --json --log-scpi
+.\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi
 ```
 
 檢查完成後關閉輸出：
 
 ```powershell
-.\keysight-power.exe output-off --resource "<VISA_RESOURCE>" --channel 1 --json --log-scpi
+.\keysight-power.exe output-off --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi
 ```
 
 若要進行簡短的快速測試動作 (smoke action)，請將電壓與電流保持在低位，並使用 CLI README 中記錄的有限度命令。請勿針對未知的資源在無人值守的情況下執行輸出工作流程。

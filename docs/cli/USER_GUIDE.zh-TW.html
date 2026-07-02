@@ -269,13 +269,15 @@
             <li>僅列出目前能回應 <code>*IDN?</code> 的 VISA 資源：
                 <div class="code-wrapper"><pre><code>.\keysight-power.exe list-resources --live-only</code></pre></div>
             </li>
-            <li>複製目標儀器確切的資源字串。</li>
+            <li>複製目標儀器確切的資源字串，並設定工作階段變數：
+                <div class="code-wrapper"><pre><code>$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"</code></pre></div>
+            </li>
             <li>執行唯讀的身分檢查：
-                <div class="code-wrapper"><pre><code>.\keysight-power.exe verify --resource "&lt;VISA_RESOURCE&gt;" --log-scpi</code></pre></div>
+                <div class="code-wrapper"><pre><code>.\keysight-power.exe verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi</code></pre></div>
             </li>
             <li>在執行任何輸出動作前，進行唯讀的測量或狀態檢查：
-                <div class="code-wrapper"><pre><code>.\keysight-power.exe measure --resource "&lt;VISA_RESOURCE&gt;" --channel 1 --log-scpi
-.\keysight-power.exe read-status --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi</code></pre></div>
+                <div class="code-wrapper"><pre><code>.\keysight-power.exe measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
+.\keysight-power.exe read-status --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi</code></pre></div>
             </li>
         </ol>
         <p>對於實機命令，請使用明確的資源字串。請勿依賴腳本或無人值守的工作流程來猜測應使用哪台儀器。</p>
@@ -294,26 +296,26 @@
 
         <h2 id="readonly-workflow">唯讀工作流程</h2>
         <p>驗證儀器時，請先使用唯讀命令：</p>
-        <div class="code-wrapper"><pre><code>.\keysight-power.exe identify --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi
-.\keysight-power.exe readback --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi
-.\keysight-power.exe protection-status --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi
-.\keysight-power.exe validate-readonly --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi</code></pre></div>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe identify --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\keysight-power.exe protection-status --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\keysight-power.exe validate-readonly --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi</code></pre></div>
         <p>這些命令會查詢身分、程式設定點、測量值、狀態或保護狀態。它們不會刻意啟用輸出。</p>
 
         <h2 id="output-workflow">影響輸出的工作流程</h2>
         <p>影響輸出的命令需要明確指定。使用前，請確認儀器型號、通道、DUT 接線、電壓、電流限制與保護設定。</p>
 
         <p>在不啟用輸出的情況下設定較低的設定點：</p>
-        <div class="code-wrapper"><pre><code>.\keysight-power.exe set --resource "&lt;VISA_RESOURCE&gt;" --channel 1 --voltage 1 --current 0.05 --json --log-scpi</code></pre></div>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe set --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --json --log-scpi</code></pre></div>
 
         <p>讀回已設定的狀態：</p>
-        <div class="code-wrapper"><pre><code>.\keysight-power.exe readback --resource "&lt;VISA_RESOURCE&gt;" --json --log-scpi</code></pre></div>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi</code></pre></div>
 
         <p>僅在確認設定點安全後才啟用輸出：</p>
-        <div class="code-wrapper"><pre><code>.\keysight-power.exe output-on --resource "&lt;VISA_RESOURCE&gt;" --channel 1 --json --log-scpi</code></pre></div>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi</code></pre></div>
 
         <p>檢查完成後關閉輸出：</p>
-        <div class="code-wrapper"><pre><code>.\keysight-power.exe output-off --resource "&lt;VISA_RESOURCE&gt;" --channel 1 --json --log-scpi</code></pre></div>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe output-off --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi</code></pre></div>
 
         <p>若要進行簡短的快速測試動作 (smoke action)，請將電壓與電流保持在低位，並使用 CLI README 中記錄的有限度命令。請勿針對未知的資源在無人值守的情況下執行輸出工作流程。</p>
 

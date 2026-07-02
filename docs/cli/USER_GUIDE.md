@@ -45,18 +45,23 @@ supply setup.
 .\keysight-power.exe list-resources --live-only
 ```
 
-3. Copy the exact resource string for the intended instrument.
+3. Copy the exact resource string and set a session variable:
+
+```powershell
+$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
+```
+
 4. Run a read-only identity check:
 
 ```powershell
-.\keysight-power.exe verify --resource "<VISA_RESOURCE>" --log-scpi
+.\keysight-power.exe verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 5. Run a read-only measurement or status check before any output action:
 
 ```powershell
-.\keysight-power.exe measure --resource "<VISA_RESOURCE>" --channel 1 --log-scpi
-.\keysight-power.exe read-status --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
+.\keysight-power.exe read-status --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 ```
 
 Use an explicit resource string for live commands. Do not rely on a script or
@@ -97,6 +102,12 @@ as a model-independent connection diagnostic that opens the selected resource
 and queries `*IDN?`. Output-affecting commands remain disabled for E3646A
 until live hardware validation is completed.
 
+Set the ASRL resource once per PowerShell session:
+
+```powershell
+$env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
+```
+
 Plain `list-resources` normally does not need serial settings:
 
 ```powershell
@@ -107,7 +118,7 @@ If Keysight IO Libraries Suite / Connection Expert already has the ASRL
 resource configured, try a read-only check without overriding those settings:
 
 ```powershell
-keysight-power verify --resource "ASRL1::INSTR"
+keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE"
 ```
 
 To explicitly apply serial settings for one command, pass only the fields you
@@ -116,7 +127,7 @@ parity, 2 stop bits, and DTR/DSR handshake, but the instrument front-panel
 settings may have been changed:
 
 ```powershell
-keysight-power verify --resource "ASRL1::INSTR" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
+keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
 ```
 
 `--serial-remote` sends `SYST:REM`. `--serial-local-on-close` best-effort
@@ -126,10 +137,10 @@ only when explicitly requested.
 Useful read-only examples:
 
 ```powershell
-keysight-power identify --resource "ASRL1::INSTR" --serial-remote --serial-local-on-close
-keysight-power readback --resource "ASRL1::INSTR" --channel 1 --serial-remote --serial-local-on-close
-keysight-power measure --resource "ASRL1::INSTR" --channel 2 --serial-remote --serial-local-on-close
-keysight-power output-state --resource "ASRL1::INSTR" --channel 1 --serial-remote --serial-local-on-close
+keysight-power identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
+keysight-power readback --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+keysight-power measure --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
+keysight-power output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
 ```
 
 For serial read/write termination in PowerShell, use aliases when possible:
@@ -141,10 +152,10 @@ not override the VISA setting.
 Use read-only commands first when validating an instrument:
 
 ```powershell
-.\keysight-power.exe identify --resource "<VISA_RESOURCE>" --json --log-scpi
-.\keysight-power.exe readback --resource "<VISA_RESOURCE>" --json --log-scpi
-.\keysight-power.exe protection-status --resource "<VISA_RESOURCE>" --json --log-scpi
-.\keysight-power.exe validate-readonly --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe identify --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\keysight-power.exe protection-status --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\keysight-power.exe validate-readonly --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 ```
 
 These commands query identity, programmed setpoints, measured values, status,
@@ -159,25 +170,25 @@ settings.
 Set low setpoints without enabling output:
 
 ```powershell
-.\keysight-power.exe set --resource "<VISA_RESOURCE>" --channel 1 --voltage 1 --current 0.05 --json --log-scpi
+.\keysight-power.exe set --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --json --log-scpi
 ```
 
 Read back the programmed state:
 
 ```powershell
-.\keysight-power.exe readback --resource "<VISA_RESOURCE>" --json --log-scpi
+.\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 ```
 
 Enable output only after the setpoints are known safe:
 
 ```powershell
-.\keysight-power.exe output-on --resource "<VISA_RESOURCE>" --channel 1 --json --log-scpi
+.\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi
 ```
 
 Turn output off when the check is complete:
 
 ```powershell
-.\keysight-power.exe output-off --resource "<VISA_RESOURCE>" --channel 1 --json --log-scpi
+.\keysight-power.exe output-off --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi
 ```
 
 For a short smoke action, keep voltage and current low and use the documented

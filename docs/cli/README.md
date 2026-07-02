@@ -294,9 +294,10 @@ Ramp List version 1 may contain a global `completion_pulse` object. Inline
 the document is authoritative and CLI pulse overrides are rejected.
 
 ```powershell
+$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
 uv run keysight-power ramp-list --lint --json --file example.ramp-list.json
-uv run keysight-power ramp-list --dry-run --json --file example.ramp-list.json --resource "USB0::...::INSTR"
-uv run keysight-power ramp-list --json --resource "USB0::...::INSTR" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
+uv run keysight-power ramp-list --dry-run --json --file example.ramp-list.json --resource "$env:KEYSIGHT_POWER_RESOURCE"
+uv run keysight-power ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
 ```
 
 ## Power Worker Daemon
@@ -352,11 +353,17 @@ uv run keysight-power list-resources
 This is passive discovery only: a resource string can appear here even when the
 instrument is not currently reachable.
 
+For live USB examples below, set the VISA resource once per PowerShell session:
+
+```powershell
+$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
+```
+
 Verify that one resource can be opened and queried with `*IDN?`:
 
 ```powershell
-uv run keysight-power verify --resource "USB0::...::INSTR"
-uv run keysight-power verify --resource "USB0::...::INSTR" --log-scpi
+uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_RESOURCE"
+uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 ### E3646A RS-232 / ASRL Read-Only Use
@@ -369,17 +376,23 @@ queries `*IDN?`. Output-affecting commands, protection writes, trigger
 workflows, snapshot restore, ramp, ramp-list, and sequence output steps remain
 disabled until live hardware validation is done.
 
+Set the ASRL resource once per PowerShell session:
+
+```powershell
+$env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
+```
+
 Plain resource discovery does not need serial options:
 
 ```powershell
-keysight-power list-resources
+uv run keysight-power list-resources
 ```
 
 If Connection Expert already has the ASRL resource configured and verified,
 you can let VISA use those settings:
 
 ```powershell
-keysight-power verify --resource "ASRL1::INSTR"
+uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE"
 ```
 
 Serial settings are explicit only. If omitted, the CLI does not overwrite
@@ -390,7 +403,7 @@ resources. The E3646A factory example is 9600 baud, 8 data bits, none parity,
 settings may differ:
 
 ```powershell
-keysight-power verify --resource "ASRL1::INSTR" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
+uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
 ```
 
 `--serial-remote` sends `SYST:REM` after opening the ASRL resource.
@@ -401,16 +414,16 @@ explicitly requested.
 Read-only examples:
 
 ```powershell
-keysight-power identify --resource "ASRL1::INSTR" --serial-remote --serial-local-on-close
-keysight-power readback --resource "ASRL1::INSTR" --channel 1 --serial-remote --serial-local-on-close
-keysight-power measure --resource "ASRL1::INSTR" --channel 2 --serial-remote --serial-local-on-close
-keysight-power output-state --resource "ASRL1::INSTR" --channel 1 --serial-remote --serial-local-on-close
+uv run keysight-power identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
+uv run keysight-power readback --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
+uv run keysight-power output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
 ```
 
 For serial terminations, prefer aliases in PowerShell:
 
 ```powershell
-keysight-power verify --resource "ASRL1::INSTR" --serial-read-termination CRLF --serial-write-termination LF
+uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-read-termination CRLF --serial-write-termination LF
 ```
 
 Supported aliases are `CR`, `LF`, `CRLF`, and `NONE`/`none`. `NONE` means do
@@ -422,42 +435,42 @@ the aliases when you need actual control characters.
 Clear instrument status and the error queue with `*CLS`:
 
 ```powershell
-uv run keysight-power clear --resource "USB0::...::INSTR" --log-scpi
+uv run keysight-power clear --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 uv run keysight-power clear --dry-run --json --resource "USB0::SIM::E36103B::INSTR"
 ```
 
 Read the instrument error queue without changing output state:
 
 ```powershell
-uv run keysight-power error --resource "USB0::...::INSTR" --max-reads 20 --log-scpi
+uv run keysight-power error --resource "$env:KEYSIGHT_POWER_RESOURCE" --max-reads 20 --log-scpi
 ```
 
 Measure voltage and current:
 
 ```powershell
-uv run keysight-power measure --resource "USB0::...::INSTR" --channel 1 --log-scpi
-uv run keysight-power measure --resource "USB0::...::INSTR" --channel 2 --log-scpi
+uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
+uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 2 --log-scpi
 uv run keysight-power measure --simulate --json --resource "USB0::SIM::E36312A::INSTR" --channel 2
 ```
 
 Measure all E36312A channels and read output state:
 
 ```powershell
-uv run keysight-power measure-all --json --resource "USB0::...::INSTR" --log-scpi
-uv run keysight-power read-status --json --resource "USB0::...::INSTR" --log-scpi
+uv run keysight-power measure-all --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run keysight-power read-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 Run a full read-only validation pass on E36312A or EDU36311A:
 
 ```powershell
-uv run keysight-power validate-readonly --json --resource "USB0::...::INSTR" --log-scpi --save-json logs\validate-readonly.json
+uv run keysight-power validate-readonly --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi --save-json logs\validate-readonly.json
 ```
 
 Read programmed E36312A setpoints and protection state:
 
 ```powershell
-uv run keysight-power readback --json --resource "USB0::...::INSTR" --log-scpi
-uv run keysight-power protection-status --json --resource "USB0::...::INSTR" --log-scpi
+uv run keysight-power readback --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run keysight-power protection-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 For E36312A and EDU36311A, `protection-status` reads OVP/OCP trip flags per
@@ -467,9 +480,9 @@ the OR of the selected channel results.
 Capture and compare E36312A snapshots:
 
 ```powershell
-uv run keysight-power identify --json --resource "USB0::...::INSTR" --log-scpi
-uv run keysight-power snapshot --json --resource "USB0::...::INSTR" --log-scpi
-uv run keysight-power snapshot --json --resource "USB0::...::INSTR" --compare logs\e36312a-baseline.json
+uv run keysight-power identify --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run keysight-power snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run keysight-power snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --compare logs\e36312a-baseline.json
 uv run keysight-power snapshot --simulate --json --redact-resource --resource "USB0::SIM::E36312A::INSTR"
 uv run keysight-power snapshot-diff --summary --json --before logs\before.json --after logs\after.json
 ```
@@ -477,24 +490,24 @@ uv run keysight-power snapshot-diff --summary --json --before logs\before.json -
 Preview a restore plan and save the plan data without opening VISA:
 
 ```powershell
-uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\before.json --resource "USB0::...::INSTR" --channel all --plan-json logs\restore-plan.json
+uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\before.json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --plan-json logs\restore-plan.json
 ```
 
 Preview or confirm E36312A protection actions:
 
 ```powershell
-uv run keysight-power clear-protection --dry-run --json --resource "USB0::...::INSTR" --all
-uv run keysight-power clear-protection --json --resource "USB0::...::INSTR" --all --confirm --log-scpi
-uv run keysight-power protection-set --dry-run --json --resource "USB0::...::INSTR" --channel all --ovp-voltage 5 --ocp on
-uv run keysight-power protection-set --dry-run --json --resource "USB0::...::INSTR" --channel 1 --ocp-delay 0.5 --ocp-delay-trigger setting-change
-uv run keysight-power protection-set --json --resource "USB0::...::INSTR" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
+uv run keysight-power clear-protection --dry-run --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --all
+uv run keysight-power clear-protection --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --all --confirm --log-scpi
+uv run keysight-power protection-set --dry-run --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --ovp-voltage 5 --ocp on
+uv run keysight-power protection-set --dry-run --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --ocp-delay 0.5 --ocp-delay-trigger setting-change
+uv run keysight-power protection-set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
 ```
 
 Configure an E36312A rear digital pin as trigger output, arm one output channel
 with a no-change STEP trigger sequence, and emit `*TRG`:
 
 ```powershell
-uv run keysight-power trigger-pulse --json --resource "USB0::...::INSTR" --pin 1 --channel 1 --polarity positive --log-scpi
+uv run keysight-power trigger-pulse --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --pin 1 --channel 1 --polarity positive --log-scpi
 ```
 
 Use `--dry-run` to preview trigger-pulse SCPI without opening VISA. The final
@@ -505,12 +518,12 @@ command if the instrument reports errors.
 Native E36312A trigger/LIST commands:
 
 ```powershell
-uv run keysight-power trigger-status --json --resource "USB0::...::INSTR" --channel all
-uv run keysight-power trigger-step --json --resource "USB0::...::INSTR" --channel 1 --source bus --fire --wait-complete
-uv run keysight-power trigger-list --json --resource "USB0::...::INSTR" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --completion-pulse-pins 1 --fire --wait-complete
-uv run keysight-power trigger-list --json --resource "USB0::...::INSTR" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --bost-list on,off --eost-list off,on --trigger-output-pins 1 --source immediate --wait-complete
-uv run keysight-power trigger-fire --json --resource "USB0::...::INSTR" --channel 1 --wait-complete
-uv run keysight-power trigger-abort --json --resource "USB0::...::INSTR" --channel all
+uv run keysight-power trigger-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all
+uv run keysight-power trigger-step --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --source bus --fire --wait-complete
+uv run keysight-power trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --completion-pulse-pins 1 --fire --wait-complete
+uv run keysight-power trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --bost-list on,off --eost-list off,on --trigger-output-pins 1 --source immediate --wait-complete
+uv run keysight-power trigger-fire --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --wait-complete
+uv run keysight-power trigger-abort --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all
 ```
 
 For native BUS triggers, `trigger-step` and `trigger-list` only arm by default;
@@ -566,8 +579,8 @@ uv run keysight-power set --dry-run --json --resource "USB0::SIM::E36103B::INSTR
 Set low E36312A or EDU36311A setpoints without enabling output:
 
 ```powershell
-uv run keysight-power set --json --resource "USB0::...::INSTR" --channel 1 --voltage 1 --current 0.05 --log-scpi
-uv run keysight-power set --json --resource "USB0::...::INSTR" --channel 1 --voltage 1 --log-scpi
+uv run keysight-power set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --log-scpi
+uv run keysight-power set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --log-scpi
 ```
 
 Real `set` first confirms the selected resource is an E36312A or EDU36311A
@@ -577,8 +590,8 @@ than 1, 2, and 3 are rejected.
 Enable an E36312A or EDU36311A output only after setpoints are already safe:
 
 ```powershell
-uv run keysight-power output-on --json --resource "USB0::...::INSTR" --channel 1 --log-scpi
-uv run keysight-power output-on --json --resource "USB0::...::INSTR" --channel all --log-scpi
+uv run keysight-power output-on --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
+uv run keysight-power output-on --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --log-scpi
 ```
 
 Real `output-on` first confirms the selected resource is an E36312A or
@@ -588,9 +601,9 @@ EDU36311A with `*IDN?`, reads programmed voltage/current setpoints, then sends
 Read back and cycle output state:
 
 ```powershell
-uv run keysight-power output-state --json --resource "USB0::...::INSTR" --channel 1 --log-scpi
-uv run keysight-power cycle-output --json --resource "USB0::...::INSTR" --channel 1 --duration-ms 500 --log-scpi
-uv run keysight-power cycle-output --json --resource "USB0::...::INSTR" --channel all --duration-ms 500 --log-scpi
+uv run keysight-power output-state --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
+uv run keysight-power cycle-output --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --duration-ms 500 --log-scpi
+uv run keysight-power cycle-output --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --duration-ms 500 --log-scpi
 ```
 
 For `cycle-output --channel all`, the CLI enables channels 1, 2, and 3 in
@@ -600,16 +613,16 @@ order.
 Apply low setpoints and enable output:
 
 ```powershell
-uv run keysight-power apply --json --resource "USB0::...::INSTR" --channel 1 --voltage 1 --current 0.05 --log-scpi
-uv run keysight-power apply --json --resource "USB0::...::INSTR" --channel all --voltage 1 --current 0.05 --log-scpi
-uv run keysight-power apply --json --resource "USB0::...::INSTR" --channel all --voltage 1 --current 0.05 --no-output --log-scpi
+uv run keysight-power apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --log-scpi
+uv run keysight-power apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --voltage 1 --current 0.05 --log-scpi
+uv run keysight-power apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --voltage 1 --current 0.05 --no-output --log-scpi
 ```
 
 Ramp voltage setpoints without changing output state:
 
 ```powershell
-uv run keysight-power ramp --json --resource "USB0::...::INSTR" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
-uv run keysight-power ramp --json --resource "USB0::...::INSTR" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
+uv run keysight-power ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
+uv run keysight-power ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
 ```
 
 Add an explicit safety config to apply local global limits to output plans:
@@ -650,7 +663,7 @@ query behavior:
 
 ```powershell
 .\.venv\Scripts\python.exe examples\01_list_resources.py
-.\.venv\Scripts\python.exe examples\02_identify.py --resource "USB0::..."
+.\.venv\Scripts\python.exe examples\02_identify.py --resource "$env:KEYSIGHT_POWER_RESOURCE"
 ```
 
 Add `--json` to supported CLI commands for the stable machine-readable v1
