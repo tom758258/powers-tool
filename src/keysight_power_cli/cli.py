@@ -259,6 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_dry_run_argument(clear_parser)
     _add_backend_argument(clear_parser)
     _add_timeout_argument(clear_parser)
+    _add_serial_arguments(clear_parser)
     clear_parser.add_argument(
         "--log-scpi",
         action="store_true",
@@ -275,6 +276,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_simulate_argument(error_parser)
     _add_backend_argument(error_parser)
     _add_timeout_argument(error_parser)
+    _add_serial_arguments(error_parser)
     error_parser.add_argument(
         "--max-reads",
         type=_positive_max_reads,
@@ -7990,18 +7992,18 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         })
     if args.command == "clear":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-        }
+        })
     if args.command == "error":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             "max_reads": args.max_reads,
-        }
+        })
     if args.command == "measure":
         return _with_serial_request_fields(args, {
             "resource": args.resource,
@@ -8397,18 +8399,18 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
         })
     if command == "clear":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
-        }
+        })
     if command == "error":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
             "max_reads": _max_reads_from_argv(argv),
-        }
+        })
     if command == "measure":
         return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),

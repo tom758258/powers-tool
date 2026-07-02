@@ -812,6 +812,45 @@ def test_error_real_json_reads_until_no_error(monkeypatch, capsys) -> None:
     assert captured.err == ""
 
 
+@pytest.mark.parametrize("command", ["clear", "error"])
+def test_safe_generic_io_serial_termination_options_reach_request_and_opener(
+    monkeypatch,
+    capsys,
+    command: str,
+) -> None:
+    session = FakeSession()
+    opened = []
+
+    def fake_open_resource(resource, resource_manager=None, *, backend=None, timeout_ms=5000, **kwargs):
+        opened.append((resource, resource_manager, backend, timeout_ms, kwargs))
+        return session
+
+    monkeypatch.setattr(cli, "open_resource", fake_open_resource)
+
+    assert (
+        cli.main(
+            [
+                command,
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                "--serial-read-termination",
+                "CRLF",
+                "--serial-write-termination",
+                "LF",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    serial_options = opened[0][4]["serial_options"]
+    assert serial_options.read_termination == "\r\n"
+    assert serial_options.write_termination == "\n"
+    assert payload["request"]["serial_options"]["read_termination"] == "\r\n"
+    assert payload["request"]["serial_options"]["write_termination"] == "\n"
+
+
 def test_measure_simulate_json_does_not_create_real_resource_manager(monkeypatch, capsys) -> None:
     def fail_real_manager(backend=None):
         raise AssertionError("real VISA manager should not be created")
@@ -5718,6 +5757,46 @@ def test_e3646a_real_output_affecting_commands_remain_disabled(monkeypatch, caps
         write.startswith(E3646A_FORBIDDEN_WRITE_PREFIXES)
         for write in session.writes
     )
+
+
+def test_e3646a_cli_capabilities_keep_output_protection_and_trigger_disabled(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "capabilities",
+                "--simulate",
+                "--json",
+                "--resource",
+                "ASRL1::SIM::E3646A::INSTR",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    support = payload["data"]["command_support"]
+    guarded_commands = (
+        "set",
+        "apply",
+        "output-on",
+        "output-off",
+        "safe-off",
+        "cycle-output",
+        "ramp",
+        "ramp-list",
+        "smoke-output",
+        "protection-status",
+        "protection-set",
+        "clear-protection",
+        "trigger-pulse",
+        "trigger-status",
+        "trigger-step",
+        "trigger-list",
+        "trigger-fire",
+        "trigger-abort",
+    )
+    for command in guarded_commands:
+        assert support[command]["real"] is False
 
 
 @pytest.mark.parametrize(
