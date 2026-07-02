@@ -110,12 +110,18 @@ Please note:
 
 ## E3646A RS-232 / ASRL
 
-E3646A support is currently read-only/status only over RS-232/ASRL.
+E3646A support over RS-232/ASRL includes read/status commands and experimental
+output workflows. Output-affecting commands are implemented but pending live
+hardware validation. Before any live E3646A output command, confirm the
+physical setup has been checked and no DUT is connected.
+
 Model-supported live commands are `identify`, `measure`, `readback`,
-`read-status`, `output-state`, and `capabilities`. `verify` is also available
-as a model-independent connection diagnostic that opens the selected resource
-and queries `*IDN?`. Output-affecting commands remain disabled for E3646A
-until live hardware validation is completed.
+`read-status`, `output-state`, `capabilities`, `set`, `apply`, `output-on`,
+`output-off`, `safe-off`, `cycle-output`, `smoke-output`, `ramp`,
+`ramp-list`, and output-affecting `sequence` steps. `verify` is also
+available as a model-independent connection diagnostic that opens the selected
+resource and queries `*IDN?`. Protection writes, trigger workflows, snapshot
+restore, completion pulses, and native LIST remain disabled for E3646A.
 
 Set the ASRL resource once per PowerShell session:
 
@@ -149,7 +155,7 @@ keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-ba
 sends `SYST:LOC` during cleanup. These affect remote/local state and are sent
 only when explicitly requested.
 
-Useful read-only examples:
+Useful read/status examples:
 
 ```powershell
 keysight-power identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
@@ -194,7 +200,9 @@ Read back the programmed state:
 .\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 ```
 
-Enable output only after the setpoints are known safe:
+Enable output only after the setpoints are known safe. For E3646A, treat live
+output as experimental until hardware validation is complete; confirm the
+physical setup has been checked and no DUT is connected:
 
 ```powershell
 .\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi

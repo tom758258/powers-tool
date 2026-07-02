@@ -95,8 +95,9 @@ $env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
 
 ## E3646A RS-232 / ASRL
 
-E3646A 支援目前在 RS-232/ASRL 上僅限唯讀/狀態查詢。
-型號支援的實機命令包括 `identify`、`measure`、`readback`、`read-status`、`output-state` 與 `capabilities`。`verify` 也可作為與型號無關的連線診斷，用以開啟所選資源並查詢 `*IDN?`。在完成實機硬體驗收之前，E3646A 影響輸出的指令仍維持停用狀態。
+E3646A 在 RS-232/ASRL 上支援唯讀/狀態查詢與實驗性的輸出工作流程。影響輸出的命令已實作，但仍等待實機硬體驗證。執行任何 E3646A 實機輸出命令前，請確認實體接線已檢查完成且未連接 DUT。
+
+型號支援的實機命令包括 `identify`、`measure`、`readback`、`read-status`、`output-state`、`capabilities`、`set`、`apply`、`output-on`、`output-off`、`safe-off`、`cycle-output`、`smoke-output`、`ramp`、`ramp-list` 與影響輸出的 `sequence` 步驟。`verify` 也可作為與型號無關的連線診斷，用以開啟所選資源並查詢 `*IDN?`。E3646A 的保護寫入、trigger 工作流程、snapshot restore、completion pulse 與 native LIST 仍維持停用。
 
 每個 PowerShell 工作階段設定一次 ASRL 資源：
 
@@ -124,7 +125,7 @@ keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-ba
 
 `--serial-remote` 會發送 `SYST:REM`。`--serial-local-on-close` 會在清理時盡最大努力發送 `SYST:LOC`。這些設定會影響遠端/本機狀態，且僅在明確要求時才會發送。
 
-實用的唯讀範例：
+實用的唯讀/狀態範例：
 
 ```powershell
 keysight-power identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
@@ -164,7 +165,7 @@ keysight-power output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --cha
 .\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 ```
 
-僅在確認設定點安全後才啟用輸出：
+僅在確認設定點安全後才啟用輸出。對 E3646A 而言，實機輸出在硬體驗證完成前仍屬實驗性；請先確認實體接線已檢查完成且未連接 DUT：
 
 ```powershell
 .\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi

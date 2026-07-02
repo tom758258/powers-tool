@@ -13,6 +13,7 @@ from keysight_power_core.connection import open_resource
 from keysight_power_core.core import CommandCancelled, CoreIoError, CoreValidationError, SequenceRequest
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
+from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.safety import SafetyConfigError, SafetyLimits, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
@@ -20,7 +21,7 @@ from keysight_power_core.setpoint_limits import validate_effective_setpoint
 from keysight_power_core.trigger import run_post_action_completion_pulse, trigger_pulse_scpi
 
 IDN_QUERY = "*IDN?"
-OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
+OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)
 SEQUENCE_ACTIONS = {
     "measure",
     "readback",
@@ -364,7 +365,7 @@ def execute_sequence_step(
     action = step["action"]
     parameters = step["parameters"]
     if action in SEQUENCE_OUTPUT_ACTIONS and not request.runtime.simulate and not isinstance(power_supply, OUTPUT_WRITE_POWER_SUPPLY_TYPES):
-        raise CoreValidationError("real output-affecting sequence steps are enabled only for E36312A or EDU36311A")
+        raise CoreValidationError("real output-affecting sequence steps are enabled only for E36312A, E3646A, or EDU36311A")
     if action in {"measure", "readback"}:
         _validate_read_only_channel(power_supply, sequence_channel(parameters.get("channel", 1)), command_label="sequence")
     if action == "output-state":

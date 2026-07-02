@@ -1055,7 +1055,7 @@ def test_commands_metadata(client: TestClient):
     }
     assert data["parameter_constraints"]["delay_ms"]["min"] == 0
     assert data["parameter_constraints"]["poll_ms"]["min"] == 50
-    
+
     # Check a few expected commands
     cmds = data["commands"]
     assert "set" in cmds
@@ -1097,7 +1097,7 @@ def test_commands_metadata(client: TestClient):
     assert cmds["clear-protection"]["requires_confirm"] is True
     assert "does not clear OVP/OCP protection latches" in cmds["clear"]["description"]
     assert cmds["sequence"]["max_steps"] == 250
-    
+
     # Check output-affecting commands are marked correctly
     assert cmds["output-on"]["requires_confirm"] is True
     assert cmds["output-off"]["requires_confirm"] is True
@@ -1205,7 +1205,8 @@ def test_commands_metadata_includes_model_aware_support(client: TestClient):
     assert support["EDU36311A"]["trigger-list"]["real"] is False
     assert support["EDU36311A"]["trigger-list"]["hardware_validation"] == "not_supported_by_model"
     assert support["E3646A"]["identify"]["real"] is True
-    assert support["E3646A"]["set"]["real"] is False
+    assert support["E3646A"]["set"]["real"] is True
+    assert support["E3646A"]["set"]["hardware_validation"] == "implemented_pending_hardware_validation"
     assert support["GENERIC"]["set"]["real"] is False
     for model in ("E36312A", "E3646A", "EDU36311A", "GENERIC"):
         assert support[model]["clear"]["real"] is True
@@ -1321,7 +1322,7 @@ def test_post_job_simulate_set(client: TestClient):
     data = response.json()
     assert data["ok"] is True
     assert "job_id" in data
-    
+
     # Wait for job to finish (simulate is fast)
     job_id = data["job_id"]
     for _ in range(20):
@@ -1329,7 +1330,7 @@ def test_post_job_simulate_set(client: TestClient):
         if res.json()["status"] in ("finished", "failed"):
             break
         time.sleep(0.1)
-    
+
     job_data = client.get(f"/api/jobs/{job_id}").json()
     assert job_data["status"] == "finished"
     assert "operation" in job_data["result"]
@@ -1486,14 +1487,14 @@ def test_post_job_real_output_without_confirm_fails(client: TestClient):
     assert response.status_code == 200  # Job is accepted
     data = response.json()
     job_id = data["job_id"]
-    
+
     # Wait for job to fail
     for _ in range(20):
         res = client.get(f"/api/jobs/{job_id}")
         if res.json()["status"] in ("finished", "failed"):
             break
         time.sleep(0.1)
-    
+
     job_data = client.get(f"/api/jobs/{job_id}").json()
     assert job_data["status"] == "failed"
     assert "requires explicit confirmation" in job_data["error"]
@@ -1554,7 +1555,7 @@ def test_hardware_lock_prevents_concurrent_jobs(client: TestClient):
     """Test that non-simulate/non-dry-run jobs are rejected when hardware is locked."""
     from keysight_power_webui.jobs import job_manager
     job_manager.active_job_id = "fake-active-job"
-    
+
     payload = {
         "command": "set",
         "runtime": {
@@ -1568,7 +1569,7 @@ def test_hardware_lock_prevents_concurrent_jobs(client: TestClient):
     response = client.post("/api/jobs", json=payload)
     assert response.status_code == 409
     assert "Hardware is currently locked" in response.json()["detail"]
-    
+
     # Cleanup
     job_manager.active_job_id = None
 
@@ -1577,7 +1578,7 @@ def test_hardware_lock_allows_simulate_jobs(client: TestClient):
     """Test that simulate jobs can still run when hardware is locked."""
     from keysight_power_webui.jobs import job_manager
     job_manager.active_job_id = "fake-active-job"
-    
+
     payload = {
         "command": "set",
         "runtime": {
@@ -1591,7 +1592,7 @@ def test_hardware_lock_allows_simulate_jobs(client: TestClient):
     # Should succeed even when hardware is locked (simulate mode)
     assert response.status_code == 200
     assert response.json()["ok"] is True
-    
+
     # Cleanup
     job_manager.active_job_id = None
 
@@ -1621,13 +1622,13 @@ def test_sequence_lint_dry_run(client: TestClient):
     assert response.status_code == 200
     data = response.json()
     job_id = data["job_id"]
-    
+
     for _ in range(20):
         res = client.get(f"/api/jobs/{job_id}")
         if res.json()["status"] in ("finished", "failed"):
             break
         time.sleep(0.1)
-        
+
     job_data = client.get(f"/api/jobs/{job_id}").json()
     assert job_data["status"] == "finished"
     assert job_data["result"]["status"] == "valid"
@@ -1730,11 +1731,11 @@ def test_sse_event_order(client: TestClient):
     }
     response = client.post("/api/jobs", json=payload)
     job_id = response.json()["job_id"]
-    
+
     # Check job events array directly
     from keysight_power_webui.jobs import job_manager
     import asyncio
-    
+
     async def check_events():
         events = await job_manager.get_job_events(job_id)
         types = [e["type"] for e in events]
@@ -1785,13 +1786,13 @@ def test_live_data_start_and_stop(client: TestClient, monkeypatch: pytest.Monkey
     data = response.json()
     assert data["ok"] is True
     job_id = data["job_id"]
-    
+
     time.sleep(0.3) # Let it generate a few events
-    
+
     # Stop it
     stop_response = client.post(f"/api/live/{job_id}/stop")
     assert stop_response.status_code == 200
-    
+
     # Verify it stopped
     from keysight_power_webui.jobs import job_manager
     job = job_manager.jobs.get(job_id)
@@ -2245,7 +2246,7 @@ def test_webui_commands_simulate_mode(client: TestClient):
         ("measure", {"channel": 1}),
         ("snapshot", {}),
     ]
-    
+
     for cmd, params in commands_to_test:
         payload = {
             "command": cmd,
@@ -2254,14 +2255,14 @@ def test_webui_commands_simulate_mode(client: TestClient):
         }
         response = client.post("/api/jobs", json=payload)
         assert response.status_code == 200, f"Command {cmd} failed to submit"
-        
+
         job_id = response.json()["job_id"]
         for _ in range(20):
             res = client.get(f"/api/jobs/{job_id}")
             if res.json()["status"] in ("finished", "failed"):
                 break
             time.sleep(0.05)
-        
+
         job_data = client.get(f"/api/jobs/{job_id}").json()
         assert job_data["status"] == "finished", f"Command {cmd} failed: {job_data.get('error')}"
 
@@ -2337,14 +2338,14 @@ def test_readonly_commands_simulate_with_resource(client: TestClient):
         }
         response = client.post("/api/jobs", json=payload)
         assert response.status_code == 200, f"Command {cmd} failed to submit"
-        
+
         job_id = response.json()["job_id"]
         for _ in range(20):
             res = client.get(f"/api/jobs/{job_id}")
             if res.json()["status"] in ("finished", "failed"):
                 break
             time.sleep(0.05)
-        
+
         job_data = client.get(f"/api/jobs/{job_id}").json()
         assert job_data["status"] == "finished", f"Command {cmd} failed: {job_data.get('error')}"
 
@@ -2357,7 +2358,7 @@ def test_output_commands_simulate(client: TestClient):
         ("output-off", {"channel": 1}),
         ("safe-off", {"channel": "all"}),
     ]
-    
+
     for cmd, params in commands_to_test:
         payload = {
             "command": cmd,
@@ -2369,14 +2370,14 @@ def test_output_commands_simulate(client: TestClient):
         }
         response = client.post("/api/jobs", json=payload)
         assert response.status_code == 200, f"Command {cmd} failed to submit"
-        
+
         job_id = response.json()["job_id"]
         for _ in range(20):
             res = client.get(f"/api/jobs/{job_id}")
             if res.json()["status"] in ("finished", "failed"):
                 break
             time.sleep(0.05)
-        
+
         job_data = client.get(f"/api/jobs/{job_id}").json()
         assert job_data["status"] == "finished", f"Command {cmd} failed: {job_data.get('error')}"
 
@@ -2395,13 +2396,13 @@ def test_confirm_policy_enforced(client: TestClient):
     }
     response = client.post("/api/jobs", json=payload)
     job_id = response.json()["job_id"]
-    
+
     for _ in range(20):
         res = client.get(f"/api/jobs/{job_id}")
         if res.json()["status"] in ("finished", "failed"):
             break
         time.sleep(0.05)
-    
+
     job_data = client.get(f"/api/jobs/{job_id}").json()
     assert job_data["status"] == "failed"
     assert "confirmation" in job_data["error"].lower()

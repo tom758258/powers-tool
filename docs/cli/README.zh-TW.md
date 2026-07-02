@@ -78,9 +78,11 @@ uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_RESOURCE"
 uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
-### E3646A RS-232 / ASRL 唯讀範例
+### E3646A RS-232 / ASRL 範例
 
-E3646A 目前在 RS-232/ASRL 上僅限唯讀與狀態查詢。型號支援的命令包括 `identify`、`measure`、`readback`、`read-status`、`output-state` 與 `capabilities`。`verify` 也可作為與型號無關的連線診斷。
+E3646A 在 RS-232/ASRL 上支援唯讀/狀態查詢與實驗性的輸出工作流程。影響輸出的命令已實作，但仍等待實機硬體驗證，`capabilities` 會回報 `implemented_pending_hardware_validation`。執行任何 E3646A 實機輸出命令前，請確認實體接線已檢查完成且未連接 DUT。
+
+型號支援的命令包括 `identify`、`measure`、`readback`、`read-status`、`output-state`、`capabilities`、`set`、`apply`、`output-on`、`output-off`、`safe-off`、`cycle-output`、`smoke-output`、`ramp`、`ramp-list` 與影響輸出的 `sequence` 步驟。`verify` 也可作為與型號無關的連線診斷。E3646A 的保護寫入、trigger 工作流程、snapshot restore、completion pulse 與 native LIST 仍維持停用。
 
 每個 PowerShell 工作階段設定一次 ASRL 資源：
 
@@ -102,7 +104,7 @@ uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --se
 
 `--serial-remote` 會在開啟 ASRL 資源後發送 `SYST:REM`。`--serial-local-on-close` 會在清理時盡最大努力發送 `SYST:LOC`。這些命令會影響儀器遠端/本機狀態，且只在明確要求時發送。
 
-常用唯讀範例：
+常用唯讀/狀態範例：
 
 ```powershell
 uv run keysight-power identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
@@ -144,7 +146,7 @@ uv run keysight-power trigger-status --json --resource "$env:KEYSIGHT_POWER_RESO
 
 ### 會影響輸出的範例
 
-影響輸出的命令必須明確要求，且使用前需確認型號、通道、DUT 接線、電壓、電流限制與保護設定。詳細範例請參考英文 README 與 CLI 使用者指南。
+影響輸出的命令必須明確要求，且使用前需確認型號、通道、DUT 接線、電壓、電流限制與保護設定。E3646A 實機輸出在硬體驗證完成前仍屬實驗性；執行前請確認實體接線已檢查完成且未連接 DUT。詳細範例請參考英文 README 與 CLI 使用者指南。
 
 ### Ramp、Sequence 與模擬器範例
 
@@ -161,7 +163,7 @@ uv run keysight-power safety inspect --json --explain --safety-config examples/s
 ## Safety Defaults
 
 - 影響輸出的行為必須明確要求。
-- E3646A 目前只保留 RS-232 / ASRL 唯讀與狀態查詢工作流程。
+- E3646A 在 RS-232 / ASRL 上保留唯讀與狀態查詢工作流程，並加入實驗性輸出工作流程；輸出支援仍等待實機硬體驗證。
 - `--safety-config` 只會套用本機 plan validation 限制；它不會自動啟用硬體輸出。
 - 真實 VISA resource 不應硬編碼在提交的檔案中。
 - 硬體測試必須要求使用者提供 resource。

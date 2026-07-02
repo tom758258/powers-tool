@@ -296,6 +296,8 @@ class SimulatedResource:
         output_change = _simulated_output_change(command)
         if output_change is not None:
             channel, enabled = output_change
+            if channel == 0:
+                channel = self.selected_channel
             if channel not in SIMULATED_OUTPUT_STATES.get(self.resource_name, {}):
                 raise VisaConnectionError(f"No simulated response for {command!r}")
             SIMULATED_OUTPUT_STATES[self.resource_name][channel] = enabled
@@ -303,6 +305,8 @@ class SimulatedResource:
         setpoint_change = _simulated_setpoint_change(command)
         if setpoint_change is not None:
             name, channel, value = setpoint_change
+            if channel == 0:
+                channel = self.selected_channel
             if channel not in SIMULATED_PROGRAMMED_SETPOINTS.get(self.resource_name, {}):
                 raise VisaConnectionError(f"No simulated response for {command!r}")
             SIMULATED_PROGRAMMED_SETPOINTS[self.resource_name][channel][name] = value
@@ -418,6 +422,12 @@ def _simulated_setpoint_change(command: str) -> tuple[str, int, str] | None:
     if command.startswith("CURR ") and ",(@" in command and command.endswith(")"):
         value, channel_text = command.removeprefix("CURR ").split(",(@", maxsplit=1)
         return ("current", _parse_channel_list(f"(@{channel_text}", "(@"), value)
+    if command.startswith("VOLT ") and ",(@" not in command:
+        value = command.removeprefix("VOLT ").strip()
+        return ("voltage", 0, value)
+    if command.startswith("CURR ") and ",(@" not in command:
+        value = command.removeprefix("CURR ").strip()
+        return ("current", 0, value)
     return None
 
 
@@ -427,6 +437,8 @@ def _simulated_output_change(command: str) -> tuple[int, bool] | None:
         if state not in {"ON", "OFF"}:
             raise VisaConnectionError(f"Unsupported simulated output command {command!r}")
         return (_parse_channel_list(f"(@{channel_text}", "(@"), state == "ON")
+    if command in {"OUTP ON", "OUTP OFF"}:
+        return (0, command == "OUTP ON")
     return None
 
 

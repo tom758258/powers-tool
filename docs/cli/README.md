@@ -238,19 +238,21 @@ models.
 
 Real CLI measurement keeps generic instruments on channel 1. E36312A and
 EDU36311A channels 2 and 3 use IDN-selected channel-list measurement queries.
-Real CLI `set` is supported for E36312A and EDU36311A channels 1, 2, and 3. It
-accepts `--voltage`, `--current`, or both. Omitted setpoints are left
-unchanged; when both are supplied, it writes the current limit before voltage.
-It does not enable output.
+Real CLI `set` is supported for E36312A and EDU36311A channels 1, 2, and 3,
+and for E3646A channels 1 and 2 as experimental output support pending
+hardware validation. It accepts `--voltage`, `--current`, or both. Omitted
+setpoints are left unchanged; when both are supplied, it writes the current
+limit before voltage. It does not enable output.
 
 Real CLI `output-on` is supported for E36312A and EDU36311A channels 1, 2, 3,
-and `all`. After `*IDN?`, it reads back `VOLT? (@N)` and `CURR? (@N)` before
-sending `OUTP ON,(@N)`. With `--safety-config`, unsafe readback setpoints are
-rejected before any output is enabled. Real CLI `output-off`, `output-state`,
-`safe-off`, `cycle-output`, `apply`, `smoke-output`, and setpoint-only `ramp`
-are also supported for both models. `output-off`, `output-state`, and
-`cycle-output` also accept `--channel all`; `set`, `ramp`, and `smoke-output`
-remain single-channel commands.
+and `all`, and for E3646A channels 1, 2, and `all` as experimental output
+support pending hardware validation. After `*IDN?`, it reads back programmed
+voltage/current setpoints before enabling output. With `--safety-config`,
+unsafe readback setpoints are rejected before any output is enabled. Real CLI
+`output-off`, `output-state`, `safe-off`, `cycle-output`, `apply`,
+`smoke-output`, and setpoint-only `ramp` are also supported for these models.
+`output-off`, `output-state`, and `cycle-output` also accept `--channel all`;
+`set`, `ramp`, and `smoke-output` remain single-channel commands.
 
 Real CLI `measure-all` and `trigger-pulse` remain E36312A-first commands for
 all-channel measurement and rear digital trigger output pulses.
@@ -269,13 +271,13 @@ saved JSON envelope or raw snapshot `data`. It ignores `resource` and
 0.05 V measured voltage, and 0.01 A measured current, and exits `3` when
 differences are found.
 
-`ramp` is a setpoint-only command for E36312A and EDU36311A: it sets current
-limit first, then steps voltage from `--start-voltage` to the exact
+`ramp` is a setpoint-only command for E36312A, E3646A, and EDU36311A: it sets
+current limit first, then steps voltage from `--start-voltage` to the exact
 `--stop-voltage`. It does not turn output on or off and always uses software
-setpoint steps. EDU36311A real `ramp` does not support completion-pulse
-options. `set`, `apply`, `output-on`, `output-off`, and `ramp` accept
-`--settle-ms` and `--verify-after-write`; verification failures return JSON
-error code `verification_failed` and exit `3`.
+setpoint steps. E3646A and EDU36311A real `ramp` do not support
+completion-pulse options. `set`, `apply`, `output-on`, `output-off`, and
+`ramp` accept `--settle-ms` and `--verify-after-write`; verification failures
+return JSON error code `verification_failed` and exit `3`.
 
 `ramp-list` runs 1 to 10 ordered software-setpoint ramp segments through one
 VISA session. It validates the complete versioned JSON document and all
@@ -382,15 +384,22 @@ Read the instrument error queue without changing output state:
 uv run keysight-power error --resource "$env:KEYSIGHT_POWER_RESOURCE" --max-reads 20 --log-scpi
 ```
 
-### E3646A RS-232 / ASRL Read-Only Examples
+### E3646A RS-232 / ASRL Examples
 
-E3646A support is currently RS-232/ASRL read-only/status only. Model-supported
-commands are limited to `identify`, `measure`, `readback`, `read-status`,
-`output-state`, and `capabilities`. `verify` is also available as a
-model-independent connection diagnostic that opens the selected resource and
-queries `*IDN?`. Output-affecting commands, protection writes, trigger
-workflows, snapshot restore, ramp, ramp-list, and sequence output steps remain
-disabled until live hardware validation is done.
+E3646A support over RS-232/ASRL includes read/status commands and experimental
+output workflows. Output-affecting commands are implemented but remain pending
+live hardware validation and are reported as
+`implemented_pending_hardware_validation` by `capabilities`. Before any live
+E3646A output command, confirm the physical setup has been checked and no DUT
+is connected.
+
+Model-supported commands include `identify`, `measure`, `readback`,
+`read-status`, `output-state`, `capabilities`, `set`, `apply`, `output-on`,
+`output-off`, `safe-off`, `cycle-output`, `smoke-output`, `ramp`,
+`ramp-list`, and output-affecting `sequence` steps. `verify` is also
+available as a model-independent connection diagnostic that opens the selected
+resource and queries `*IDN?`. Protection writes, trigger workflows, snapshot
+restore, completion pulses, and native LIST remain disabled.
 
 Set the ASRL resource once per PowerShell session:
 
@@ -427,7 +436,7 @@ uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --se
 commands affect the instrument remote/local state and are never sent unless
 explicitly requested.
 
-Read-only examples:
+Read/status examples:
 
 ```powershell
 uv run keysight-power identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
@@ -553,27 +562,31 @@ wait restores the pre-run Trigger settings and LIST table unless
 
 ### Output-Affecting Examples
 
-Set low E36312A or EDU36311A setpoints without enabling output:
+Set low E36312A, E3646A, or EDU36311A setpoints without enabling output:
 
 ```powershell
 uv run keysight-power set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --log-scpi
 uv run keysight-power set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --log-scpi
 ```
 
-Real `set` first confirms the selected resource is an E36312A or EDU36311A
-with `*IDN?`, then writes only the requested setpoint fields. Channels other
-than 1, 2, and 3 are rejected.
+Real `set` first confirms the selected resource is an E36312A, E3646A, or
+EDU36311A with `*IDN?`, then writes only the requested setpoint fields. E3646A
+uses channels 1 and 2 with `INST:NSEL` preselection; E36312A and EDU36311A use
+channels 1, 2, and 3.
 
-Enable an E36312A or EDU36311A output only after setpoints are already safe:
+Enable an E36312A, E3646A, or EDU36311A output only after setpoints are
+already safe:
 
 ```powershell
 uv run keysight-power output-on --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
 uv run keysight-power output-on --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --log-scpi
 ```
 
-Real `output-on` first confirms the selected resource is an E36312A or
-EDU36311A with `*IDN?`, reads programmed voltage/current setpoints, then sends
-`OUTP ON,(@N)`. It does not change voltage or current setpoints.
+Real `output-on` first confirms the selected resource is an E36312A, E3646A,
+or EDU36311A with `*IDN?`, reads programmed voltage/current setpoints, then
+enables the selected output. It does not change voltage or current setpoints.
+For E3646A live output, confirm the physical setup has been checked and no DUT
+is connected until hardware validation is complete.
 
 Read back and cycle output state:
 
@@ -700,13 +713,15 @@ stays parseable. Every JSON success and error envelope includes
 ## Safety Defaults
 
 - Output-affecting behavior must be explicit.
-- Real output execution is enabled for E36312A and EDU36311A `set`, `apply`,
-  `output-on`, `output-off`, `output-state`, `cycle-output`, `safe-off`,
-  `smoke-output`, and `ramp` on explicit channels 1, 2, or 3. `apply`,
-  `output-on`, `output-off`, `output-state`, `cycle-output`, and `safe-off`
-  accept `--channel all` and expand to channels 1, 2, and 3 in order. `set`,
-  `ramp`, and `smoke-output` remain single-channel commands. `output-on` does
-  not set voltage or current.
+- Real output execution is validated for E36312A and EDU36311A `set`,
+  `apply`, `output-on`, `output-off`, `output-state`, `cycle-output`,
+  `safe-off`, `smoke-output`, and `ramp` on explicit channels 1, 2, or 3.
+  The same E3646A output workflows are implemented for channels 1 and 2 as
+  experimental behavior pending hardware validation. `apply`, `output-on`,
+  `output-off`, `output-state`, `cycle-output`, and `safe-off` accept
+  `--channel all` and expand to the model's supported channels in order.
+  `set`, `ramp`, and `smoke-output` remain single-channel commands.
+  `output-on` does not set voltage or current.
 - Real `measure-all`, `trigger-pulse`, `trigger-status`, and `trigger-list`
   are enabled only for E36312A. `status`, `readback`,
   `log`, `validate-readonly`, and protection commands are enabled for E36312A

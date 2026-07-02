@@ -14,7 +14,7 @@ validation wrapper workflow.
 | E36312A | USB-local | yes | yes | yes | Full output smoke runs read-only checks, protection-status reads, and low-power CH1-CH3 output smoke through `scripts/live-smoke-validation-check.ps1`; Phase 1-8 USB validation passed on 2026-05-22. |
 | E36312A | LAN-network | yes | yes | yes | Full output smoke is allowed only with an explicit `-Resource`; no LAN scan is performed. |
 | EDU36311A | USB-local or LAN-network | yes | yes | yes | Default live smoke is low-power CH1-CH3 output smoke at 1 V / 0.05 A. The legacy read-only profile remains available with `-Profile readonly`. |
-| E3646A | RS-232 / ASRL | yes | yes | read-only | Model support is limited to identity, measurement, readback, read-status, output-state, and capabilities. `verify` remains available as a model-independent connection diagnostic. Serial settings are applied only when explicitly provided. |
+| E3646A | RS-232 / ASRL | yes | yes | experimental output, pending hardware validation | Identity, measurement, readback, read-status, output-state, capabilities, and output workflows are implemented. Output workflows are experimental until live hardware validation is completed. `verify` remains available as a model-independent connection diagnostic. Serial settings are applied only when explicitly provided. |
 
 EDU36311A USB read-only, output/write, and protection commands are enabled for
 real execution after staged validation. The live wrapper defaults to no-DUT
@@ -55,14 +55,20 @@ command-level facts:
 - EDU36311A real trigger commands remain disabled. `capabilities --json`
   reports STEP trigger planning as `hardware_validation=planning_only` and
   native LIST as `not_supported_by_model`.
-- E3646A RS-232 support is read-only/status only. The model-supported command
-  set is `identify`, `measure`, `readback`, `read-status`, `output-state`,
-  and `capabilities`. `verify` is a model-independent connection diagnostic
-  that opens the selected resource and queries `*IDN?`; it is not part of the
-  model capability matrix. E3646A uses `INST:NSEL` channel preselection for
-  channels 1 and 2 and does not enable setpoint writes, protection changes,
-  trigger workflows, snapshot, restore, ramp, sequence output steps, or
-  output-on/off commands.
+- E3646A RS-232 support implements identity, measurement, readback,
+  read-status, output-state, capabilities, and experimental output workflows.
+  The implemented output commands are `set`, `apply`, `output-on`,
+  `output-off`, `safe-off`, `cycle-output`, `smoke-output`, `ramp`,
+  `ramp-list`, and output-affecting `sequence` steps. They report
+  `hardware_validation=implemented_pending_hardware_validation` until live
+  hardware validation is completed. Before any live E3646A output command,
+  confirm the physical setup has been checked and no DUT is connected.
+  `verify` is a model-independent connection diagnostic that opens the
+  selected resource and queries `*IDN?`; it is not part of the model
+  capability matrix. E3646A uses `INST:NSEL` channel preselection for channels
+  1 and 2 and does not use channel-list SCPI for output writes. Protection
+  changes, trigger workflows, snapshot, restore, completion pulses, and native
+  LIST remain disabled.
 - E3646A serial settings are explicit only. If no serial options are provided,
   the program does not overwrite VISA backend, Keysight IO Libraries Suite, or
   Connection Expert serial settings. The factory example is 9600 baud, 8 data

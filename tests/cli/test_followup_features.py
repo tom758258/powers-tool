@@ -602,6 +602,44 @@ def test_capabilities_selected_command_and_unknown_guard(monkeypatch, capsys):
     assert payload["data"]["selected_command"]["name"] == "protection-set"
     assert payload["data"]["selected_command"]["dry_run"] is True
 
+    assert (
+        cli.main(
+            [
+                "capabilities",
+                "--simulate",
+                "--json",
+                "--resource",
+                "ASRL1::SIM::E3646A::INSTR",
+                "--command",
+                "set",
+            ]
+        )
+        == 0
+    )
+    payload = _payload(capsys)
+    assert payload["data"]["selected_command"]["name"] == "set"
+    assert payload["data"]["selected_command"]["real"] is True
+    assert payload["data"]["selected_command"]["hardware_validation"] == "implemented_pending_hardware_validation"
+
+    assert (
+        cli.main(
+            [
+                "capabilities",
+                "--simulate",
+                "--json",
+                "--resource",
+                "ASRL1::SIM::E3646A::INSTR",
+                "--command",
+                "trigger-pulse",
+            ]
+        )
+        == 0
+    )
+    payload = _payload(capsys)
+    assert payload["data"]["selected_command"]["name"] == "trigger-pulse"
+    assert payload["data"]["selected_command"]["real"] is False
+    assert payload["data"]["selected_command"]["hardware_validation"] == "not_enabled"
+
     def fail_open(*args, **kwargs):
         raise AssertionError("unknown command should be rejected before open")
 

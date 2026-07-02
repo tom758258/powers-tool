@@ -1,4 +1,4 @@
-"""Keysight E3646A read-only driver foundation."""
+"""Keysight E3646A driver foundation."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from keysight_power_core.drivers.base import Channel, DriverCapabilities
 from keysight_power_core.drivers.generic_scpi import (
     ChannelStrategy,
     GenericScpiPowerSupply,
+    _format_number,
 )
 from keysight_power_core.safety import SafetyLimits
 from keysight_power_core.transport import SessionLike
@@ -34,16 +35,58 @@ class E3646APowerSupply(GenericScpiPowerSupply):
         )
 
     def set_voltage(self, *, channel: Channel = None, voltage: float) -> None:
-        raise NotImplementedError("E3646A output writes are disabled in read-only support")
+        selected_channel = _e3646a_channel(channel)
+        self._validate_driver_setpoint(channel=selected_channel, voltage=voltage)
+        previous_channel = self._selected_channel()
+        try:
+            self._session.write(f"INST:NSEL {selected_channel}")
+            self._session.write(f"VOLT {_format_number(voltage)}")
+        finally:
+            if previous_channel in (1, 2):
+                try:
+                    self._session.write(f"INST:NSEL {previous_channel}")
+                except Exception:
+                    pass
 
     def set_current_limit(self, *, channel: Channel = None, current: float) -> None:
-        raise NotImplementedError("E3646A output writes are disabled in read-only support")
+        selected_channel = _e3646a_channel(channel)
+        self._validate_driver_setpoint(channel=selected_channel, current=current)
+        previous_channel = self._selected_channel()
+        try:
+            self._session.write(f"INST:NSEL {selected_channel}")
+            self._session.write(f"CURR {_format_number(current)}")
+        finally:
+            if previous_channel in (1, 2):
+                try:
+                    self._session.write(f"INST:NSEL {previous_channel}")
+                except Exception:
+                    pass
 
     def output_on(self, *, channel: Channel = None) -> None:
-        raise NotImplementedError("E3646A output writes are disabled in read-only support")
+        selected_channel = _e3646a_channel(channel)
+        previous_channel = self._selected_channel()
+        try:
+            self._session.write(f"INST:NSEL {selected_channel}")
+            self._session.write("OUTP ON")
+        finally:
+            if previous_channel in (1, 2):
+                try:
+                    self._session.write(f"INST:NSEL {previous_channel}")
+                except Exception:
+                    pass
 
     def output_off(self, *, channel: Channel = None) -> None:
-        raise NotImplementedError("E3646A output writes are disabled in read-only support")
+        selected_channel = _e3646a_channel(channel)
+        previous_channel = self._selected_channel()
+        try:
+            self._session.write(f"INST:NSEL {selected_channel}")
+            self._session.write("OUTP OFF")
+        finally:
+            if previous_channel in (1, 2):
+                try:
+                    self._session.write(f"INST:NSEL {previous_channel}")
+                except Exception:
+                    pass
 
     def _query(self, command: str, *, channel: Channel) -> str:
         selected_channel = _e3646a_channel(channel)

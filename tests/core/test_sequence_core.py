@@ -1,3 +1,4 @@
+import pytest
 from keysight_power_core.core import SequenceRequest, RuntimeOptions
 from keysight_power_core.sequence import run_sequence
 
@@ -202,3 +203,90 @@ def test_sequence_trigger_pulse_dry_run_and_execution(monkeypatch) -> None:
 
     assert data["status"] == "completed"
     assert calls == [{"channel": 2, "pins": (1, 3), "polarity": "negative", "leave_configured": False}]
+
+
+def test_e3646a_sequence_execution() -> None:
+    class E3646AFakeSession:
+        capabilities = type("Capabilities", (), {"channels": (1, 2)})()
+
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def write(self, command: str) -> None:
+            self.writes.append(command)
+
+        def query(self, command: str) -> str:
+            responses = {
+                "*IDN?": "KEYSIGHT,E3646A,SERIAL0000,1.0",
+                "INST:NSEL?": "1",
+                "VOLT?": "1.0",
+                "CURR?": "0.1",
+                "OUTP?": "0",
+            }
+            return responses.get(command, '0,"No error"')
+
+    doc = {
+        "version": 1,
+        "steps": [
+            {"action": "set", "channel": 2, "voltage": 1.5, "current": 0.05},
+            {"action": "apply", "channel": 1, "voltage": 1.2, "current": 0.04, "no_output": True},
+            {"action": "output-off", "channel": 2},
+            {"action": "safe-off", "channel": 1},
+            {"action": "cycle-output", "channel": 2, "duration_ms": 10},
+        ],
+    }
+
+    session = E3646AFakeSession()
+    req = SequenceRequest(
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False),
+        parameters={"document": doc},
+    )
+    data = run_sequence(req, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
+
+    assert data["status"] == "completed"
+    assert "INST:NSEL 2" in session.writes
+    assert "VOLT 1.5" in session.writes
+    assert "CURR 0.05" in session.writes
+    assert "INST:NSEL 1" in session.writes
+    assert "VOLT 1.2" in session.writes
+    assert "CURR 0.04" in session.writes
+    assert "OUTP OFF" in session.writes
+    assert "OUTP ON" in session.writes
+
+
+def test_e3646a_sequence_trigger_pulse_rejected() -> None:
+    class E3646AFakeSession:
+        capabilities = type("Capabilities", (), {"channels": (1, 2)})()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def write(self, command: str) -> None:
+            pass
+
+        def query(self, command: str) -> str:
+            if command == "*IDN?":
+                return "KEYSIGHT,E3646A,SERIAL0000,1.0"
+            return '0,"No error"'
+
+    doc = {
+        "version": 1,
+        "steps": [{"action": "trigger-pulse", "channel": 1, "pins": [1]}],
+    }
+
+    req = SequenceRequest(
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False),
+        parameters={"document": doc},
+    )
+    res = run_sequence(req, opener=lambda *args, **kwargs: E3646AFakeSession())
+    assert res["status"] == "failed"
+    assert "trigger-pulse is only supported for E36312A" in res["failed_step"]["message"]

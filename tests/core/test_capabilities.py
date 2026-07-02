@@ -74,7 +74,8 @@ def test_command_support_e3646a_rs232_read_only_boundary() -> None:
     for command in ("identify", "measure", "readback", "read-status", "output-state", "capabilities"):
         assert support[command]["real"] is True
         assert support[command]["hardware_validation"] == "rs232_read_only"
-    for command in (
+
+    experimental_output_commands = (
         "set",
         "apply",
         "output-on",
@@ -84,6 +85,13 @@ def test_command_support_e3646a_rs232_read_only_boundary() -> None:
         "ramp",
         "ramp-list",
         "smoke-output",
+        "sequence",
+    )
+    for command in experimental_output_commands:
+        assert support[command]["real"] is True
+        assert support[command]["hardware_validation"] == "implemented_pending_hardware_validation"
+
+    for command in (
         "protection-set",
         "clear-protection",
         "restore-from-snapshot",

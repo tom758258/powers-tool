@@ -299,8 +299,91 @@ def test_e3646a_driver_tolerates_best_effort_channel_restore_failure() -> None:
     ]
 
 
-def test_e3646a_driver_disables_output_writes() -> None:
-    power_supply = E3646APowerSupply(FakeSession())
+def test_e3646a_driver_output_writes_success() -> None:
+    session = FakeSession(
+        {
+            "INST:NSEL?": "1",
+        }
+    )
+    power_supply = E3646APowerSupply(session)
 
-    with pytest.raises(NotImplementedError, match="disabled"):
-        power_supply.output_on(channel=1)
+    power_supply.set_current_limit(channel=2, current=0.05)
+    power_supply.set_voltage(channel=2, voltage=1.0)
+    power_supply.output_on(channel=2)
+    power_supply.output_off(channel=2)
+
+    assert session.commands == [
+        "INST:NSEL?",
+        "INST:NSEL 2",
+        "CURR 0.05",
+        "INST:NSEL 1",
+        "INST:NSEL?",
+        "INST:NSEL 2",
+        "VOLT 1",
+        "INST:NSEL 1",
+        "INST:NSEL?",
+        "INST:NSEL 2",
+        "OUTP ON",
+        "INST:NSEL 1",
+        "INST:NSEL?",
+        "INST:NSEL 2",
+        "OUTP OFF",
+        "INST:NSEL 1",
+    ]
+
+
+def test_e3646a_driver_invalid_channel_raises_before_scpi_write() -> None:
+    session = FakeSession()
+    power_supply = E3646APowerSupply(session)
+
+    with pytest.raises(ValueError, match="channel must be 1 or 2"):
+        power_supply.set_voltage(channel=3, voltage=1.0)
+
+    with pytest.raises(ValueError, match="channel must be 1 or 2"):
+        power_supply.set_current_limit(channel=3, current=0.1)
+
+    with pytest.raises(ValueError, match="channel must be 1 or 2"):
+        power_supply.output_on(channel=3)
+
+    with pytest.raises(ValueError, match="channel must be 1 or 2"):
+        power_supply.output_off(channel=3)
+
+    assert session.commands == []
+
+
+def test_e3646a_driver_safety_validation_runs_before_scpi_write() -> None:
+    session = FakeSession()
+    power_supply = E3646APowerSupply(
+        session,
+        safety_limits=SafetyLimits(
+            max_voltage=5.0,
+            max_current=0.5,
+            allowed_channels=(1,),
+        ),
+    )
+
+    with pytest.raises(SafetyValidationError, match="channel 2 is not allowed"):
+        power_supply.set_voltage(channel=2, voltage=1.0)
+
+    with pytest.raises(SafetyValidationError, match="voltage 6 exceeds"):
+        power_supply.set_voltage(channel=1, voltage=6.0)
+
+    assert session.commands == []
+
+
+def test_e3646a_driver_restore_failure_remains_best_effort() -> None:
+    session = RestoreFailingSession(
+        {
+            "INST:NSEL?": "1",
+        }
+    )
+    power_supply = E3646APowerSupply(session)
+
+    power_supply.output_on(channel=2)
+
+    assert session.commands == [
+        "INST:NSEL?",
+        "INST:NSEL 2",
+        "OUTP ON",
+        "INST:NSEL 1",
+    ]

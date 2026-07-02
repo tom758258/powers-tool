@@ -13,6 +13,7 @@ from keysight_power_core.connection import open_resource
 from keysight_power_core.core import CommandCancelled, CoreIoError, CoreValidationError, OperationRequest
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
+from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
@@ -35,7 +36,7 @@ SEGMENT_FIELDS = frozenset(
         "hold_ms",
     }
 )
-OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
+OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)
 
 
 def run_ramp_list(
@@ -247,7 +248,7 @@ def execute_ramp_list(
             power_supply = create_power_supply(session, idn_raw)
             if not isinstance(power_supply, OUTPUT_WRITE_POWER_SUPPLY_TYPES):
                 raise CoreValidationError(
-                    f"ramp-list real execution is only supported for E36312A or EDU36311A; "
+                    f"ramp-list real execution is only supported for E36312A, E3646A, or EDU36311A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
             _validate_plan_for_power_supply(request, plan, power_supply, idn_raw)

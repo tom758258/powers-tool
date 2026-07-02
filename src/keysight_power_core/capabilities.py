@@ -99,7 +99,7 @@ def hardware_validation_status(model: str | None) -> dict[str, Any]:
     if normalized == "E3646A":
         return {
             "read_only": "rs232_read_only",
-            "output": "not_enabled",
+            "output": "implemented_pending_hardware_validation",
             "protection": "not_enabled",
             "trigger": "not_enabled",
         }
@@ -121,6 +121,18 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
         "clear-protection",
     }
     e3646a_real = {"identify", "measure", "output-state", "readback", "read-status", "capabilities"}
+    e3646a_experimental = {
+        "set",
+        "output-on",
+        "output-off",
+        "safe-off",
+        "cycle-output",
+        "apply",
+        "ramp",
+        "ramp-list",
+        "smoke-output",
+        "sequence",
+    }
     edu36311a_planning_trigger = {"trigger-step", "trigger-fire", "trigger-abort"}
     commands = sorted(READ_ONLY_COMMANDS | OUTPUT_COMMANDS | _E36312A_EXTRA_COMMANDS | OFFLINE_COMMANDS)
     support: dict[str, dict[str, Any]] = {}
@@ -195,9 +207,12 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
                     }
                 )
         elif normalized == "E3646A":
-            if command in e3646a_real:
+            if command in e3646a_real and command not in e3646a_experimental:
                 entry["real"] = True
                 entry["hardware_validation"] = "rs232_read_only"
+            elif command in e3646a_experimental:
+                entry["real"] = True
+                entry["hardware_validation"] = "implemented_pending_hardware_validation"
         else:
             if command in {"identify", "measure", "doctor", "capabilities"}:
                 entry["real"] = True

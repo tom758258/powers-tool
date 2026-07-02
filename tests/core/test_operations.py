@@ -499,3 +499,101 @@ def _trigger_snapshot_responses() -> dict[str, str]:
         "LIST:TERM:LAST? (@1)": "0",
         "*ESR?": "+1",
     }
+
+
+def test_e3646a_operations_fake_execution() -> None:
+    idn = "KEYSIGHT,E3646A,MY12345678,1.0"
+    responses = {
+        "*IDN?": idn,
+        "SYST:ERR?": '0,"No error"',
+        "INST:NSEL?": "1",
+        "VOLT?": "1.0",
+        "CURR?": "0.1",
+        "OUTP?": "0",
+        "MEAS:VOLT?": "1.0",
+        "MEAS:CURR?": "0.1",
+    }
+
+    req_set = OperationRequest(
+        command="set",
+        parameters={"channel": 2, "voltage": 1.5, "current": 0.05, "confirm": True},
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+    )
+    session_set = FakeSession(idn=idn, responses=responses)
+    run_operation(req_set, opener=lambda *args, **kwargs: session_set)
+    assert "INST:NSEL 2" in session_set.writes
+    assert "VOLT 1.5" in session_set.writes
+    assert "CURR 0.05" in session_set.writes
+    assert not any("(@" in w for w in session_set.writes)
+
+    req_off = OperationRequest(
+        command="output-off",
+        parameters={"channel": 1, "confirm": True},
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+    )
+    session_off = FakeSession(idn=idn, responses=responses)
+    run_operation(req_off, opener=lambda *args, **kwargs: session_off)
+    assert "OUTP OFF" in session_off.writes
+
+    req_safe_all = OperationRequest(
+        command="safe-off",
+        parameters={"channel": "all", "confirm": True},
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+    )
+    session_safe_all = FakeSession(idn=idn, responses=responses)
+    run_operation(req_safe_all, opener=lambda *args, **kwargs: session_safe_all)
+    assert session_safe_all.writes.count("OUTP OFF") == 2
+
+    req_on = OperationRequest(
+        command="output-on",
+        parameters={"channel": 2, "confirm": True},
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+    )
+    session_on = FakeSession(idn=idn, responses=responses)
+    run_operation(req_on, opener=lambda *args, **kwargs: session_on)
+    assert "OUTP ON" in session_on.writes
+
+    req_apply_all = OperationRequest(
+        command="apply",
+        parameters={"channel": "all", "voltage": 1.2, "current": 0.04, "no_output": True, "confirm": True},
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+    )
+    session_apply_all = FakeSession(idn=idn, responses=responses)
+    run_operation(req_apply_all, opener=lambda *args, **kwargs: session_apply_all)
+    assert session_apply_all.writes.count("VOLT 1.2") == 2
+    assert session_apply_all.writes.count("CURR 0.04") == 2
+    assert "OUTP ON" not in session_apply_all.writes
+
+    req_cycle = OperationRequest(
+        command="cycle-output",
+        parameters={"channel": 2, "duration_ms": 10, "confirm": True},
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+    )
+    session_cycle = FakeSession(idn=idn, responses=responses)
+    run_operation(req_cycle, opener=lambda *args, **kwargs: session_cycle)
+    assert "OUTP ON" in session_cycle.writes
+    assert "OUTP OFF" in session_cycle.writes
+
+    req_smoke = OperationRequest(
+        command="smoke-output",
+        parameters={"channel": 1, "voltage": 1.1, "current": 0.05, "confirm": True},
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+    )
+    session_smoke = FakeSession(idn=idn, responses=responses)
+    run_operation(req_smoke, opener=lambda *args, **kwargs: session_smoke)
+    assert "VOLT 1.1" in session_smoke.writes
+    assert "CURR 0.05" in session_smoke.writes
+    assert "OUTP ON" in session_smoke.writes
+    assert "OUTP OFF" in session_smoke.writes
+
+    req_ramp = OperationRequest(
+        command="ramp",
+        parameters={"channel": 1, "start_voltage": 0.5, "stop_voltage": 1.5, "step_voltage": 0.5, "current": 0.05, "delay_ms": 1, "confirm": True},
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+    )
+    session_ramp = FakeSession(idn=idn, responses=responses)
+    run_operation(req_ramp, opener=lambda *args, **kwargs: session_ramp)
+    assert "CURR 0.05" in session_ramp.writes
+    assert "VOLT 0.5" in session_ramp.writes
+    assert "VOLT 1" in session_ramp.writes
+    assert "VOLT 1.5" in session_ramp.writes

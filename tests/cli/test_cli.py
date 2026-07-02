@@ -5732,11 +5732,33 @@ E3646A_FORBIDDEN_WRITE_PREFIXES = (
         ("ramp", ["--channel", "1", "--start-voltage", "0", "--stop-voltage", "1", "--step-voltage", "1", "--current", "0.05"]),
         ("ramp-list", ["--segment", "1", "0.05", "0", "1", "1", "0", "0"]),
         ("smoke-output", ["--channel", "1", "--voltage", "1", "--current", "0.05", "--confirm"]),
+    ],
+)
+def test_e3646a_real_output_affecting_commands_success(monkeypatch, capsys, command, extra_args) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E3646A,SERIAL0000,1.0",
+        query_responses={
+            "INST:NSEL?": "1",
+            "VOLT?": "1.0",
+            "CURR?": "0.05",
+            "OUTP?": "0",
+            "MEAS:VOLT?": "1.0",
+            "MEAS:CURR?": "0.05",
+        },
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main([command, "--json", "--resource", "ASRL1::INSTR", *extra_args]) == 0
+
+
+@pytest.mark.parametrize(
+    ("command", "extra_args"),
+    [
         ("protection-set", ["--channel", "1", "--ovp-voltage", "5", "--confirm"]),
         ("clear-protection", ["--channel", "1", "--confirm"]),
     ],
 )
-def test_e3646a_real_output_affecting_commands_remain_disabled(monkeypatch, capsys, command, extra_args) -> None:
+def test_e3646a_real_protection_commands_remain_disabled(monkeypatch, capsys, command, extra_args) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E3646A,SERIAL0000,1.0",
         query_responses={
@@ -5754,12 +5776,12 @@ def test_e3646a_real_output_affecting_commands_remain_disabled(monkeypatch, caps
     assert payload["error"]["type"] in {"validation", "unsupported_model"}
     assert payload["error"]["code"] != "connection_failed"
     assert not any(
-        write.startswith(E3646A_FORBIDDEN_WRITE_PREFIXES)
+        write.startswith(("VOLT:PROT", "CURR:PROT"))
         for write in session.writes
     )
 
 
-def test_e3646a_cli_capabilities_keep_output_protection_and_trigger_disabled(capsys) -> None:
+def test_e3646a_cli_capabilities_reports_experimental_output(capsys) -> None:
     assert (
         cli.main(
             [
@@ -5775,7 +5797,8 @@ def test_e3646a_cli_capabilities_keep_output_protection_and_trigger_disabled(cap
 
     payload = json.loads(capsys.readouterr().out)
     support = payload["data"]["command_support"]
-    guarded_commands = (
+
+    enabled_commands = (
         "set",
         "apply",
         "output-on",
@@ -5785,6 +5808,13 @@ def test_e3646a_cli_capabilities_keep_output_protection_and_trigger_disabled(cap
         "ramp",
         "ramp-list",
         "smoke-output",
+        "sequence",
+    )
+    for command in enabled_commands:
+        assert support[command]["real"] is True
+        assert support[command]["hardware_validation"] == "implemented_pending_hardware_validation"
+
+    disabled_commands = (
         "protection-status",
         "protection-set",
         "clear-protection",
@@ -5795,7 +5825,7 @@ def test_e3646a_cli_capabilities_keep_output_protection_and_trigger_disabled(cap
         "trigger-fire",
         "trigger-abort",
     )
-    for command in guarded_commands:
+    for command in disabled_commands:
         assert support[command]["real"] is False
 
 

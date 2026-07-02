@@ -102,6 +102,27 @@ def test_e36312a_simulator_supports_programmed_setpoint_queries(
     assert session.query(f"CURR? (@{channel})") == expected_current
 
 
+def test_e3646a_simulator_tracks_selected_channel_output_writes_independently() -> None:
+    session = SimulatedResourceManager().open_resource("ASRL1::SIM::E3646A::INSTR")
+
+    session.write("INST:NSEL 2")
+    session.write("CURR 0.075")
+    session.write("VOLT 1.25")
+    session.write("OUTP ON")
+    session.write("INST:NSEL 1")
+
+    assert session.query("CURR?") == "0.050"
+    assert session.query("VOLT?") == "1.000"
+    assert session.query("OUTP?") == "OFF"
+
+    session.write("OUTP OFF")
+    session.write("INST:NSEL 2")
+
+    assert session.query("CURR?") == "0.075"
+    assert session.query("VOLT?") == "1.25"
+    assert session.query("OUTP?") == "ON"
+
+
 def test_e36312a_simulator_supports_protection_and_identity_queries() -> None:
     session = SimulatedResourceManager().open_resource("USB0::SIM::E36312A::INSTR")
 

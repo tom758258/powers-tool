@@ -255,3 +255,59 @@ def test_ramp_list_segment_pulse_uses_each_segment_channel(monkeypatch) -> None:
 
     assert calls == [1, 2]
     assert [item["trigger"]["channel"] for item in data["segments"]] == [1, 2]
+
+
+def test_e3646a_ramp_list_unsupported_pulse() -> None:
+    class E3646AFakeSession(FakeSession):
+        def query(self, command: str) -> str:
+            self.queries.append(command)
+            if command == "*IDN?":
+                return "KEYSIGHT,E3646A,MY12345678,1.0"
+            return '0,"No error"'
+
+    doc = document(segment(channel=1))
+    doc["completion_pulse"] = {"timing": "segment", "pins": [1], "polarity": "positive"}
+
+    req = OperationRequest(
+        command="ramp-list",
+        parameters={"document": doc, "confirm": True},
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+    )
+    with pytest.raises(CoreValidationError, match="completion pulses are only supported for E36312A"):
+        run_ramp_list(req, opener=lambda *args, **kwargs: E3646AFakeSession(), sleep=lambda seconds: None)
+
+
+def test_e3646a_ramp_list_simulate_and_real_execution() -> None:
+    class E3646AFakeSession(FakeSession):
+        def query(self, command: str) -> str:
+            self.queries.append(command)
+            if command == "*IDN?":
+                return "KEYSIGHT,E3646A,MY12345678,1.0"
+            if command == "INST:NSEL?":
+                return "1"
+            return '0,"No error"'
+
+    doc = document(segment(channel=2, current=0.05, start_voltage=0.5, stop_voltage=1.5, step_voltage=0.5, delay_ms=10, hold_ms=5))
+
+    req_sim = OperationRequest(
+        command="ramp-list",
+        parameters={"document": doc},
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=True)
+    )
+    data_sim = run_ramp_list(req_sim, opener=lambda *args, **kwargs: E3646AFakeSession(), sleep=lambda seconds: None)
+    assert data_sim["status"] == "planned"
+
+    req_real = OperationRequest(
+        command="ramp-list",
+        parameters={"document": doc, "confirm": True},
+        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+    )
+    session = E3646AFakeSession()
+    data_real = run_ramp_list(req_real, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
+    assert data_real["status"] == "completed"
+    assert "INST:NSEL 2" in session.writes
+    assert "CURR 0.05" in session.writes
+    assert "VOLT 0.5" in session.writes
+    assert "VOLT 1" in session.writes
+    assert "VOLT 1.5" in session.writes
+    assert not any("(@" in w for w in session.writes)

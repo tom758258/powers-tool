@@ -38,7 +38,7 @@ from keysight_power_core.trigger import run_post_action_completion_pulse
 from keysight_power_core.workflow_validation import validate_general_workflow_parameters
 
 IDN_QUERY = "*IDN?"
-OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
+OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)
 OUTPUT_STATE_POWER_SUPPLY_TYPES = (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)
 
 
@@ -282,7 +282,7 @@ def _run_output_write_operation(
                 else OUTPUT_WRITE_POWER_SUPPLY_TYPES
             )
             if not isinstance(power_supply, allowed_types):
-                supported_models = "E36312A, E3646A, or EDU36311A" if request.command == "output-state" else "E36312A or EDU36311A"
+                supported_models = "E36312A, E3646A, or EDU36311A"
                 raise UnsupportedModelError(
                     f"{request.command} real execution is only supported for {supported_models}; "
                     f"found {type(power_supply).__name__} from *IDN? response"
