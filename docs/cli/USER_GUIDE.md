@@ -93,6 +93,21 @@ Add `--json` when copying results into automation:
 .\keysight-power.exe list-resources --live-only --json
 ```
 
+## Resource Variables
+
+Use environment variables to simplify copying and running multiple commands in a session:
+
+```powershell
+$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
+$env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
+```
+
+Please note:
+* `$env:KEYSIGHT_POWER_RESOURCE` is for generic live USB/LAN examples.
+* `$env:KEYSIGHT_POWER_ASRL_RESOURCE` is for E3646A RS-232 / ASRL examples.
+* These are documentation convenience variables, not hidden CLI defaults.
+* Live commands still require an explicit `--resource` argument.
+
 ## E3646A RS-232 / ASRL
 
 E3646A support is currently read-only/status only over RS-232/ASRL.

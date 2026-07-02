@@ -78,6 +78,63 @@ $env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
 .\keysight-power.exe list-resources --live-only --json
 ```
 
+## 資源環境變數
+
+使用環境變數可以簡化在同一個工作階段中複製與執行多個命令的操作：
+
+```powershell
+$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
+$env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
+```
+
+請注意：
+* `$env:KEYSIGHT_POWER_RESOURCE` 用於通用的實機 USB/LAN 範例。
+* `$env:KEYSIGHT_POWER_ASRL_RESOURCE` 用於 E3646A RS-232 / ASRL 範例。
+* 這些是為了文件方便而提供的變數，並非隱藏的 CLI 預設值。
+* 實機命令仍需要明確提供 `--resource` 參數。
+
+## E3646A RS-232 / ASRL
+
+E3646A 支援目前在 RS-232/ASRL 上僅限唯讀/狀態查詢。
+型號支援的實機命令包括 `identify`、`measure`、`readback`、`read-status`、`output-state` 與 `capabilities`。`verify` 也可作為與型號無關的連線診斷，用以開啟所選資源並查詢 `*IDN?`。在完成實機硬體驗收之前，E3646A 影響輸出的指令仍維持停用狀態。
+
+每個 PowerShell 工作階段設定一次 ASRL 資源：
+
+```powershell
+$env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
+```
+
+單純的 `list-resources` 通常不需要序列設定：
+
+```powershell
+keysight-power list-resources
+```
+
+如果 Keysight IO Libraries Suite / Connection Expert 已經設定好 ASRL 資源，請嘗試進行唯讀檢查而不覆寫這些設定：
+
+```powershell
+keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE"
+```
+
+若要為單一命令明確套用序列設定，請僅傳遞您要覆寫的欄位。E3646A 的出廠預設範例為 9600 baud、8 data bits、none parity、2 stop bits 與 DTR/DSR 握手，但儀器前控制板的設定可能已被修改：
+
+```powershell
+keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
+```
+
+`--serial-remote` 會發送 `SYST:REM`。`--serial-local-on-close` 會在清理時盡最大努力發送 `SYST:LOC`。這些設定會影響遠端/本機狀態，且僅在明確要求時才會發送。
+
+實用的唯讀範例：
+
+```powershell
+keysight-power identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
+keysight-power readback --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+keysight-power measure --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
+keysight-power output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+```
+
+對於 PowerShell 中的序列讀取/寫入終止字元，請儘量使用別名：`CR`、`LF`、`CRLF` 或 `NONE`。`NONE`、省略或空白終止字元表示不覆寫 VISA 設定。
+
 ## 唯讀工作流程
 
 驗證儀器時，請先使用唯讀命令：

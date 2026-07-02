@@ -294,7 +294,44 @@
         <p>將結果複製到自動化流程時，請加上 <code>--json</code>：</p>
         <div class="code-wrapper"><pre><code>.\keysight-power.exe list-resources --live-only --json</code></pre></div>
 
-        <h2 id="readonly-workflow">唯讀工作流程</h2>
+                <h2 id="resource-vars">資源環境變數</h2>
+        <p>使用環境變數可以簡化在同一個工作階段中複製與執行多個命令的操作：</p>
+        <div class="code-wrapper"><pre><code>$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
+$env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"</code></pre></div>
+        <p>請注意：</p>
+        <ul>
+            <li><code>$env:KEYSIGHT_POWER_RESOURCE</code> 用於通用的實機 USB/LAN 範例。</li>
+            <li><code>$env:KEYSIGHT_POWER_ASRL_RESOURCE</code> 用於 E3646A RS-232 / ASRL 範例。</li>
+            <li>這些是為了文件方便而提供的變數，並非隱藏的 CLI 預設值。</li>
+            <li>實機命令仍需要明確提供 <code>--resource</code> 參數。</li>
+        </ul>
+
+        <h2 id="e3646a-asrl">E3646A RS-232 / ASRL</h2>
+        <p>E3646A 支援目前在 RS-232/ASRL 上僅限唯讀/狀態查詢。型號支援的實機命令包括 <code>identify</code>、<code>measure</code>、<code>readback</code>、<code>read-status</code>、<code>output-state</code> 與 <code>capabilities</code>。<code>verify</code> 也可作為與型號無關的連線診斷，用以開啟所選資源並查詢 <code>*IDN?</code>。在完成實機硬體驗收之前，E3646A 影響輸出的指令仍維持停用狀態。</p>
+
+        <p>每個 PowerShell 工作階段設定一次 ASRL 資源：</p>
+        <div class="code-wrapper"><pre><code>$env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"</code></pre></div>
+
+        <p>單純的 <code>list-resources</code> 通常不需要序列設定：</p>
+        <div class="code-wrapper"><pre><code>keysight-power list-resources</code></pre></div>
+
+        <p>如果 Keysight IO Libraries Suite / Connection Expert 已經設定好 ASRL 資源，請嘗試進行唯讀檢查而不覆寫這些設定：</p>
+        <div class="code-wrapper"><pre><code>keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE"</code></pre></div>
+
+        <p>若要為單一命令明確套用序列設定，請僅傳遞您要覆寫的欄位。E3646A 的出廠預設範例為 9600 baud、8 data bits、none parity、2 stop bits 與 DTR/DSR 握手，但儀器前控制板的設定可能已被修改：</p>
+        <div class="code-wrapper"><pre><code>keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close</code></pre></div>
+
+        <p><code>--serial-remote</code> 會發送 <code>SYST:REM</code>。<code>--serial-local-on-close</code> 會在清理時盡最大努力發送 <code>SYST:LOC</code>。這些設定會影響遠端/本機狀態，且僅在明確要求時才會發送。</p>
+
+        <p>實用的唯讀範例：</p>
+        <div class="code-wrapper"><pre><code>keysight-power identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
+keysight-power readback --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+keysight-power measure --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
+keysight-power output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close</code></pre></div>
+
+        <p>對於 PowerShell 中的序列讀取/寫入終止字元，請儘量使用別名：<code>CR</code>、<code>LF</code>、<code>CRLF</code> 或 <code>NONE</code>。<code>NONE</code>、省略或空白終止字元表示不覆寫 VISA 設定。</p>
+
+<h2 id="readonly-workflow">唯讀工作流程</h2>
         <p>驗證儀器時，請先使用唯讀命令：</p>
         <div class="code-wrapper"><pre><code>.\keysight-power.exe identify --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 .\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi

@@ -333,6 +333,8 @@ Run the simulator-only orchestrator smoke example:
 
 ## Examples
 
+### Resource Discovery And Live Resource Setup
+
 List only VISA resources that can be opened and queried with `*IDN?`:
 
 ```powershell
@@ -359,6 +361,8 @@ For live USB examples below, set the VISA resource once per PowerShell session:
 $env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
 ```
 
+### Generic USB Live Examples
+
 Verify that one resource can be opened and queried with `*IDN?`:
 
 ```powershell
@@ -366,7 +370,19 @@ uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_RESOURCE"
 uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
-### E3646A RS-232 / ASRL Read-Only Use
+Clear instrument status and the error queue with `*CLS`:
+
+```powershell
+uv run keysight-power clear --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+```
+
+Read the instrument error queue without changing output state:
+
+```powershell
+uv run keysight-power error --resource "$env:KEYSIGHT_POWER_RESOURCE" --max-reads 20 --log-scpi
+```
+
+### E3646A RS-232 / ASRL Read-Only Examples
 
 E3646A support is currently RS-232/ASRL read-only/status only. Model-supported
 commands are limited to `identify`, `measure`, `readback`, `read-status`,
@@ -432,25 +448,13 @@ do not override the VISA setting. Custom raw strings are still accepted, but
 PowerShell may pass values such as `\r` as a literal backslash plus `r`; use
 the aliases when you need actual control characters.
 
-Clear instrument status and the error queue with `*CLS`:
-
-```powershell
-uv run keysight-power clear --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
-uv run keysight-power clear --dry-run --json --resource "USB0::SIM::E36103B::INSTR"
-```
-
-Read the instrument error queue without changing output state:
-
-```powershell
-uv run keysight-power error --resource "$env:KEYSIGHT_POWER_RESOURCE" --max-reads 20 --log-scpi
-```
+### Read-Only Command Examples
 
 Measure voltage and current:
 
 ```powershell
 uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
 uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 2 --log-scpi
-uv run keysight-power measure --simulate --json --resource "USB0::SIM::E36312A::INSTR" --channel 2
 ```
 
 Measure all E36312A channels and read output state:
@@ -477,13 +481,14 @@ For E36312A and EDU36311A, `protection-status` reads OVP/OCP trip flags per
 channel. The existing aggregate flags remain available and are calculated as
 the OR of the selected channel results.
 
+### Snapshot And Restore Examples
+
 Capture and compare E36312A snapshots:
 
 ```powershell
 uv run keysight-power identify --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 uv run keysight-power snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 uv run keysight-power snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --compare logs\e36312a-baseline.json
-uv run keysight-power snapshot --simulate --json --redact-resource --resource "USB0::SIM::E36312A::INSTR"
 uv run keysight-power snapshot-diff --summary --json --before logs\before.json --after logs\after.json
 ```
 
@@ -492,6 +497,8 @@ Preview a restore plan and save the plan data without opening VISA:
 ```powershell
 uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\before.json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --plan-json logs\restore-plan.json
 ```
+
+### Protection And Trigger Examples
 
 Preview or confirm E36312A protection actions:
 
@@ -544,37 +551,7 @@ a final-step EOST pulse and cannot be mixed with canonical fields. A completed
 wait restores the pre-run Trigger settings and LIST table unless
 `--leave-trigger-configured` is selected.
 
-Run offline diagnostics:
-
-```powershell
-uv run keysight-power doctor --simulate --json
-uv run keysight-power capabilities --simulate --json --resource "USB0::SIM::EDU36311A::INSTR" --command protection-set
-uv run keysight-power safety inspect --json --explain --safety-config examples\safety-config.toml --resource-alias sim-e36103b --channel 1
-```
-
-Validate a sequence file or preview deterministic write SCPI without opening
-VISA:
-
-```powershell
-uv run keysight-power sequence --lint --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
-uv run keysight-power sequence --dry-run --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
-```
-
-Sequence YAML files are formally supported through the core package's PyYAML
-runtime dependency. A small built-in parser remains as a fallback for minimal
-environments.
-
-Sequence documents also accept `{"action":"trigger-pulse","channel":1,
-"pins":[1],"polarity":"positive","leave_trigger_configured":false}`. The
-default restores trigger and rear-pin configuration after the pulse.
-`leave_trigger_configured` controls only that restore; it does not keep the
-pulse trigger armed, and enabling it may affect later steps or other BUS triggers.
-
-Preview output-affecting commands with no hardware writes:
-
-```powershell
-uv run keysight-power set --dry-run --json --resource "USB0::SIM::E36103B::INSTR" --channel 1 --voltage 1 --current 0.05
-```
+### Output-Affecting Examples
 
 Set low E36312A or EDU36311A setpoints without enabling output:
 
@@ -618,23 +595,7 @@ uv run keysight-power apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --c
 uv run keysight-power apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --voltage 1 --current 0.05 --no-output --log-scpi
 ```
 
-Ramp voltage setpoints without changing output state:
-
-```powershell
-uv run keysight-power ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
-uv run keysight-power ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
-```
-
 Add an explicit safety config to apply local global limits to output plans:
-
-```powershell
-uv run keysight-power set --dry-run --json --safety-config examples\safety-config.toml --resource "USB0::SIM::E36103B::INSTR" --channel 1 --voltage 1 --current 0.05
-```
-
-The config is never auto-discovered from the current directory. It is used only
-when `--safety-config PATH` is passed to `set`, `apply`, `output-on`,
-`output-off`, or `safe-off`. `--resource-alias ALIAS` is mutually exclusive
-with `--resource` and requires the explicit safety config path.
 
 ```toml
 [safety]
@@ -654,8 +615,73 @@ Resource-specific fields override global `[safety]` fields one by one. A raw
 `--resource` that matches a `[[resources]].resource` entry also receives that
 entry's resource-specific limits; otherwise the global `[safety]` limits apply.
 
+### Ramp And Sequence Examples
+
+Ramp voltage setpoints without changing output state:
+
 ```powershell
-uv run keysight-power set --dry-run --json --safety-config examples\safety-config.toml --resource-alias sim-e36103b --channel 1 --voltage 1 --current 0.05
+uv run keysight-power ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
+uv run keysight-power ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
+```
+
+Validate a sequence file or preview deterministic write SCPI without opening
+VISA:
+
+```powershell
+uv run keysight-power sequence --lint --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
+uv run keysight-power sequence --dry-run --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
+```
+
+Sequence YAML files are formally supported through the core package's PyYAML
+runtime dependency. A small built-in parser remains as a fallback for minimal
+environments.
+
+Sequence documents also accept `{"action":"trigger-pulse","channel":1,
+"pins":[1],"polarity":"positive","leave_trigger_configured":false}`. The
+default restores trigger and rear-pin configuration after the pulse.
+`leave_trigger_configured` controls only that restore; it does not keep the
+pulse trigger armed, and enabling it may affect later steps or other BUS triggers.
+
+Ramp List examples:
+
+```powershell
+uv run keysight-power ramp-list --lint --json --file example.ramp-list.json
+uv run keysight-power ramp-list --dry-run --json --file example.ramp-list.json --resource "$env:KEYSIGHT_POWER_RESOURCE"
+uv run keysight-power ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
+```
+
+### Simulator Examples
+
+Clear instrument status and the error queue on a simulated resource:
+
+```powershell
+uv run keysight-power clear --dry-run --json --resource "USB0::SIM::E36103B::INSTR"
+```
+
+Measure voltage and current on a simulated resource:
+
+```powershell
+uv run keysight-power measure --simulate --json --resource "USB0::SIM::E36312A::INSTR" --channel 2
+```
+
+Capture a snapshot on a simulated resource with redacted resource details:
+
+```powershell
+uv run keysight-power snapshot --simulate --json --redact-resource --resource "USB0::SIM::E36312A::INSTR"
+```
+
+Preview output-affecting commands with no hardware writes:
+
+```powershell
+uv run keysight-power set --dry-run --json --resource "USB0::SIM::E36103B::INSTR" --channel 1 --voltage 1 --current 0.05
+```
+
+Run offline diagnostics, capabilities, and safety inspect checks:
+
+```powershell
+uv run keysight-power doctor --simulate --json
+uv run keysight-power capabilities --simulate --json --resource "USB0::SIM::EDU36311A::INSTR" --command protection-set
+uv run keysight-power safety inspect --json --explain --safety-config examples\safety-config.toml --resource-alias sim-e36103b --channel 1
 ```
 
 The early standalone examples provide the same passive discovery and identity
