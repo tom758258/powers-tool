@@ -4036,6 +4036,66 @@ def test_status_real_edu36311a_reads_errors_then_outputs(monkeypatch, capsys) ->
     ]
 
 
+def test_status_real_e3646a_reads_errors_then_outputs_with_preselection(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E3646A,SERIAL0000,1.0",
+        query_responses={
+            "SYST:ERR?": '0,"No error"',
+            "INST:NSEL?": ["1", "1"],
+            "OUTP?": ["ON", "OFF"],
+        },
+    )
+    opened = []
+
+    def fake_open_resource(resource, *args, **kwargs):
+        opened.append((resource, kwargs))
+        return session
+
+    monkeypatch.setattr(cli, "open_resource", fake_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "read-status",
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                "--serial-baud-rate",
+                "9600",
+                "--serial-read-termination",
+                "CRLF",
+                "--serial-write-termination",
+                "LF",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.events == [
+        "query:*IDN?",
+        "query:SYST:ERR?",
+        "query:INST:NSEL?",
+        "write:INST:NSEL 1",
+        "query:OUTP?",
+        "write:INST:NSEL 1",
+        "query:INST:NSEL?",
+        "write:INST:NSEL 2",
+        "query:OUTP?",
+        "write:INST:NSEL 1",
+    ]
+    assert not any("(@" in event or "PROT" in event or "TRIG" in event for event in session.events)
+    assert payload["data"]["outputs"] == [
+        {"channel": 1, "enabled": True},
+        {"channel": 2, "enabled": False},
+    ]
+    assert opened[0][0] == "ASRL1::INSTR"
+    serial_options = opened[0][1]["serial_options"]
+    assert serial_options.baud_rate == 9600
+    assert serial_options.read_termination == "\r\n"
+    assert serial_options.write_termination == "\n"
+
+
 def test_validate_readonly_simulate_json_does_not_create_real_resource_manager(monkeypatch, capsys) -> None:
     def fail_real_manager(backend=None):
         raise AssertionError("real VISA manager should not be created")

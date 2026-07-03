@@ -11,6 +11,43 @@ sim_mgr = SimulatedResourceManager()
 def sim_opener(resource, backend=None, timeout_ms=5000):
     return open_resource(resource, sim_mgr, backend=backend, timeout_ms=timeout_ms)
 
+
+class E3646AStatusSession:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def __enter__(self) -> "E3646AStatusSession":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        pass
+
+    def write(self, command: str) -> None:
+        self.events.append(f"write:{command}")
+
+    def query(self, command: str) -> str:
+        self.events.append(f"query:{command}")
+        if command == "*IDN?":
+            return "KEYSIGHT,E3646A,SERIAL0000,1.0"
+        if command == "SYST:ERR?":
+            return '0,"No error"'
+        if command == "INST:NSEL?":
+            return "1"
+        if command == "OUTP?":
+            selected = next(
+                (
+                    event.rsplit(" ", maxsplit=1)[-1]
+                    for event in reversed(self.events)
+                    if event.startswith("write:INST:NSEL ")
+                ),
+                "1",
+            )
+            return "ON" if selected == "1" else "OFF"
+        raise AssertionError(f"unexpected query {command!r}")
+
+    def close(self) -> None:
+        pass
+
 def test_readonly_simulate_status():
     runtime = RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", simulate=True)
     req = OperationRequest(command="read-status", runtime=runtime, parameters={"channel": "all"})
@@ -21,6 +58,61 @@ def test_readonly_simulate_status():
     assert len(res["outputs"]) == 3
     assert res["outputs"][0]["channel"] == 1
     assert res["outputs"][0]["enabled"] is False
+
+
+def test_readonly_e3646a_status_reads_all_outputs_with_preselection():
+    session = E3646AStatusSession()
+    runtime = RuntimeOptions(resource="ASRL1::INSTR")
+    req = OperationRequest(command="read-status", runtime=runtime, parameters={"channel": "all"})
+
+    res = run_readonly(req, opener=lambda *args, **kwargs: session)
+
+    assert res["outputs"] == [
+        {"channel": 1, "enabled": True},
+        {"channel": 2, "enabled": False},
+    ]
+    assert session.events == [
+        "query:*IDN?",
+        "query:SYST:ERR?",
+        "query:INST:NSEL?",
+        "write:INST:NSEL 1",
+        "query:OUTP?",
+        "write:INST:NSEL 1",
+        "query:INST:NSEL?",
+        "write:INST:NSEL 2",
+        "query:OUTP?",
+        "write:INST:NSEL 1",
+    ]
+    assert not any("(@" in event or "PROT" in event or "TRIG" in event for event in session.events)
+
+
+def test_readonly_e3646a_status_reads_selected_output_only():
+    session = E3646AStatusSession()
+    runtime = RuntimeOptions(resource="ASRL1::INSTR")
+    req = OperationRequest(command="read-status", runtime=runtime, parameters={"channel": 1})
+
+    res = run_readonly(req, opener=lambda *args, **kwargs: session)
+
+    assert res["outputs"] == [{"channel": 1, "enabled": True}]
+    assert session.events == [
+        "query:*IDN?",
+        "query:SYST:ERR?",
+        "query:INST:NSEL?",
+        "write:INST:NSEL 1",
+        "query:OUTP?",
+        "write:INST:NSEL 1",
+    ]
+
+
+def test_readonly_e3646a_status_rejects_invalid_channel_before_status_reads():
+    session = E3646AStatusSession()
+    runtime = RuntimeOptions(resource="ASRL1::INSTR")
+    req = OperationRequest(command="read-status", runtime=runtime, parameters={"channel": 3})
+
+    with pytest.raises(UnsupportedChannelError, match="channel 3 is not supported"):
+        run_readonly(req, opener=lambda *args, **kwargs: session)
+
+    assert session.events == ["query:*IDN?"]
 
 def test_readonly_simulate_readback():
     runtime = RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", simulate=True)

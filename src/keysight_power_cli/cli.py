@@ -2917,108 +2917,31 @@ def _run_trigger_abort(args: argparse.Namespace) -> int:
 
 
 def _run_status(args: argparse.Namespace) -> int:
-    request = _request_for_args(args)
-    execution = _execution_for_args(args, hardware_intent=True)
-    manager = _resource_manager_for_args(args)
-
-    try:
-        _resolve_optional_resource_alias(args)
-        request = _request_for_args(args)
-    except SafetyConfigError as exc:
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="argument_error",
-            message=str(exc),
-            retryable=False,
-        )
-
-    selected_channel = "all" if args.all else args.channel
-    opened = False
-    try:
-        with _open_resource(
-            args.resource,
-            manager,
-            backend=args.backend,
-            timeout_ms=args.timeout_ms,
-        ) as instrument:
-            opened = True
-            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
-            idn = session.query(IDN_QUERY)
-            power_supply = create_power_supply(session, idn)
-            channels = power_supply.capabilities.channels if selected_channel == "all" else (selected_channel,)
-            for channel in channels:
-                _validate_read_only_channel(power_supply, channel, command_label="status")
-            errors, read_count = _read_error_queue_from_driver(power_supply, args.max_errors)
-            outputs = [
-                {"channel": channel, "enabled": power_supply.output_state(channel=channel)}
-                for channel in channels
-            ]
-    except _ReadOnlyModelError as exc:
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="unsupported_model_for_status",
-            message=str(exc),
-            retryable=False,
-            hardware_intent=True,
-        )
-    except _ReadOnlyChannelError as exc:
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="argument_error",
-            message=str(exc),
-            retryable=False,
-            hardware_intent=True,
-        )
-    except VisaConnectionError as exc:
-        code = "status_failed" if opened else "connection_failed"
-        message = (
-            f"status failed: {exc}"
-            if opened
-            else f"Could not open resource for status: {exc}"
-        )
-        return _emit_safe_io_error(
-            args,
-            request=request,
-            execution=execution,
-            code=code,
-            message=message,
-        )
-    except ValueError as exc:
-        return _emit_safe_io_error(
-            args,
-            request=request,
-            execution=execution,
-            code="status_failed",
-            message=f"status failed: {exc}",
-        )
-
-    data = {
-        "resource": args.resource,
-        "errors": errors,
-        "read_count": read_count,
-        "outputs": outputs,
-    }
+    result = _run_read_only_command(
+        args,
+        command_label="status",
+        unsupported_code="unsupported_model_for_status",
+        failure_code="status_failed",
+        operation=_collect_status,
+    )
+    exit_code, data = result
+    if exit_code != 0:
+        return exit_code
     if args.json:
         emit_json_success(
             command=args.command,
-            execution=execution,
-            request=request,
+            execution=_execution_for_args(args, hardware_intent=True),
+            request=_request_for_args(args),
             data=data,
         )
         return 0
 
-    if errors:
-        for error in errors:
+    if data["errors"]:
+        for error in data["errors"]:
             print(f"Error: {error}")
     else:
         print("Errors: none")
-    for output in outputs:
+    for output in data["outputs"]:
         print(f"Channel {output['channel']}: Output enabled: {str(output['enabled']).lower()}")
     return 0
 
@@ -5457,6 +5380,24 @@ def _collect_readback(
                     "current": power_supply.programmed_current(channel=channel),
                 },
             }
+            for channel in channels
+        ],
+    }
+
+
+def _collect_status(
+    args: argparse.Namespace,
+    power_supply: GenericScpiPowerSupply,
+    idn_raw: str,
+    channels: tuple[int, ...],
+) -> dict[str, Any]:
+    errors, read_count = _read_error_queue_from_driver(power_supply, args.max_errors)
+    return {
+        "resource": args.resource,
+        "errors": errors,
+        "read_count": read_count,
+        "outputs": [
+            {"channel": channel, "enabled": power_supply.output_state(channel=channel)}
             for channel in channels
         ],
     }
