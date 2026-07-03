@@ -37,12 +37,13 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     runtime._add_safety_config_argument(parser)
     runtime._add_backend_argument(parser)
     runtime._add_timeout_argument(parser)
+    runtime._add_serial_arguments(parser)
     parser.add_argument("--log-scpi", action="store_true", help="Print SCPI commands and responses to stderr.")
     parser.set_defaults(func=run_ramp_list, _runtime=runtime)
 
 
 def request_for_args(args: argparse.Namespace, runtime: Any) -> dict[str, Any]:
-    return {
+    return runtime._with_serial_request_fields(args, {
         "resource": getattr(args, "resource", None),
         "resource_alias": getattr(args, "resource_alias", None),
         "file": getattr(args, "file", None),
@@ -51,11 +52,11 @@ def request_for_args(args: argparse.Namespace, runtime: Any) -> dict[str, Any]:
         "backend": getattr(args, "backend", None),
         "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
         "lint": getattr(args, "lint", False),
-    }
+    })
 
 
 def request_from_argv(argv: Sequence[str], runtime: Any) -> dict[str, Any]:
-    return {
+    return runtime._with_serial_request_fields_from_argv(argv, {
         "resource": runtime._option_value(argv, "--resource"),
         "resource_alias": runtime._option_value(argv, "--resource-alias"),
         "file": runtime._option_value(argv, "--file"),
@@ -63,7 +64,7 @@ def request_from_argv(argv: Sequence[str], runtime: Any) -> dict[str, Any]:
         "backend": runtime._option_value(argv, "--backend"),
         "timeout_ms": runtime._timeout_from_argv(argv),
         "lint": "--lint" in argv,
-    }
+    })
 
 
 def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRequest:
@@ -98,6 +99,9 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRe
             backend=getattr(args, "backend", None),
             timeout_ms=getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
+            serial_options=runtime._serial_options_for_args(args),
+            serial_remote=getattr(args, "serial_remote", False),
+            serial_local_on_close=getattr(args, "serial_local_on_close", False),
         ),
         parameters=parameters,
     )

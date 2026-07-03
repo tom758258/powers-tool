@@ -3735,7 +3735,6 @@ def _run_log(args: argparse.Namespace) -> int:
 def _run_sequence(args: argparse.Namespace) -> int:
     request = _request_for_args(args)
     execution = _execution_for_args(args, hardware_intent=True)
-    manager = _resource_manager_for_args(args)
     try:
         _resolve_optional_resource_alias(args)
         request = _request_for_args(args)
@@ -3753,12 +3752,7 @@ def _run_sequence(args: argparse.Namespace) -> int:
     try:
         data = sequence.run_sequence(
             core_request,
-            opener=lambda resource, *, backend=None, timeout_ms=DEFAULT_TIMEOUT_MS: _open_resource(
-                resource,
-                manager,
-                backend=backend,
-                timeout_ms=timeout_ms,
-            ),
+            opener=_core_opener_for_args(args),
             sleep=time.sleep,
             scpi_logger=_log_scpi,
         )
@@ -7961,7 +7955,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     if args.command == "set":
-        return _drop_none_setpoints({
+        return _with_serial_request_fields(args, _drop_none_setpoints({
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
@@ -7972,9 +7966,9 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             **_write_verification_request_fields(args),
             **_completion_request_fields(args),
-        })
+        }))
     if args.command == "output-off":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
@@ -7983,9 +7977,9 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             **_write_verification_request_fields(args),
             **_completion_request_fields(args),
-        }
+        })
     if args.command == "output-on":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
@@ -7994,15 +7988,15 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             **_write_verification_request_fields(args),
             **_completion_request_fields(args),
-        }
+        })
     if args.command == "safe-off":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
             "safety_config": getattr(args, "safety_config", None),
             **_completion_request_fields(args),
-        }
+        })
     if args.command == "output-state":
         return _with_serial_request_fields(args, {
             "resource": args.resource,
@@ -8013,7 +8007,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         })
     if args.command == "cycle-output":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
@@ -8022,9 +8016,9 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             **_completion_request_fields(args),
-        }
+        })
     if args.command == "apply":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
@@ -8036,9 +8030,9 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             **_write_verification_request_fields(args),
             **_completion_request_fields(args),
-        }
+        })
     elif args.command == "smoke-output":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
@@ -8049,7 +8043,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             **_completion_request_fields(args),
-        }
+        })
     if args.command == "trigger-pulse":
         pins = _trigger_pins_for_args(args)
         request = {
@@ -8259,7 +8253,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
     if args.command == "ramp":
-        return {
+        return _with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
@@ -8273,7 +8267,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             **_write_verification_request_fields(args),
             **_completion_request_fields(args),
-        }
+        })
     if args.command == "log":
         return {
             "resource": args.resource,
@@ -8368,7 +8362,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
         }
     if command == "set":
-        return _drop_none_setpoints({
+        return _with_serial_request_fields_from_argv(argv, _drop_none_setpoints({
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": _channel_from_argv(argv),
@@ -8379,9 +8373,9 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
             **_write_verification_request_fields_from_argv(argv),
             **_completion_request_fields_from_argv(argv),
-        })
+        }))
     if command == "output-off":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": _channel_from_argv(argv),
@@ -8390,9 +8384,9 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
             **_write_verification_request_fields_from_argv(argv),
             **_completion_request_fields_from_argv(argv),
-        }
+        })
     if command == "output-on":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": _channel_from_argv(argv),
@@ -8401,15 +8395,15 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
             **_write_verification_request_fields_from_argv(argv),
             **_completion_request_fields_from_argv(argv),
-        }
+        })
     if command == "safe-off":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": _channel_from_argv(argv),
             "safety_config": _option_value(argv, "--safety-config"),
             **_completion_request_fields_from_argv(argv),
-        }
+        })
     if command == "output-state":
         return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
@@ -8421,7 +8415,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             **_completion_request_fields_from_argv(argv),
         })
     if command == "cycle-output":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": _channel_from_argv(argv),
@@ -8429,9 +8423,9 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
-        }
+        })
     if command == "apply":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": _status_channel_from_argv(argv),
@@ -8443,9 +8437,9 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
             **_write_verification_request_fields_from_argv(argv),
             **_completion_request_fields_from_argv(argv),
-        }
+        })
     if command == "smoke-output":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": _channel_from_argv(argv),
@@ -8456,7 +8450,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
             **_completion_request_fields_from_argv(argv),
-        }
+        })
     if command == "trigger-pulse":
         pin = _pin_from_argv(argv)
         pins = _pins_from_argv(argv)
@@ -8545,7 +8539,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
         }
     if command == "ramp":
-        return {
+        return _with_serial_request_fields_from_argv(argv, {
             "resource": _option_value(argv, "--resource"),
             "resource_alias": _option_value(argv, "--resource-alias"),
             "channel": _channel_from_argv(argv),
@@ -8559,7 +8553,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "timeout_ms": _timeout_from_argv(argv),
             **_write_verification_request_fields_from_argv(argv),
             **_completion_request_fields_from_argv(argv),
-        }
+        })
     if command == "read-status":
         channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")
         return _with_serial_request_fields_from_argv(argv, {

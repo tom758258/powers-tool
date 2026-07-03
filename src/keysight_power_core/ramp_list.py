@@ -237,7 +237,14 @@ def execute_ramp_list(
     idn_raw: str | None = None
     opened = False
     try:
-        with opener(resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
+        with opener(
+            resource,
+            backend=request.runtime.backend,
+            timeout_ms=request.runtime.timeout_ms,
+            serial_options=request.runtime.serial_options,
+            serial_remote=request.runtime.serial_remote,
+            serial_local_on_close=request.runtime.serial_local_on_close,
+        ) as instrument:
             opened = True
             session = (
                 ScpiLoggingSession(resource, instrument, scpi_logger)

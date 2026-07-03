@@ -15,6 +15,14 @@ WRITE_VERIFICATION_REQUEST_DEFAULTS = {
     "setpoint_voltage_tolerance": 0.001,
     "setpoint_current_tolerance": 0.001,
 }
+SERIAL_TERMINATION_ARGS = [
+    "--serial-read-termination",
+    "CRLF",
+    "--serial-write-termination",
+    "LF",
+    "--serial-remote",
+    "--serial-local-on-close",
+]
 
 
 def test_root_version_prints_package_version(capsys) -> None:
@@ -5814,6 +5822,143 @@ def test_e3646a_real_output_affecting_commands_success(monkeypatch, capsys, comm
 @pytest.mark.parametrize(
     ("command", "extra_args"),
     [
+        ("set", ["--channel", "1", "--voltage", "1", "--current", "0.05"]),
+        ("output-on", ["--channel", "1"]),
+        ("output-off", ["--channel", "1"]),
+        ("safe-off", ["--channel", "1"]),
+        ("cycle-output", ["--channel", "1", "--duration-ms", "1"]),
+        ("apply", ["--channel", "1", "--voltage", "1", "--current", "0.05"]),
+        ("ramp", ["--channel", "1", "--start-voltage", "0", "--stop-voltage", "1", "--step-voltage", "1", "--current", "0.05"]),
+        ("smoke-output", ["--channel", "1", "--voltage", "1", "--current", "0.05"]),
+        ("ramp-list", ["--lint", "--segment", "1", "0.05", "0", "1", "1", "0", "0"]),
+        ("sequence", ["--lint", "--file", "examples/sequence-readonly.yaml"]),
+    ],
+)
+def test_output_commands_accept_serial_options_in_json_request(capsys, command, extra_args) -> None:
+    assert (
+        cli.main(
+            [
+                command,
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                *extra_args,
+                *SERIAL_TERMINATION_ARGS,
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["request"]["serial_options"]["read_termination"] == "\r\n"
+    assert payload["request"]["serial_options"]["write_termination"] == "\n"
+    assert payload["request"]["serial_remote"] is True
+    assert payload["request"]["serial_local_on_close"] is True
+
+
+def test_output_state_serial_options_still_work(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "output-state",
+                "--json",
+                "--simulate",
+                "--resource",
+                "ASRL1::SIM::E3646A::INSTR",
+                "--channel",
+                "1",
+                *SERIAL_TERMINATION_ARGS,
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["request"]["serial_options"]["read_termination"] == "\r\n"
+    assert payload["request"]["serial_options"]["write_termination"] == "\n"
+
+
+def test_safe_off_accepts_serial_options_without_confirm(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E3646A,SERIAL0000,1.0",
+        query_responses={"INST:NSEL?": "1", "OUTP?": "0"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "safe-off",
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                "--channel",
+                "1",
+                *SERIAL_TERMINATION_ARGS,
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+
+
+@pytest.mark.parametrize(
+    ("command", "extra_args", "query_responses"),
+    [
+        ("set", ["--channel", "1", "--voltage", "1", "--current", "0.05"], {"INST:NSEL?": "1"}),
+        ("output-on", ["--channel", "1"], {"INST:NSEL?": "1", "VOLT?": "1.0", "CURR?": "0.05", "OUTP?": "0"}),
+        ("output-off", ["--channel", "1"], {"INST:NSEL?": "1", "OUTP?": "1"}),
+        ("safe-off", ["--channel", "1"], {"INST:NSEL?": "1", "OUTP?": "1"}),
+        ("cycle-output", ["--channel", "1", "--duration-ms", "1"], {"INST:NSEL?": "1", "VOLT?": "1.0", "CURR?": "0.05", "OUTP?": "1"}),
+        ("apply", ["--channel", "1", "--voltage", "1", "--current", "0.05", "--no-output"], {"INST:NSEL?": "1"}),
+        ("ramp", ["--channel", "1", "--start-voltage", "0", "--stop-voltage", "1", "--step-voltage", "1", "--current", "0.05"], {"INST:NSEL?": "1"}),
+        ("smoke-output", ["--channel", "1", "--voltage", "1", "--current", "0.05"], {"INST:NSEL?": "1", "OUTP?": "0", "MEAS:VOLT?": "1.0", "MEAS:CURR?": "0.05"}),
+    ],
+)
+def test_output_family_real_forwards_serial_options_to_opener(
+    monkeypatch,
+    capsys,
+    command,
+    extra_args,
+    query_responses,
+) -> None:
+    opened = []
+    session = FakeSession(idn="KEYSIGHT,E3646A,SERIAL0000,1.0", query_responses=query_responses)
+
+    def fake_open_resource(resource, resource_manager=None, *, backend=None, timeout_ms=5000, **kwargs):
+        opened.append(kwargs)
+        return session
+
+    monkeypatch.setattr(cli, "open_resource", fake_open_resource)
+
+    assert (
+        cli.main(
+            [
+                command,
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                *extra_args,
+                *SERIAL_TERMINATION_ARGS,
+            ]
+        )
+        == 0
+    )
+
+    json.loads(capsys.readouterr().out)
+    serial_options = opened[0]["serial_options"]
+    assert serial_options.read_termination == "\r\n"
+    assert serial_options.write_termination == "\n"
+    assert opened[0]["serial_remote"] is True
+    assert opened[0]["serial_local_on_close"] is True
+
+
+@pytest.mark.parametrize(
+    ("command", "extra_args"),
+    [
         ("protection-set", ["--channel", "1", "--ovp-voltage", "5", "--confirm"]),
         ("clear-protection", ["--channel", "1", "--confirm"]),
     ],
@@ -6094,6 +6239,43 @@ def test_sequence_simulate_executes_read_only_steps(capsys) -> None:
     assert payload["data"]["status"] == "completed"
     assert payload["data"]["completed_steps"] == 6
     assert payload["data"]["results"][1]["measurements"] == {"voltage": 2.02, "current": 0.202}
+
+
+def test_sequence_real_forwards_serial_options_to_opener(monkeypatch, tmp_path, capsys) -> None:
+    sequence_file = tmp_path / "wait-sequence.json"
+    sequence_file.write_text(
+        json.dumps({"version": 1, "steps": [{"action": "wait", "seconds": 0}]}),
+        encoding="utf-8",
+    )
+    opened = []
+
+    def fake_open_resource(resource, resource_manager=None, *, backend=None, timeout_ms=5000, **kwargs):
+        opened.append(kwargs)
+        return FakeSession(idn="KEYSIGHT,E3646A,SERIAL0000,1.0")
+
+    monkeypatch.setattr(cli, "open_resource", fake_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "sequence",
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                "--file",
+                str(sequence_file),
+                *SERIAL_TERMINATION_ARGS,
+            ]
+        )
+        == 0
+    )
+
+    json.loads(capsys.readouterr().out)
+    serial_options = opened[0]["serial_options"]
+    assert serial_options.read_termination == "\r\n"
+    assert serial_options.write_termination == "\n"
+    assert opened[0]["serial_remote"] is True
+    assert opened[0]["serial_local_on_close"] is True
 
 
 def test_doctor_capabilities_and_safety_inspect_json(capsys) -> None:
@@ -7280,6 +7462,45 @@ def test_ramp_list_real_executes_segments_in_order(monkeypatch, capsys) -> None:
         "VOLT 2,(@2)",
         "VOLT 1,(@2)",
     ]
+
+
+def test_ramp_list_real_forwards_serial_options_to_opener(monkeypatch, capsys) -> None:
+    opened = []
+    session = FakeSession(idn="KEYSIGHT,E3646A,SERIAL0000,1.0", query_responses={"INST:NSEL?": "1"})
+
+    def fake_open_resource(resource, resource_manager=None, *, backend=None, timeout_ms=5000, **kwargs):
+        opened.append(kwargs)
+        return session
+
+    monkeypatch.setattr(cli, "open_resource", fake_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "ramp-list",
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                "--segment",
+                "1",
+                "0.05",
+                "0",
+                "1",
+                "1",
+                "0",
+                "0",
+                *SERIAL_TERMINATION_ARGS,
+            ]
+        )
+        == 0
+    )
+
+    json.loads(capsys.readouterr().out)
+    serial_options = opened[0]["serial_options"]
+    assert serial_options.read_termination == "\r\n"
+    assert serial_options.write_termination == "\n"
+    assert opened[0]["serial_remote"] is True
+    assert opened[0]["serial_local_on_close"] is True
 
 
 def _trigger_snapshot_query_responses() -> dict[str, str]:

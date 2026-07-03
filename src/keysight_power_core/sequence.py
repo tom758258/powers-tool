@@ -287,7 +287,14 @@ def execute_sequence(
     cleanup_errors: list[dict[str, Any]] = []
     idn_raw: str | None = None
     try:
-        with opener(request.runtime.resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
+        with opener(
+            request.runtime.resource,
+            backend=request.runtime.backend,
+            timeout_ms=request.runtime.timeout_ms,
+            serial_options=request.runtime.serial_options,
+            serial_remote=request.runtime.serial_remote,
+            serial_local_on_close=request.runtime.serial_local_on_close,
+        ) as instrument:
             if request.runtime.log_scpi and scpi_logger is not None:
                 instrument = ScpiLoggingSession(str(request.runtime.resource), instrument, scpi_logger)
             idn_raw = instrument.query(IDN_QUERY)
