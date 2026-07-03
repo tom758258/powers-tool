@@ -82,6 +82,7 @@ command-level facts:
 - E3646A `SYST:REM` and `SYST:LOC` are state-changing remote/local commands.
   They are sent only when `--serial-remote` or `--serial-local-on-close` is
   explicitly requested for an ASRL resource.
-- `snapshot-diff`, `snapshot-diff --summary`, `hardware-report`, and
-  `sequence --lint` are offline/no-hardware tools and never open VISA.
-
+- `snapshot-diff`, `snapshot-diff --summary`, and `hardware-report` are
+  offline/no-hardware tools and never open VISA. `sequence --lint` also
+  validates without opening VISA, but the current CLI parser still requires
+  `--resource` or `--resource-alias`.
