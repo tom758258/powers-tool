@@ -1206,7 +1206,7 @@ def test_commands_metadata_includes_model_aware_support(client: TestClient):
     assert support["EDU36311A"]["trigger-list"]["hardware_validation"] == "not_supported_by_model"
     assert support["E3646A"]["identify"]["real"] is True
     assert support["E3646A"]["set"]["real"] is True
-    assert support["E3646A"]["set"]["hardware_validation"] == "implemented_pending_hardware_validation"
+    assert support["E3646A"]["set"]["hardware_validation"] == "validated"
     assert support["GENERIC"]["set"]["real"] is False
     for model in ("E36312A", "E3646A", "EDU36311A", "GENERIC"):
         assert support[model]["clear"]["real"] is True

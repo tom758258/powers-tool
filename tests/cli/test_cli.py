@@ -5986,7 +5986,7 @@ def test_e3646a_real_protection_commands_remain_disabled(monkeypatch, capsys, co
     )
 
 
-def test_e3646a_cli_capabilities_reports_experimental_output(capsys) -> None:
+def test_e3646a_cli_capabilities_reports_validated_output(capsys) -> None:
     assert (
         cli.main(
             [
@@ -6003,21 +6003,22 @@ def test_e3646a_cli_capabilities_reports_experimental_output(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     support = payload["data"]["command_support"]
 
-    enabled_commands = (
+    validated_commands = (
         "set",
-        "apply",
-        "output-on",
         "output-off",
         "safe-off",
-        "cycle-output",
         "ramp",
         "ramp-list",
-        "smoke-output",
         "sequence",
     )
-    for command in enabled_commands:
+    for command in validated_commands:
         assert support[command]["real"] is True
-        assert support[command]["hardware_validation"] == "implemented_pending_hardware_validation"
+        assert support[command]["hardware_validation"] == "validated"
+
+    conditional_commands = ("apply", "output-on", "cycle-output", "smoke-output")
+    for command in conditional_commands:
+        assert support[command]["real"] is True
+        assert support[command]["hardware_validation"] == "validated_confirm_threshold_conditional"
 
     disabled_commands = (
         "protection-status",

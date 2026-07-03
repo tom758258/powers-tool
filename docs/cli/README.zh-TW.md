@@ -80,14 +80,21 @@ uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scp
 
 ### E3646A RS-232 / ASRL 範例
 
-E3646A 在 RS-232/ASRL 上支援唯讀/狀態查詢與實驗性的輸出工作流程。影響輸出的命令已實作，但仍等待實機硬體驗證，`capabilities` 會回報 `implemented_pending_hardware_validation`。執行任何 E3646A 實機輸出命令前，請確認實體接線已檢查完成且未連接 DUT。
+E3646A 在 RS-232/ASRL 上支援已實機驗證的唯讀/狀態查詢與輸出工作流程。執行任何 E3646A 實機輸出命令前，請確認實體接線已檢查完成，且要求的電壓/電流限制對連接負載是安全的。
 
-型號支援的命令包括 `identify`、`measure`、`readback`、`read-status`、`output-state`、`capabilities`、`set`、`apply`、`output-on`、`output-off`、`safe-off`、`cycle-output`、`smoke-output`、`ramp`、`ramp-list` 與影響輸出的 `sequence` 步驟。`verify` 也可作為與型號無關的連線診斷。E3646A 的保護寫入、trigger 工作流程、snapshot restore、completion pulse 與 native LIST 仍維持停用。
+型號支援的命令包括 `identify`、`measure`、`readback`、`read-status`、`output-state`、`capabilities`、`set`、`apply`、`output-on`、`output-off`、`safe-off`、`cycle-output`、`smoke-output`、`ramp`、`ramp-list` 與影響輸出的 `sequence` 步驟。`verify` 也可作為與型號無關的連線診斷。E3646A 使用 `INST:NSEL` 做通道預選；`OUTP ON/OFF` 是全域輸出啟用/停用行為，即使命令接受通道參數，啟用或停用輸出仍可能影響儀器整體輸出狀態。E3646A 的保護寫入、trigger 工作流程、snapshot restore、completion pulse 與 native LIST 仍維持停用。
 
 每個 PowerShell 工作階段設定一次 ASRL 資源：
 
 ```powershell
 $env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
+```
+
+重複執行範例時，可把共用 ASRL 設定放在 PowerShell 變數：
+
+```powershell
+$Base = @("--resource", "$env:KEYSIGHT_POWER_ASRL_RESOURCE", "--serial-read-termination", "CRLF", "--serial-write-termination", "LF")
+$Remote = @("--serial-remote", "--serial-local-on-close")
 ```
 
 如果 Connection Expert 已經設定並驗證 ASRL 資源，可讓 VISA 使用既有設定：
@@ -112,6 +119,19 @@ uv run keysight-power readback --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --
 uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
 uv run keysight-power output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
 ```
+
+已驗證的輸出範例：
+
+```powershell
+uv run keysight-power set @Base @Remote --channel 1 --voltage 1 --current 0.05 --json --log-scpi
+uv run keysight-power apply @Base @Remote --channel 1 --voltage 1 --current 0.05 --no-output --json --log-scpi
+uv run keysight-power output-on @Base @Remote --channel 1 --confirm --json --log-scpi
+uv run keysight-power output-off @Base @Remote --channel 1 --json --log-scpi
+uv run keysight-power safe-off @Base @Remote --channel 1 --json --log-scpi
+uv run keysight-power ramp @Base @Remote --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --json --log-scpi
+```
+
+`output-on`、`cycle-output`、`smoke-output`，以及未使用 `--no-output` 的 `apply`，在選定設定點超過確認門檻時需要 `--confirm`。`set`、`output-off`、`safe-off`、`ramp`、`ramp-list` 不要求 `--confirm`。
 
 序列終止字元請優先使用別名 `CR`、`LF`、`CRLF` 或 `NONE`。`NONE` 表示不設定該終止字元選項；省略或空白欄位也表示不覆寫 VISA 設定。
 
@@ -146,7 +166,7 @@ uv run keysight-power trigger-status --json --resource "$env:KEYSIGHT_POWER_RESO
 
 ### 會影響輸出的範例
 
-影響輸出的命令必須明確要求，且使用前需確認型號、通道、DUT 接線、電壓、電流限制與保護設定。E3646A 實機輸出在硬體驗證完成前仍屬實驗性；執行前請確認實體接線已檢查完成且未連接 DUT。詳細範例請參考英文 README 與 CLI 使用者指南。
+影響輸出的命令必須明確要求，且使用前需確認型號、通道、DUT 接線、電壓、電流限制與保護設定。E3646A RS-232 / ASRL 輸出工作流程已實機驗證；執行前請確認實體接線已檢查完成，且要求的電壓/電流限制對連接負載是安全的。詳細範例請參考英文 README 與 CLI 使用者指南。
 
 ### Ramp、Sequence 與模擬器範例
 
@@ -163,7 +183,7 @@ uv run keysight-power safety inspect --json --explain --safety-config examples/s
 ## Safety Defaults
 
 - 影響輸出的行為必須明確要求。
-- E3646A 在 RS-232 / ASRL 上保留唯讀與狀態查詢工作流程，並加入實驗性輸出工作流程；輸出支援仍等待實機硬體驗證。
+- E3646A 在 RS-232 / ASRL 上保留唯讀與狀態查詢工作流程，並加入已實機驗證的輸出工作流程。
 - `--safety-config` 只會套用本機 plan validation 限制；它不會自動啟用硬體輸出。
 - 真實 VISA resource 不應硬編碼在提交的檔案中。
 - 硬體測試必須要求使用者提供 resource。

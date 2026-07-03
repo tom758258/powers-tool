@@ -95,9 +95,9 @@ $env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
 
 ## E3646A RS-232 / ASRL
 
-E3646A 在 RS-232/ASRL 上支援唯讀/狀態查詢與實驗性的輸出工作流程。影響輸出的命令已實作，但仍等待實機硬體驗證。執行任何 E3646A 實機輸出命令前，請確認實體接線已檢查完成且未連接 DUT。
+E3646A 在 RS-232/ASRL 上支援已實機驗證的唯讀/狀態查詢與輸出工作流程。執行任何 E3646A 實機輸出命令前，請確認實體接線已檢查完成，且要求的電壓/電流限制對連接負載是安全的。
 
-型號支援的實機命令包括 `identify`、`measure`、`readback`、`read-status`、`output-state`、`capabilities`、`set`、`apply`、`output-on`、`output-off`、`safe-off`、`cycle-output`、`smoke-output`、`ramp`、`ramp-list` 與影響輸出的 `sequence` 步驟。`verify` 也可作為與型號無關的連線診斷，用以開啟所選資源並查詢 `*IDN?`。E3646A 的保護寫入、trigger 工作流程、snapshot restore、completion pulse 與 native LIST 仍維持停用。
+型號支援的實機命令包括 `identify`、`measure`、`readback`、`read-status`、`output-state`、`capabilities`、`set`、`apply`、`output-on`、`output-off`、`safe-off`、`cycle-output`、`smoke-output`、`ramp`、`ramp-list` 與影響輸出的 `sequence` 步驟。`verify` 也可作為與型號無關的連線診斷，用以開啟所選資源並查詢 `*IDN?`。E3646A 使用 `INST:NSEL` 做通道預選；`OUTP ON/OFF` 是全域輸出啟用/停用行為，即使命令接受通道參數，啟用或停用輸出仍可能影響儀器整體輸出狀態。E3646A 的保護寫入、trigger 工作流程、snapshot restore、completion pulse 與 native LIST 仍維持停用。
 
 每個 PowerShell 工作階段設定一次 ASRL 資源：
 
@@ -165,10 +165,10 @@ keysight-power output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --cha
 .\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 ```
 
-僅在確認設定點安全後才啟用輸出。對 E3646A 而言，實機輸出在硬體驗證完成前仍屬實驗性；請先確認實體接線已檢查完成且未連接 DUT：
+僅在確認設定點安全後才啟用輸出。對 E3646A 而言，`OUTP ON/OFF` 是全域輸出啟用/停用行為；啟用輸出前請先確認實體接線與連接負載：
 
 ```powershell
-.\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi
+.\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --confirm --json --log-scpi
 ```
 
 檢查完成後關閉輸出：

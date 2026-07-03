@@ -99,7 +99,7 @@ def hardware_validation_status(model: str | None) -> dict[str, Any]:
     if normalized == "E3646A":
         return {
             "read_only": "rs232_read_only",
-            "output": "implemented_pending_hardware_validation",
+            "output": "validated",
             "protection": "not_enabled",
             "trigger": "not_enabled",
         }
@@ -121,7 +121,7 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
         "clear-protection",
     }
     e3646a_real = {"identify", "measure", "output-state", "readback", "read-status", "capabilities"}
-    e3646a_experimental = {
+    e3646a_output = {
         "set",
         "output-on",
         "output-off",
@@ -146,7 +146,6 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
                 "output-on",
                 "cycle-output",
                 "apply",
-                "ramp-list",
                 "smoke-output",
                 "protection-set",
                 "clear-protection",
@@ -207,12 +206,14 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
                     }
                 )
         elif normalized == "E3646A":
-            if command in e3646a_real and command not in e3646a_experimental:
+            if command in e3646a_real and command not in e3646a_output:
                 entry["real"] = True
                 entry["hardware_validation"] = "rs232_read_only"
-            elif command in e3646a_experimental:
+            elif command in e3646a_output:
                 entry["real"] = True
-                entry["hardware_validation"] = "implemented_pending_hardware_validation"
+                entry["hardware_validation"] = "validated"
+                if command in {"apply", "output-on", "cycle-output", "smoke-output"}:
+                    entry["hardware_validation"] = "validated_confirm_threshold_conditional"
         else:
             if command in {"identify", "measure", "doctor", "capabilities"}:
                 entry["real"] = True

@@ -619,7 +619,7 @@ def test_capabilities_selected_command_and_unknown_guard(monkeypatch, capsys):
     payload = _payload(capsys)
     assert payload["data"]["selected_command"]["name"] == "set"
     assert payload["data"]["selected_command"]["real"] is True
-    assert payload["data"]["selected_command"]["hardware_validation"] == "implemented_pending_hardware_validation"
+    assert payload["data"]["selected_command"]["hardware_validation"] == "validated"
 
     assert (
         cli.main(

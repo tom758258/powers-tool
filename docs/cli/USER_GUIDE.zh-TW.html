@@ -307,7 +307,7 @@ $env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"</code></pre></div>
         </ul>
 
         <h2 id="e3646a-asrl">E3646A RS-232 / ASRL</h2>
-        <p>E3646A 支援目前在 RS-232/ASRL 上僅限唯讀/狀態查詢。型號支援的實機命令包括 <code>identify</code>、<code>measure</code>、<code>readback</code>、<code>read-status</code>、<code>output-state</code> 與 <code>capabilities</code>。<code>verify</code> 也可作為與型號無關的連線診斷，用以開啟所選資源並查詢 <code>*IDN?</code>。在完成實機硬體驗收之前，E3646A 影響輸出的指令仍維持停用狀態。</p>
+        <p>E3646A 在 RS-232/ASRL 上支援已實機驗證的唯讀/狀態查詢與輸出工作流程。型號支援的實機命令包括 <code>identify</code>、<code>measure</code>、<code>readback</code>、<code>read-status</code>、<code>output-state</code>、<code>capabilities</code>、<code>set</code>、<code>apply</code>、<code>output-on</code>、<code>output-off</code>、<code>safe-off</code>、<code>cycle-output</code>、<code>smoke-output</code>、<code>ramp</code>、<code>ramp-list</code> 與影響輸出的 <code>sequence</code> 步驟。<code>verify</code> 也可作為與型號無關的連線診斷，用以開啟所選資源並查詢 <code>*IDN?</code>。E3646A 使用 <code>INST:NSEL</code> 做通道預選；<code>OUTP ON/OFF</code> 是全域輸出啟用/停用行為。E3646A 的保護寫入、trigger 工作流程、snapshot restore、completion pulse 與 native LIST 仍維持停用。</p>
 
         <p>每個 PowerShell 工作階段設定一次 ASRL 資源：</p>
         <div class="code-wrapper"><pre><code>$env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"</code></pre></div>
@@ -349,7 +349,7 @@ keysight-power output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --cha
         <div class="code-wrapper"><pre><code>.\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi</code></pre></div>
 
         <p>僅在確認設定點安全後才啟用輸出：</p>
-        <div class="code-wrapper"><pre><code>.\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi</code></pre></div>
+        <div class="code-wrapper"><pre><code>.\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --confirm --json --log-scpi</code></pre></div>
 
         <p>檢查完成後關閉輸出：</p>
         <div class="code-wrapper"><pre><code>.\keysight-power.exe output-off --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi</code></pre></div>

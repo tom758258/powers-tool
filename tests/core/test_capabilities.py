@@ -68,6 +68,13 @@ def test_command_support_generic_fallback() -> None:
 
 
 def test_command_support_e3646a_rs232_read_only_boundary() -> None:
+    assert capabilities.hardware_validation_status("E3646A") == {
+        "read_only": "rs232_read_only",
+        "output": "validated",
+        "protection": "not_enabled",
+        "trigger": "not_enabled",
+    }
+
     support = capabilities.command_support("E3646A")
 
     assert "verify" not in support
@@ -75,21 +82,24 @@ def test_command_support_e3646a_rs232_read_only_boundary() -> None:
         assert support[command]["real"] is True
         assert support[command]["hardware_validation"] == "rs232_read_only"
 
-    experimental_output_commands = (
+    validated_output_commands = (
         "set",
-        "apply",
-        "output-on",
         "output-off",
         "safe-off",
-        "cycle-output",
         "ramp",
         "ramp-list",
-        "smoke-output",
         "sequence",
     )
-    for command in experimental_output_commands:
+    for command in validated_output_commands:
         assert support[command]["real"] is True
-        assert support[command]["hardware_validation"] == "implemented_pending_hardware_validation"
+        assert support[command]["hardware_validation"] == "validated"
+
+    conditional_output_commands = ("apply", "output-on", "cycle-output", "smoke-output")
+    for command in conditional_output_commands:
+        assert support[command]["real"] is True
+        assert support[command]["hardware_validation"] == "validated_confirm_threshold_conditional"
+
+    assert support["ramp-list"]["requires_confirm"] is False
 
     for command in (
         "protection-set",

@@ -110,10 +110,10 @@ Please note:
 
 ## E3646A RS-232 / ASRL
 
-E3646A support over RS-232/ASRL includes read/status commands and experimental
-output workflows. Output-affecting commands are implemented but pending live
-hardware validation. Before any live E3646A output command, confirm the
-physical setup has been checked and no DUT is connected.
+E3646A support over RS-232/ASRL includes live-validated read/status and output
+workflows. Before any live E3646A output command, confirm the physical setup
+has been checked and the requested voltage/current limits are safe for the
+connected load.
 
 Model-supported live commands are `identify`, `measure`, `readback`,
 `read-status`, `output-state`, `capabilities`, `set`, `apply`, `output-on`,
@@ -122,6 +122,10 @@ Model-supported live commands are `identify`, `measure`, `readback`,
 available as a model-independent connection diagnostic that opens the selected
 resource and queries `*IDN?`. Protection writes, trigger workflows, snapshot
 restore, completion pulses, and native LIST remain disabled for E3646A.
+
+E3646A uses `INST:NSEL` channel preselection for setpoint writes and readbacks.
+`OUTP ON/OFF` is a global output enable/disable on this model, so output
+enable/disable actions can affect the instrument output state globally.
 
 Set the ASRL resource once per PowerShell session:
 
@@ -200,12 +204,12 @@ Read back the programmed state:
 .\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 ```
 
-Enable output only after the setpoints are known safe. For E3646A, treat live
-output as experimental until hardware validation is complete; confirm the
-physical setup has been checked and no DUT is connected:
+Enable output only after the setpoints are known safe. For E3646A, remember
+that `OUTP ON/OFF` is a global output enable/disable and confirm the physical
+setup and connected load before enabling output:
 
 ```powershell
-.\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi
+.\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --confirm --json --log-scpi
 ```
 
 Turn output off when the check is complete:
