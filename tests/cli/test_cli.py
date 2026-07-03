@@ -6640,6 +6640,23 @@ def test_identify_edu36311a_real_reads_only_idn(monkeypatch, capsys) -> None:
     assert payload["data"]["remote_lockout_state"] is None
 
 
+def test_identify_e3646a_real_reads_only_idn(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E3646A,SERIAL0000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["identify", "--json", "--resource", OUTPUT_RESOURCE]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert session.queries == ["*IDN?"]
+    assert "*OPT?" not in session.queries
+    assert "SYST:VERS?" not in session.queries
+    assert "SYST:COMM:RLST?" not in session.queries
+    assert payload["data"]["idn"]["model"] == "E3646A"
+    assert payload["data"]["options"] is None
+    assert payload["data"]["scpi_version"] is None
+    assert payload["data"]["remote_lockout_state"] is None
+
+
 def test_identify_extended_query_failure_is_json_error(monkeypatch, capsys) -> None:
     session = FakeSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0")
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)

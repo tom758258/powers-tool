@@ -158,7 +158,8 @@ def _run_identify(
 
 
 def _identity_queries_for_model(model: str | None) -> dict[str, str]:
-    if model is not None and model.strip().upper() == "EDU36311A":
+    normalized = (model or "").strip().upper()
+    if normalized in {"EDU36311A", "E3646A"}:
         return {}
     return EXTENDED_IDENTITY_QUERIES
 
