@@ -1,9 +1,11 @@
 const state = {
   commands: {},
   commandSupportByModel: {},
+  channelCapabilitiesByModel: {},
   parameterConstraints: {},
   electricalRatingsByModel: {},
   resourceModels: {},
+  resourceChannelModels: {},
   activeCategory: "output",
   selected: null,
   workspaceResults: {},
@@ -66,6 +68,7 @@ const TRIGGER_COMMANDS = new Set([
   "trigger-abort"
 ]);
 const STATE_CLASS_NAMES = ["state-ok", "state-warning", "state-error", "state-idle"];
+const DEFAULT_CHANNELS = [1, 2, 3];
 
 const PARAMS = {
   "list-resources": [{ name: "live_only", type: "checkbox", label: "Live only" }],
@@ -337,6 +340,7 @@ async function loadCommands() {
   const payload = await fetchJson("/api/commands");
   state.commands = payload.commands || {};
   state.commandSupportByModel = payload.command_support_by_model || {};
+  state.channelCapabilitiesByModel = payload.channel_capabilities_by_model || {};
   state.parameterConstraints = payload.parameter_constraints || {};
   state.electricalRatingsByModel = payload.electrical_ratings_by_model || {};
   refreshBasicInputConstraints();
@@ -425,6 +429,10 @@ function renderForm(command) {
         const item = document.createElement("option");
         item.value = option;
         item.textContent = param.parser === "intList" ? rearPinDisplayName(option) : optionDisplayName(option);
+        if (param.name === "channel" && isNumericChannel(option) && !isChannelSupported(option)) {
+          item.disabled = true;
+          item.title = channelUnsupportedReason(option);
+        }
         input.appendChild(item);
       });
     } else if (param.type === "textarea") {
@@ -1939,6 +1947,11 @@ function setAdvancedCommandsExpanded(expanded) {
 
 async function runBasicSet(channel) {
   const actionKey = basicActionKey("set", channel);
+  const unsupported = channelUnsupportedReason(channel);
+  if (unsupported) {
+    failBasicAction(actionKey, "Unsupported channel", unsupported, { channel, label: `Basic CH${channel} Set` });
+    return;
+  }
   const values = basicSetpointValues(channel);
   if (!values.ok) {
     failBasicAction(actionKey, "Invalid setpoint", values.message, { channel, label: `Basic CH${channel} Set` });
@@ -1948,6 +1961,11 @@ async function runBasicSet(channel) {
 }
 
 async function runBasicOutput(channel) {
+  const unsupported = channelUnsupportedReason(channel);
+  if (unsupported) {
+    failBasicAction(basicActionKey("output", channel), "Unsupported channel", unsupported, { channel, label: `Basic CH${channel} Output` });
+    return;
+  }
   if (basicOutputLockAction(channel)) return;
   const current = basicLiveChannel(channel)?.output_enabled === true;
   const command = current ? "output-off" : "output-on";
@@ -1957,6 +1975,8 @@ async function runBasicOutput(channel) {
 
 async function runBasicOutputAll() {
   if (basicOutputLockAction("all")) return;
+  const supported = supportedChannelsForCurrentModel();
+  if (!supported.length) return;
   const allOn = basicAllOutputsOn();
   const command = allOn ? "output-off" : "output-on";
   const desiredOutput = !allOn;
@@ -2079,6 +2099,16 @@ async function runSelected() {
         ? restoreSnapshotParameters(validatedRestoreDocument)
       : parameterPayload()
   };
+  const channelGuard = channelAvailabilityGuardReason(state.selected, payload.parameters);
+  if (channelGuard) {
+    renderClientResult(state.selected, "failed", channelGuard, {
+      error: "Unsupported channel",
+      detail: channelGuard,
+      command: state.selected,
+      parameters: payload.parameters
+    });
+    return;
+  }
   const tripGuard = tripGuardReason(state.selected, payload.parameters);
   if (tripGuard) {
     renderClientResult(state.selected, "failed", tripGuard, {
@@ -2280,8 +2310,15 @@ function refreshBasicInputConstraints() {
   document.querySelectorAll("[data-basic-voltage], [data-basic-current]").forEach((input) => {
     const channel = Number(input.dataset.basicVoltage || input.dataset.basicCurrent);
     const name = input.dataset.basicVoltage ? "voltage" : "current";
+    const unsupported = channelUnsupportedReason(channel);
     input.removeAttribute("max");
     input.title = "";
+    input.disabled = Boolean(unsupported);
+    if (unsupported) {
+      input.title = unsupported;
+      input.setCustomValidity("");
+      return;
+    }
     applyParameterConstraint(input, name);
     const rating = selectedChannelRatingFor(channel);
     if (rating) {
@@ -2772,8 +2809,10 @@ function updateResourceModelFromJob(job) {
 function updateResourceModel(resource, model) {
   if (!resource || typeof model !== "string" || !model.trim()) return false;
   const next = supportedModelKey(model);
-  if (state.resourceModels[resource] === next) return false;
+  const nextChannelModel = channelModelKey(model);
+  if (state.resourceModels[resource] === next && state.resourceChannelModels[resource] === nextChannelModel) return false;
   state.resourceModels[resource] = next;
+  state.resourceChannelModels[resource] = nextChannelModel;
   return true;
 }
 
@@ -2811,6 +2850,76 @@ function commandDisabledReason(support, model) {
   if (validation === "planning_only") return `Planning only on ${model}`;
   if (validation === "not_supported_by_model") return `Not supported on ${model}`;
   return `Unavailable on ${model}`;
+}
+
+function supportedChannelsForCurrentModel() {
+  const model = currentChannelCapabilityModel();
+  if (!model) return [...DEFAULT_CHANNELS];
+  const channels = state.channelCapabilitiesByModel?.[model];
+  if (!Array.isArray(channels) || !channels.length) return [...DEFAULT_CHANNELS];
+  return channels.map(Number).filter(Number.isInteger);
+}
+
+function isChannelSupported(channel) {
+  if (!isNumericChannel(channel)) return true;
+  return supportedChannelsForCurrentModel().includes(Number(channel));
+}
+
+function isNumericChannel(channel) {
+  return /^[1-9]\d*$/.test(String(channel));
+}
+
+function channelUnsupportedReason(channel) {
+  if (isChannelSupported(channel)) return "";
+  const model = currentChannelCapabilityModel();
+  return model ? `${model} does not support channel ${channel}` : "";
+}
+
+function currentChannelCapabilityModel() {
+  const resource = valueOrNull("resource");
+  if (!resource) return null;
+  return state.resourceChannelModels[resource] || null;
+}
+
+function channelModelKey(model) {
+  const normalized = String(model || "").trim().toUpperCase();
+  return state.channelCapabilitiesByModel[normalized] ? normalized : null;
+}
+
+function channelAvailabilityGuardReason(command, parameters = {}) {
+  const channels = selectedChannelsForCommand(command, parameters);
+  const unsupported = channels.find((channel) => !isChannelSupported(channel));
+  return unsupported === undefined ? "" : channelUnsupportedReason(unsupported);
+}
+
+function selectedChannelsForCommand(command, parameters = {}) {
+  if (command === "ramp-list") {
+    return [...new Set((parameters.document?.segments || []).map((segment) => Number(segment.channel)).filter(Number.isInteger))];
+  }
+  if (command === "trigger-list") return [Number(parameters.channel)].filter(Number.isInteger);
+  if (command === "sequence") {
+    return [...new Set((parameters.document?.steps || [])
+      .map((step) => step.channel)
+      .filter((channel) => channel !== undefined && channel !== "all")
+      .map(Number)
+      .filter(Number.isInteger))];
+  }
+  const selected = parameters.channel;
+  if (selected === undefined || selected === null || selected === "" || selected === "all") return [];
+  const channel = Number(selected);
+  return Number.isInteger(channel) ? [channel] : [];
+}
+
+function outputControlTitle(channel, enabled, fresh) {
+  const model = currentResourceModel();
+  const base = fresh ? `CH${channel} output is ${enabled ? "ON" : "OFF"}.` : `CH${channel} output state is unknown.`;
+  return model === "E3646A" ? `${base} E3646A output enable is global for supported channels.` : base;
+}
+
+function outputAllControlTitle(allOn) {
+  const model = currentResourceModel();
+  const base = allOn ? "All supported outputs are ON." : "One or more supported outputs are OFF or unknown.";
+  return model === "E3646A" ? `${base} E3646A output enable is global for supported channels.` : base;
 }
 
 function toggleResultPanel() {
@@ -3000,7 +3109,7 @@ function basicAllOutputsOn() {
   const resource = valueOrNull("resource");
   if (!panel || panel.stale || !resource || panel.resource !== resource) return false;
   const channels = panel.channels || [];
-  return [1, 2, 3].every((channel) => channels.find((item) => Number(item.channel) === channel)?.output_enabled === true);
+  return supportedChannelsForCurrentModel().every((channel) => channels.find((item) => Number(item.channel) === channel)?.output_enabled === true);
 }
 
 function setBasicActionState(actionKey, status, message = "", context = {}) {
@@ -3021,7 +3130,7 @@ function renderBasicActionState(actionKey) {
   if (kind === "output") {
     renderBasicOutputActionStates();
     if (target === "all") {
-      [1, 2, 3].forEach((channel) => renderBasicChannelActionState(channel));
+      DEFAULT_CHANNELS.forEach((channel) => renderBasicChannelActionState(channel));
     } else {
       renderBasicChannelActionState(Number(target));
     }
@@ -3041,9 +3150,18 @@ function renderBasicActionState(actionKey) {
 function renderBasicChannelActionState(channel) {
   const card = document.querySelector(`[data-basic-channel="${channel}"]`);
   if (!card) return;
+  const unsupported = channelUnsupportedReason(channel);
   const setState = state.basicActionStates[basicActionKey("set", channel)]?.status;
   const outputState = state.basicActionStates[basicActionKey("output", channel)]?.status;
   const allOutputState = state.basicActionStates[basicActionKey("output", "all")]?.status;
+  card.classList.toggle("unsupported", Boolean(unsupported));
+  card.setAttribute("aria-disabled", String(Boolean(unsupported)));
+  card.title = unsupported || "";
+  const setButton = card.querySelector("[data-basic-set]");
+  if (setButton) {
+    setButton.disabled = Boolean(unsupported);
+    if (unsupported) setButton.title = unsupported;
+  }
   card.classList.toggle("basic-action-error", setState === "error" || outputState === "error" || allOutputState === "error");
   card.classList.toggle("basic-action-pending", setState === "pending" || outputState === "pending" || allOutputState === "pending");
 }
@@ -3071,12 +3189,13 @@ function syncBasicFromLivePanel(panel) {
   refreshBasicInputConstraints();
   const resource = valueOrNull("resource");
   const fresh = Boolean(panel && !panel.stale && resource && panel.resource === resource);
-  [1, 2, 3].forEach((channel) => {
+  DEFAULT_CHANNELS.forEach((channel) => {
     const liveChannel = fresh ? (panel.channels || []).find((item) => Number(item.channel) === channel) : null;
     syncBasicSetpointInput(channel, "voltage", liveChannel?.set_voltage, fresh);
     syncBasicSetpointInput(channel, "current", liveChannel?.set_current, fresh);
     renderBasicOutputButton(channel, liveChannel, fresh);
     clearResolvedBasicErrors(channel, liveChannel, fresh);
+    renderBasicChannelActionState(channel);
   });
   renderBasicAllOutputButton(fresh ? panel.channels || [] : []);
   renderBasicOutputActionStates();
@@ -3100,29 +3219,32 @@ function clearBasicInputDirty(channel) {
 function renderBasicOutputButton(channel, liveChannel, fresh) {
   const button = document.querySelector(`[data-basic-output="${channel}"]`);
   if (!button) return;
+  const unsupported = channelUnsupportedReason(channel);
   const enabled = fresh && liveChannel?.output_enabled === true;
   button.textContent = "ON";
   button.classList.toggle("on", enabled);
   button.classList.toggle("off", !enabled);
   button.setAttribute("aria-pressed", String(enabled));
   button.setAttribute("aria-label", `CH${channel} output ${enabled ? "on" : "off"}`);
-  button.title = fresh ? `CH${channel} output is ${enabled ? "ON" : "OFF"}.` : `CH${channel} output state is unknown.`;
+  button.disabled = Boolean(unsupported);
+  button.title = unsupported || outputControlTitle(channel, enabled, fresh);
 }
 
 function renderBasicAllOutputButton(channels) {
   const button = document.querySelector("[data-basic-all-output]");
   if (!button) return;
-  const allOn = [1, 2, 3].every((channel) => channels.find((item) => Number(item.channel) === channel)?.output_enabled === true);
+  const supported = supportedChannelsForCurrentModel();
+  const allOn = supported.length > 0 && supported.every((channel) => channels.find((item) => Number(item.channel) === channel)?.output_enabled === true);
   button.textContent = "ALL ON";
   button.classList.toggle("on", allOn);
   button.classList.toggle("off", !allOn);
   button.setAttribute("aria-pressed", String(allOn));
   button.setAttribute("aria-label", `All outputs ${allOn ? "on" : "not all on"}`);
-  button.title = allOn ? "All outputs are ON." : "One or more outputs are OFF or unknown.";
+  button.title = outputAllControlTitle(allOn);
 }
 
 function renderBasicOutputActionStates() {
-  [1, 2, 3].forEach((channel) => renderBasicOutputControlState(channel));
+  DEFAULT_CHANNELS.forEach((channel) => renderBasicOutputControlState(channel));
   renderBasicOutputControlState("all");
 }
 
@@ -3131,14 +3253,17 @@ function renderBasicOutputControlState(target) {
     ? document.querySelector("[data-basic-all-output]")
     : document.querySelector(`[data-basic-output="${target}"]`);
   if (!button) return;
+  const unsupported = target === "all" ? "" : channelUnsupportedReason(target);
   const actionKey = basicActionKey("output", target);
   const ownAction = state.basicActionStates[actionKey];
   const lockAction = basicOutputLockAction(target);
-  button.disabled = Boolean(lockAction);
+  button.disabled = Boolean(unsupported || lockAction);
   button.classList.toggle("basic-action-pending", Boolean(lockAction));
   button.classList.toggle("basic-action-success", !lockAction && ownAction?.status === "success");
   button.classList.toggle("basic-action-error", !lockAction && ownAction?.status === "error");
-  if (lockAction) {
+  if (unsupported) {
+    button.title = unsupported;
+  } else if (lockAction) {
     button.title = lockAction.message || "Waiting for Live Data readback.";
   } else if (ownAction?.message) {
     button.title = ownAction.message;
@@ -3149,7 +3274,7 @@ function basicOutputLockAction(target) {
   const allAction = state.basicActionStates[basicActionKey("output", "all")];
   if (allAction?.status === "pending") return allAction;
   if (target === "all") {
-    return [1, 2, 3]
+    return supportedChannelsForCurrentModel()
       .map((channel) => state.basicActionStates[basicActionKey("output", channel)])
       .find((action) => action?.status === "pending") || null;
   }
@@ -3173,7 +3298,7 @@ function clearResolvedBasicErrors(channel, liveChannel, fresh) {
   const allAction = state.basicActionStates[basicActionKey("output", "all")];
   if (typeof allAction?.desiredOutput === "boolean") {
     const channels = state.livePanel?.channels || [];
-    const allMatched = [1, 2, 3].every((item) => channels.find((entry) => Number(entry.channel) === item)?.output_enabled === allAction.desiredOutput);
+    const allMatched = supportedChannelsForCurrentModel().every((item) => channels.find((entry) => Number(entry.channel) === item)?.output_enabled === allAction.desiredOutput);
     if (allMatched && allAction.status === "pending" && allAction.awaitingReadback === true) {
       setBasicActionState(basicActionKey("output", "all"), "success", "Basic command completed.", allAction);
     } else if (allMatched && allAction.status === "error") {
@@ -3270,7 +3395,7 @@ function renderBlankLivePanel(status = "ok", message = "") {
 }
 
 function blankLiveChannels() {
-  return [1, 2, 3].map((channel) => ({
+  return DEFAULT_CHANNELS.map((channel) => ({
     channel,
     output_enabled: null,
     measured_voltage: null,
@@ -3292,7 +3417,7 @@ function mergeLiveChannels(channels, previousChannels = [], preservePreviousValu
     const existing = byChannel.get(Number(item.channel));
     byChannel.set(Number(item.channel), mergeLiveChannel(existing, item, preservePreviousValues));
   });
-  return [1, 2, 3].map((channel) => byChannel.get(channel) || blankChannels[channel - 1]);
+  return DEFAULT_CHANNELS.map((channel) => byChannel.get(channel) || blankChannels[channel - 1]);
 }
 
 function mergeLiveChannel(previous, incoming, preservePreviousValues) {
@@ -3318,6 +3443,44 @@ function mergeLiveChannel(previous, incoming, preservePreviousValues) {
 function renderChannelCard(channel, sample) {
   const card = document.querySelector(`[data-channel-card="${channel.channel}"]`);
   if (!card) return;
+  const unsupported = channelUnsupportedReason(channel.channel);
+  if (unsupported) {
+    card.className = "live-card unsupported";
+    card.setAttribute("aria-disabled", "true");
+    card.title = unsupported;
+    card.innerHTML = `
+    <div class="live-card-head">
+      <strong>CH${channel.channel}</strong>
+      <span class="status-badge status-indicator output-status unknown">
+        <span class="indicator-dot" aria-hidden="true"></span>
+        <span class="indicator-text">Unsupported</span>
+      </span>
+    </div>
+    <div class="live-output-section">
+      <div class="live-measured">
+        <div><span>N/A</span><small>OUT V</small></div>
+        <div><span>N/A</span><small>OUT A</small></div>
+      </div>
+    </div>
+    <div class="live-control-section">
+      <div class="live-setpoints">
+        <div><span>N/A</span><small>SET V</small></div>
+        <div><span>N/A</span><small>SET A</small></div>
+      </div>
+      <div class="live-protection-section">
+        <div class="live-protection-badges">
+          <span class="protection-badge status-indicator unknown">
+            <span class="indicator-dot" aria-hidden="true"></span>
+            <span class="indicator-text">Unsupported</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  `;
+    return;
+  }
+  card.setAttribute("aria-disabled", "false");
+  card.title = "";
   const outputClass = channel.output_enabled === true ? "on" : channel.output_enabled === false ? "off" : "unknown";
   const outputText = channel.output_enabled === true ? "ON" : channel.output_enabled === false ? "OFF" : "--";
   const protectionClass = channel.protection_tripped === true ? "protection-tripped" : "";
@@ -3401,6 +3564,7 @@ function updateSelectedCommandState() {
     // Keep the form responsive while artifact editors contain invalid JSON.
   }
   const tripGuard = tripGuardReason(state.selected, parameters);
+  const channelGuard = channelAvailabilityGuardReason(state.selected, parameters);
   const ratingGuard = electricalRatingGuardReason(state.selected, parameters);
   const setGuard = setRequiresSetpointGuardReason(state.selected, parameters);
   const triggerControlGuard = triggerControlGuardReason(state.selected, parameters);
@@ -3408,11 +3572,11 @@ function updateSelectedCommandState() {
   const tripWarning = tripContextWarning(state.selected);
   const runButton = document.getElementById("run");
   const commandDescription = document.getElementById("command-description");
-  const descriptionText = [meta.description, ratingGuard, setGuard, tripGuard || tripWarning].filter(Boolean).join(" ");
+  const descriptionText = [meta.description, channelGuard, ratingGuard, setGuard, tripGuard || tripWarning].filter(Boolean).join(" ");
   commandDescription.textContent = descriptionText;
   commandDescription.title = descriptionText;
   renderCommandGuidance(state.selected, parameters);
-  runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard);
+  runButton.disabled = Boolean(meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard);
   runButton.disabled ||= !validateConstrainedInputs();
   if (state.selected === "restore-from-snapshot") {
     const restoreValid = isLoadedRestoreSnapshotValid();

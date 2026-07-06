@@ -92,6 +92,22 @@ WEBUI_UNSUPPORTED_COMMANDS = {
 MODEL_INDEPENDENT_DIAGNOSTICS = {"verify", "clear", "error"}
 
 
+def channel_capabilities_by_model() -> dict[str, list[int]]:
+    """Return WebUI model-to-channel metadata from driver capabilities."""
+
+    from keysight_power_core.drivers.e36312a import E36312APowerSupply
+    from keysight_power_core.drivers.e3646a import E3646APowerSupply
+    from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
+    from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
+
+    return {
+        "E36312A": list(E36312APowerSupply.capabilities.channels),
+        "EDU36311A": list(EDU36311APowerSupply.capabilities.channels),
+        "E3646A": list(E3646APowerSupply.capabilities.channels),
+        "GENERIC": list(GenericScpiPowerSupply.capabilities.channels),
+    }
+
+
 def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
     simulate = bool(runtime_dict.get("simulate", False))
     resource = runtime_dict.get("resource")

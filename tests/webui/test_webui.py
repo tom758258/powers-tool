@@ -455,9 +455,9 @@ def test_static_basic_output_buttons_lock_until_matching_readback():
     assert 'if (basicOutputLockAction("all")) return;' in run_all
     assert 'awaitingReadback: true' in update_basic
     assert 'setBasicActionState(action.actionKey, "pending"' in update_basic
-    assert 'button.disabled = Boolean(lockAction);' in render_control
+    assert 'button.disabled = Boolean(unsupported || lockAction);' in render_control
     assert 'button.classList.toggle("basic-action-pending", Boolean(lockAction));' in render_control
-    assert '[1, 2, 3].forEach((channel) => renderBasicOutputControlState(channel));' in render_states
+    assert 'DEFAULT_CHANNELS.forEach((channel) => renderBasicOutputControlState(channel));' in render_states
     assert 'renderBasicOutputControlState("all");' in render_states
     assert 'const allAction = state.basicActionStates[basicActionKey("output", "all")];' in lock_action
     assert 'if (allAction?.status === "pending") return allAction;' in lock_action
@@ -473,18 +473,19 @@ def test_static_basic_output_buttons_lock_until_matching_readback():
 def test_static_live_channel_status_uses_led_indicators():
     _index_html, app_js, styles_css = read_static_texts()
     render_channel = extract_js_function(app_js, "renderChannelCard")
+    normal_render_channel = render_channel[render_channel.index("const outputClass"):]
     protection_badge = extract_js_function(app_js, "protectionBadge")
 
-    assert 'class="status-badge status-indicator output-status ${outputClass}"' in render_channel
-    assert 'class="indicator-dot"' in render_channel
-    assert "OUT ${outputText}" in render_channel
-    assert '<div class="live-status-badges">' not in render_channel
-    assert '<div class="live-control-section">' in render_channel
-    assert '<div class="live-protection-section">' in render_channel
-    assert '<div class="live-protection-badges">' in render_channel
-    assert '${protectionBadge("OVP", channel.over_voltage_tripped)}' in render_channel
-    assert '${protectionBadge("OCP", channel.over_current_tripped)}' in render_channel
-    assert render_channel.index('class="status-badge status-indicator output-status ${outputClass}"') < render_channel.index('<div class="live-control-section">')
+    assert 'class="status-badge status-indicator output-status ${outputClass}"' in normal_render_channel
+    assert 'class="indicator-dot"' in normal_render_channel
+    assert "OUT ${outputText}" in normal_render_channel
+    assert '<div class="live-status-badges">' not in normal_render_channel
+    assert '<div class="live-control-section">' in normal_render_channel
+    assert '<div class="live-protection-section">' in normal_render_channel
+    assert '<div class="live-protection-badges">' in normal_render_channel
+    assert '${protectionBadge("OVP", channel.over_voltage_tripped)}' in normal_render_channel
+    assert '${protectionBadge("OCP", channel.over_current_tripped)}' in normal_render_channel
+    assert normal_render_channel.index('class="status-badge status-indicator output-status ${outputClass}"') < normal_render_channel.index('<div class="live-control-section">')
     assert render_channel.index('<div class="live-protection-badges">') < render_channel.index('${protectionBadge("OVP", channel.over_voltage_tripped)}')
     assert 'class="protection-badge status-indicator ${stateClass}"' in protection_badge
     assert "${label} ${stateText}" in protection_badge
@@ -733,8 +734,11 @@ def test_static_commands_disable_by_selected_resource_model():
     _index_html, app_js, _styles_css = read_static_texts()
 
     assert "commandSupportByModel: {}" in app_js
+    assert "channelCapabilitiesByModel: {}" in app_js
     assert "resourceModels: {}" in app_js
+    assert "resourceChannelModels: {}" in app_js
     assert "state.commandSupportByModel = payload.command_support_by_model || {};" in app_js
+    assert "state.channelCapabilitiesByModel = payload.channel_capabilities_by_model || {};" in app_js
     assert "updateResourceModels(resources);" in app_js
     assert "resource.idn?.model" in app_js
     assert "state.commandSupportByModel?.[model]?.[name]" in app_js
@@ -742,8 +746,65 @@ def test_static_commands_disable_by_selected_resource_model():
     assert "!next.stale && updateResourceModel(next.resource, next.model)" in app_js
     assert "support.real !== false" in app_js
     assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
-    assert "runButton.disabled = Boolean(meta.disabled || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard);" in app_js
+    assert "runButton.disabled = Boolean(meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard);" in app_js
     assert 'error: "Command unavailable"' in app_js
+
+
+def test_static_channel_capability_guards_use_metadata():
+    _index_html, app_js, styles_css = read_static_texts()
+
+    assert "const DEFAULT_CHANNELS = [1, 2, 3];" in app_js
+    assert "function supportedChannelsForCurrentModel()" in app_js
+    assert "if (!model) return [...DEFAULT_CHANNELS];" in app_js
+    assert "state.channelCapabilitiesByModel?.[model]" in app_js
+    assert 'return "GENERIC";' in extract_js_function(app_js, "supportedModelKey")
+    assert "function currentChannelCapabilityModel()" in app_js
+    assert "function channelModelKey(model)" in app_js
+    assert "state.resourceChannelModels[resource] = nextChannelModel;" in app_js
+    assert "channelAvailabilityGuardReason(state.selected, parameters)" in app_js
+    assert "channelAvailabilityGuardReason(state.selected, payload.parameters)" in app_js
+    assert "item.disabled = true;" in app_js
+    assert "channelUnsupportedReason(option)" in app_js
+    assert 'error: "Unsupported channel"' in app_js
+    assert ".basic-channel-card.unsupported" in styles_css
+    assert ".live-card.unsupported" in styles_css
+
+
+def test_static_basic_and_live_disable_unsupported_channels():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    run_set = extract_js_function(app_js, "runBasicSet")
+    run_output = extract_js_function(app_js, "runBasicOutput")
+    render_live = extract_js_function(app_js, "renderChannelCard")
+    render_basic = extract_js_function(app_js, "renderBasicChannelActionState")
+    all_on = extract_js_function(app_js, "basicAllOutputsOn")
+    clear_errors = extract_js_function(app_js, "clearResolvedBasicErrors")
+
+    assert "const unsupported = channelUnsupportedReason(channel);" in run_set
+    assert 'failBasicAction(actionKey, "Unsupported channel"' in run_set
+    assert "const unsupported = channelUnsupportedReason(channel);" in run_output
+    assert 'failBasicAction(basicActionKey("output", channel), "Unsupported channel"' in run_output
+    assert 'card.className = "live-card unsupported";' in render_live
+    assert 'card.setAttribute("aria-disabled", "true");' in render_live
+    assert "<span>N/A</span><small>OUT V</small>" in render_live
+    assert "Unsupported" in render_live
+    assert 'card.classList.toggle("unsupported", Boolean(unsupported));' in render_basic
+    assert 'card.setAttribute("aria-disabled", String(Boolean(unsupported)));' in render_basic
+    assert "setButton.disabled = Boolean(unsupported);" in render_basic
+    assert "supportedChannelsForCurrentModel().every" in all_on
+    assert "supportedChannelsForCurrentModel().every" in clear_errors
+
+
+def test_static_e3646a_output_hint_is_global_for_supported_channels():
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    output_title = extract_js_function(app_js, "outputControlTitle")
+    all_title = extract_js_function(app_js, "outputAllControlTitle")
+
+    assert "E3646A output enable is global for supported channels." in output_title
+    assert "E3646A output enable is global for supported channels." in all_title
+    assert 'model === "E3646A"' in output_title
+    assert 'model === "E3646A"' in all_title
 
 
 def test_static_trip_guard_and_clear_protection_recovery_contract():
@@ -927,7 +988,7 @@ def test_static_trigger_controls_disable_invalid_combinations_and_immediate_fire
 
     assert "syncTriggerImmediateControls(state.selected)" in update_state
     assert "triggerControlGuardReason(state.selected, parameters)" in update_state
-    assert "meta.disabled || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard" in update_state
+    assert "meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard" in update_state
     assert "triggerArmOnlyGuardReason" not in app_js
     assert '["trigger-step", "trigger-list"]' in guard
     assert "fire.checked = false" in sync
@@ -1048,6 +1109,12 @@ def test_commands_metadata(client: TestClient):
     data = response.json()
     assert "commands" in data
     assert "command_support_by_model" in data
+    assert data["channel_capabilities_by_model"] == {
+        "E36312A": [1, 2, 3],
+        "EDU36311A": [1, 2, 3],
+        "E3646A": [1, 2],
+        "GENERIC": [1],
+    }
     assert data["electrical_ratings_by_model"]["E36312A"]["channels"][0] == {
         "channel": 1,
         "max_voltage": 6.0,

@@ -933,6 +933,20 @@ canvas {
   box-shadow: 0 0 0 3px rgba(180, 35, 24, .08);
 }
 
+.basic-channel-card.unsupported,
+.live-card.unsupported {
+  border-color: #cfd7df;
+  background: #f3f5f7;
+  color: #6b7785;
+  filter: grayscale(.35);
+  box-shadow: none;
+}
+
+.basic-channel-card.unsupported input,
+.basic-channel-card.unsupported button {
+  cursor: not-allowed;
+}
+
 .basic-channel-head {
   display: flex;
   align-items: center;
