@@ -755,8 +755,12 @@ def test_static_channel_capability_guards_use_metadata():
 
     assert "const DEFAULT_CHANNELS = [1, 2, 3];" in app_js
     assert "function supportedChannelsForCurrentModel()" in app_js
-    assert "if (!model) return [...DEFAULT_CHANNELS];" in app_js
-    assert "state.channelCapabilitiesByModel?.[model]" in app_js
+    assert "if (!capability || !capability.channels.length) return [...DEFAULT_CHANNELS];" in app_js
+    assert "function channelCapabilityForCurrentModel()" in app_js
+    assert "function channelCapabilityForModel(model)" in app_js
+    assert "metadata.channels" in app_js
+    assert "metadata.output_control_scope" in app_js
+    assert "Array.isArray(metadata)" in app_js
     assert 'return "GENERIC";' in extract_js_function(app_js, "supportedModelKey")
     assert "function currentChannelCapabilityModel()" in app_js
     assert "function channelModelKey(model)" in app_js
@@ -801,10 +805,15 @@ def test_static_e3646a_output_hint_is_global_for_supported_channels():
     output_title = extract_js_function(app_js, "outputControlTitle")
     all_title = extract_js_function(app_js, "outputAllControlTitle")
 
-    assert "E3646A output enable is global for supported channels." in output_title
-    assert "E3646A output enable is global for supported channels." in all_title
-    assert 'model === "E3646A"' in output_title
-    assert 'model === "E3646A"' in all_title
+    assert 'outputControlScopeForCurrentModel() === "global"' in output_title
+    assert 'outputControlScopeForCurrentModel() === "global"' in all_title
+    assert "globalOutputHintText()" in output_title
+    assert "globalOutputHintText()" in all_title
+    assert 'model === "E3646A"' not in output_title
+    assert 'model === "E3646A"' not in all_title
+    assert "function outputControlScopeForCurrentModel()" in app_js
+    assert "output_control_scope" in extract_js_function(app_js, "outputControlScopeForCurrentModel")
+    assert "output enable is global for supported channels." in extract_js_function(app_js, "globalOutputHintText")
 
 
 def test_static_trip_guard_and_clear_protection_recovery_contract():
@@ -1109,12 +1118,15 @@ def test_commands_metadata(client: TestClient):
     data = response.json()
     assert "commands" in data
     assert "command_support_by_model" in data
-    assert data["channel_capabilities_by_model"] == {
-        "E36312A": [1, 2, 3],
-        "EDU36311A": [1, 2, 3],
-        "E3646A": [1, 2],
-        "GENERIC": [1],
-    }
+    channel_capabilities = data["channel_capabilities_by_model"]
+    assert channel_capabilities["E36312A"]["channels"] == [1, 2, 3]
+    assert channel_capabilities["E36312A"]["output_control_scope"] == "per_channel"
+    assert channel_capabilities["EDU36311A"]["channels"] == [1, 2, 3]
+    assert channel_capabilities["EDU36311A"]["output_control_scope"] == "per_channel"
+    assert channel_capabilities["E3646A"]["channels"] == [1, 2]
+    assert channel_capabilities["E3646A"]["output_control_scope"] == "global"
+    assert channel_capabilities["GENERIC"]["channels"] == [1]
+    assert channel_capabilities["GENERIC"]["output_control_scope"] == "unknown"
     assert data["electrical_ratings_by_model"]["E36312A"]["channels"][0] == {
         "channel": 1,
         "max_voltage": 6.0,

@@ -2853,11 +2853,9 @@ function commandDisabledReason(support, model) {
 }
 
 function supportedChannelsForCurrentModel() {
-  const model = currentChannelCapabilityModel();
-  if (!model) return [...DEFAULT_CHANNELS];
-  const channels = state.channelCapabilitiesByModel?.[model];
-  if (!Array.isArray(channels) || !channels.length) return [...DEFAULT_CHANNELS];
-  return channels.map(Number).filter(Number.isInteger);
+  const capability = channelCapabilityForCurrentModel();
+  if (!capability || !capability.channels.length) return [...DEFAULT_CHANNELS];
+  return [...capability.channels];
 }
 
 function isChannelSupported(channel) {
@@ -2875,6 +2873,30 @@ function channelUnsupportedReason(channel) {
   return model ? `${model} does not support channel ${channel}` : "";
 }
 
+function channelCapabilityForCurrentModel() {
+  return channelCapabilityForModel(currentChannelCapabilityModel());
+}
+
+function channelCapabilityForModel(model) {
+  const normalized = String(model || "").trim().toUpperCase();
+  if (!normalized) return null;
+  const metadata = state.channelCapabilitiesByModel?.[normalized];
+  if (Array.isArray(metadata)) {
+    return {
+      channels: metadata.map(Number).filter(Number.isInteger),
+      output_control_scope: "unknown"
+    };
+  }
+  if (!metadata || typeof metadata !== "object") return null;
+  const channels = Array.isArray(metadata.channels)
+    ? metadata.channels.map(Number).filter(Number.isInteger)
+    : [];
+  return {
+    channels,
+    output_control_scope: typeof metadata.output_control_scope === "string" ? metadata.output_control_scope : "unknown"
+  };
+}
+
 function currentChannelCapabilityModel() {
   const resource = valueOrNull("resource");
   if (!resource) return null;
@@ -2883,7 +2905,7 @@ function currentChannelCapabilityModel() {
 
 function channelModelKey(model) {
   const normalized = String(model || "").trim().toUpperCase();
-  return state.channelCapabilitiesByModel[normalized] ? normalized : null;
+  return channelCapabilityForModel(normalized) ? normalized : null;
 }
 
 function channelAvailabilityGuardReason(command, parameters = {}) {
@@ -2911,15 +2933,22 @@ function selectedChannelsForCommand(command, parameters = {}) {
 }
 
 function outputControlTitle(channel, enabled, fresh) {
-  const model = currentResourceModel();
   const base = fresh ? `CH${channel} output is ${enabled ? "ON" : "OFF"}.` : `CH${channel} output state is unknown.`;
-  return model === "E3646A" ? `${base} E3646A output enable is global for supported channels.` : base;
+  return outputControlScopeForCurrentModel() === "global" ? `${base} ${globalOutputHintText()}` : base;
 }
 
 function outputAllControlTitle(allOn) {
-  const model = currentResourceModel();
   const base = allOn ? "All supported outputs are ON." : "One or more supported outputs are OFF or unknown.";
-  return model === "E3646A" ? `${base} E3646A output enable is global for supported channels.` : base;
+  return outputControlScopeForCurrentModel() === "global" ? `${base} ${globalOutputHintText()}` : base;
+}
+
+function outputControlScopeForCurrentModel() {
+  return channelCapabilityForCurrentModel()?.output_control_scope || "unknown";
+}
+
+function globalOutputHintText() {
+  const model = currentChannelCapabilityModel();
+  return model ? `${model} output enable is global for supported channels.` : "Output enable is global for supported channels.";
 }
 
 function toggleResultPanel() {

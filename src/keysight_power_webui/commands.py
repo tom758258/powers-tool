@@ -92,7 +92,7 @@ WEBUI_UNSUPPORTED_COMMANDS = {
 MODEL_INDEPENDENT_DIAGNOSTICS = {"verify", "clear", "error"}
 
 
-def channel_capabilities_by_model() -> dict[str, list[int]]:
+def channel_capabilities_by_model() -> dict[str, dict[str, Any]]:
     """Return WebUI model-to-channel metadata from driver capabilities."""
 
     from keysight_power_core.drivers.e36312a import E36312APowerSupply
@@ -101,10 +101,22 @@ def channel_capabilities_by_model() -> dict[str, list[int]]:
     from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
 
     return {
-        "E36312A": list(E36312APowerSupply.capabilities.channels),
-        "EDU36311A": list(EDU36311APowerSupply.capabilities.channels),
-        "E3646A": list(E3646APowerSupply.capabilities.channels),
-        "GENERIC": list(GenericScpiPowerSupply.capabilities.channels),
+        "E36312A": {
+            "channels": list(E36312APowerSupply.capabilities.channels),
+            "output_control_scope": "per_channel",
+        },
+        "EDU36311A": {
+            "channels": list(EDU36311APowerSupply.capabilities.channels),
+            "output_control_scope": "per_channel",
+        },
+        "E3646A": {
+            "channels": list(E3646APowerSupply.capabilities.channels),
+            "output_control_scope": "global",
+        },
+        "GENERIC": {
+            "channels": list(GenericScpiPowerSupply.capabilities.channels),
+            "output_control_scope": "unknown",
+        },
     }
 
 
