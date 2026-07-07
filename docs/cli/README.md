@@ -576,7 +576,7 @@ uv run keysight-power snapshot-diff --summary --json --before logs\before.json -
 Preview a restore plan and save the plan data without opening VISA:
 
 ```powershell
-uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\before.json --model E36312A --channel all --plan-json logs\restore-plan.json
+uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\before.json --resource USB0::SIM::E36312A::INSTR --channel all --plan-json logs\restore-plan.json
 ```
 
 ### Protection And Trigger Examples
