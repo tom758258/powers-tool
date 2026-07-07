@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -17,6 +18,7 @@ from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
+from keysight_power_core.model_resolution import no_hardware_channels, resolve_no_hardware_runtime
 from keysight_power_core.operations import ScpiLoggingSession, ramp_voltages
 from keysight_power_core.safety import SafetyConfigError, SafetyValidationError, resolve_safety_config, validate_setpoint
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
@@ -49,6 +51,7 @@ def run_ramp_list(
 ) -> dict[str, Any]:
     """Lint, plan, or execute a versioned ramp list."""
 
+    request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
     document = ramp_list_document_for_request(request)
     plan = ramp_list_plan(request, document)
     if request.runtime.simulate:
@@ -136,6 +139,7 @@ def ramp_list_plan(request: OperationRequest, document: dict[str, Any]) -> dict[
         "target": {
             "resource": request.runtime.resource,
             "resource_alias": request.runtime.resource_alias,
+            "model_profile": request.runtime.model_profile,
         },
         "segment_count": len(segments),
         "completion_pulse": completion_pulse,
@@ -189,6 +193,11 @@ def normalize_ramp_segment(request: OperationRequest, index: int, raw_segment: A
         raise CoreValidationError(f"ramp-list segment {index} contains an invalid numeric value")
     if channel < 1:
         raise CoreValidationError(f"ramp-list segment {index} channel must be a positive integer")
+    if request.runtime.model_profile is not None and channel not in no_hardware_channels(request.runtime.model_profile):
+        supported = no_hardware_channels(request.runtime.model_profile)
+        raise CoreValidationError(
+            f"ramp-list segment {index} channel {channel} is not supported; supported: {supported}"
+        )
     if delay_ms < 0:
         raise CoreValidationError(f"ramp-list segment {index} delay_ms must be non-negative")
     if hold_ms < 0:

@@ -1439,6 +1439,7 @@ def test_output_commands_dry_run_json_emit_logical_plans(
     assert payload["data"]["plan"]["operation"] == {"name": args[0]}
     assert payload["data"]["plan"]["target"] == {
         "resource": OUTPUT_RESOURCE,
+        "model_profile": "E36103B",
         "channel": 1,
     }
     assert payload["data"]["plan"]["hardware_touched"] is False
@@ -1447,6 +1448,86 @@ def test_output_commands_dry_run_json_emit_logical_plans(
     assert all(step["type"] == "driver_action" for step in steps)
     assert all("command" not in step for step in steps)
     assert captured.err == ""
+
+
+def test_dry_run_without_model_or_sim_resource_fails(capsys) -> None:
+    assert cli.main(["output-on", "--dry-run", "--json", "--channel", "1"]) == 2
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+    assert "require --model" in payload["error"]["message"]
+
+
+def test_simulate_model_derives_resource_and_rejects_mismatch(capsys) -> None:
+    assert cli.main(["output-on", "--simulate", "--json", "--model", "E36312A", "--channel", "1"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["plan"]["target"]["model_profile"] == "E36312A"
+    assert payload["data"]["plan"]["target"]["resource"] == "USB0::SIM::E36312A::INSTR"
+
+    assert (
+        cli.main(
+            [
+                "output-on",
+                "--simulate",
+                "--json",
+                "--model",
+                "E3646A",
+                "--resource",
+                "USB0::SIM::E36312A::INSTR",
+                "--channel",
+                "1",
+            ]
+        )
+        == 2
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert "does not match" in payload["error"]["message"]
+
+
+def test_live_model_fails_before_hardware_io(monkeypatch, capsys) -> None:
+    def fail_open(*args, **kwargs):
+        raise AssertionError("must not open VISA")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open)
+
+    assert (
+        cli.main(
+            [
+                "output-on",
+                "--json",
+                "--model",
+                "E36312A",
+                "--resource",
+                "USB0::SIM::E36312A::INSTR",
+                "--channel",
+                "1",
+            ]
+        )
+        == 2
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert "only supported with --dry-run or --simulate" in payload["error"]["message"]
+
+
+def test_e3646a_dry_run_all_expands_two_channels_and_rejects_three(capsys) -> None:
+    assert cli.main(["output-on", "--dry-run", "--json", "--model", "E3646A", "--channel", "all"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["plan"]["target"]["model_profile"] == "E3646A"
+    assert [step["parameters"]["channel"] for step in payload["data"]["plan"]["steps"]] == [1, 2]
+
+    assert cli.main(["output-on", "--dry-run", "--json", "--model", "E3646A", "--channel", "3"]) == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert "channel 3" in payload["error"]["message"]
+
+
+def test_invalid_model_fails_as_argument_error(capsys) -> None:
+    assert cli.main(["output-on", "--dry-run", "--json", "--model", "not-a-model", "--channel", "1"]) == 2
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+    assert "unsupported model profile" in payload["error"]["message"]
 
 
 def test_cycle_output_dry_run_json_includes_duration(capsys) -> None:
@@ -1489,7 +1570,7 @@ def test_apply_all_no_output_dry_run_sets_each_channel_without_output(capsys) ->
                 "--dry-run",
                 "--json",
                 "--resource",
-                OUTPUT_RESOURCE,
+                "USB0::SIM::E36312A::INSTR",
                 "--channel",
                 "all",
                 "--voltage",
@@ -1793,7 +1874,7 @@ allowed_channels = [1]
         "safety_config": safety_config,
     }
     assert payload["data"]["plan"]["target"]["channel"] == "all"
-    assert payload["data"]["plan"]["steps"][0]["parameters"]["channel"] == "all"
+    assert payload["data"]["plan"]["steps"][0]["parameters"]["channel"] == 1
     assert captured.err == ""
 
 
@@ -2235,7 +2316,7 @@ def test_output_state_real_e36312a_reads_channel_state(monkeypatch, capsys, chan
                 "output-state",
                 "--json",
                 "--resource",
-                OUTPUT_RESOURCE,
+                "USB0::SIM::E36312A::INSTR",
                 "--channel",
                 channel,
                 "--log-scpi",
@@ -2249,7 +2330,7 @@ def test_output_state_real_e36312a_reads_channel_state(monkeypatch, capsys, chan
     assert session.queries == ["*IDN?", f"OUTP? (@{channel})"]
     assert session.writes == []
     assert payload["data"]["output"] == {"enabled": True}
-    assert f"{OUTPUT_RESOURCE} SCPI >> OUTP? (@{channel})" in captured.err
+    assert f"USB0::SIM::E36312A::INSTR SCPI >> OUTP? (@{channel})" in captured.err
 
 
 def test_safe_off_real_e36312a_expands_all_channels(monkeypatch, capsys) -> None:
@@ -2269,7 +2350,7 @@ def test_safe_off_real_e36312a_expands_all_channels(monkeypatch, capsys) -> None
                 "safe-off",
                 "--json",
                 "--resource",
-                OUTPUT_RESOURCE,
+                "USB0::SIM::E36312A::INSTR",
                 "--channel",
                 "all",
             ]
@@ -2567,6 +2648,7 @@ def test_set_text_dry_run_lists_only_requested_setpoint(capsys) -> None:
 
 def test_channel_two_plan_is_logical_and_not_scpi(capsys) -> None:
     args = output_command_args("set", channel="2")
+    args[2] = "USB0::SIM::E36312A::INSTR"
 
     assert cli.main([*args, "--dry-run", "--json"]) == 0
 
@@ -2585,7 +2667,7 @@ def test_output_all_channel_dry_run_expands_supported_commands(capsys) -> None:
             [
                 "safe-off",
                 "--resource",
-                OUTPUT_RESOURCE,
+                "USB0::SIM::E36312A::INSTR",
                 "--channel",
                 "all",
                 "--dry-run",
@@ -2603,23 +2685,39 @@ def test_output_all_channel_dry_run_expands_supported_commands(capsys) -> None:
             "index": 1,
             "type": "driver_action",
             "action": "safe_off",
-            "parameters": {"channel": "all"},
-            }
-        ]
+            "parameters": {"channel": 1},
+        },
+        {
+            "index": 2,
+            "type": "driver_action",
+            "action": "safe_off",
+            "parameters": {"channel": 2},
+        },
+        {
+            "index": 3,
+            "type": "driver_action",
+            "action": "safe_off",
+            "parameters": {"channel": 3},
+        },
+    ]
 
     for command, expected_actions in (
         ("output-on", ["output_on", "output_on", "output_on"]),
         ("output-off", ["output_off", "output_off", "output_off"]),
         ("output-state", ["output_state", "output_state", "output_state"]),
     ):
-        assert cli.main([*output_command_args(command, channel="all"), "--dry-run", "--json"]) == 0
+        args = output_command_args(command, channel="all")
+        args[2] = "USB0::SIM::E36312A::INSTR"
+        assert cli.main([*args, "--dry-run", "--json"]) == 0
         captured = capsys.readouterr()
         payload = json.loads(captured.out)
         assert payload["data"]["plan"]["target"]["channel"] == "all"
         assert [step["action"] for step in payload["data"]["plan"]["steps"]] == expected_actions
         assert [step["parameters"]["channel"] for step in payload["data"]["plan"]["steps"]] == [1, 2, 3]
 
-    assert cli.main([*output_command_args("cycle-output", channel="all", duration_ms="250"), "--dry-run", "--json"]) == 0
+    args = output_command_args("cycle-output", channel="all", duration_ms="250")
+    args[2] = "USB0::SIM::E36312A::INSTR"
+    assert cli.main([*args, "--dry-run", "--json"]) == 0
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert [step["action"] for step in payload["data"]["plan"]["steps"]] == [
@@ -5844,6 +5942,8 @@ def test_output_commands_accept_serial_options_in_json_request(capsys, command, 
                 "ASRL1::INSTR",
                 *extra_args,
                 *SERIAL_TERMINATION_ARGS,
+                "--model",
+                "E36312A",
                 "--dry-run",
             ]
         )
@@ -6429,7 +6529,7 @@ def test_protection_status_real_reads_flags_then_outputs(monkeypatch, capsys) ->
                 "protection-status",
                 "--json",
                 "--resource",
-                OUTPUT_RESOURCE,
+                "USB0::SIM::E36312A::INSTR",
                 "--channel",
                 "2",
             ]
@@ -6545,7 +6645,7 @@ def test_clear_protection_real_sends_expected_scpi(monkeypatch, capsys) -> None:
                 "clear-protection",
                 "--json",
                 "--resource",
-                OUTPUT_RESOURCE,
+                "USB0::SIM::E36312A::INSTR",
                 "--all",
                 "--confirm",
             ]
@@ -6556,7 +6656,7 @@ def test_clear_protection_real_sends_expected_scpi(monkeypatch, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert session.queries == ["*IDN?", "SYST:ERR?"]
     assert session.writes == ["OUTP:PROT:CLE (@1)", "OUTP:PROT:CLE (@2)", "OUTP:PROT:CLE (@3)"]
-    assert payload["data"] == {"resource": OUTPUT_RESOURCE, "cleared_channels": [1, 2, 3]}
+    assert payload["data"] == {"resource": "USB0::SIM::E36312A::INSTR", "cleared_channels": [1, 2, 3]}
 
 
 def test_clear_protection_real_edu36311a_sends_expected_scpi(monkeypatch, capsys) -> None:
@@ -6600,7 +6700,7 @@ def test_clear_protection_dry_run_does_not_open_resource(monkeypatch, capsys) ->
                 "--dry-run",
                 "--json",
                 "--resource",
-                OUTPUT_RESOURCE,
+                "USB0::SIM::E36312A::INSTR",
                 "--channel",
                 "2",
             ]
@@ -6626,7 +6726,7 @@ def test_protection_set_requires_confirm_for_real_hardware(monkeypatch, capsys) 
                 "protection-set",
                 "--json",
                 "--resource",
-                OUTPUT_RESOURCE,
+                "USB0::SIM::E36312A::INSTR",
                 "--channel",
                 "1",
                 "--ovp-voltage",
@@ -6648,7 +6748,7 @@ def test_protection_set_requires_operation(capsys) -> None:
                 "--dry-run",
                 "--json",
                 "--resource",
-                OUTPUT_RESOURCE,
+                "USB0::SIM::E36312A::INSTR",
                 "--channel",
                 "1",
             ]
@@ -6699,7 +6799,7 @@ def test_protection_set_dry_run_does_not_open_resource(monkeypatch, capsys) -> N
                 "--dry-run",
                 "--json",
                 "--resource",
-                OUTPUT_RESOURCE,
+                "USB0::SIM::E36312A::INSTR",
                 "--channel",
                 "all",
                 "--ovp-voltage",
@@ -7378,6 +7478,8 @@ def test_ramp_list_simulate_inline_does_not_open_resource(monkeypatch, capsys) -
             [
                 "ramp-list",
                 "--simulate",
+                "--model",
+                "E36312A",
                 "--json",
                 "--segment",
                 "1",

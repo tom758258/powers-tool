@@ -710,6 +710,8 @@ steps:
                 "sequence",
                 "--dry-run",
                 "--json",
+                "--model",
+                "E36312A",
                 "--resource",
                 "USB0::FAKE::E36312A::INSTR",
                 "--file",

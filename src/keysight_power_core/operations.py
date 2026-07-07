@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from dataclasses import replace
 from typing import Any, Callable, Sequence
 
 from keysight_power_core.connection import open_resource, serial_open_kwargs
@@ -24,6 +25,7 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
+from keysight_power_core.model_resolution import no_hardware_channels, resolve_no_hardware_runtime
 from keysight_power_core.parameter_constraints import validate_request_parameters
 from keysight_power_core.safety import (
     SafetyConfigError,
@@ -74,6 +76,8 @@ def run_operation(
 ) -> dict[str, Any]:
     """Run an operation command and return parser-neutral data."""
 
+    runtime = resolve_no_hardware_runtime(request.runtime)
+    request = replace(request, runtime=runtime)
     validate_general_workflow_parameters(request)
     if request.runtime.dry_run or request.runtime.simulate:
         return output_plan(request)
@@ -103,6 +107,8 @@ def run_operation(
 def output_plan(request: OperationRequest) -> dict[str, Any]:
     """Build the dry-run/simulation output plan without opening hardware."""
 
+    runtime = resolve_no_hardware_runtime(request.runtime)
+    request = replace(request, runtime=runtime)
     validate_general_workflow_parameters(request)
     validate_request_parameters(request)
     _validate_known_simulated_model_setpoints(request)
@@ -113,6 +119,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
         "operation": {"name": command},
         "target": {
             "resource": request.runtime.resource,
+            "model_profile": request.runtime.model_profile,
             "channel": channel,
         },
         "steps": [],
@@ -121,32 +128,37 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
     }
 
     if command == "set":
+        _require_plan_channels(request, channel)
         plan["steps"] = _setpoint_write_steps(channel, p)
         _append_write_followup_steps(p, plan["steps"], _setpoint_verification_actions(p))
     elif command == "output-on":
-        channels = _plan_channels(channel)
+        channels = _plan_channels(request, channel)
         plan["steps"] = [
             _driver_step(index, "output_on", channel=selected_channel)
             for index, selected_channel in enumerate(channels, start=1)
         ]
-        _append_write_followup_steps(p, plan["steps"], ("output_state",))
+        _append_write_followup_steps(p, plan["steps"], ("output_state",), channels=channels)
     elif command == "output-off":
-        channels = _plan_channels(channel)
+        channels = _plan_channels(request, channel)
         plan["steps"] = [
             _driver_step(index, "output_off", channel=selected_channel)
             for index, selected_channel in enumerate(channels, start=1)
         ]
-        _append_write_followup_steps(p, plan["steps"], ("output_state",))
+        _append_write_followup_steps(p, plan["steps"], ("output_state",), channels=channels)
     elif command == "safe-off":
-        plan["steps"] = [_driver_step(1, "safe_off", channel=channel)]
+        channels = _plan_channels(request, channel)
+        plan["steps"] = [
+            _driver_step(index, "safe_off", channel=selected_channel)
+            for index, selected_channel in enumerate(channels, start=1)
+        ]
     elif command == "output-state":
-        channels = _plan_channels(channel)
+        channels = _plan_channels(request, channel)
         plan["steps"] = [
             _driver_step(index, "output_state", channel=selected_channel)
             for index, selected_channel in enumerate(channels, start=1)
         ]
     elif command == "cycle-output":
-        channels = _plan_channels(channel)
+        channels = _plan_channels(request, channel)
         steps = []
         index = 1
         for selected_channel in channels:
@@ -159,7 +171,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
             index += 1
         plan["steps"] = steps
     elif command == "apply":
-        channels = (1, 2, 3) if channel == "all" else (channel,)
+        channels = _plan_channels(request, channel)
         steps = []
         index = 1
         for selected_channel in channels:
@@ -172,8 +184,9 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
                 steps.append(_driver_step(index, "output_on", channel=selected_channel))
                 index += 1
         plan["steps"] = steps
-        _append_write_followup_steps(p, plan["steps"], ("programmed_voltage", "programmed_current"))
+        _append_write_followup_steps(p, plan["steps"], ("programmed_voltage", "programmed_current"), channels=channels)
     elif command == "ramp":
+        _require_plan_channels(request, channel)
         voltages = ramp_voltages(p["start_voltage"], p["stop_voltage"], p["step_voltage"])
         _validate_ramp_completion_pulse(request)
         steps = [_driver_step(1, "set_current_limit", channel=channel, current=_json_safe_number(p["current"]))]
@@ -205,6 +218,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
             steps.append(_driver_step(index, "programmed_current", channel=channel))
         plan["steps"] = steps
     elif command == "smoke-output":
+        _require_plan_channels(request, channel)
         plan["steps"] = [
             _driver_step(1, "set_current_limit", channel=channel, current=_json_safe_number(p["current"])),
             _driver_step(2, "set_voltage", channel=channel, voltage=_json_safe_number(p["voltage"])),
@@ -959,6 +973,8 @@ def _append_write_followup_steps(
     parameters: dict[str, Any],
     steps: list[dict[str, Any]],
     verification_actions: Sequence[str],
+    *,
+    channels: Sequence[int] | None = None,
 ) -> None:
     channel = parameters.get("channel")
     next_index = len(steps) + 1
@@ -967,17 +983,26 @@ def _append_write_followup_steps(
         next_index += 1
     if not parameters.get("verify_after_write", False):
         return
-    channels = (1, 2, 3) if channel == "all" else (channel,)
-    for selected_channel in channels:
+    selected_channels = tuple(channels) if channels is not None else ((1, 2, 3) if channel == "all" else (channel,))
+    for selected_channel in selected_channels:
         for action in verification_actions:
             steps.append(_driver_step(next_index, action, channel=selected_channel))
             next_index += 1
 
 
-def _plan_channels(channel: int | str) -> tuple[int, ...]:
+def _plan_channels(request: OperationRequest, channel: int | str) -> tuple[int, ...]:
+    supported = no_hardware_channels(str(request.runtime.model_profile))
     if channel == "all":
-        return E36312APowerSupply.capabilities.channels
+        return supported
+    if int(channel) not in supported:
+        raise UnsupportedChannelError(f"channel {channel} is not supported; supported: {supported}")
     return (int(channel),)
+
+
+def _require_plan_channels(request: OperationRequest, channel: int | str | None) -> None:
+    if channel is None:
+        return
+    _plan_channels(request, channel)
 
 
 def _json_safe_number(value: float) -> float | str:

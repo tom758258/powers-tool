@@ -236,6 +236,30 @@ valid `*IDN?` responses. Their channel-list SCPI is covered by no-hardware
 tests. Simulated CLI measurement supports channels 1, 2, and 3 for these
 models.
 
+### No-Hardware Model Resolution
+
+Output-family commands, `ramp-list`, `sequence`, `protection-set`, and
+`clear-protection` use strict model resolution in `--dry-run` and
+`--simulate` mode. These no-hardware planning paths require either `--model`
+or a known deterministic simulator resource such as
+`USB0::SIM::E36312A::INSTR`. The CLI does not infer a model from arbitrary
+fake, live-looking, or alias-only resource strings.
+
+`--model` is valid only with `--dry-run` or `--simulate`; live hardware
+commands reject it before opening VISA. Live driver selection continues to use
+the instrument's `*IDN?` response only.
+
+Accepted no-hardware model profiles are `E36103B`, `E36232A`, `E36312A`,
+`EDU36311A`, `E3646A`, and `GENERIC`. In `--simulate` mode, `--model` can
+derive the matching deterministic simulator resource for all listed models
+except `GENERIC`. If both `--model` and a SIM resource are provided, their
+models must match.
+
+No-hardware plans include `data.plan.target.model_profile`. Channel validation
+and `--channel all` expansion use that profile: E3646A expands `all` to CH1
+and CH2 and rejects CH3; E36312A and EDU36311A expand to CH1, CH2, and CH3;
+E36103B, E36232A, and GENERIC conservatively allow CH1 only.
+
 Real CLI measurement keeps generic instruments on channel 1. E36312A and
 EDU36311A channels 2 and 3 use IDN-selected channel-list measurement queries.
 Real CLI `set` is supported for E36312A and EDU36311A channels 1, 2, and 3,
@@ -669,6 +693,7 @@ VISA:
 ```powershell
 uv run keysight-power sequence --lint --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
 uv run keysight-power sequence --dry-run --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
+uv run keysight-power sequence --dry-run --json --model E3646A --file examples\sequence-readonly.yaml
 ```
 
 Sequence YAML files are formally supported through the core package's PyYAML
@@ -686,6 +711,7 @@ Ramp List examples:
 ```powershell
 uv run keysight-power ramp-list --lint --json --file example.ramp-list.json
 uv run keysight-power ramp-list --dry-run --json --file example.ramp-list.json --resource "$env:KEYSIGHT_POWER_RESOURCE"
+uv run keysight-power ramp-list --dry-run --json --model E3646A --file example.ramp-list.json
 uv run keysight-power ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
 ```
 
@@ -713,6 +739,7 @@ Preview output-affecting commands with no hardware writes:
 
 ```powershell
 uv run keysight-power set --dry-run --json --resource "USB0::SIM::E36103B::INSTR" --channel 1 --voltage 1 --current 0.05
+uv run keysight-power output-on --dry-run --json --model E3646A --channel all
 ```
 
 Run offline diagnostics, capabilities, and safety inspect checks:

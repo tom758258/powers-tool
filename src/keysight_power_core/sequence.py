@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -16,6 +17,7 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
+from keysight_power_core.model_resolution import no_hardware_channels, resolve_no_hardware_runtime
 from keysight_power_core.safety import SafetyConfigError, SafetyLimits, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
 from keysight_power_core.trigger import run_post_action_completion_pulse, trigger_pulse_scpi
@@ -49,6 +51,7 @@ def run_sequence(
 ) -> dict[str, Any]:
     """Lint, plan, or execute a sequence request."""
 
+    request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
     document = request.parameters.get("document")
     if document is None:
         file_path = request.parameters.get("file")
@@ -157,7 +160,11 @@ def sequence_plan(request: SequenceRequest, document: dict[str, Any]) -> dict[st
     return {
         "version": 1,
         "operation": {"name": "sequence"},
-        "target": {"resource": request.runtime.resource, "resource_alias": request.runtime.resource_alias},
+        "target": {
+            "resource": request.runtime.resource,
+            "resource_alias": request.runtime.resource_alias,
+            "model_profile": request.runtime.model_profile,
+        },
         "steps": steps,
         "hardware_touched": False,
     }
@@ -165,12 +172,12 @@ def sequence_plan(request: SequenceRequest, document: dict[str, Any]) -> dict[st
 
 def add_sequence_scpi_previews(plan: dict[str, Any]) -> None:
     for step in plan["steps"]:
-        preview = sequence_step_preview(step)
+        preview = sequence_step_preview(step, model_profile=plan["target"].get("model_profile"))
         if preview:
             step["preview"] = preview
 
 
-def sequence_step_preview(step: dict[str, Any]) -> dict[str, Any] | None:
+def sequence_step_preview(step: dict[str, Any], *, model_profile: str | None = None) -> dict[str, Any] | None:
     action = step["action"]
     parameters = step["parameters"]
     if action == "set":
@@ -183,7 +190,7 @@ def sequence_step_preview(step: dict[str, Any]) -> dict[str, Any] | None:
         voltage = _format_text_value(float(parameters["voltage"]))
         current = _format_text_value(float(parameters["current"]))
         commands: list[str] = []
-        for selected_channel in sequence_preview_channels(channel):
+        for selected_channel in sequence_preview_channels(channel, model_profile=model_profile):
             commands.append(f"CURR {current},(@{selected_channel})")
             commands.append(f"VOLT {voltage},(@{selected_channel})")
             if not parameters.get("no_output", False):
@@ -191,21 +198,21 @@ def sequence_step_preview(step: dict[str, Any]) -> dict[str, Any] | None:
         return {"commands": commands}
     if action == "output-on":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
-        return {"commands": [f"OUTP ON,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]}
+        return {"commands": [f"OUTP ON,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile)]}
     if action == "output-off":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
-        return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]}
+        return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile)]}
     if action == "output-state":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
-        return {"commands": [f"OUTP? (@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]}
+        return {"commands": [f"OUTP? (@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile)]}
     if action == "cycle-output":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
-        commands = [f"OUTP ON,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]
-        commands.extend(f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel))
+        commands = [f"OUTP ON,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile)]
+        commands.extend(f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile))
         return {"commands": commands, "duration_ms": int(parameters.get("duration_ms", 500))}
     if action == "safe-off":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
-        return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel)]}
+        return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile)]}
     if action == "trigger-pulse":
         channel = sequence_channel(parameters.get("channel", 1))
         pins = sequence_pulse_pins(parameters.get("pins"))
@@ -235,9 +242,11 @@ def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> No
     action = step["action"]
     parameters = step["parameters"]
     if action in {"measure", "readback", "output-state", "safe-off", "output-on", "output-off", "cycle-output"}:
-        sequence_channel(parameters.get("channel", 1), allow_all=(action in {"safe-off", "output-state", "output-on", "output-off", "cycle-output"}))
+        channel = sequence_channel(parameters.get("channel", 1), allow_all=(action in {"safe-off", "output-state", "output-on", "output-off", "cycle-output"}))
+        _validate_no_hardware_sequence_channels(request, channel)
     if action == "trigger-pulse":
-        sequence_channel(parameters.get("channel", 1))
+        channel = sequence_channel(parameters.get("channel", 1))
+        _validate_no_hardware_sequence_channels(request, channel)
         sequence_pulse_pins(parameters.get("pins"))
         if parameters.get("polarity", "positive") not in {"positive", "negative"}:
             raise CoreValidationError("trigger-pulse polarity must be positive or negative")
@@ -249,6 +258,7 @@ def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> No
             raise CoreValidationError("wait seconds must be a finite non-negative number")
     if action in {"set", "apply"}:
         channel = sequence_channel(parameters.get("channel", 1), allow_all=(action == "apply"))
+        _validate_no_hardware_sequence_channels(request, channel)
         voltage = float(parameters["voltage"])
         current = float(parameters["current"])
         limits = _safety_limits(request)
@@ -260,6 +270,7 @@ def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> No
             raise CoreValidationError(str(exc)) from exc
     elif action in {"output-on", "output-off", "cycle-output"}:
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
+        _validate_no_hardware_sequence_channels(request, channel)
         duration_ms = int(parameters.get("duration_ms", 500))
         if action == "cycle-output" and duration_ms < 1:
             raise CoreValidationError("cycle-output duration_ms must be at least 1")
@@ -593,10 +604,20 @@ def _validate_read_only_channel(power_supply: Any, channel: int, *, command_labe
         raise CoreValidationError(f"channel {channel} is not supported for {command_label}; supported: {supported}")
 
 
-def sequence_preview_channels(channel: int | str) -> tuple[int, ...]:
+def sequence_preview_channels(channel: int | str, *, model_profile: str | None = None) -> tuple[int, ...]:
     if channel == "all":
-        return E36312APowerSupply.capabilities.channels
+        return no_hardware_channels(model_profile) if model_profile else E36312APowerSupply.capabilities.channels
     return (int(channel),)
+
+
+def _validate_no_hardware_sequence_channels(request: SequenceRequest, channel: int | str) -> None:
+    if request.runtime.model_profile is None:
+        return
+    supported = no_hardware_channels(request.runtime.model_profile)
+    if channel == "all":
+        return
+    if int(channel) not in supported:
+        raise CoreValidationError(f"channel {channel} is not supported; supported: {supported}")
 
 
 def _safety_limits(request: SequenceRequest) -> Any:

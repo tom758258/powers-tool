@@ -469,6 +469,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json_argument(protection_set_parser)
     _add_simulate_argument(protection_set_parser)
     _add_dry_run_argument(protection_set_parser)
+    _add_model_argument(protection_set_parser)
     _add_safety_config_argument(protection_set_parser)
     _add_backend_argument(protection_set_parser)
     _add_timeout_argument(protection_set_parser)
@@ -503,6 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json_argument(clear_protection_parser)
     _add_simulate_argument(clear_protection_parser)
     _add_dry_run_argument(clear_protection_parser)
+    _add_model_argument(clear_protection_parser)
     _add_safety_config_argument(clear_protection_parser)
     _add_backend_argument(clear_protection_parser)
     _add_timeout_argument(clear_protection_parser)
@@ -929,6 +931,13 @@ def _add_dry_run_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_model_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--model",
+        help="No-hardware model profile for --dry-run or --simulate.",
+    )
+
+
 def _add_write_verification_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--settle-ms", type=_nonnegative_int, default=0, help="Milliseconds to wait after writes before optional readback verification.")
     parser.add_argument("--verify-after-write", action="store_true", help="Read back state after writes and fail if verification differs.")
@@ -1001,7 +1010,7 @@ def _add_resource_argument(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_output_resource_arguments(parser: argparse.ArgumentParser) -> None:
-    group = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_mutually_exclusive_group()
     group.add_argument("--resource", help="VISA resource string.")
     group.add_argument(
         "--resource-alias",
@@ -3318,7 +3327,7 @@ def _run_clear_protection(args: argparse.Namespace) -> int:
         code = "clear_protection_failed" if exc.opened else "connection_failed"
         return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=str(exc))
 
-    if args.dry_run:
+    if "plan" in data:
         plan = data["plan"]
         if args.json:
             emit_json_success(command=args.command, execution=execution, request=request, data={"plan": plan})
@@ -3374,7 +3383,7 @@ def _run_protection_set(args: argparse.Namespace) -> int:
         code = "protection_set_failed" if exc.opened else "connection_failed"
         return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=str(exc))
 
-    if args.dry_run:
+    if "plan" in data:
         plan = data["plan"]
         if args.json:
             emit_json_success(command=args.command, execution=execution, request=request, data={"plan": plan})
@@ -3777,7 +3786,7 @@ def _run_sequence(args: argparse.Namespace) -> int:
 
     if "idn" in data and isinstance(data.get("resource"), str):
         data["resource"] = _resource_payload(
-            args.resource,
+            data["resource"],
             simulated=args.simulate,
             reachable=True,
             idn_raw=data["idn"],
@@ -4857,9 +4866,20 @@ def _run_output_plan(args: argparse.Namespace) -> int:
             retryable=False,
         )
 
-    plan = _output_plan_for_args(args)
-    if getattr(args, "completion_pulse_timing", "segment") != "step":
-        _append_completion_pulse_plan(args, plan)
+    try:
+        plan = _output_plan_for_args(args)
+        if getattr(args, "completion_pulse_timing", "segment") != "step":
+            _append_completion_pulse_plan(args, plan)
+    except CoreValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
     if args.json:
         emit_json_success(
             command=args.command,
@@ -9230,6 +9250,7 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
             safety_config=getattr(args, "safety_config", None),
             simulate=getattr(args, "simulate", False),
             dry_run=getattr(args, "dry_run", False),
+            model_profile=getattr(args, "model", None),
             backend=getattr(args, "backend", None),
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
@@ -9262,6 +9283,7 @@ def _target_core_request_for_args(args: argparse.Namespace) -> OperationRequest:
             safety_config=getattr(args, "safety_config", None),
             simulate=getattr(args, "simulate", False),
             dry_run=getattr(args, "dry_run", False),
+            model_profile=getattr(args, "model", None),
             backend=getattr(args, "backend", None),
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),

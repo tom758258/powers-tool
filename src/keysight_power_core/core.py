@@ -17,6 +17,7 @@ class RuntimeOptions:
     safety_config: str | None = None
     simulate: bool = False
     dry_run: bool = False
+    model_profile: str | None = None
     backend: str | None = None
     timeout_ms: int = DEFAULT_TIMEOUT_MS
     log_scpi: bool = False

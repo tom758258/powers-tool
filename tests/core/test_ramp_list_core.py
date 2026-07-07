@@ -292,7 +292,7 @@ def test_e3646a_ramp_list_simulate_and_real_execution() -> None:
     req_sim = OperationRequest(
         command="ramp-list",
         parameters={"document": doc},
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=True)
+        runtime=RuntimeOptions(resource="ASRL1::SIM::E3646A::INSTR", dry_run=False, simulate=True)
     )
     data_sim = run_ramp_list(req_sim, opener=lambda *args, **kwargs: E3646AFakeSession(), sleep=lambda seconds: None)
     assert data_sim["status"] == "planned"

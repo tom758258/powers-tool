@@ -82,7 +82,12 @@ command-level facts:
 - E3646A `SYST:REM` and `SYST:LOC` are state-changing remote/local commands.
   They are sent only when `--serial-remote` or `--serial-local-on-close` is
   explicitly requested for an ASRL resource.
+- No-hardware output-family, Ramp List, Sequence, `protection-set`, and
+  `clear-protection` plans use a strict model profile. `--dry-run` and
+  `--simulate` require either an explicit `--model` or a known deterministic
+  SIM resource. E3646A no-hardware `--channel all` plans expand to CH1 and
+  CH2; CH3 is rejected.
 - `snapshot-diff`, `snapshot-diff --summary`, and `hardware-report` are
   offline/no-hardware tools and never open VISA. `sequence --lint` also
-  validates without opening VISA, but the current CLI parser still requires
-  `--resource` or `--resource-alias`.
+  validates without opening VISA and remains syntax/document validation unless
+  combined with `--dry-run` or `--simulate`.

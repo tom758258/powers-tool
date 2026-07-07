@@ -49,6 +49,8 @@ script included in the same `keysight-powers` distribution.
 - `keysight_power_core.electrical_ratings` and `setpoint_limits`: verified
   independent-channel DC output ratings and effective safety limits.
 - `keysight_power_core.capabilities`: command and model capability reporting.
+- `keysight_power_core.model_resolution`: strict no-hardware model profile
+  resolution for dry-run and simulator planning.
 - `keysight_power_core.testing`: no-hardware simulator used by tests and CLI
   simulation mode.
 
@@ -134,9 +136,15 @@ planning only; real trigger/LIST execution remains disabled for that model.
 Hardware-affecting behavior remains explicit and opt-in.
 
 The adapter boundary is intentionally one-way: core contains driver methods,
-SCPI helpers, simulator selection, and dry-run planning; CLI and WebUI build
-`RuntimeOptions`/`OperationRequest` objects and wrap returned `data` in their
-own transport envelopes.
+SCPI helpers, simulator selection, no-hardware model resolution, and dry-run
+planning; CLI and WebUI build `RuntimeOptions`/`OperationRequest` objects and
+wrap returned `data` in their own transport envelopes.
+
+Dry-run and simulator planning does not guess a model from arbitrary resource
+strings. Output-family, Ramp List, Sequence, and protection write planners
+require `RuntimeOptions.model_profile` or a known deterministic simulator
+resource, and returned plans include `target.model_profile`. Live hardware
+driver selection remains based only on `*IDN?`.
 
 ## Output Workflow Pulses
 

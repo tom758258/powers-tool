@@ -117,6 +117,10 @@ Power command success envelopes follow the common CLI contract. Command names us
 
 Selected data mappings:
 
+- Dry-run and simulator plan payloads for output-family commands, `ramp-list`,
+  `sequence`, `protection-set`, and `clear-protection` include
+  `plan.target.model_profile`. The field is the canonical no-hardware model
+  profile used for channel validation and `channel: "all"` expansion.
 - `read-status`: `resource`, `errors`, `read_count`, and `outputs`.
 - `readback`: `resource`, `idn_raw`, and `channels[].setpoints`.
 - `measure`: selected channel measurements.

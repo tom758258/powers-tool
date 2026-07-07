@@ -78,6 +78,8 @@ the smaller value. A more permissive safety config never widens an official
 rating. Confirmation thresholds remain safety-config policy only.
 
 These ratings are not claims about SCPI maximum programmable values. Unknown
-models have no invented rating. Plain dry-run without a confirmed model uses
-fixed and safety-config validation only. OVP values are not constrained by the
-DC output rating. Auto-series and parallel combined ratings are unsupported.
+models have no invented rating. Output-family, Ramp List, Sequence, and
+protection-write dry-run/simulate planning requires an explicit model profile
+or a known deterministic simulator resource before model-specific channel
+validation. OVP values are not constrained by the DC output rating.
+Auto-series and parallel combined ratings are unsupported.

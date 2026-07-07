@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from typing import Any, Callable
 
 from keysight_power_core.connection import open_resource
@@ -19,6 +20,7 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
+from keysight_power_core.model_resolution import no_hardware_channels, resolve_no_hardware_runtime
 from keysight_power_core.operations import ScpiLoggingSession
 from keysight_power_core.safety import SafetyConfigError, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
 from keysight_power_core.testing.simulator import SimulatedResourceManager
@@ -42,8 +44,10 @@ def run_protection(
     if request.command == "protection-status":
         return _run_status(request, opener=opener, scpi_logger=scpi_logger)
     if request.command == "protection-set":
+        request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
         return _run_set(request, opener=opener, scpi_logger=scpi_logger)
     if request.command == "clear-protection":
+        request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
         return _run_clear(request, opener=opener, scpi_logger=scpi_logger)
     raise CoreValidationError(f"unsupported protection command {request.command!r}")
 
@@ -89,12 +93,13 @@ def _run_status(request: OperationRequest, *, opener: Callable[..., Any], scpi_l
 
 def _run_clear(request: OperationRequest, *, opener: Callable[..., Any], scpi_logger: Callable[[str, str, str], None] | None) -> dict[str, Any]:
     selected = _selected_channel(request)
-    channels = _channels(selected, E36312APowerSupply.capabilities.channels)
-    if request.runtime.dry_run or _edu_simulated_write_preview(request):
+    channels = _channels(selected, _plan_supported_channels(request))
+    if request.runtime.dry_run or request.runtime.simulate:
         return {
             "plan": dry_run_plan(
                 command=request.command,
                 resource=request.runtime.resource,
+                model_profile=request.runtime.model_profile,
                 scpi=tuple(f"OUTP:PROT:CLE (@{channel})" for channel in channels),
                 description="Preview clearing output protection for selected channels.",
             )
@@ -118,7 +123,7 @@ def _run_set(request: OperationRequest, *, opener: Callable[..., Any], scpi_logg
         raise CoreValidationError(PROTECTION_SET_OPERATION_ERROR)
     ocp_delay = _optional_ocp_delay(p.get("ocp_delay"))
     ocp_delay_trigger = _optional_ocp_delay_trigger(p.get("ocp_delay_trigger"))
-    channels = _channels(_selected_channel(request), E36312APowerSupply.capabilities.channels)
+    channels = _channels(_selected_channel(request), _plan_supported_channels(request))
     limits = _safety_limits(request)
     try:
         for channel in channels:
@@ -127,11 +132,12 @@ def _run_set(request: OperationRequest, *, opener: Callable[..., Any], scpi_logg
                 validate_setpoint(channel=channel, voltage=p["ovp_voltage"], limits=limits)
     except (SafetyValidationError, SafetyConfigError) as exc:
         raise CoreValidationError(str(exc)) from exc
-    if request.runtime.dry_run or _edu_simulated_write_preview(request):
+    if request.runtime.dry_run or request.runtime.simulate:
         return {
             "plan": dry_run_plan(
                 command=request.command,
                 resource=request.runtime.resource,
+                model_profile=request.runtime.model_profile,
                 scpi=_protection_set_scpi(channels, p.get("ovp_voltage"), p.get("ocp"), ocp_delay, ocp_delay_trigger),
                 description="Preview setting output protection for selected channels.",
             )
@@ -218,6 +224,12 @@ def _channels(selected: int | str | None, supported: tuple[int, ...]) -> tuple[i
         return expand_channel_selection(selected, supported)
     except ChannelSelectionError as exc:
         raise CoreValidationError(str(exc)) from exc
+
+
+def _plan_supported_channels(request: OperationRequest) -> tuple[int, ...]:
+    if request.runtime.model_profile is not None:
+        return no_hardware_channels(request.runtime.model_profile)
+    return E36312APowerSupply.capabilities.channels
 
 
 def _protection_payload(power_supply: Any, *, channel: int) -> dict[str, bool]:
@@ -307,7 +319,3 @@ def _raise_on_errors(power_supply: Any, command: str) -> None:
 def _json_safe_number(value: float) -> float | str:
     numeric = float(value)
     return int(numeric) if numeric.is_integer() else numeric
-
-
-def _edu_simulated_write_preview(request: OperationRequest) -> bool:
-    return request.runtime.simulate and "EDU36311A" in str(request.runtime.resource or "").upper()
