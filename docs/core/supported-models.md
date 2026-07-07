@@ -24,11 +24,9 @@ legacy read-only validation. EDU36311A `protection-set` and
 `clear-protection` require `--confirm` for real execution and report
 `hardware_validation=validated`.
 
-EDU36311A trigger/LIST remains intentionally bounded. `trigger-step`,
-`trigger-fire`, and `trigger-abort` are simulator/dry-run planning paths with
-`hardware_validation=planning_only`; real EDU36311A trigger execution is
-disabled. `trigger-list`, `trigger-pulse`, and completion-pulse pins are
-reported as `not_supported_by_model`.
+Trigger workflows are E36312A-only. EDU36311A, E3646A, E36103B, E36232A, and
+GENERIC do not expose trigger dry-run or simulator behavior; their trigger
+commands report `real=false`, `simulate=false`, and `dry_run=false`.
 
 ## Command Support Notes
 
@@ -40,7 +38,8 @@ command-level facts:
 - E36312A USB-local has validated real read-only, output, protection, trigger,
   snapshot, and restore paths.
 - E36312A native trigger/LIST support is exposed through `trigger-status`,
-  `trigger-step`, `trigger-list`, `trigger-fire`, and `trigger-abort`.
+  `trigger-step`, `trigger-list`, `trigger-fire`, and `trigger-abort`. The
+  trigger dry-run and simulator paths are also E36312A-only.
   Native LIST execution is limited to 100 steps, dwell values from 0.01 to
   3600 seconds, and count values from 1 to 256. Real native trigger sources
   are currently limited to BUS and immediate; rear pin and external input
@@ -52,9 +51,9 @@ command-level facts:
   target instrument before acceptance.
 - E36312A and EDU36311A OVP/OCP trip status is queried per channel. Aggregate
   `protection-status` flags are the OR of the selected channel results.
-- EDU36311A real trigger commands remain disabled. `capabilities --json`
-  reports STEP trigger planning as `hardware_validation=planning_only` and
-  native LIST as `not_supported_by_model`.
+- EDU36311A trigger commands remain disabled. `capabilities --json` reports
+  all trigger commands with `hardware_validation=not_supported_by_model` and
+  does not expose trigger dry-run or simulator behavior.
 - E3646A RS-232 support implements live-validated identity, measurement,
   readback, read-status, output-state, capabilities, and output workflows.
   The validated output commands are `set`, `apply`, `output-on`,
@@ -82,11 +81,16 @@ command-level facts:
 - E3646A `SYST:REM` and `SYST:LOC` are state-changing remote/local commands.
   They are sent only when `--serial-remote` or `--serial-local-on-close` is
   explicitly requested for an ASRL resource.
-- No-hardware output-family, Ramp List, Sequence, `protection-set`, and
-  `clear-protection` plans use a strict model profile. `--dry-run` and
-  `--simulate` require either an explicit `--model` or a known deterministic
-  SIM resource. E3646A no-hardware `--channel all` plans expand to CH1 and
-  CH2; CH3 is rejected.
+- No-hardware output-family, Ramp List, Sequence, `protection-set`,
+  `clear-protection`, and trigger plans use a strict model profile.
+  `--dry-run` and `--simulate` require either an explicit `--model` or a known
+  deterministic SIM resource. Trigger no-hardware plans accept only
+  `--model E36312A` or a known deterministic E36312A SIM resource such as
+  `USB0::SIM::E36312A::INSTR`; an EDU36311A SIM resource is resolved and then
+  rejected for trigger workflows. E3646A no-hardware `--channel all` plans
+  expand to CH1 and CH2; CH3 is rejected.
+- Live trigger behavior remains IDN-driven. `--model` is rejected for live
+  commands before opening VISA and does not override connected hardware.
 - `snapshot-diff`, `snapshot-diff --summary`, and `hardware-report` are
   offline/no-hardware tools and never open VISA. `sequence --lint` also
   validates without opening VISA and remains syntax/document validation unless

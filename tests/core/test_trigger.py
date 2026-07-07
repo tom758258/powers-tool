@@ -106,7 +106,7 @@ def test_trigger_dry_run_plan_shape() -> None:
 def test_trigger_list_explicit_bost_eost_plan() -> None:
     request = TriggerRequest(
         command="trigger-list",
-        runtime=RuntimeOptions(dry_run=True),
+        runtime=RuntimeOptions(dry_run=True, model_profile="E36312A"),
         parameters={
             "channel": 2,
             "source": "immediate",

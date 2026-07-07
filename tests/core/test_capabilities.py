@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import keysight_power_core.capabilities as capabilities
 
 
@@ -12,7 +14,7 @@ def test_hardware_validation_status_e36312a_shape() -> None:
     }
 
 
-def test_hardware_validation_status_edu36311a_planning_boundary() -> None:
+def test_hardware_validation_status_edu36311a_trigger_boundary() -> None:
     assert capabilities.hardware_validation_status("EDU36311A") == {
         "read_only": "validated",
         "output": "validated",
@@ -22,11 +24,7 @@ def test_hardware_validation_status_edu36311a_planning_boundary() -> None:
             "real": True,
             "hardware_validation": "validated",
         },
-        "trigger": {
-            "step": "planning_only",
-            "native_list": "not_supported_by_model",
-            "real": False,
-        },
+        "trigger": "not_supported_by_model",
     }
 
 
@@ -36,8 +34,18 @@ def test_command_support_e36312a_output_protection_and_trigger_real() -> None:
     assert support["output-on"]["real"] is True
     assert support["output-on"]["hardware_validation"] == "validated_confirm_threshold_conditional"
     assert support["protection-set"]["real"] is True
-    assert support["trigger-list"]["real"] is True
-    assert support["trigger-list"]["hardware_validation"] == "validated"
+    for command in (
+        "trigger-pulse",
+        "trigger-status",
+        "trigger-step",
+        "trigger-list",
+        "trigger-fire",
+        "trigger-abort",
+    ):
+        assert support[command]["real"] is True
+        assert support[command]["simulate"] is True
+        assert support[command]["dry_run"] is True
+        assert support[command]["hardware_validation"] == "validated"
 
 
 def test_command_support_edu36311a_output_protection_and_trigger_boundary() -> None:
@@ -51,10 +59,18 @@ def test_command_support_edu36311a_output_protection_and_trigger_boundary() -> N
         "requires_confirm": True,
         "hardware_validation": "validated",
     }
-    assert support["trigger-step"]["hardware_validation"] == "planning_only"
-    assert support["trigger-step"]["real"] is False
-    assert support["trigger-list"]["hardware_validation"] == "not_supported_by_model"
-    assert support["trigger-list"]["simulate"] is False
+    for command in (
+        "trigger-pulse",
+        "trigger-status",
+        "trigger-step",
+        "trigger-list",
+        "trigger-fire",
+        "trigger-abort",
+    ):
+        assert support[command]["real"] is False
+        assert support[command]["simulate"] is False
+        assert support[command]["dry_run"] is False
+        assert support[command]["hardware_validation"] == "not_supported_by_model"
 
 
 def test_command_support_generic_fallback() -> None:
@@ -65,6 +81,23 @@ def test_command_support_generic_fallback() -> None:
     assert support["measure"]["real"] is True
     assert support["set"]["real"] is False
     assert support["set"]["hardware_validation"] == "not_enabled"
+
+
+@pytest.mark.parametrize("model", [None, "E36103B", "E36232A"])
+def test_command_support_non_e36312a_models_disable_trigger_no_hardware(model: str | None) -> None:
+    support = capabilities.command_support(model)
+
+    for command in (
+        "trigger-pulse",
+        "trigger-status",
+        "trigger-step",
+        "trigger-list",
+        "trigger-fire",
+        "trigger-abort",
+    ):
+        assert support[command]["real"] is False
+        assert support[command]["simulate"] is False
+        assert support[command]["dry_run"] is False
 
 
 def test_command_support_e3646a_rs232_read_only_boundary() -> None:
@@ -106,12 +139,17 @@ def test_command_support_e3646a_rs232_read_only_boundary() -> None:
         "clear-protection",
         "restore-from-snapshot",
         "trigger-step",
+        "trigger-status",
+        "trigger-pulse",
         "trigger-list",
         "trigger-fire",
         "trigger-abort",
         "snapshot",
     ):
         assert support[command]["real"] is False
+        if command.startswith("trigger-"):
+            assert support[command]["simulate"] is False
+            assert support[command]["dry_run"] is False
         assert support[command]["hardware_validation"] == "not_enabled"
 
 
@@ -139,6 +177,9 @@ def test_capabilities_static_groups_preserve_json_lists() -> None:
             "snapshot",
             "trigger-pulse",
             "trigger-status",
+            "trigger-step",
             "trigger-list",
+            "trigger-fire",
+            "trigger-abort",
         ],
     }

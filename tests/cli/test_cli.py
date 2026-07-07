@@ -4509,8 +4509,8 @@ def test_trigger_pulse_dry_run_json_does_not_open_resource(monkeypatch, capsys) 
                 "trigger-pulse",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--pin",
                 "1",
             ]
@@ -4537,6 +4537,30 @@ def test_trigger_pulse_dry_run_json_does_not_open_resource(monkeypatch, capsys) 
     ]
 
 
+def test_trigger_dry_run_without_model_or_e36312a_sim_resource_fails(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("real VISA resource should not be opened")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "trigger-pulse",
+                "--dry-run",
+                "--json",
+                "--pin",
+                "1",
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+    assert "require --model" in payload["error"]["message"]
+
+
 def test_trigger_pulse_dry_run_json_accepts_multiple_pins(monkeypatch, capsys) -> None:
     def fail_open_resource(*args, **kwargs):
         raise AssertionError("real VISA resource should not be opened")
@@ -4549,8 +4573,8 @@ def test_trigger_pulse_dry_run_json_accepts_multiple_pins(monkeypatch, capsys) -
                 "trigger-pulse",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--pins",
                 "1,2",
             ]
@@ -4685,8 +4709,8 @@ def test_trigger_pulse_exclusive_pin_dry_run_lists_clear_steps(monkeypatch, caps
                 "trigger-pulse",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--pin",
                 "3",
                 "--exclusive-pin",
@@ -5094,6 +5118,56 @@ def test_trigger_status_simulate_reports_list_and_pin_state(capsys) -> None:
     assert payload["data"]["channels"][0]["list"]["count"] == 1
 
 
+def test_trigger_status_dry_run_model_plans_without_opening(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("real VISA resource should not be opened")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "trigger-status",
+                "--dry-run",
+                "--json",
+                "--model",
+                "E36312A",
+                "--channel",
+                "all",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["plan"]["target"]["model_profile"] == "E36312A"
+    commands = [step["command"] for step in payload["data"]["plan"]["steps"]]
+    assert "TRIG:SOUR? (@1)" in commands
+    assert "TRIG:SOUR? (@2)" in commands
+    assert "TRIG:SOUR? (@3)" in commands
+
+
+def test_trigger_status_simulate_model_derives_e36312a_resource(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "trigger-status",
+                "--simulate",
+                "--json",
+                "--model",
+                "E36312A",
+                "--channel",
+                "1",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["resource"]["name"] == "USB0::SIM::E36312A::INSTR"
+    assert payload["data"]["resource"]["idn"]["model"] == "E36312A"
+
+
 def test_trigger_list_dry_run_json_plans_native_list_scpi(monkeypatch, capsys) -> None:
     def fail_open_resource(*args, **kwargs):
         raise AssertionError("real VISA resource should not be opened")
@@ -5106,8 +5180,8 @@ def test_trigger_list_dry_run_json_plans_native_list_scpi(monkeypatch, capsys) -
                 "trigger-list",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5159,8 +5233,8 @@ def test_trigger_list_rejects_more_than_100_steps(capsys) -> None:
                 "trigger-list",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5183,8 +5257,8 @@ def test_trigger_step_bus_fire_is_explicit(capsys) -> None:
         "trigger-step",
         "--dry-run",
         "--json",
-        "--resource",
-        OUTPUT_RESOURCE,
+        "--model",
+        "E36312A",
         "--channel",
         "1",
         "--source",
@@ -5205,7 +5279,7 @@ def test_trigger_step_bus_fire_is_explicit(capsys) -> None:
 
 def test_trigger_list_dry_run_supports_explicit_bost_eost(capsys) -> None:
     assert cli.main([
-        "trigger-list", "--dry-run", "--json", "--resource", OUTPUT_RESOURCE,
+        "trigger-list", "--dry-run", "--json", "--model", "E36312A",
         "--channel", "1", "--voltage-list", "0,1", "--current-list", "0.05",
         "--dwell-list", "0.01", "--bost-list", "on,off", "--eost-list", "off,on",
         "--trigger-output-pins", "1,3", "--trigger-output-polarity", "negative",
@@ -5226,8 +5300,8 @@ def test_trigger_step_rejects_completion_pulse_pins(capsys) -> None:
                 "trigger-step",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--channel",
                 "1",
                 "--completion-pulse-pins",
@@ -5249,8 +5323,8 @@ def test_trigger_step_bus_arm_only_keeps_existing_non_wait_behavior(capsys) -> N
                 "trigger-step",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--channel",
                 "1",
                 "--source",
@@ -5264,12 +5338,13 @@ def test_trigger_step_bus_arm_only_keeps_existing_non_wait_behavior(capsys) -> N
     assert payload["ok"] is True
 
 
-def test_trigger_step_simulate_edu36311a_is_planning_only(capsys) -> None:
+@pytest.mark.parametrize("mode", ["--dry-run", "--simulate"])
+def test_trigger_step_no_hardware_edu36311a_is_rejected(capsys, mode: str) -> None:
     assert (
         cli.main(
             [
                 "trigger-step",
-                "--simulate",
+                mode,
                 "--json",
                 "--resource",
                 "USB0::SIM::EDU36311A::INSTR",
@@ -5280,13 +5355,12 @@ def test_trigger_step_simulate_edu36311a_is_planning_only(capsys) -> None:
                 "--fire",
             ]
         )
-        == 0
+        == 2
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["data"]["resource"]["idn"]["model"] == "EDU36311A"
-    assert payload["data"]["trigger"]["native"] is False
-    assert payload["data"]["trigger"]["fallback_reason"] == "EDU36311A STEP trigger is simulator/dry-run planning only"
+    assert payload["error"]["code"] == "unsupported_model_for_trigger"
+    assert "only supported for E36312A" in payload["error"]["message"]
 
 
 def test_trigger_step_real_edu36311a_is_rejected(monkeypatch, capsys) -> None:
@@ -5311,7 +5385,7 @@ def test_trigger_step_real_edu36311a_is_rejected(monkeypatch, capsys) -> None:
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["error"]["code"] == "trigger_native_unsupported"
+    assert payload["error"]["code"] == "unsupported_model_for_trigger"
 
 
 def test_trigger_list_bus_arm_only_requires_leave_configured(capsys) -> None:
@@ -5321,8 +5395,8 @@ def test_trigger_list_bus_arm_only_requires_leave_configured(capsys) -> None:
                 "trigger-list",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5348,8 +5422,8 @@ def test_trigger_list_started_without_wait_requires_leave_configured(capsys) -> 
                 "trigger-list",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5375,8 +5449,8 @@ def test_trigger_list_completion_pins_imply_final_eost(capsys) -> None:
                 "trigger-list",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5423,8 +5497,8 @@ def test_trigger_list_file_steps_format(tmp_path, capsys) -> None:
                 "trigger-list",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--file",
                 str(list_file),
                 "--leave-trigger-configured",
@@ -5453,8 +5527,8 @@ def test_trigger_list_file_array_format_still_supported(tmp_path, capsys) -> Non
                 "trigger-list",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--file",
                 str(list_file),
                 "--leave-trigger-configured",
@@ -5485,8 +5559,8 @@ allowed_channels = [1]
                 "trigger-list",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5515,8 +5589,8 @@ def test_trigger_list_exclusive_pins_clears_unselected_pins(capsys) -> None:
                 "trigger-list",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5549,8 +5623,8 @@ def test_trigger_fire_wait_complete_requires_channel(capsys) -> None:
                 "trigger-fire",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--wait-complete",
             ]
         )
@@ -5569,8 +5643,8 @@ def test_trigger_abort_all_plans_each_channel(capsys) -> None:
                 "trigger-abort",
                 "--dry-run",
                 "--json",
-                "--resource",
-                OUTPUT_RESOURCE,
+                "--model",
+                "E36312A",
                 "--channel",
                 "all",
             ]
@@ -6164,6 +6238,9 @@ def test_e3646a_cli_capabilities_reports_validated_output(capsys) -> None:
     )
     for command in disabled_commands:
         assert support[command]["real"] is False
+        if command.startswith("trigger-"):
+            assert support[command]["simulate"] is False
+            assert support[command]["dry_run"] is False
 
 
 @pytest.mark.parametrize(

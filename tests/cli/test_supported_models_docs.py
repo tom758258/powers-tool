@@ -14,7 +14,7 @@ def test_supported_models_matrix_matches_cli_support(capsys):
     assert "E36312A" in matrix
     assert "EDU36311A" in matrix
     assert "Smoke Validation Matrix" in matrix
-    assert "hardware_validation=planning_only" in matrix
+    assert "E36312A-only" in matrix
     assert "not_supported_by_model" in matrix
 
     e36312a = _capabilities("USB0::SIM::E36312A::INSTR", capsys)["command_support"]
@@ -39,8 +39,18 @@ def test_supported_models_matrix_matches_cli_support(capsys):
         "requires_confirm": True,
         "hardware_validation": "validated",
     }
-    assert edu["trigger-step"]["hardware_validation"] == "planning_only"
-    assert edu["trigger-list"]["hardware_validation"] == "not_supported_by_model"
+    for command in (
+        "trigger-pulse",
+        "trigger-status",
+        "trigger-step",
+        "trigger-list",
+        "trigger-fire",
+        "trigger-abort",
+    ):
+        assert edu[command]["real"] is False
+        assert edu[command]["simulate"] is False
+        assert edu[command]["dry_run"] is False
+        assert edu[command]["hardware_validation"] == "not_supported_by_model"
 
 
 def test_e3646a_public_status_docs_do_not_use_pending_output_wording():

@@ -35,7 +35,20 @@ E36312A_ONLY_COMMANDS = (
     "snapshot",
     "trigger-pulse",
     "trigger-status",
+    "trigger-step",
     "trigger-list",
+    "trigger-fire",
+    "trigger-abort",
+)
+TRIGGER_COMMANDS = frozenset(
+    {
+        "trigger-pulse",
+        "trigger-status",
+        "trigger-step",
+        "trigger-list",
+        "trigger-fire",
+        "trigger-abort",
+    }
 )
 OFFLINE_COMMANDS = frozenset({"snapshot-diff", "hardware-report", "doctor", "safety inspect"})
 
@@ -57,10 +70,8 @@ _E36312A_EXTRA_COMMANDS = frozenset(
 )
 _DRY_RUN_TRIGGER_COMMANDS = frozenset(
     {
-        "protection-set",
-        "clear-protection",
-        "restore-from-snapshot",
         "trigger-pulse",
+        "trigger-status",
         "trigger-step",
         "trigger-list",
         "trigger-fire",
@@ -90,11 +101,7 @@ def hardware_validation_status(model: str | None) -> dict[str, Any]:
                 "real": True,
                 "hardware_validation": "validated",
             },
-            "trigger": {
-                "step": "planning_only",
-                "native_list": "not_supported_by_model",
-                "real": False,
-            },
+            "trigger": "not_supported_by_model",
         }
     if normalized == "E3646A":
         return {
@@ -133,14 +140,15 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
         "smoke-output",
         "sequence",
     }
-    edu36311a_planning_trigger = {"trigger-step", "trigger-fire", "trigger-abort"}
     commands = sorted(READ_ONLY_COMMANDS | OUTPUT_COMMANDS | _E36312A_EXTRA_COMMANDS | OFFLINE_COMMANDS)
     support: dict[str, dict[str, Any]] = {}
     for command in commands:
         entry = {
             "real": False,
             "simulate": True,
-            "dry_run": command in OUTPUT_COMMANDS or command in _DRY_RUN_TRIGGER_COMMANDS,
+            "dry_run": command in OUTPUT_COMMANDS
+            or command in _DRY_RUN_TRIGGER_COMMANDS
+            or command in {"protection-set", "clear-protection", "restore-from-snapshot"},
             "requires_confirm": command
             in {
                 "output-on",
@@ -185,17 +193,7 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
                         "hardware_validation": "validated",
                     }
                 )
-            if command in edu36311a_planning_trigger:
-                entry.update(
-                    {
-                        "real": False,
-                        "simulate": True,
-                        "dry_run": True,
-                        "requires_confirm": False,
-                        "hardware_validation": "planning_only",
-                    }
-                )
-            if command in {"trigger-list", "trigger-pulse"}:
+            if command in TRIGGER_COMMANDS:
                 entry.update(
                     {
                         "real": False,
@@ -218,6 +216,16 @@ def command_support(model: str | None) -> dict[str, dict[str, Any]]:
             if command in {"identify", "measure", "doctor", "capabilities"}:
                 entry["real"] = True
                 entry["hardware_validation"] = "generic_channel_1_only"
+        if normalized not in {"E36312A", "EDU36311A"} and command in TRIGGER_COMMANDS:
+            entry.update(
+                {
+                    "real": False,
+                    "simulate": False,
+                    "dry_run": False,
+                    "requires_confirm": False,
+                    "hardware_validation": "not_enabled",
+                }
+            )
         support[command] = entry
     return support
 

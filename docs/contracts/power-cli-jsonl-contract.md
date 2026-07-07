@@ -118,9 +118,11 @@ Power command success envelopes follow the common CLI contract. Command names us
 Selected data mappings:
 
 - Dry-run and simulator plan payloads for output-family commands, `ramp-list`,
-  `sequence`, `protection-set`, and `clear-protection` include
-  `plan.target.model_profile`. The field is the canonical no-hardware model
-  profile used for channel validation and `channel: "all"` expansion.
+  `sequence`, `protection-set`, `clear-protection`, and trigger workflows
+  include `plan.target.model_profile`. The field is the canonical
+  no-hardware model profile used for channel validation and `channel: "all"`
+  expansion. Trigger no-hardware plans accept only `E36312A`; unsupported
+  models do not expose trigger dry-run or simulator behavior.
 - `read-status`: `resource`, `errors`, `read_count`, and `outputs`.
 - `readback`: `resource`, `idn_raw`, and `channels[].setpoints`.
 - `measure`: selected channel measurements.
@@ -152,3 +154,5 @@ Selected data mappings:
 - `trigger-list`: selected channel, step count, completion state, and
   `restored`; `restored: true` means the pre-run Trigger configuration and LIST
   table were written back after completion.
+- Live trigger behavior remains IDN-driven. `--model` is valid only with
+  `--dry-run` or `--simulate` and does not override connected hardware.

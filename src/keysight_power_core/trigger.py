@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import Any, Callable, Sequence
 
 from keysight_power_core.cancellation import StopRequested, raise_if_cancelled
@@ -17,9 +18,9 @@ from keysight_power_core.core import (
     UnsupportedModelError,
 )
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
-from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
+from keysight_power_core.model_resolution import resolve_no_hardware_runtime
 from keysight_power_core.transport import dry_run_plan
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
 
@@ -37,6 +38,7 @@ def run_trigger(
     """Run a trigger command or return a dry-run trigger plan."""
 
     validate_trigger_request(request)
+    request = _resolve_trigger_runtime(request)
     if request.runtime.dry_run:
         return {"plan": trigger_plan(request)}
 
@@ -91,9 +93,29 @@ def validate_trigger_request(request: TriggerRequest) -> None:
             trigger_list_config(request.parameters)
 
 
+def _resolve_trigger_runtime(request: TriggerRequest) -> TriggerRequest:
+    runtime = resolve_no_hardware_runtime(request.runtime)
+    request = replace(request, runtime=runtime)
+    if request.runtime.dry_run or request.runtime.simulate:
+        _require_trigger_model_profile(request.runtime.model_profile)
+    return request
+
+
+def _require_trigger_model_profile(model_profile: str | None) -> None:
+    if model_profile is None:
+        raise CoreValidationError(
+            "trigger no-hardware workflows require --model E36312A or a known deterministic E36312A SIM resource"
+        )
+    if model_profile != "E36312A":
+        raise UnsupportedModelError(
+            f"trigger no-hardware workflows are only supported for E36312A; requested model profile {model_profile}"
+        )
+
+
 def trigger_plan(request: TriggerRequest) -> dict[str, object]:
     """Build the unchanged SCPI preview for trigger commands."""
 
+    request = _resolve_trigger_runtime(request)
     p = request.parameters
     if request.command == "trigger-pulse":
         scpi = trigger_pulse_scpi(
@@ -159,6 +181,7 @@ def trigger_plan(request: TriggerRequest) -> dict[str, object]:
     return dry_run_plan(
         command=request.command,
         resource=request.runtime.resource,
+        model_profile=request.runtime.model_profile,
         scpi=scpi,
         description=description,
     )
@@ -609,6 +632,7 @@ def _run_trigger_pulse(
             power_supply.trigger_pulse(channel=channel)
             _raise_on_instrument_errors(power_supply, request.command)
             data = {
+                "_resource": request.runtime.resource,
                 "idn": idn,
                 "pins": list(pins),
                 "exclusive_pins": bool(p.get("exclusive_pins", False)),
@@ -648,6 +672,7 @@ def _run_trigger_status(
                 )
             channels = _trigger_channels_from_selection(selected, power_supply.capabilities.channels)
             return {
+                "_resource": request.runtime.resource,
                 "idn": idn,
                 "digital_pins": [
                     {
@@ -713,20 +738,7 @@ def _run_trigger_step(
             opened = True
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             power_supply = _trigger_power_supply(instrument, simulate=request.runtime.simulate, command=request.command)
-            if isinstance(power_supply, EDU36311APowerSupply) and not request.runtime.simulate:
-                raise CoreValidationError("EDU36311A real trigger-step is disabled; use --dry-run or --simulate")
-            if isinstance(power_supply, EDU36311APowerSupply):
-                trigger = _simulated_step(
-                    request,
-                    power_supply,
-                    channel=int(p["channel"]),
-                    source=str(p.get("source", "bus")),
-                    voltage=p.get("voltage"),
-                    current=p.get("current"),
-                    fire=bool(p.get("fire", False)),
-                    wait_complete=bool(p.get("wait_complete", False)),
-                )
-            elif isinstance(power_supply, E36312APowerSupply):
+            if isinstance(power_supply, E36312APowerSupply):
                 trigger = _native_step(
                     request,
                     power_supply,
@@ -744,53 +756,9 @@ def _run_trigger_step(
             else:
                 raise UnsupportedModelError("trigger-step is only supported for E36312A")
             _raise_on_instrument_errors(power_supply, request.command)
-            return {"idn": getattr(power_supply, "_core_idn_raw", None), "trigger": trigger}
+            return {"_resource": request.runtime.resource, "idn": getattr(power_supply, "_core_idn_raw", None), "trigger": trigger}
     except VisaConnectionError as exc:
         raise CoreIoError(f"trigger-step failed: {exc}", opened=opened) from exc
-
-
-def _simulated_step(
-    request: TriggerRequest,
-    power_supply: EDU36311APowerSupply,
-    *,
-    channel: int,
-    source: str,
-    voltage: float | None,
-    current: float | None,
-    fire: bool,
-    wait_complete: bool,
-) -> dict[str, Any]:
-    selected_voltage = power_supply.programmed_voltage(channel=channel) if voltage is None else voltage
-    selected_current = power_supply.programmed_current(channel=channel) if current is None else current
-    power_supply.abort_output_trigger(channel)
-    power_supply.set_triggered_current(channel=channel, current=selected_current)
-    power_supply.set_triggered_voltage(channel=channel, voltage=selected_voltage)
-    power_supply.set_current_trigger_mode_step(channel)
-    power_supply.set_voltage_trigger_mode_step(channel)
-    power_supply.set_output_trigger_source(channel=channel, source=trigger_source_scpi(source))
-    power_supply.initiate_output_trigger(channel)
-    fired = False
-    if source == "bus" and fire:
-        power_supply.fire_bus_trigger()
-        fired = True
-    elif source == "immediate":
-        fired = True
-    completed = False
-    if wait_complete:
-        power_supply.prepare_operation_complete_wait()
-        completed = bool(power_supply.operation_complete_event())
-    return trigger_result_payload(
-        mode="step",
-        native=False,
-        channel=channel,
-        source=source,
-        armed=True,
-        fired=fired,
-        completed=completed,
-        wait_timeout_ms=_trigger_wait_timeout_ms(request.parameters) if wait_complete else None,
-        poll_ms=_trigger_poll_interval_ms(request.parameters) if wait_complete else None,
-        fallback_reason="EDU36311A STEP trigger is simulator/dry-run planning only",
-    )
 
 
 def _run_trigger_list(
@@ -823,7 +791,12 @@ def _run_trigger_list(
                 stop_requested=stop_requested,
             )
             _raise_on_instrument_errors(power_supply, request.command)
-            return {"idn": getattr(power_supply, "_core_idn_raw", None), "steps": len(config["voltages"]), "trigger": trigger}
+            return {
+                "_resource": request.runtime.resource,
+                "idn": getattr(power_supply, "_core_idn_raw", None),
+                "steps": len(config["voltages"]),
+                "trigger": trigger,
+            }
     except VisaConnectionError as exc:
         raise CoreIoError(f"trigger-list failed: {exc}", opened=opened) from exc
 
@@ -843,10 +816,8 @@ def _run_trigger_fire(
             opened = True
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             power_supply = _trigger_power_supply(instrument, simulate=request.runtime.simulate, command=request.command)
-            if not isinstance(power_supply, (E36312APowerSupply, EDU36311APowerSupply)):
-                raise UnsupportedModelError("trigger-fire is only supported for E36312A or EDU36311A simulator/dry-run")
-            if isinstance(power_supply, EDU36311APowerSupply) and not request.runtime.simulate:
-                raise CoreValidationError("EDU36311A real trigger-fire is disabled; use --dry-run or --simulate")
+            if not isinstance(power_supply, E36312APowerSupply):
+                raise UnsupportedModelError("trigger-fire is only supported for E36312A")
             power_supply.fire_bus_trigger()
             completed = False
             if p.get("wait_complete", False):
@@ -860,6 +831,7 @@ def _run_trigger_fire(
                     raise
             _raise_on_instrument_errors(power_supply, request.command)
             return {
+                "_resource": request.runtime.resource,
                 "idn": getattr(power_supply, "_core_idn_raw", None),
                 "trigger": trigger_result_payload(
                     mode="fire",
@@ -903,6 +875,7 @@ def _run_trigger_abort(
             if queue_errors:
                 raise CoreExecutionError(f"{request.command} completed with instrument errors: {queue_errors}")
             return {
+                "_resource": request.runtime.resource,
                 "idn": getattr(power_supply, "_core_idn_raw", None),
                 "channels": list(channels),
                 "errors": errors,
@@ -1082,8 +1055,6 @@ def _trigger_power_supply(instrument: Any, *, simulate: bool, command: str) -> A
     idn = instrument.query(IDN_QUERY)
     power_supply = create_power_supply(instrument, idn)
     setattr(power_supply, "_core_idn_raw", idn)
-    if isinstance(power_supply, EDU36311APowerSupply) and not simulate and command != "trigger-fire":
-        raise CoreValidationError("EDU36311A real trigger/native LIST execution is disabled")
     return power_supply
 
 

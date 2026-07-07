@@ -131,8 +131,8 @@ identity plus channel-local OVP/OCP trip state.
 E36312A native trigger/LIST behavior has no-hardware coverage and live USB
 validation for channel 1 trigger-list, arm/fire, and trigger-fire. Native LIST
 execution belongs only to `trigger-list`; Ramp always uses software setpoint
-steps. EDU36311A STEP trigger commands remain simulator/dry-run
-planning only; real trigger/LIST execution remains disabled for that model.
+steps. Trigger workflows are E36312A-only. Unsupported models, including
+EDU36311A, do not expose trigger dry-run or simulator behavior.
 Hardware-affecting behavior remains explicit and opt-in.
 
 The adapter boundary is intentionally one-way: core contains driver methods,
@@ -141,10 +141,12 @@ planning; CLI and WebUI build `RuntimeOptions`/`OperationRequest` objects and
 wrap returned `data` in their own transport envelopes.
 
 Dry-run and simulator planning does not guess a model from arbitrary resource
-strings. Output-family, Ramp List, Sequence, and protection write planners
-require `RuntimeOptions.model_profile` or a known deterministic simulator
-resource, and returned plans include `target.model_profile`. Live hardware
-driver selection remains based only on `*IDN?`.
+strings. Output-family, Ramp List, Sequence, protection write, and trigger
+planners require `RuntimeOptions.model_profile` or a known deterministic
+simulator resource, and returned plans include `target.model_profile`.
+Trigger no-hardware planning accepts only E36312A. Live hardware driver
+selection remains based only on `*IDN?`; `model_profile` does not override
+live hardware and is rejected for live trigger requests before opening VISA.
 
 ## Output Workflow Pulses
 

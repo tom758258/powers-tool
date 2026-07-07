@@ -145,7 +145,7 @@ LOG_CSV_FIELDS = (
 )
 
 OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
-STEP_TRIGGER_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
+STEP_TRIGGER_POWER_SUPPLY_TYPES = (E36312APowerSupply,)
 
 
 class JsonCliArgumentParser(argparse.ArgumentParser):
@@ -2361,53 +2361,6 @@ def _run_native_step(
     )
 
 
-def _run_simulated_step(
-    args: argparse.Namespace,
-    power_supply: GenericScpiPowerSupply,
-    *,
-    channel: int,
-    source: str,
-    voltage: float | None,
-    current: float | None,
-    fire: bool,
-    wait_complete: bool,
-) -> dict[str, Any]:
-    selected_voltage = power_supply.programmed_voltage(channel=channel) if voltage is None else voltage
-    selected_current = power_supply.programmed_current(channel=channel) if current is None else current
-    power_supply.abort_output_trigger(channel)  # type: ignore[attr-defined]
-    power_supply.set_triggered_current(channel=channel, current=selected_current)  # type: ignore[attr-defined]
-    power_supply.set_triggered_voltage(channel=channel, voltage=selected_voltage)  # type: ignore[attr-defined]
-    power_supply.set_current_trigger_mode_step(channel)  # type: ignore[attr-defined]
-    power_supply.set_voltage_trigger_mode_step(channel)  # type: ignore[attr-defined]
-    power_supply.set_output_trigger_source(channel=channel, source=_trigger_source_scpi(source))  # type: ignore[attr-defined]
-    power_supply.initiate_output_trigger(channel)  # type: ignore[attr-defined]
-    fired = False
-    if source == "bus" and fire:
-        power_supply.fire_bus_trigger()  # type: ignore[attr-defined]
-        fired = True
-    elif source == "immediate":
-        fired = True
-    if wait_complete:
-        power_supply.prepare_operation_complete_wait()  # type: ignore[attr-defined]
-        completed = bool(power_supply.operation_complete_event())  # type: ignore[attr-defined]
-    else:
-        completed = False
-    return _trigger_result_payload(
-        mode="step",
-        native=False,
-        channel=channel,
-        source=source,
-        armed=True,
-        fired=fired,
-        completed=completed,
-        wait_timeout_ms=_trigger_wait_timeout_ms(args, mode="step") if wait_complete else None,
-        poll_ms=_trigger_poll_interval_ms(args) if wait_complete else None,
-        fallback_reason="EDU36311A STEP trigger is simulator/dry-run planning only"
-        if isinstance(power_supply, EDU36311APowerSupply)
-        else None,
-    )
-
-
 def _run_trigger_status(args: argparse.Namespace) -> int:
     request = _request_for_args(args)
     execution = _execution_for_args(args, hardware_intent=True)
@@ -2518,37 +2471,21 @@ def _run_trigger_step(args: argparse.Namespace) -> int:
             power_supply = create_power_supply(session, idn)
             if not isinstance(power_supply, STEP_TRIGGER_POWER_SUPPLY_TYPES):
                 raise _TriggerModelError(
-                    "trigger-step is only supported for E36312A or EDU36311A simulator/dry-run; "
+                    "trigger-step is only supported for E36312A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
                 )
-            if isinstance(power_supply, EDU36311APowerSupply):
-                if not args.simulate:
-                    raise _TriggerNativeUnsupported(
-                        "EDU36311A real trigger-step is disabled; use --dry-run or --simulate"
-                    )
-                trigger = _run_simulated_step(
-                    args,
-                    power_supply,
-                    channel=args.channel,
-                    source=args.source,
-                    voltage=args.voltage,
-                    current=args.current,
-                    fire=args.fire,
-                    wait_complete=args.wait_complete,
-                )
-            else:
-                trigger = _run_native_step(
-                    args,
-                    power_supply,
-                    channel=args.channel,
-                    source=args.source,
-                    voltage=args.voltage,
-                    current=args.current,
-                    pins=pins,
-                    polarity=args.completion_pulse_polarity,
-                    fire=args.fire,
-                    wait_complete=args.wait_complete,
-                )
+            trigger = _run_native_step(
+                args,
+                power_supply,
+                channel=args.channel,
+                source=args.source,
+                voltage=args.voltage,
+                current=args.current,
+                pins=pins,
+                polarity=args.completion_pulse_polarity,
+                fire=args.fire,
+                wait_complete=args.wait_complete,
+            )
             _raise_on_instrument_errors(power_supply, "trigger-step")
             data = {
                 "resource": _resource_payload(args.resource, simulated=args.simulate, reachable=True, idn_raw=idn),
@@ -2807,12 +2744,8 @@ def _run_trigger_fire(args: argparse.Namespace) -> int:
             power_supply = create_power_supply(session, idn)
             if not isinstance(power_supply, STEP_TRIGGER_POWER_SUPPLY_TYPES):
                 raise _TriggerModelError(
-                    "trigger-fire is only supported for E36312A or EDU36311A simulator/dry-run; "
+                    "trigger-fire is only supported for E36312A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
-                )
-            if isinstance(power_supply, EDU36311APowerSupply) and not args.simulate:
-                raise _TriggerNativeUnsupported(
-                    "EDU36311A real trigger-fire is disabled; use --dry-run or --simulate"
                 )
             power_supply.fire_bus_trigger()
             wait_timeout_ms = _trigger_wait_timeout_ms(args, mode="fire")
@@ -2895,12 +2828,8 @@ def _run_trigger_abort(args: argparse.Namespace) -> int:
             power_supply = create_power_supply(session, idn)
             if not isinstance(power_supply, STEP_TRIGGER_POWER_SUPPLY_TYPES):
                 raise _TriggerModelError(
-                    "trigger-abort is only supported for E36312A or EDU36311A simulator/dry-run; "
+                    "trigger-abort is only supported for E36312A; "
                     f"found {type(power_supply).__name__} from *IDN? response"
-                )
-            if isinstance(power_supply, EDU36311APowerSupply) and not args.simulate:
-                raise _TriggerNativeUnsupported(
-                    "EDU36311A real trigger-abort is disabled; use --dry-run or --simulate"
                 )
             _abort_trigger_channels(power_supply, abort_channels, throttle=True)
             errors, read_count = _read_error_queue_from_driver(power_supply, args.max_errors)
@@ -9413,6 +9342,7 @@ def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
             safety_config=getattr(args, "safety_config", None),
             simulate=getattr(args, "simulate", False),
             dry_run=getattr(args, "dry_run", False),
+            model_profile=getattr(args, "model", None),
             backend=getattr(args, "backend", None),
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
@@ -9424,13 +9354,14 @@ def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
 def _core_trigger_resource_data(args: argparse.Namespace, data: dict[str, Any]) -> dict[str, Any]:
     if "plan" in data:
         return data
+    resolved_resource = data.pop("_resource", args.resource)
     idn_raw = data.pop("idn", None)
     payload: dict[str, Any] = {
         "resource": (
-            args.resource
+            resolved_resource
             if args.command == "trigger-pulse" or idn_raw is None
             else _resource_payload(
-                args.resource,
+                resolved_resource,
                 simulated=args.simulate,
                 reachable=True,
                 idn_raw=idn_raw,

@@ -238,12 +238,14 @@ models.
 
 ### No-Hardware Model Resolution
 
-Output-family commands, `ramp-list`, `sequence`, `protection-set`, and
-`clear-protection` use strict model resolution in `--dry-run` and
-`--simulate` mode. These no-hardware planning paths require either `--model`
-or a known deterministic simulator resource such as
-`USB0::SIM::E36312A::INSTR`. The CLI does not infer a model from arbitrary
-fake, live-looking, or alias-only resource strings.
+Output-family commands, `ramp-list`, `sequence`, `protection-set`,
+`clear-protection`, and trigger workflows use strict model resolution in
+`--dry-run` and `--simulate` mode. These no-hardware planning paths require
+either `--model` or a known deterministic simulator resource such as
+`USB0::SIM::E36312A::INSTR`. Trigger no-hardware paths are E36312A-only and
+require `--model E36312A` or a known deterministic E36312A SIM resource. The
+CLI does not infer a model from arbitrary fake, live-looking, or alias-only
+resource strings.
 
 `--model` is valid only with `--dry-run` or `--simulate`; live hardware
 commands reject it before opening VISA. Live driver selection continues to use
@@ -253,7 +255,8 @@ Accepted no-hardware model profiles are `E36103B`, `E36232A`, `E36312A`,
 `EDU36311A`, `E3646A`, and `GENERIC`. In `--simulate` mode, `--model` can
 derive the matching deterministic simulator resource for all listed models
 except `GENERIC`. If both `--model` and a SIM resource are provided, their
-models must match.
+models must match. Unsupported models, including EDU36311A, do not expose
+trigger dry-run or simulator behavior.
 
 No-hardware plans include `data.plan.target.model_profile`. Channel validation
 and `--channel all` expansion use that profile: E3646A expands `all` to CH1
@@ -576,10 +579,14 @@ with a no-change STEP trigger sequence, and emit `*TRG`:
 uv run keysight-power trigger-pulse --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --pin 1 --channel 1 --polarity positive --log-scpi
 ```
 
-Use `--dry-run` to preview trigger-pulse SCPI without opening VISA. The final
-`*TRG` may also trigger any already armed BUS-triggered instrument behavior.
-Real execution checks `SYST:ERR?` after output-affecting writes and fails the
-command if the instrument reports errors.
+Use `--dry-run --model E36312A` or a deterministic E36312A SIM resource to
+preview trigger SCPI without opening VISA. Trigger dry-run and simulator
+behavior is E36312A-only; unsupported models do not expose trigger
+no-hardware behavior. The final `*TRG` may also trigger any already armed
+BUS-triggered instrument behavior. Real execution checks `SYST:ERR?` after
+output-affecting writes and fails the command if the instrument reports
+errors. Live trigger behavior remains IDN-driven, and `--model` is rejected
+for live commands instead of overriding connected hardware.
 
 Native E36312A trigger/LIST commands:
 
@@ -775,11 +782,11 @@ stays parseable. Every JSON success and error envelope includes
   selection is used for setpoint writes and readbacks.
   `set`, `ramp`, and `smoke-output` remain single-channel commands.
   `output-on` does not set voltage or current.
-- Real `measure-all`, `trigger-pulse`, `trigger-status`, and `trigger-list`
-  are enabled only for E36312A. `status`, `readback`,
-  `log`, `validate-readonly`, and protection commands are enabled for E36312A
-  and EDU36311A. EDU36311A STEP trigger commands are simulator/dry-run planning
-  only; real trigger/LIST execution remains disabled for that model.
+- Real `measure-all`, `trigger-pulse`, `trigger-status`, `trigger-step`,
+  `trigger-list`, `trigger-fire`, and `trigger-abort` are enabled only for
+  E36312A. Trigger dry-run and simulator behavior is also E36312A-only.
+  `status`, `readback`, `log`, `validate-readonly`, and protection commands
+  are enabled for E36312A and EDU36311A.
 - Real `clear`, `error`, and `measure` are safe I/O commands: `clear` sends
   `*CLS` and clears status/error state, while `error` and `measure` only query.
 - `--safety-config` is explicit only and applies local plan validation limits;
