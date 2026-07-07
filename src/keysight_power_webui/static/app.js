@@ -5,6 +5,7 @@ const state = {
   parameterConstraints: {},
   electricalRatingsByModel: {},
   resourceModels: {},
+  resourceDisplayModels: {},
   resourceChannelModels: {},
   activeCategory: "output",
   selected: null,
@@ -325,11 +326,17 @@ function updateDeviceResourceSummary() {
   const select = document.getElementById("resource-select");
   const liveResource = select.value.trim();
   const firstOption = select.options[0]?.textContent?.trim() || "";
-  const liveText = liveResource || (firstOption === "No live resources found" ? "no live resources" : "not scanned");
+  const liveSelected = Boolean(liveResource && liveResource === resource);
+  const liveText = liveSelected ? "live selected" : (firstOption === "No live resources found" ? "no live resources" : "not scanned");
   const resourceText = resource || "No resource";
-  const modeText = resource ? "Manual" : "Auto-detect";
-  summary.textContent = `${resourceText} / ${liveText} / ${modeText}`;
+  const modelText = resourceSummaryModel(resource);
+  summary.textContent = `${resourceText} / ${liveText} / ${modelText}`;
   summary.title = summary.textContent;
+}
+
+function resourceSummaryModel(resource) {
+  if (!resource) return "Model unknown";
+  return state.resourceDisplayModels[resource] || "Model unknown";
 }
 
 function updateLiveMonitorButton(monitoring, disabled = false) {
@@ -2858,7 +2865,9 @@ function updateResourceModelFromJob(job) {
   const resultResource = result.resource;
   const resourceName = resultResource?.name || (typeof resultResource === "string" ? resultResource : job?.runtime?.resource);
   const model = resultResource?.idn?.model || result.idn?.model || result.model || result.driver?.model;
-  if (updateResourceModel(resourceName, model)) {
+  const updated = updateResourceModel(resourceName, model);
+  if (resourceName && resourceName === valueOrNull("resource")) updateDeviceResourceSummary();
+  if (updated) {
     refreshBasicInputConstraints();
     if (state.selected) selectCommand(state.selected);
     else renderCommands();
@@ -2869,6 +2878,7 @@ function updateResourceModel(resource, model) {
   if (!resource || typeof model !== "string" || !model.trim()) return false;
   const next = supportedModelKey(model);
   const nextChannelModel = channelModelKey(model);
+  state.resourceDisplayModels[resource] = String(model).trim().toUpperCase();
   if (state.resourceModels[resource] === next && state.resourceChannelModels[resource] === nextChannelModel) return false;
   state.resourceModels[resource] = next;
   state.resourceChannelModels[resource] = nextChannelModel;

@@ -201,6 +201,7 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert 'class="device-resource-section"' in html
     assert_static_id(html, "device-resource-body")
     assert_static_id(html, "device-options-toggle")
+    assert_static_id(html, "device-options-panel")
     assert_static_id(html, "toggle-device-resource")
     assert_static_id(html, "resource")
     assert_static_id(html, "resource-select")
@@ -220,6 +221,8 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "Optional ASRL/serial overrides" in html
     assert "serial-panel" not in html
     assert ".serial-panel" not in styles_css
+    assert "No resource / not scanned / Model unknown" in html
+    assert "Auto-detect" not in html
 
     runtime_block = extract_js_function(app_js, "runtimePayload")
     assert "serialOptionsPayload()" in runtime_block
@@ -227,6 +230,22 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "runtime.serial_remote = true" in runtime_block
     assert "runtime.serial_local_on_close = true" in runtime_block
     assert ".serial-grid" in styles_css
+
+
+def test_static_device_resource_summary_uses_model_wording():
+    _html, app_js, _styles_css = read_static_texts()
+    summary = extract_js_function(app_js, "updateDeviceResourceSummary")
+    summary_model = extract_js_function(app_js, "resourceSummaryModel")
+
+    assert "Auto-detect" not in summary
+    assert "Manual" not in summary
+    assert 'const liveSelected = Boolean(liveResource && liveResource === resource);' in summary
+    assert 'const liveText = liveSelected ? "live selected"' in summary
+    assert "const modelText = resourceSummaryModel(resource);" in summary
+    assert "Model unknown" in summary_model
+    assert 'return state.resourceDisplayModels[resource] || "Model unknown";' in summary_model
+    assert "resourceDisplayModels: {}" in app_js
+    assert "state.resourceDisplayModels[resource] = String(model).trim().toUpperCase();" in app_js
 
 
 def test_static_device_options_popover_behavior():
