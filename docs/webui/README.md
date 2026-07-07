@@ -104,6 +104,34 @@ dry-run, offline metadata commands, and live-data jobs do not occupy that lock.
 Synchronous core execution runs in a worker thread so FastAPI's event loop
 continues serving health, job status, cancellation, and SSE endpoints.
 
+Raw `/api/jobs` no-hardware payloads that need model-specific planning should
+send `runtime.model_profile`, for example:
+
+```json
+{
+  "command": "trigger-step",
+  "runtime": {
+    "resource": "USB0::FAKE::E36312A::INSTR",
+    "dry_run": true,
+    "simulate": false,
+    "model_profile": "E36312A"
+  },
+  "parameters": {
+    "channel": 1,
+    "source": "bus",
+    "fire": true
+  }
+}
+```
+
+`runtime.model_profile` is the canonical WebUI/API runtime field.
+`runtime.model` is accepted as a simple compatibility alias. The WebUI does
+not infer a dry-run/simulate model from fake or live-looking resource strings;
+use `model_profile` or a deterministic SIM resource such as
+`USB0::SIM::E36312A::INSTR`. WebUI live resource support is learned from
+scan/job IDN metadata, while WebUI dry-run/simulate planning uses
+`model_profile` when supplied.
+
 Cancelling an executing job first moves it to non-terminal
 `cancel_requested`. The WebUI keeps `active_job_id` and the hardware lock until
 the current thread I/O and Core stop cleanup finish. Only then does the job

@@ -238,6 +238,25 @@ against an unknown resource.
 | `output-on` / `output-off` | Explicitly enable or disable output. |
 | `safe-off` | Turn output off using the supported safety path. |
 
+## No-Hardware Checks
+
+Dry-run and simulator commands do not open real VISA hardware. When a command
+needs model-specific planning, pass a simulation / dry-run model profile with
+`--model`, or use a deterministic SIM resource such as
+`USB0::SIM::E36312A::INSTR`.
+
+```powershell
+.\keysight-power.exe set --dry-run --model E3646A --channel 1 --voltage 1 --current 0.05
+.\keysight-power.exe readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
+.\keysight-power.exe trigger-step --dry-run --model E36312A --channel 1 --source bus --fire
+```
+
+Do not use fake or live-looking resource strings to imply a model in
+no-hardware mode. For example, `USB0::FAKE::E36312A::INSTR` is a placeholder,
+not model evidence. Live hardware uses the IDN-detected model; `--model` is
+for no-hardware dry-run/simulate planning unless a future explicit
+expected-model guard is added.
+
 ## Common Problems
 
 If `keysight-power.exe` is missing, confirm you are in the folder that contains

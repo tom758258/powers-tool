@@ -115,6 +115,22 @@ means the request was accepted; it does not mean job execution succeeded.
 
 Power command success envelopes follow the common CLI contract. Command names use the public names above, including `read-status`.
 
+Runtime no-hardware model fields:
+
+- CLI `--model` maps to the Core no-hardware model profile for commands that
+  support dry-run or simulator model planning.
+- WebUI and worker-style raw payloads use `runtime.model_profile` as the
+  canonical no-hardware model-profile field. `runtime.model` is accepted only
+  as a compatibility alias where the adapter explicitly supports it.
+- `model_profile` is used for dry-run/simulate planning, channel validation,
+  and `channel: "all"` expansion. Fake or live-looking resources such as
+  `USB0::FAKE::E36312A::INSTR` do not imply a model. Deterministic SIM
+  resources such as `USB0::SIM::E36312A::INSTR` may infer the matching model
+  because they map to known simulator IDN/model data.
+- Live hardware uses the IDN-detected model. `--model`/`model_profile` is for
+  no-hardware dry-run/simulate planning unless a future explicit
+  expected-model guard is added.
+
 Selected data mappings:
 
 - Dry-run and simulator plan payloads for output-family commands, `ramp-list`,

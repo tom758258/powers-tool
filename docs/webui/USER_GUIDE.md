@@ -157,6 +157,11 @@ result payload.
 
 Simulate and dry-run jobs are useful for checking payload shape before live
 hardware execution. Real output-affecting jobs require confirmation.
+When submitting raw WebUI API jobs instead of using the browser form, include
+`runtime.model_profile` for no-hardware dry-run/simulate jobs that need a
+model-specific plan, or use a deterministic SIM resource such as
+`USB0::SIM::E36312A::INSTR`. The browser learns live model support from
+scan/job IDN metadata; fake resource strings do not imply a model.
 
 ## Stop And Cancel
 

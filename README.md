@@ -28,6 +28,33 @@ matter.
 - Keep real hardware output opt-in; default tests and simulator flows do not
   enable instrument output
 
+## No-Hardware Model Profiles
+
+Dry-run and simulator flows do not open real VISA hardware. For commands that
+need model-specific planning, no-hardware mode requires a simulation / dry-run
+model profile unless the resource is a known deterministic SIM resource.
+
+Valid no-hardware examples:
+
+```powershell
+uv run keysight-power set --dry-run --model E3646A --channel 1 --voltage 1 --current 0.05
+uv run keysight-power readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
+uv run keysight-power trigger-step --dry-run --model E36312A --channel 1 --source bus --fire
+```
+
+This is intentionally rejected:
+
+```powershell
+uv run keysight-power trigger-step --dry-run --resource USB0::FAKE::E36312A::INSTR --channel 1 --source bus --fire
+```
+
+Fake or live-looking resource strings are placeholders and must not imply a
+real instrument model. Deterministic SIM resources, such as
+`USB0::SIM::E36312A::INSTR`, are allowed because they map to known simulator
+IDN/model data. Live hardware uses the IDN-detected model. `--model` and
+`model_profile` are for no-hardware dry-run/simulate planning unless a future
+explicit expected-model guard is added.
+
 ## Project Structure
 
 The repository has one distribution and one version number. In examples,

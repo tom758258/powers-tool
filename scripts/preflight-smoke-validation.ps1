@@ -245,7 +245,7 @@ function Write-PreflightArtifacts {
     $lines.Add("")
     $lines.Add("Output directory: ``" + (ConvertTo-RepoRelativePath -Path $OutputDir) + "``")
     $lines.Add("")
-    $lines.Add("This preflight uses only ``--dry-run`` and ``--simulate`` commands. It does not open VISA or touch hardware.")
+    $lines.Add("This preflight uses only ``--dry-run`` and ``--simulate`` commands with deterministic SIM resources. It does not open VISA or touch hardware.")
     $lines.Add("")
     $lines.Add("Profile: ``" + $ProfileName + "``")
     $lines.Add("")

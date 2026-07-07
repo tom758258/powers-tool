@@ -28,6 +28,26 @@ Trigger workflows are E36312A-only. EDU36311A, E3646A, E36103B, E36232A, and
 GENERIC do not expose trigger dry-run or simulator behavior; their trigger
 commands report `real=false`, `simulate=false`, and `dry_run=false`.
 
+## No-Hardware Model-Profile Matrix
+
+Dry-run and simulate planning do not open real VISA hardware. Model-specific
+no-hardware commands require an explicit model profile or a known
+deterministic SIM resource. Fake or live-looking resource strings are
+placeholders and must not imply a model.
+
+| Model profile | Deterministic SIM resource | No-hardware channels | Output control scope | Trigger / LIST / protection notes |
+| --- | --- | --- | --- | --- |
+| E36312A | `USB0::SIM::E36312A::INSTR` | CH1, CH2, CH3 | Per-channel output control; `all` expands to CH1-CH3 | Trigger workflows and native LIST are E36312A-only and validated for live E36312A paths. Protection read/write paths are supported. |
+| EDU36311A | `USB0::SIM::EDU36311A::INSTR` | CH1, CH2, CH3 | Per-channel output control; `all` expands to CH1-CH3 | Protection read/write paths are supported. Trigger workflows and native LIST are not exposed in dry-run, simulate, or real mode. |
+| E3646A | `ASRL1::SIM::E3646A::INSTR` | CH1, CH2 | Global output enable/disable; channel selection is used for setpoints and readback | RS-232 / ASRL output workflows are live validated. Protection writes, trigger workflows, snapshot restore, completion pulses, and native LIST are disabled. |
+| E36103B | `USB0::SIM::E36103B::INSTR` | CH1 | Single-channel conservative no-hardware profile | Trigger workflows, native LIST, and protection writes are not exposed. |
+| E36232A | `TCPIP0::SIM::E36232A::INSTR` | CH1 | Single-channel conservative no-hardware profile | Trigger workflows, native LIST, and protection writes are not exposed. |
+| GENERIC | None; use explicit `--model GENERIC` / `model_profile="GENERIC"` | CH1 | Unknown | Conservative no-hardware planning only. Trigger workflows, native LIST, and protection writes are not exposed. |
+
+Live hardware uses the IDN-detected model. `--model` and
+`RuntimeOptions.model_profile` are for no-hardware dry-run/simulate planning
+unless a future explicit expected-model guard is added.
+
 ## Command Support Notes
 
 `capabilities --json` includes a `command_support` map, and

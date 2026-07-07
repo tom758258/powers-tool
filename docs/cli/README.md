@@ -145,7 +145,8 @@ another Python executable or report directory:
 ```
 
 Smoke preflight uses only `--dry-run` and `--simulate`; it does not open VISA
-or touch hardware:
+or touch hardware. It uses deterministic SIM resources for the selected target
+so the no-hardware model profile is explicit:
 
 ```powershell
 .\scripts\preflight-smoke-validation.ps1 -Target E36312A
@@ -247,6 +248,24 @@ require `--model E36312A` or a known deterministic E36312A SIM resource. The
 CLI does not infer a model from arbitrary fake, live-looking, or alias-only
 resource strings.
 
+Examples:
+
+```powershell
+uv run keysight-power set --dry-run --model E3646A --channel 1 --voltage 1 --current 0.05
+uv run keysight-power readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
+uv run keysight-power trigger-step --dry-run --model E36312A --channel 1 --source bus --fire
+```
+
+This is rejected because a fake resource is only a placeholder and must not
+imply a model:
+
+```powershell
+uv run keysight-power trigger-step --dry-run --resource USB0::FAKE::E36312A::INSTR --channel 1 --source bus --fire
+```
+
+Deterministic SIM resources are accepted because they map to known simulator
+IDN/model data.
+
 `--model` is valid only with `--dry-run` or `--simulate`; live hardware
 commands reject it before opening VISA. Live driver selection continues to use
 the instrument's `*IDN?` response only.
@@ -325,7 +344,7 @@ the document is authoritative and CLI pulse overrides are rejected.
 ```powershell
 $env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
 uv run keysight-power ramp-list --lint --json --file example.ramp-list.json
-uv run keysight-power ramp-list --dry-run --json --file example.ramp-list.json --resource "$env:KEYSIGHT_POWER_RESOURCE"
+uv run keysight-power ramp-list --dry-run --json --model E36312A --file example.ramp-list.json
 uv run keysight-power ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
 ```
 
@@ -557,7 +576,7 @@ uv run keysight-power snapshot-diff --summary --json --before logs\before.json -
 Preview a restore plan and save the plan data without opening VISA:
 
 ```powershell
-uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\before.json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --plan-json logs\restore-plan.json
+uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\before.json --model E36312A --channel all --plan-json logs\restore-plan.json
 ```
 
 ### Protection And Trigger Examples
@@ -565,10 +584,10 @@ uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\bef
 Preview or confirm E36312A protection actions:
 
 ```powershell
-uv run keysight-power clear-protection --dry-run --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --all
+uv run keysight-power clear-protection --dry-run --json --model E36312A --all
 uv run keysight-power clear-protection --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --all --confirm --log-scpi
-uv run keysight-power protection-set --dry-run --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --ovp-voltage 5 --ocp on
-uv run keysight-power protection-set --dry-run --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --ocp-delay 0.5 --ocp-delay-trigger setting-change
+uv run keysight-power protection-set --dry-run --json --model E36312A --channel all --ovp-voltage 5 --ocp on
+uv run keysight-power protection-set --dry-run --json --model E36312A --channel 1 --ocp-delay 0.5 --ocp-delay-trigger setting-change
 uv run keysight-power protection-set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
 ```
 
@@ -717,7 +736,7 @@ Ramp List examples:
 
 ```powershell
 uv run keysight-power ramp-list --lint --json --file example.ramp-list.json
-uv run keysight-power ramp-list --dry-run --json --file example.ramp-list.json --resource "$env:KEYSIGHT_POWER_RESOURCE"
+uv run keysight-power ramp-list --dry-run --json --model E36312A --file example.ramp-list.json
 uv run keysight-power ramp-list --dry-run --json --model E3646A --file example.ramp-list.json
 uv run keysight-power ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
 ```

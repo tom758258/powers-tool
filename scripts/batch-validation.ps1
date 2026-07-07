@@ -52,9 +52,12 @@ function Add-BackendArgument {
     return $Arguments
 }
 
-function Test-SimulatedResource {
-    param([Parameter(Mandatory = $true)][string]$Resource)
-    return $Resource.ToUpperInvariant().Contains("::SIM::")
+function Test-DeterministicSimResource {
+    param(
+        [Parameter(Mandatory = $true)][string]$Resource,
+        [Parameter(Mandatory = $true)][string]$ExpectedResource
+    )
+    return $Resource.ToUpperInvariant() -eq $ExpectedResource.ToUpperInvariant()
 }
 
 function Get-ResourceReportValue {
@@ -63,7 +66,7 @@ function Get-ResourceReportValue {
     if ([string]::IsNullOrWhiteSpace($Resource)) {
         return $null
     }
-    if (Test-SimulatedResource -Resource $Resource) {
+    if ($Resource.ToUpperInvariant().Contains("::SIM::")) {
         return $Resource
     }
     $prefix = ($Resource -split "::", 2)[0]
@@ -147,8 +150,9 @@ if ($RunE36312AOutput) {
     }
     else {
         $args = @("smoke-output", "--json", "--resource", $E36312AUsbResource, "--channel", "1", "--voltage", "1", "--current", "0.05", "--duration-ms", "500")
-        if (Test-SimulatedResource -Resource $E36312AUsbResource) {
+        if (Test-DeterministicSimResource -Resource $E36312AUsbResource -ExpectedResource "USB0::SIM::E36312A::INSTR") {
             $args += "--simulate"
+            $args += @("--model", "E36312A")
         }
         else {
             $args += "--confirm"
@@ -166,7 +170,7 @@ if ($RunEDUReadOnly) {
     }
     else {
         $args = @("validate-readonly", "--json", "--resource", $EDU36311AUsbResource)
-        if (Test-SimulatedResource -Resource $EDU36311AUsbResource) {
+        if (Test-DeterministicSimResource -Resource $EDU36311AUsbResource -ExpectedResource "USB0::SIM::EDU36311A::INSTR") {
             $args += "--simulate"
         }
         $records.Add((Invoke-CliJsonCommand -Name "edu36311a-readonly" -Arguments $args -JsonFileName "edu36311a-readonly.json"))

@@ -144,9 +144,13 @@ Dry-run and simulator planning does not guess a model from arbitrary resource
 strings. Output-family, Ramp List, Sequence, protection write, and trigger
 planners require `RuntimeOptions.model_profile` or a known deterministic
 simulator resource, and returned plans include `target.model_profile`.
-Trigger no-hardware planning accepts only E36312A. Live hardware driver
-selection remains based only on `*IDN?`; `model_profile` does not override
-live hardware and is rejected for live trigger requests before opening VISA.
+Fake or live-looking resources such as `USB0::FAKE::E36312A::INSTR` are test
+placeholders and must not imply a model. Deterministic SIM resources such as
+`USB0::SIM::E36312A::INSTR` are accepted because they map to known simulator
+IDN/model data. Trigger no-hardware planning accepts only E36312A. Live
+hardware uses the IDN-detected model. `model_profile` is for no-hardware
+dry-run/simulate planning unless a future explicit expected-model guard is
+added, and it is rejected for live trigger requests before opening VISA.
 
 ## Output Workflow Pulses
 

@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import keysight_power_cli.cli as cli
@@ -51,6 +52,71 @@ def test_supported_models_matrix_matches_cli_support(capsys):
         assert edu[command]["simulate"] is False
         assert edu[command]["dry_run"] is False
         assert edu[command]["hardware_validation"] == "not_supported_by_model"
+
+
+def test_public_docs_describe_strict_no_hardware_model_profiles():
+    docs = {
+        path: Path(path).read_text(encoding="utf-8")
+        for path in (
+            "README.md",
+            "docs/cli/README.md",
+            "docs/cli/USER_GUIDE.md",
+            "docs/core/README.md",
+            "docs/core/supported-models.md",
+            "docs/contracts/power-cli-jsonl-contract.md",
+            "docs/webui/README.md",
+            "docs/webui/USER_GUIDE.md",
+        )
+    }
+    combined = "\n".join(docs.values())
+
+    assert "No-Hardware Model-Profile Matrix" in docs["docs/core/supported-models.md"]
+    assert "runtime.model_profile" in docs["docs/contracts/power-cli-jsonl-contract.md"]
+    assert "runtime.model" in docs["docs/contracts/power-cli-jsonl-contract.md"]
+    assert "runtime.model_profile" in docs["docs/webui/README.md"]
+    assert "deterministic SIM resource" in combined
+    assert "USB0::FAKE::E36312A::INSTR" in combined
+    assert "must not imply a model" in combined
+    assert "Live hardware uses the IDN-detected model" in combined
+
+
+def test_public_dry_run_examples_do_not_use_live_resource_without_model():
+    checked_paths = (
+        "README.md",
+        "docs/cli/README.md",
+        "docs/cli/USER_GUIDE.md",
+        "docs/core/README.md",
+        "docs/core/supported-models.md",
+        "docs/contracts/power-cli-jsonl-contract.md",
+        "docs/webui/README.md",
+        "docs/webui/USER_GUIDE.md",
+    )
+    offenders: list[str] = []
+    for path in checked_paths:
+        for line_number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
+            if "--dry-run" not in line:
+                continue
+            if "$env:KEYSIGHT_POWER_RESOURCE" in line and "--model" not in line and "::SIM::" not in line:
+                offenders.append(f"{path}:{line_number}: {line}")
+            if re.search(r"USB0::FAKE::\w+::INSTR", line) and "--dry-run" in line and "--model" not in line:
+                context = "\n".join(Path(path).read_text(encoding="utf-8").splitlines()[max(0, line_number - 5):line_number + 2])
+                if "rejected" not in context and "Not OK" not in context:
+                    offenders.append(f"{path}:{line_number}: {line}")
+
+    assert offenders == []
+
+
+def test_no_hardware_scripts_use_model_or_deterministic_sim_resources():
+    preflight = Path("scripts/preflight-smoke-validation.ps1").read_text(encoding="utf-8")
+    batch = Path("scripts/batch-validation.ps1").read_text(encoding="utf-8")
+
+    assert "USB0::SIM::E36312A::INSTR" in preflight
+    assert "USB0::SIM::EDU36311A::INSTR" in preflight
+    assert "deterministic SIM resources" in preflight
+    assert "Test-DeterministicSimResource" in batch
+    assert '"USB0::SIM::E36312A::INSTR"' in batch
+    assert '"USB0::SIM::EDU36311A::INSTR"' in batch
+    assert '@("--model", "E36312A")' in batch
 
 
 def test_e3646a_public_status_docs_do_not_use_pending_output_wording():
