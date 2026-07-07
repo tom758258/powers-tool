@@ -72,16 +72,103 @@ button, input, select, textarea { font: inherit; }
   letter-spacing: 0.01em;
 }
 
-/* ─── Resource Row ───────────────────────────────────────────────────────── */
-.resource-row {
-  display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1fr);
-  gap: 14px;
-  padding: 18px 20px;
+/* ─── Device / Resource ──────────────────────────────────────────────────── */
+.device-resource-section {
+  position: relative;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--panel);
   box-shadow: var(--shadow-sm);
+}
+
+.device-resource-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: linear-gradient(180deg, #fafbfc 0%, #f5f7f9 100%);
+}
+
+.device-resource-section.collapsed .device-resource-header {
+  border-bottom: 0;
+  border-radius: var(--radius-md);
+}
+
+.device-resource-heading {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.device-resource-title {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.device-resource-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.device-resource-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.device-options {
+  position: relative;
+}
+
+button.device-options-button,
+button.resource-collapse-toggle {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  font-weight: 700;
+}
+
+.device-options-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: min(760px, calc(100vw - 48px));
+  max-height: min(70vh, 520px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid #cfd8e2;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+}
+
+.device-options-panel[hidden],
+.device-resource-body[hidden] {
+  display: none;
+}
+
+.device-options-help {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.device-resource-body {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1fr);
+  gap: 14px;
+  padding: 18px 20px;
 }
 
 .live-resource-field {
@@ -91,28 +178,10 @@ button, input, select, textarea { font: inherit; }
   align-items: end;
 }
 
-.serial-panel {
-  margin-top: 10px;
-  padding: 12px 20px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--panel);
-  box-shadow: var(--shadow-sm);
-}
-
-.serial-panel summary {
-  cursor: pointer;
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
 .serial-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
   gap: 10px;
-  margin-top: 12px;
 }
 
 .serial-check {
@@ -139,7 +208,7 @@ label {
   text-transform: uppercase;
 }
 
-.resource-row label { color: var(--accent-strong); }
+.device-resource-body label { color: var(--accent-strong); }
 
 /* ─── Inputs ─────────────────────────────────────────────────────────────── */
 input, select, textarea {
@@ -1596,9 +1665,10 @@ pre {
 
 /* ─── Responsive: 1100px ─────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
-  .resource-row, .shell, .command-workbench, .serial-grid { grid-template-columns: 1fr; }
+  .device-resource-body, .shell, .command-workbench, .serial-grid { grid-template-columns: 1fr; }
   .page-head, .shell { width: min(100vw - 24px, 1560px); }
   .rail, .workspace { height: auto; }
+  .device-resource-header { align-items: flex-start; }
   .live-resource-field { grid-template-columns: 1fr; }
   .live-state-row { grid-template-columns: 1fr; }
   .live-cards { grid-template-columns: 1fr; }

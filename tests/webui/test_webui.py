@@ -186,8 +186,7 @@ def test_import_smoke():
 
 def test_static_ui_exposes_advanced_serial_controls():
     html, app_js, styles_css = read_static_texts()
-
-    for element_id in (
+    serial_control_ids = (
         "serial-baud-rate",
         "serial-data-bits",
         "serial-parity",
@@ -197,8 +196,30 @@ def test_static_ui_exposes_advanced_serial_controls():
         "serial-write-termination",
         "serial-remote",
         "serial-local-on-close",
-    ):
+    )
+
+    assert 'class="device-resource-section"' in html
+    assert_static_id(html, "device-resource-body")
+    assert_static_id(html, "device-options-toggle")
+    assert_static_id(html, "toggle-device-resource")
+    assert_static_id(html, "resource")
+    assert_static_id(html, "resource-select")
+    assert_static_id(html, "scan")
+    assert_static_attr(html, "device-options-toggle", "aria-label", "Device options")
+    assert_static_attr(html, "device-options-toggle", "aria-controls", "device-options-panel")
+    assert_static_attr(html, "device-options-toggle", "aria-expanded", "false")
+    assert_static_attr(html, "toggle-device-resource", "aria-controls", "device-resource-body")
+    assert_static_attr(html, "toggle-device-resource", "aria-expanded", "true")
+
+    panel_index = html.index('id="device-options-panel"')
+    body_index = html.index('id="device-resource-body"')
+    for element_id in serial_control_ids:
         assert_static_id(html, element_id)
+        assert panel_index < html.index(f'id="{element_id}"') < body_index
+
+    assert "Optional ASRL/serial overrides" in html
+    assert "serial-panel" not in html
+    assert ".serial-panel" not in styles_css
 
     runtime_block = extract_js_function(app_js, "runtimePayload")
     assert "serialOptionsPayload()" in runtime_block
@@ -206,6 +227,42 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "runtime.serial_remote = true" in runtime_block
     assert "runtime.serial_local_on_close = true" in runtime_block
     assert ".serial-grid" in styles_css
+
+
+def test_static_device_options_popover_behavior():
+    _html, app_js, _styles_css = read_static_texts()
+    bind = extract_js_function(app_js, "bind")
+    options = extract_js_function(app_js, "setDeviceOptionsExpanded")
+
+    assert "panel.hidden = !expanded;" in options
+    assert 'button.setAttribute("aria-expanded", String(expanded));' in options
+    assert 'document.getElementById("device-options-toggle").addEventListener("click", (event) => {' in bind
+    assert 'setDeviceOptionsExpanded(document.getElementById("device-options-toggle").getAttribute("aria-expanded") !== "true");' in bind
+    assert 'document.addEventListener("click", () => setDeviceOptionsExpanded(false));' in bind
+    assert 'document.addEventListener("keydown", (event) => {' in bind
+
+    keydown_block = bind[bind.index('document.addEventListener("keydown", (event) => {'):]
+    assert 'event.key === "Escape"' in keydown_block
+    assert "setDeviceOptionsExpanded(false);" in keydown_block
+    assert "button.focus();" in keydown_block
+
+    panel_click = bind[
+        bind.index('document.getElementById("device-options-panel")'):
+        bind.index('document.getElementById("toggle-device-resource")')
+    ]
+    assert "event.stopPropagation();" in panel_click
+
+
+def test_static_device_resource_collapse_behavior():
+    _html, app_js, _styles_css = read_static_texts()
+    bind = extract_js_function(app_js, "bind")
+    collapse = extract_js_function(app_js, "setDeviceResourceExpanded")
+
+    assert "body.hidden = !expanded;" in collapse
+    assert 'button.textContent = expanded ? "-" : "+";' in collapse
+    assert 'button.setAttribute("aria-expanded", String(expanded));' in collapse
+    assert 'document.getElementById("toggle-device-resource").addEventListener("click", () => {' in bind
+    assert 'setDeviceResourceExpanded(document.getElementById("toggle-device-resource").getAttribute("aria-expanded") !== "true");' in bind
 
 
 def test_static_top_bar_uses_live_resource_defaults():

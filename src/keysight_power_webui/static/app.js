@@ -254,6 +254,27 @@ function bind() {
   document.getElementById("run").addEventListener("click", runSelected);
   document.getElementById("scan").addEventListener("click", scanResources);
   document.getElementById("resource-select").addEventListener("change", syncSelectedResource);
+  document.getElementById("resource").addEventListener("input", updateDeviceResourceSummary);
+  document.getElementById("resource").addEventListener("change", updateDeviceResourceSummary);
+  document.getElementById("resource-select").addEventListener("change", updateDeviceResourceSummary);
+  document.getElementById("device-options-toggle").addEventListener("click", (event) => {
+    event.stopPropagation();
+    setDeviceOptionsExpanded(document.getElementById("device-options-toggle").getAttribute("aria-expanded") !== "true");
+  });
+  document.getElementById("device-options-panel").addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+  document.getElementById("toggle-device-resource").addEventListener("click", () => {
+    setDeviceResourceExpanded(document.getElementById("toggle-device-resource").getAttribute("aria-expanded") !== "true");
+  });
+  document.addEventListener("click", () => setDeviceOptionsExpanded(false));
+  document.addEventListener("keydown", (event) => {
+    const button = document.getElementById("device-options-toggle");
+    if (event.key === "Escape" && button.getAttribute("aria-expanded") === "true") {
+      setDeviceOptionsExpanded(false);
+      button.focus();
+    }
+  });
   document.getElementById("command-filter").addEventListener("input", renderCommands);
   document.getElementById("live-start").addEventListener("click", toggleLiveMonitor);
   document.getElementById("result-toggle").addEventListener("click", toggleResultPanel);
@@ -274,6 +295,41 @@ function bind() {
     });
     input.addEventListener("blur", () => validateBasicInput(input));
   });
+  setDeviceOptionsExpanded(false);
+  setDeviceResourceExpanded(true);
+  updateDeviceResourceSummary();
+}
+
+function setDeviceOptionsExpanded(expanded) {
+  const panel = document.getElementById("device-options-panel");
+  const button = document.getElementById("device-options-toggle");
+  panel.hidden = !expanded;
+  button.setAttribute("aria-expanded", String(expanded));
+}
+
+function setDeviceResourceExpanded(expanded) {
+  const section = document.querySelector(".device-resource-section");
+  const body = document.getElementById("device-resource-body");
+  const button = document.getElementById("toggle-device-resource");
+  body.hidden = !expanded;
+  section.classList.toggle("collapsed", !expanded);
+  button.textContent = expanded ? "-" : "+";
+  button.setAttribute("aria-expanded", String(expanded));
+  button.setAttribute("aria-label", expanded ? "Collapse Device / Resource" : "Expand Device / Resource");
+  button.title = expanded ? "Collapse Device / Resource" : "Expand Device / Resource";
+}
+
+function updateDeviceResourceSummary() {
+  const summary = document.getElementById("device-resource-summary");
+  const resource = document.getElementById("resource").value.trim();
+  const select = document.getElementById("resource-select");
+  const liveResource = select.value.trim();
+  const firstOption = select.options[0]?.textContent?.trim() || "";
+  const liveText = liveResource || (firstOption === "No live resources found" ? "no live resources" : "not scanned");
+  const resourceText = resource || "No resource";
+  const modeText = resource ? "Manual" : "Auto-detect";
+  summary.textContent = `${resourceText} / ${liveText} / ${modeText}`;
+  summary.title = summary.textContent;
 }
 
 function updateLiveMonitorButton(monitoring, disabled = false) {
@@ -2742,6 +2798,7 @@ function populateResourceSelect(resources) {
     option.value = "";
     option.textContent = "No live resources found";
     select.appendChild(option);
+    updateDeviceResourceSummary();
     return;
   }
 
@@ -2758,6 +2815,7 @@ function populateResourceSelect(resources) {
     select.selectedIndex = 0;
     input.value = select.value;
   }
+  updateDeviceResourceSummary();
   refreshBasicInputConstraints();
   syncBasicFromLivePanel(state.livePanel);
   if (state.selected) selectCommand(state.selected);
@@ -2776,6 +2834,7 @@ async function syncSelectedResource() {
   const previous = input.value;
   const value = document.getElementById("resource-select").value;
   input.value = value;
+  updateDeviceResourceSummary();
   refreshBasicInputConstraints();
   syncBasicFromLivePanel(state.livePanel);
   renderWorkspaceSummary();

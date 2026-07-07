@@ -13,71 +13,101 @@
       <p class="brand-subtitle">Unofficial Tool v__WEBUI_VERSION__</p>
     </div>
 
-    <div class="resource-row">
-      <label>VISA resource
-        <input id="resource" placeholder="Waiting Scan">
-      </label>
-      <div class="live-resource-field">
-        <label>Live resource
-          <select id="resource-select">
-            <option value="">Scan to load live resources</option>
-          </select>
-        </label>
-        <button id="scan" class="secondary command-pill-button scan-button">Scan Device</button>
+    <section class="device-resource-section" aria-labelledby="device-resource-title">
+      <div class="device-resource-header">
+        <div class="device-resource-heading">
+          <strong id="device-resource-title" class="device-resource-title">Device / Resource</strong>
+          <p id="device-resource-summary" class="device-resource-summary">No resource / not scanned / Auto-detect</p>
+        </div>
+        <div class="device-resource-actions">
+          <div class="device-options">
+            <button
+              id="device-options-toggle"
+              class="secondary icon-button utility-icon-button device-options-button"
+              type="button"
+              aria-label="Device options"
+              title="Device options"
+              aria-controls="device-options-panel"
+              aria-expanded="false"
+            >&#9881;</button>
+            <div id="device-options-panel" class="device-options-panel" role="dialog" aria-label="Device options" hidden>
+              <p class="device-options-help">Optional ASRL/serial overrides. Usually needed only for RS-232 instruments such as E3646A.</p>
+              <div class="serial-grid">
+                <label>Baud rate
+                  <input id="serial-baud-rate" type="number" step="1" inputmode="numeric" placeholder="Use VISA setting">
+                </label>
+                <label>Data bits
+                  <input id="serial-data-bits" type="number" step="1" inputmode="numeric" placeholder="Use VISA setting">
+                </label>
+                <label>Parity
+                  <select id="serial-parity">
+                    <option value="">Use VISA setting</option>
+                    <option value="none">None</option>
+                    <option value="odd">Odd</option>
+                    <option value="even">Even</option>
+                    <option value="mark">Mark</option>
+                    <option value="space">Space</option>
+                  </select>
+                </label>
+                <label>Stop bits
+                  <select id="serial-stop-bits">
+                    <option value="">Use VISA setting</option>
+                    <option value="1">1</option>
+                    <option value="1.5">1.5</option>
+                    <option value="2">2</option>
+                  </select>
+                </label>
+                <label>Flow control
+                  <select id="serial-flow-control">
+                    <option value="">Use VISA setting</option>
+                    <option value="none">None</option>
+                    <option value="xon_xoff">XON/XOFF</option>
+                    <option value="rts_cts">RTS/CTS</option>
+                    <option value="dtr_dsr">DTR/DSR</option>
+                  </select>
+                </label>
+                <label>Read termination
+                  <input id="serial-read-termination" placeholder="Use VISA setting">
+                </label>
+                <label>Write termination
+                  <input id="serial-write-termination" placeholder="Use VISA setting">
+                </label>
+                <label class="serial-check">
+                  <input id="serial-remote" type="checkbox">
+                  Serial remote
+                </label>
+                <label class="serial-check">
+                  <input id="serial-local-on-close" type="checkbox">
+                  Local on close
+                </label>
+              </div>
+            </div>
+          </div>
+          <button
+            id="toggle-device-resource"
+            class="secondary icon-button utility-icon-button resource-collapse-toggle"
+            type="button"
+            aria-label="Collapse Device / Resource"
+            title="Collapse Device / Resource"
+            aria-controls="device-resource-body"
+            aria-expanded="true"
+          >-</button>
+        </div>
       </div>
-    </div>
-    <details class="serial-panel">
-      <summary>Advanced Serial</summary>
-      <div class="serial-grid">
-        <label>Baud rate
-          <input id="serial-baud-rate" type="number" step="1" inputmode="numeric" placeholder="Use VISA setting">
+      <div id="device-resource-body" class="device-resource-body">
+        <label>VISA resource
+          <input id="resource" placeholder="Waiting Scan">
         </label>
-        <label>Data bits
-          <input id="serial-data-bits" type="number" step="1" inputmode="numeric" placeholder="Use VISA setting">
-        </label>
-        <label>Parity
-          <select id="serial-parity">
-            <option value="">Use VISA setting</option>
-            <option value="none">None</option>
-            <option value="odd">Odd</option>
-            <option value="even">Even</option>
-            <option value="mark">Mark</option>
-            <option value="space">Space</option>
-          </select>
-        </label>
-        <label>Stop bits
-          <select id="serial-stop-bits">
-            <option value="">Use VISA setting</option>
-            <option value="1">1</option>
-            <option value="1.5">1.5</option>
-            <option value="2">2</option>
-          </select>
-        </label>
-        <label>Flow control
-          <select id="serial-flow-control">
-            <option value="">Use VISA setting</option>
-            <option value="none">None</option>
-            <option value="xon_xoff">XON/XOFF</option>
-            <option value="rts_cts">RTS/CTS</option>
-            <option value="dtr_dsr">DTR/DSR</option>
-          </select>
-        </label>
-        <label>Read termination
-          <input id="serial-read-termination" placeholder="Use VISA setting">
-        </label>
-        <label>Write termination
-          <input id="serial-write-termination" placeholder="Use VISA setting">
-        </label>
-        <label class="serial-check">
-          <input id="serial-remote" type="checkbox">
-          Serial remote
-        </label>
-        <label class="serial-check">
-          <input id="serial-local-on-close" type="checkbox">
-          Local on close
-        </label>
+        <div class="live-resource-field">
+          <label>Live resource
+            <select id="resource-select">
+              <option value="">Scan to load live resources</option>
+            </select>
+          </label>
+          <button id="scan" class="secondary command-pill-button scan-button">Scan Device</button>
+        </div>
       </div>
-    </details>
+    </section>
   </header>
 
   <main class="shell">
