@@ -132,6 +132,7 @@ def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
         simulate=simulate,
         dry_run=bool(runtime_dict.get("dry_run", False)),
         backend=runtime_dict.get("backend"),
+        model_profile=runtime_dict.get("model_profile") or runtime_dict.get("model"),
         timeout_ms=int(runtime_dict.get("timeout_ms", 5000)),
         log_scpi=bool(runtime_dict.get("log_scpi", False)),
         confirm=bool(runtime_dict.get("confirm", False)),

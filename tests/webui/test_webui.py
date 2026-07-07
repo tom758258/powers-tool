@@ -1422,6 +1422,7 @@ def test_trigger_commands_submit_in_dry_run(client: TestClient, command: str, pa
             "resource": "USB0::FAKE::E36312A::INSTR",
             "dry_run": True,
             "simulate": False,
+            "model_profile": "E36312A",
         },
         "parameters": parameters,
     }
@@ -1438,6 +1439,69 @@ def test_trigger_commands_submit_in_dry_run(client: TestClient, command: str, pa
     job_data = client.get(f"/api/jobs/{job_id}").json()
     assert job_data["status"] == "finished", job_data.get("error")
     assert job_data["result"]["plan"]["operation"]["name"] == command
+
+
+def test_trigger_dry_run_with_fake_resource_requires_model_profile(client: TestClient):
+    payload = {
+        "command": "trigger-step",
+        "runtime": {
+            "resource": "USB0::FAKE::E36312A::INSTR",
+            "dry_run": True,
+            "simulate": False,
+        },
+        "parameters": {
+            "channel": 1,
+            "source": "bus",
+            "fire": True,
+            "wait_complete": False,
+            "poll_ms": 200,
+        },
+    }
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+
+    job_id = response.json()["job_id"]
+    for _ in range(20):
+        res = client.get(f"/api/jobs/{job_id}")
+        if res.json()["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.05)
+
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    assert job_data["status"] == "failed"
+    error = job_data.get("error") or ""
+    assert "require --model" in error or "known deterministic SIM resource" in error
+
+
+def test_trigger_dry_run_with_e36312a_sim_resource_infers_model(client: TestClient):
+    payload = {
+        "command": "trigger-step",
+        "runtime": {
+            "resource": "USB0::SIM::E36312A::INSTR",
+            "dry_run": True,
+            "simulate": False,
+        },
+        "parameters": {
+            "channel": 1,
+            "source": "bus",
+            "fire": True,
+            "wait_complete": False,
+            "poll_ms": 200,
+        },
+    }
+    response = client.post("/api/jobs", json=payload)
+    assert response.status_code == 200
+
+    job_id = response.json()["job_id"]
+    for _ in range(20):
+        res = client.get(f"/api/jobs/{job_id}")
+        if res.json()["status"] in ("finished", "failed"):
+            break
+        time.sleep(0.05)
+
+    job_data = client.get(f"/api/jobs/{job_id}").json()
+    assert job_data["status"] == "finished", job_data.get("error")
+    assert job_data["result"]["plan"]["target"]["model_profile"] == "E36312A"
 
 
 def test_hidden_list_resources_direct_submit_succeeds(client: TestClient):
