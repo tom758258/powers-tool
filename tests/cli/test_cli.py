@@ -1485,6 +1485,37 @@ def test_simulate_model_derives_resource_and_rejects_mismatch(capsys) -> None:
     assert "does not match" in payload["error"]["message"]
 
 
+def test_apply_simulate_rejects_explicit_non_sim_resource_before_hardware_io(monkeypatch, capsys) -> None:
+    def fail_open(*args, **kwargs):
+        raise AssertionError("must not open VISA")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open)
+
+    assert (
+        cli.main(
+            [
+                "apply",
+                "--simulate",
+                "--json",
+                "--model",
+                "E3646A",
+                "--resource",
+                "ASRL7::INSTR",
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 2
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+    assert "requires a deterministic SIM resource" in payload["error"]["message"]
+
+
 def test_live_model_fails_before_hardware_io(monkeypatch, capsys) -> None:
     def fail_open(*args, **kwargs):
         raise AssertionError("must not open VISA")

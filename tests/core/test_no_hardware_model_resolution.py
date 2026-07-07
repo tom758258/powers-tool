@@ -55,6 +55,21 @@ def test_simulate_derives_resource_from_model_and_rejects_generic() -> None:
         )
 
 
+def test_simulate_rejects_explicit_non_sim_resource() -> None:
+    with pytest.raises(CoreValidationError, match="requires a deterministic SIM resource"):
+        output_plan(
+            OperationRequest(
+                command="output-on",
+                runtime=RuntimeOptions(
+                    resource="ASRL7::INSTR",
+                    simulate=True,
+                    model_profile="E3646A",
+                ),
+                parameters={"channel": 1},
+            )
+        )
+
+
 def test_sim_resource_infers_model_and_mismatch_is_rejected() -> None:
     plan = output_plan(
         OperationRequest(

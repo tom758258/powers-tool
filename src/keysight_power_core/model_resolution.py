@@ -88,6 +88,11 @@ def no_hardware_channels(model_profile: str) -> tuple[int, ...]:
 
 def _simulate_resource_for_model(model: str, resource: str | None) -> str:
     if resource is not None:
+        if model_profile_from_sim_resource(resource) is None:
+            raise CoreValidationError(
+                "--simulate requires a deterministic SIM resource; "
+                "omit --resource to derive one from --model or pass a USB0::SIM::... resource"
+            )
         return resource
     try:
         return SIMULATED_RESOURCE_FOR_MODEL[model]
