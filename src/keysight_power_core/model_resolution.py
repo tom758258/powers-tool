@@ -91,7 +91,7 @@ def _simulate_resource_for_model(model: str, resource: str | None) -> str:
         if model_profile_from_sim_resource(resource) is None:
             raise CoreValidationError(
                 "--simulate requires a deterministic SIM resource; "
-                "omit --resource to derive one from --model or pass a USB0::SIM::... resource"
+                "omit --resource to derive one from --model or pass a known SIM resource"
             )
         return resource
     try:
