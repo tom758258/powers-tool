@@ -44,9 +44,12 @@ placeholders and must not imply a model.
 | E36232A | `TCPIP0::SIM::E36232A::INSTR` | CH1 | Single-channel conservative no-hardware profile | Trigger workflows, native LIST, and protection writes are not exposed. |
 | GENERIC | None; use explicit `--model GENERIC` / `model_profile="GENERIC"` | CH1 | Unknown | Conservative no-hardware planning only. Trigger workflows, native LIST, and protection writes are not exposed. |
 
-Live hardware uses the IDN-detected model. `--model` and
-`RuntimeOptions.model_profile` are for no-hardware dry-run/simulate planning
-unless a future explicit expected-model guard is added.
+Live hardware uses the IDN-detected model. In live mode, `--model` and
+`RuntimeOptions.model_profile` are expected-model guards: Core queries
+`*IDN?`, requires the detected model to match, and fails before setup/write
+SCPI on mismatch. The selected model never overrides the IDN-selected driver.
+`GENERIC` is a conservative no-hardware profile and is not a live expected
+model.
 
 ## Command Support Notes
 
@@ -109,8 +112,8 @@ command-level facts:
   `USB0::SIM::E36312A::INSTR`; an EDU36311A SIM resource is resolved and then
   rejected for trigger workflows. E3646A no-hardware `--channel all` plans
   expand to CH1 and CH2; CH3 is rejected.
-- Live trigger behavior remains IDN-driven. `--model` is rejected for live
-  commands before opening VISA and does not override connected hardware.
+- Live trigger behavior remains IDN-driven. `--model` is a live
+  expected-model guard and does not override connected hardware.
 - `snapshot-diff`, `snapshot-diff --summary`, and `hardware-report` are
   offline/no-hardware tools and never open VISA. `sequence --lint` also
   validates without opening VISA and remains syntax/document validation unless

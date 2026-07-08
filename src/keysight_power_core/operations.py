@@ -25,7 +25,11 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
-from keysight_power_core.model_resolution import no_hardware_channels, resolve_no_hardware_runtime
+from keysight_power_core.model_resolution import (
+    no_hardware_channels,
+    resolve_no_hardware_runtime,
+    validate_live_expected_model,
+)
 from keysight_power_core.parameter_constraints import validate_request_parameters
 from keysight_power_core.safety import (
     SafetyConfigError,
@@ -289,6 +293,11 @@ def _run_output_write_operation(
                 else instrument
             )
             idn = session.query(IDN_QUERY)
+            validate_live_expected_model(
+                request.runtime.model_profile,
+                parse_idn(idn).model,
+                command=request.command,
+            )
             power_supply = create_power_supply(session, idn)
             allowed_types = (
                 OUTPUT_STATE_POWER_SUPPLY_TYPES

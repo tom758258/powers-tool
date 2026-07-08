@@ -20,7 +20,8 @@ from keysight_power_core.core import (
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
-from keysight_power_core.model_resolution import resolve_no_hardware_runtime
+from keysight_power_core.model_resolution import resolve_no_hardware_runtime, validate_live_expected_model
+from keysight_power_core.models import parse_idn
 from keysight_power_core.transport import dry_run_plan
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
 
@@ -608,6 +609,7 @@ def _run_trigger_pulse(
             opened = True
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             idn = instrument.query(IDN_QUERY)
+            _validate_trigger_expected_model(request, idn)
             power_supply = create_power_supply(instrument, idn)
             if not isinstance(power_supply, E36312APowerSupply):
                 raise UnsupportedModelError(
@@ -664,6 +666,7 @@ def _run_trigger_status(
             opened = True
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             idn = instrument.query(IDN_QUERY)
+            _validate_trigger_expected_model(request, idn)
             power_supply = create_power_supply(instrument, idn)
             if not isinstance(power_supply, E36312APowerSupply):
                 raise UnsupportedModelError(
@@ -737,7 +740,12 @@ def _run_trigger_step(
         with opener(request.runtime.resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
             opened = True
             instrument = _instrument_for_request(request, instrument, scpi_logger)
-            power_supply = _trigger_power_supply(instrument, simulate=request.runtime.simulate, command=request.command)
+            power_supply = _trigger_power_supply(
+                instrument,
+                simulate=request.runtime.simulate,
+                command=request.command,
+                expected_model=request.runtime.model_profile,
+            )
             if isinstance(power_supply, E36312APowerSupply):
                 trigger = _native_step(
                     request,
@@ -777,7 +785,12 @@ def _run_trigger_list(
         with opener(request.runtime.resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
             opened = True
             instrument = _instrument_for_request(request, instrument, scpi_logger)
-            power_supply = _trigger_power_supply(instrument, simulate=request.runtime.simulate, command=request.command)
+            power_supply = _trigger_power_supply(
+                instrument,
+                simulate=request.runtime.simulate,
+                command=request.command,
+                expected_model=request.runtime.model_profile,
+            )
             if not isinstance(power_supply, E36312APowerSupply):
                 raise UnsupportedModelError("trigger-list is only supported for E36312A")
             trigger = _native_list(
@@ -815,7 +828,12 @@ def _run_trigger_fire(
         with opener(request.runtime.resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
             opened = True
             instrument = _instrument_for_request(request, instrument, scpi_logger)
-            power_supply = _trigger_power_supply(instrument, simulate=request.runtime.simulate, command=request.command)
+            power_supply = _trigger_power_supply(
+                instrument,
+                simulate=request.runtime.simulate,
+                command=request.command,
+                expected_model=request.runtime.model_profile,
+            )
             if not isinstance(power_supply, E36312APowerSupply):
                 raise UnsupportedModelError("trigger-fire is only supported for E36312A")
             power_supply.fire_bus_trigger()
@@ -862,7 +880,12 @@ def _run_trigger_abort(
         with opener(request.runtime.resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
             opened = True
             instrument = _instrument_for_request(request, instrument, scpi_logger)
-            power_supply = _trigger_power_supply(instrument, simulate=request.runtime.simulate, command=request.command)
+            power_supply = _trigger_power_supply(
+                instrument,
+                simulate=request.runtime.simulate,
+                command=request.command,
+                expected_model=request.runtime.model_profile,
+            )
             if not isinstance(power_supply, E36312APowerSupply):
                 raise UnsupportedModelError("trigger-abort is only supported for E36312A")
             errors = []
@@ -1051,11 +1074,26 @@ def _native_list(
     )
 
 
-def _trigger_power_supply(instrument: Any, *, simulate: bool, command: str) -> Any:
+def _trigger_power_supply(
+    instrument: Any,
+    *,
+    simulate: bool,
+    command: str,
+    expected_model: str | None = None,
+) -> Any:
     idn = instrument.query(IDN_QUERY)
+    validate_live_expected_model(expected_model, parse_idn(idn).model, command=command)
     power_supply = create_power_supply(instrument, idn)
     setattr(power_supply, "_core_idn_raw", idn)
     return power_supply
+
+
+def _validate_trigger_expected_model(request: TriggerRequest, idn: str) -> None:
+    validate_live_expected_model(
+        request.runtime.model_profile,
+        parse_idn(idn).model,
+        command=request.command,
+    )
 
 
 def _raise_on_instrument_errors(power_supply: Any, command: str) -> None:

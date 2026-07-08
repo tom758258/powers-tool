@@ -253,9 +253,19 @@ needs model-specific planning, pass a simulation / dry-run model profile with
 
 Do not use fake or live-looking resource strings to imply a model in
 no-hardware mode. For example, `USB0::FAKE::E36312A::INSTR` is a placeholder,
-not model evidence. Live hardware uses the IDN-detected model; `--model` is
-for no-hardware dry-run/simulate planning unless a future explicit
-expected-model guard is added.
+not model evidence.
+
+For live commands, `--model` is an expected-model guard. The CLI still queries
+`*IDN?` and uses the detected model for driver selection. If the selected model
+does not match the connected IDN model, the command fails before setup or write
+SCPI:
+
+```powershell
+.\keysight-power.exe set --model E36312A --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
+```
+
+This requires the connected model to be E36312A and does not force the E36312A
+driver.
 
 ## Common Problems
 

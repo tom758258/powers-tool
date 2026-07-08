@@ -17,7 +17,11 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
-from keysight_power_core.model_resolution import no_hardware_channels, resolve_no_hardware_runtime
+from keysight_power_core.model_resolution import (
+    no_hardware_channels,
+    resolve_no_hardware_runtime,
+    validate_live_expected_model,
+)
 from keysight_power_core.safety import SafetyConfigError, SafetyLimits, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
 from keysight_power_core.trigger import run_post_action_completion_pulse, trigger_pulse_scpi
@@ -309,6 +313,11 @@ def execute_sequence(
             if request.runtime.log_scpi and scpi_logger is not None:
                 instrument = ScpiLoggingSession(str(request.runtime.resource), instrument, scpi_logger)
             idn_raw = instrument.query(IDN_QUERY)
+            validate_live_expected_model(
+                request.runtime.model_profile,
+                _model_from_idn(idn_raw),
+                command=request.command,
+            )
             power_supply = create_power_supply(instrument, idn_raw)
             _preflight_sequence(request, power_supply, plan, model=_model_from_idn(idn_raw))
             for step in plan["steps"]:
@@ -611,6 +620,8 @@ def sequence_preview_channels(channel: int | str, *, model_profile: str | None =
 
 
 def _validate_no_hardware_sequence_channels(request: SequenceRequest, channel: int | str) -> None:
+    if not (request.runtime.dry_run or request.runtime.simulate):
+        return
     if request.runtime.model_profile is None:
         return
     supported = no_hardware_channels(request.runtime.model_profile)

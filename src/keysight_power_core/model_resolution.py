@@ -11,6 +11,8 @@ CANONICAL_MODEL_PROFILES = frozenset(
     {"E36103B", "E36232A", "E36312A", "EDU36311A", "E3646A", "GENERIC"}
 )
 
+LIVE_EXPECTED_MODEL_PROFILES = CANONICAL_MODEL_PROFILES - {"GENERIC"}
+
 MODEL_PROFILE_CHANNELS = {
     "E36103B": (1,),
     "E36232A": (1,),
@@ -39,6 +41,39 @@ def canonical_model_profile(model: str | None) -> str | None:
     return normalized
 
 
+def canonical_live_expected_model(model: str | None) -> str | None:
+    if model is None:
+        return None
+    normalized = canonical_model_profile(model)
+    if normalized not in LIVE_EXPECTED_MODEL_PROFILES:
+        supported = ", ".join(sorted(LIVE_EXPECTED_MODEL_PROFILES))
+        raise CoreValidationError(
+            f"unsupported live expected model {model!r}; supported: {supported}. "
+            "--model is an expected-model guard in live mode and does not override the IDN-detected driver."
+        )
+    return normalized
+
+
+def validate_live_expected_model(
+    expected_model: str | None,
+    detected_model: str | None,
+    *,
+    command: str | None = None,
+) -> str | None:
+    expected = canonical_live_expected_model(expected_model)
+    if expected is None:
+        return None
+    detected = _canonical_detected_model(detected_model)
+    if detected != expected:
+        prefix = f"{command}: " if command else ""
+        reported = detected or "UNKNOWN"
+        raise CoreValidationError(
+            f"{prefix}Expected model {expected} but connected instrument reported {reported}. "
+            "--model is an expected-model guard in live mode and does not override the IDN-detected driver."
+        )
+    return expected
+
+
 def model_profile_from_sim_resource(resource: str | None) -> str | None:
     if resource is None:
         return None
@@ -51,15 +86,14 @@ def model_profile_from_sim_resource(resource: str | None) -> str | None:
 
 
 def resolve_no_hardware_runtime(runtime: RuntimeOptions) -> RuntimeOptions:
-    """Resolve no-hardware planning model/resource without opening VISA."""
+    """Resolve no-hardware planning models and live expected-model guards."""
+
+    if not runtime.dry_run and not runtime.simulate:
+        expected = canonical_live_expected_model(runtime.model_profile)
+        return replace(runtime, model_profile=expected)
 
     requested = canonical_model_profile(runtime.model_profile)
     inferred = model_profile_from_sim_resource(runtime.resource)
-
-    if not runtime.dry_run and not runtime.simulate:
-        if requested is not None:
-            raise CoreValidationError("--model is only supported with --dry-run or --simulate")
-        return runtime
 
     if requested is None and inferred is None:
         raise CoreValidationError(
@@ -98,3 +132,10 @@ def _simulate_resource_for_model(model: str, resource: str | None) -> str:
         return SIMULATED_RESOURCE_FOR_MODEL[model]
     except KeyError as exc:
         raise CoreValidationError(f"--simulate --model {model} has no deterministic simulator resource") from exc
+
+
+def _canonical_detected_model(model: str | None) -> str | None:
+    if model is None:
+        return None
+    normalized = model.strip().upper()
+    return normalized or None

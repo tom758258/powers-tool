@@ -28,11 +28,17 @@ matter.
 - Keep real hardware output opt-in; default tests and simulator flows do not
   enable instrument output
 
-## No-Hardware Model Profiles
+## Model Profiles And Live Expected-Model Guards
 
 Dry-run and simulator flows do not open real VISA hardware. For commands that
-need model-specific planning, no-hardware mode requires a simulation / dry-run
-model profile unless the resource is a known deterministic SIM resource.
+need model-specific planning, `--model` / `model_profile` is the no-hardware
+model profile used for planning, channel validation, capability selection, and
+SCPI preview unless the resource is a known deterministic SIM resource.
+
+In live mode, `--model` / `model_profile` is an expected-model guard. The
+connected instrument is still identified with `*IDN?`, and Core requires the
+reported model to match the selected model before any setup or write SCPI. The
+selected model never overrides the IDN-detected driver.
 
 Valid no-hardware examples:
 
@@ -41,6 +47,15 @@ uv run keysight-power set --dry-run --model E3646A --channel 1 --voltage 1 --cur
 uv run keysight-power readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
 uv run keysight-power trigger-step --dry-run --model E36312A --channel 1 --source bus --fire
 ```
+
+Live guard example:
+
+```powershell
+uv run keysight-power set --model E36312A --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
+```
+
+This command requires the connected `*IDN?` model to be `E36312A`; it does not
+force the E36312A driver if another model answers.
 
 This is intentionally rejected:
 
@@ -51,9 +66,7 @@ uv run keysight-power trigger-step --dry-run --resource USB0::FAKE::E36312A::INS
 Fake or live-looking resource strings are placeholders and must not imply a
 real instrument model. Deterministic SIM resources, such as
 `USB0::SIM::E36312A::INSTR`, are allowed because they map to known simulator
-IDN/model data. Live hardware uses the IDN-detected model. `--model` and
-`model_profile` are for no-hardware dry-run/simulate planning unless a future
-explicit expected-model guard is added.
+IDN/model data.
 
 ## Project Structure
 

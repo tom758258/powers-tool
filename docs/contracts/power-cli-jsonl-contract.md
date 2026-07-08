@@ -115,21 +115,23 @@ means the request was accepted; it does not mean job execution succeeded.
 
 Power command success envelopes follow the common CLI contract. Command names use the public names above, including `read-status`.
 
-Runtime no-hardware model fields:
+Runtime model fields:
 
 - CLI `--model` maps to the Core no-hardware model profile for commands that
-  support dry-run or simulator model planning.
+  support dry-run or simulator model planning. In live mode, it maps to the
+  Core expected-model guard.
 - WebUI and worker-style raw payloads use `runtime.model_profile` as the
-  canonical no-hardware model-profile field. `runtime.model` is accepted only
-  as a compatibility alias where the adapter explicitly supports it.
+  canonical model field. `runtime.model` is accepted only as a compatibility
+  alias where the adapter explicitly supports it.
 - `model_profile` is used for dry-run/simulate planning, channel validation,
   and `channel: "all"` expansion. Fake or live-looking resources such as
   `USB0::FAKE::E36312A::INSTR` do not imply a model. Deterministic SIM
   resources such as `USB0::SIM::E36312A::INSTR` may infer the matching model
   because they map to known simulator IDN/model data.
-- Live hardware uses the IDN-detected model. `--model`/`model_profile` is for
-  no-hardware dry-run/simulate planning unless a future explicit
-  expected-model guard is added.
+- Live hardware uses the IDN-detected model. `--model`/`model_profile` is an
+  expected-model guard in live mode: after `*IDN?`, Core requires the detected
+  model to match before setup/write SCPI. The selected model never overrides
+  the IDN-detected driver.
 
 Selected data mappings:
 
@@ -170,5 +172,5 @@ Selected data mappings:
 - `trigger-list`: selected channel, step count, completion state, and
   `restored`; `restored: true` means the pre-run Trigger configuration and LIST
   table were written back after completion.
-- Live trigger behavior remains IDN-driven. `--model` is valid only with
-  `--dry-run` or `--simulate` and does not override connected hardware.
+- Live trigger behavior remains IDN-driven. Live `--model` is an
+  expected-model guard and does not override connected hardware.

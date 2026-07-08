@@ -18,7 +18,11 @@ from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
-from keysight_power_core.model_resolution import no_hardware_channels, resolve_no_hardware_runtime
+from keysight_power_core.model_resolution import (
+    no_hardware_channels,
+    resolve_no_hardware_runtime,
+    validate_live_expected_model,
+)
 from keysight_power_core.operations import ScpiLoggingSession, ramp_voltages
 from keysight_power_core.safety import SafetyConfigError, SafetyValidationError, resolve_safety_config, validate_setpoint
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
@@ -193,7 +197,11 @@ def normalize_ramp_segment(request: OperationRequest, index: int, raw_segment: A
         raise CoreValidationError(f"ramp-list segment {index} contains an invalid numeric value")
     if channel < 1:
         raise CoreValidationError(f"ramp-list segment {index} channel must be a positive integer")
-    if request.runtime.model_profile is not None and channel not in no_hardware_channels(request.runtime.model_profile):
+    if (
+        (request.runtime.dry_run or request.runtime.simulate)
+        and request.runtime.model_profile is not None
+        and channel not in no_hardware_channels(request.runtime.model_profile)
+    ):
         supported = no_hardware_channels(request.runtime.model_profile)
         raise CoreValidationError(
             f"ramp-list segment {index} channel {channel} is not supported; supported: {supported}"
@@ -261,6 +269,11 @@ def execute_ramp_list(
                 else instrument
             )
             idn_raw = session.query("*IDN?")
+            validate_live_expected_model(
+                request.runtime.model_profile,
+                parse_idn(idn_raw).model,
+                command=request.command,
+            )
             power_supply = create_power_supply(session, idn_raw)
             if not isinstance(power_supply, OUTPUT_WRITE_POWER_SUPPLY_TYPES):
                 raise CoreValidationError(

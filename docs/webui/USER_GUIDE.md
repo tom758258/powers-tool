@@ -93,6 +93,12 @@ cache entries.
 Selecting a resource copies it into the `VISA resource` input. You may also
 type a known operator-provided VISA resource manually.
 
+Device options include `Model / expected model`. Leave it on Auto for normal
+live use. When a model is selected for a live command, the WebUI only requires
+the connected `*IDN?` model to match before setup or write SCPI; it does not
+force that model's driver. For dry-run/simulate jobs submitted through the
+WebUI API, the selected model is the no-hardware planning profile.
+
 If no live resource appears, check instrument power, cabling, VISA driver
 visibility, and whether another program is holding the instrument.
 
@@ -160,8 +166,10 @@ hardware execution. Real output-affecting jobs require confirmation.
 When submitting raw WebUI API jobs instead of using the browser form, include
 `runtime.model_profile` for no-hardware dry-run/simulate jobs that need a
 model-specific plan, or use a deterministic SIM resource such as
-`USB0::SIM::E36312A::INSTR`. The browser learns live model support from
-scan/job IDN metadata; fake resource strings do not imply a model.
+`USB0::SIM::E36312A::INSTR`. For live raw API jobs, `runtime.model_profile` is
+an expected-model guard checked against `*IDN?`; mismatch fails before setup or
+write SCPI. The browser learns live model support from scan/job IDN metadata;
+fake resource strings do not imply a model.
 
 ## Stop And Cancel
 

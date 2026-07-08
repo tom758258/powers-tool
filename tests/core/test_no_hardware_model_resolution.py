@@ -3,6 +3,7 @@ import pytest
 from keysight_power_core.command_runner import run_core_command
 from keysight_power_core.connection import InstrumentSession
 from keysight_power_core.core import CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, TriggerRequest
+from keysight_power_core.model_resolution import canonical_live_expected_model, validate_live_expected_model
 from keysight_power_core.operations import output_plan, run_operation
 from keysight_power_core.protection import run_protection
 from keysight_power_core.ramp_list import RAMP_LIST_KIND, run_ramp_list
@@ -98,7 +99,35 @@ def test_sim_resource_infers_model_and_mismatch_is_rejected() -> None:
         )
 
 
-def test_live_model_profile_is_rejected_before_opening() -> None:
+@pytest.mark.parametrize(
+    ("requested", "expected"),
+    [
+        ("e36312a", "E36312A"),
+        ("edu36311a", "EDU36311A"),
+        ("e3646a", "E3646A"),
+    ],
+)
+def test_live_expected_model_normalization_is_case_insensitive(requested: str, expected: str) -> None:
+    assert canonical_live_expected_model(requested) == expected
+    assert validate_live_expected_model(requested, expected.lower()) == expected
+
+
+def test_live_expected_model_rejects_generic() -> None:
+    with pytest.raises(CoreValidationError, match="unsupported live expected model"):
+        canonical_live_expected_model("GENERIC")
+
+
+def test_live_expected_model_mismatch_message_is_explicit() -> None:
+    with pytest.raises(CoreValidationError) as exc:
+        validate_live_expected_model("E36312A", "E3646A", command="set")
+
+    message = str(exc.value)
+    assert "Expected model E36312A" in message
+    assert "connected instrument reported E3646A" in message
+    assert "does not override the IDN-detected driver" in message
+
+
+def test_live_unsupported_model_profile_is_rejected_before_opening() -> None:
     opened = False
 
     def opener(*args, **kwargs):
@@ -106,11 +135,11 @@ def test_live_model_profile_is_rejected_before_opening() -> None:
         opened = True
         raise AssertionError("must not open")
 
-    with pytest.raises(CoreValidationError, match="only supported with --dry-run or --simulate"):
+    with pytest.raises(CoreValidationError, match="unsupported model profile"):
         run_operation(
             OperationRequest(
                 command="output-on",
-                runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", model_profile="E36312A"),
+                runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", model_profile="FUTURE123"),
                 parameters={"channel": 1},
             ),
             opener=opener,
@@ -261,7 +290,7 @@ def test_trigger_simulate_model_derives_e36312a_resource() -> None:
     assert data["idn"].split(",")[1] == "E36312A"
 
 
-def test_trigger_live_model_profile_is_rejected_before_opening() -> None:
+def test_trigger_live_unsupported_model_profile_is_rejected_before_opening() -> None:
     opened = False
 
     def opener(*args, **kwargs):
@@ -269,11 +298,11 @@ def test_trigger_live_model_profile_is_rejected_before_opening() -> None:
         opened = True
         raise AssertionError("must not open")
 
-    with pytest.raises(CoreValidationError, match="only supported with --dry-run or --simulate"):
+    with pytest.raises(CoreValidationError, match="unsupported model profile"):
         run_core_command(
             TriggerRequest(
                 command="trigger-status",
-                runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", model_profile="E36312A"),
+                runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", model_profile="FUTURE123"),
                 parameters={"channel": 1},
             ),
             opener=opener,

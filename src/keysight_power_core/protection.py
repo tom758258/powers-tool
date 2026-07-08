@@ -20,7 +20,11 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
-from keysight_power_core.model_resolution import no_hardware_channels, resolve_no_hardware_runtime
+from keysight_power_core.model_resolution import (
+    no_hardware_channels,
+    resolve_no_hardware_runtime,
+    validate_live_expected_model,
+)
 from keysight_power_core.operations import ScpiLoggingSession
 from keysight_power_core.safety import SafetyConfigError, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
 from keysight_power_core.testing.simulator import SimulatedResourceManager
@@ -108,6 +112,11 @@ def _run_clear(request: OperationRequest, *, opener: Callable[..., Any], scpi_lo
         raise ConfirmationRequiredError("clear-protection real execution requires --confirm")
     instrument, idn = _open(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
+        validate_live_expected_model(
+            request.runtime.model_profile,
+            parse_idn(idn).model,
+            command=request.command,
+        )
         power_supply = create_power_supply(instrument.session, idn)
         _require_supported(power_supply, request.command)
         channels = _channels(selected, power_supply.capabilities.channels)
@@ -146,6 +155,11 @@ def _run_set(request: OperationRequest, *, opener: Callable[..., Any], scpi_logg
         raise ConfirmationRequiredError("protection-set real execution requires --confirm")
     instrument, idn = _open(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
+        validate_live_expected_model(
+            request.runtime.model_profile,
+            parse_idn(idn).model,
+            command=request.command,
+        )
         power_supply = create_power_supply(instrument.session, idn)
         _require_supported(power_supply, request.command)
         channels = _channels(_selected_channel(request), power_supply.capabilities.channels)
@@ -227,7 +241,7 @@ def _channels(selected: int | str | None, supported: tuple[int, ...]) -> tuple[i
 
 
 def _plan_supported_channels(request: OperationRequest) -> tuple[int, ...]:
-    if request.runtime.model_profile is not None:
+    if (request.runtime.dry_run or request.runtime.simulate) and request.runtime.model_profile is not None:
         return no_hardware_channels(request.runtime.model_profile)
     return E36312APowerSupply.capabilities.channels
 

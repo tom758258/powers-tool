@@ -2210,6 +2210,8 @@ function runtimePayload() {
     confirm: document.getElementById("confirm").checked
   };
   const serialOptions = serialOptionsPayload();
+  const modelProfile = valueOrNull("model-profile");
+  if (modelProfile !== null) runtime.model_profile = modelProfile;
   if (Object.keys(serialOptions).length) runtime.serial_options = serialOptions;
   if (document.getElementById("serial-remote")?.checked) runtime.serial_remote = true;
   if (document.getElementById("serial-local-on-close")?.checked) runtime.serial_local_on_close = true;

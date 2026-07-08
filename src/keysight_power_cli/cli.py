@@ -934,7 +934,7 @@ def _add_dry_run_argument(parser: argparse.ArgumentParser) -> None:
 def _add_model_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--model",
-        help="No-hardware model profile for --dry-run or --simulate.",
+        help="Model profile for --dry-run/--simulate, or expected model guard for live mode.",
     )
 
 

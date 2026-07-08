@@ -31,6 +31,19 @@
               aria-expanded="false"
             >&#9881;</button>
             <div id="device-options-panel" class="device-options-panel" role="dialog" aria-label="Device options" hidden>
+              <div class="model-profile-control">
+                <label>Model / expected model
+                  <select id="model-profile">
+                    <option value="">Auto</option>
+                    <option value="E36312A">E36312A</option>
+                    <option value="EDU36311A">EDU36311A</option>
+                    <option value="E3646A">E3646A</option>
+                    <option value="E36103B">E36103B</option>
+                    <option value="E36232A">E36232A</option>
+                  </select>
+                </label>
+                <p class="model-profile-help">Auto uses the detected IDN model in live mode. In dry-run/simulate, select a model when the resource does not encode one. In live mode, a selected model only requires the IDN to match; it never overrides the driver.</p>
+              </div>
               <p class="device-options-help">Optional ASRL/serial overrides. Usually needed only for RS-232 instruments such as E3646A.</p>
               <div class="serial-grid">
                 <label>Baud rate

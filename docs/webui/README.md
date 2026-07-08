@@ -105,7 +105,13 @@ Synchronous core execution runs in a worker thread so FastAPI's event loop
 continues serving health, job status, cancellation, and SSE endpoints.
 
 Raw `/api/jobs` no-hardware payloads that need model-specific planning should
-send `runtime.model_profile`, for example:
+send `runtime.model_profile`. In dry-run/simulate mode, this is the
+no-hardware model profile used for planning and channel validation. In live
+mode, the same field is an expected-model guard: Core queries `*IDN?`, fails
+before setup/write SCPI if the detected model differs, and never uses the
+selected model to override the IDN-selected driver.
+
+Dry-run example:
 
 ```json
 {
@@ -153,11 +159,14 @@ The static UI is a three-panel dashboard:
 Machine-facing command IDs remain kebab-case. Human-facing WebUI command names
 use spaces and sentence case.
 
-The connection area includes an advanced serial section for ASRL resources.
-Serial fields are optional; blank fields are omitted from the runtime payload
-and do not override VISA backend or Connection Expert settings. Read/write
-termination fields accept `CR`, `LF`, `CRLF`, and `NONE` aliases. `NONE`,
-blank, or omitted termination means no termination override is applied.
+The connection area includes advanced device options. `Model / expected model`
+defaults to Auto, which omits `runtime.model_profile`. Selecting a model sends
+`runtime.model_profile`: it is a no-hardware model profile for dry-run/simulate
+jobs and a live expected-model guard for real jobs. The serial fields are
+optional; blank fields are omitted from the runtime payload and do not override
+VISA backend or Connection Expert settings. Read/write termination fields
+accept `CR`, `LF`, `CRLF`, and `NONE` aliases. `NONE`, blank, or omitted
+termination means no termination override is applied.
 
 The `set` command accepts Voltage, Current, or both in Basic command and
 Commands. Blank setpoint fields are omitted from the job payload and left

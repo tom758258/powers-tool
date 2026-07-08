@@ -237,16 +237,17 @@ valid `*IDN?` responses. Their channel-list SCPI is covered by no-hardware
 tests. Simulated CLI measurement supports channels 1, 2, and 3 for these
 models.
 
-### No-Hardware Model Resolution
+### Model Profiles And Live Expected-Model Guards
 
 Output-family commands, `ramp-list`, `sequence`, `protection-set`,
 `clear-protection`, and trigger workflows use strict model resolution in
-`--dry-run` and `--simulate` mode. These no-hardware planning paths require
-either `--model` or a known deterministic simulator resource such as
-`USB0::SIM::E36312A::INSTR`. Trigger no-hardware paths are E36312A-only and
-require `--model E36312A` or a known deterministic E36312A SIM resource. The
-CLI does not infer a model from arbitrary fake, live-looking, or alias-only
-resource strings.
+`--dry-run` and `--simulate` mode. In these no-hardware planning paths,
+`--model` is the model profile used for planning, channel validation,
+capability selection, and SCPI preview. They require either `--model` or a
+known deterministic simulator resource such as `USB0::SIM::E36312A::INSTR`.
+Trigger no-hardware paths are E36312A-only and require `--model E36312A` or a
+known deterministic E36312A SIM resource. The CLI does not infer a model from
+arbitrary fake, live-looking, or alias-only resource strings.
 
 Examples:
 
@@ -266,16 +267,26 @@ uv run keysight-power trigger-step --dry-run --resource USB0::FAKE::E36312A::INS
 Deterministic SIM resources are accepted because they map to known simulator
 IDN/model data.
 
-`--model` is valid only with `--dry-run` or `--simulate`; live hardware
-commands reject it before opening VISA. Live driver selection continues to use
-the instrument's `*IDN?` response only.
+In live mode, `--model` is an expected-model guard. The CLI opens the explicit
+resource, queries `*IDN?`, and requires the reported model to match before any
+setup or write SCPI. The selected model never overrides the IDN-detected
+driver.
+
+Live guard example:
+
+```powershell
+uv run keysight-power set --model E36312A --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
+```
+
+This requires the connected `*IDN?` model to be `E36312A`.
 
 Accepted no-hardware model profiles are `E36103B`, `E36232A`, `E36312A`,
 `EDU36311A`, `E3646A`, and `GENERIC`. In `--simulate` mode, `--model` can
 derive the matching deterministic simulator resource for all listed models
-except `GENERIC`. If both `--model` and a SIM resource are provided, their
-models must match. Unsupported models, including EDU36311A, do not expose
-trigger dry-run or simulator behavior.
+except `GENERIC`. `GENERIC` is a conservative no-hardware profile and is not
+a live expected model. If both `--model` and a SIM resource are provided,
+their models must match. Unsupported models, including EDU36311A, do not
+expose trigger dry-run or simulator behavior.
 
 No-hardware plans include `data.plan.target.model_profile`. Channel validation
 and `--channel all` expansion use that profile: E3646A expands `all` to CH1
@@ -604,8 +615,9 @@ behavior is E36312A-only; unsupported models do not expose trigger
 no-hardware behavior. The final `*TRG` may also trigger any already armed
 BUS-triggered instrument behavior. Real execution checks `SYST:ERR?` after
 output-affecting writes and fails the command if the instrument reports
-errors. Live trigger behavior remains IDN-driven, and `--model` is rejected
-for live commands instead of overriding connected hardware.
+errors. Live trigger behavior remains IDN-driven; a live `--model` only
+requires the connected IDN model to match and never overrides connected
+hardware.
 
 Native E36312A trigger/LIST commands:
 
@@ -641,9 +653,13 @@ wait restores the pre-run Trigger settings and LIST table unless
 Set low E36312A, E3646A, or EDU36311A setpoints without enabling output:
 
 ```powershell
+uv run keysight-power set --model E36312A --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
 uv run keysight-power set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --log-scpi
 uv run keysight-power set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --log-scpi
 ```
+
+The first example uses `--model E36312A` as a live expected-model guard: it
+requires the connected `*IDN?` model to be E36312A before any setup/write SCPI.
 
 Real `set` first confirms the selected resource is an E36312A, E3646A, or
 EDU36311A with `*IDN?`, then writes only the requested setpoint fields. E3646A

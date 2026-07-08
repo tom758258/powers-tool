@@ -1516,7 +1516,7 @@ def test_apply_simulate_rejects_explicit_non_sim_resource_before_hardware_io(mon
     assert "requires a deterministic SIM resource" in payload["error"]["message"]
 
 
-def test_live_model_fails_before_hardware_io(monkeypatch, capsys) -> None:
+def test_live_generic_expected_model_fails_before_hardware_io(monkeypatch, capsys) -> None:
     def fail_open(*args, **kwargs):
         raise AssertionError("must not open VISA")
 
@@ -1528,7 +1528,7 @@ def test_live_model_fails_before_hardware_io(monkeypatch, capsys) -> None:
                 "output-on",
                 "--json",
                 "--model",
-                "E36312A",
+                "GENERIC",
                 "--resource",
                 "USB0::SIM::E36312A::INSTR",
                 "--channel",
@@ -1538,7 +1538,7 @@ def test_live_model_fails_before_hardware_io(monkeypatch, capsys) -> None:
         == 2
     )
     payload = json.loads(capsys.readouterr().out)
-    assert "only supported with --dry-run or --simulate" in payload["error"]["message"]
+    assert "unsupported live expected model" in payload["error"]["message"]
 
 
 def test_e3646a_dry_run_all_expands_two_channels_and_rejects_three(capsys) -> None:

@@ -81,5 +81,7 @@ These ratings are not claims about SCPI maximum programmable values. Unknown
 models have no invented rating. Output-family, Ramp List, Sequence, and
 protection-write dry-run/simulate planning requires an explicit model profile
 or a known deterministic simulator resource before model-specific channel
-validation. OVP values are not constrained by the DC output rating.
-Auto-series and parallel combined ratings are unsupported.
+validation. In live mode, `--model` / `runtime.model_profile` is only an
+expected-model guard checked against `*IDN?`; it does not choose the driver or
+provide channel/capability limits. OVP values are not constrained by the DC
+output rating. Auto-series and parallel combined ratings are unsupported.

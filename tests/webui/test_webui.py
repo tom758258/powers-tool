@@ -211,13 +211,20 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert_static_attr(html, "device-options-toggle", "aria-expanded", "false")
     assert_static_attr(html, "toggle-device-resource", "aria-controls", "device-resource-body")
     assert_static_attr(html, "toggle-device-resource", "aria-expanded", "true")
+    assert_static_id(html, "model-profile")
 
     panel_index = html.index('id="device-options-panel"')
     body_index = html.index('id="device-resource-body"')
+    assert panel_index < html.index('id="model-profile"') < body_index
     for element_id in serial_control_ids:
         assert_static_id(html, element_id)
         assert panel_index < html.index(f'id="{element_id}"') < body_index
 
+    assert "Model / expected model" in html
+    assert "Auto uses the detected IDN model in live mode" in html
+    for model in ("E36312A", "EDU36311A", "E3646A", "E36103B", "E36232A"):
+        assert f'<option value="{model}">{model}</option>' in html
+    assert '<option value="GENERIC">GENERIC</option>' not in html
     assert "Optional ASRL/serial overrides" in html
     assert "serial-panel" not in html
     assert ".serial-panel" not in styles_css
@@ -225,6 +232,8 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "Auto-detect" not in html
 
     runtime_block = extract_js_function(app_js, "runtimePayload")
+    assert 'const modelProfile = valueOrNull("model-profile");' in runtime_block
+    assert "if (modelProfile !== null) runtime.model_profile = modelProfile;" in runtime_block
     assert "serialOptionsPayload()" in runtime_block
     assert "runtime.serial_options = serialOptions" in runtime_block
     assert "runtime.serial_remote = true" in runtime_block
@@ -1156,6 +1165,58 @@ def client():
     return TestClient(app)
 
 
+class FakeCoreSession:
+    def __init__(self, idn: str, *, query_responses: dict[str, str] | None = None) -> None:
+        self.idn = idn
+        self.query_responses = query_responses or {}
+        self.queries: list[str] = []
+        self.writes: list[str] = []
+        self.closed = False
+
+    def __enter__(self) -> "FakeCoreSession":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.closed = True
+
+    def write(self, command: str) -> None:
+        self.writes.append(command)
+
+    def query(self, command: str) -> str:
+        self.queries.append(command)
+        if command == "*IDN?":
+            return self.idn
+        if command == "INST:NSEL?":
+            return self.query_responses.get(command, "1")
+        if command == "SYST:ERR?":
+            return self.query_responses.get(command, '0,"No error"')
+        if command in self.query_responses:
+            return self.query_responses[command]
+        raise AssertionError(f"unexpected query {command!r}")
+
+
+def wait_for_job(client: TestClient, job_id: str) -> dict[str, Any]:
+    for _ in range(20):
+        job_data = client.get(f"/api/jobs/{job_id}").json()
+        if job_data["status"] in ("finished", "failed"):
+            return job_data
+        time.sleep(0.05)
+    return client.get(f"/api/jobs/{job_id}").json()
+
+
+def patch_core_opener(monkeypatch: pytest.MonkeyPatch, session: FakeCoreSession) -> None:
+    from keysight_power_core.command_runner import run_core_command as real_run_core_command
+    from keysight_power_webui import commands
+
+    def fake_opener(*args: Any, **kwargs: Any) -> FakeCoreSession:
+        return session
+
+    def fake_run_core_command(request: Any, **kwargs: Any) -> dict[str, Any]:
+        return real_run_core_command(request, opener=fake_opener, **kwargs)
+
+    monkeypatch.setattr(commands, "run_core_command", fake_run_core_command)
+
+
 def test_index_uses_cache_busted_assets_and_no_store(client: TestClient):
     from keysight_power_webui import __version__
 
@@ -1688,6 +1749,127 @@ def test_adapter_normalizes_channel_for_core_requests(monkeypatch: pytest.Monkey
 
     request = commands._request_for_job("read-status", RuntimeOptions(simulate=True), {"channel": "bad"})
     assert request.parameters["channel"] == "bad"
+
+
+def test_webui_raw_live_expected_model_match_uses_idn_driver(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FakeCoreSession("Agilent Technologies,E3646A,0,1.0")
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "set",
+            "runtime": {
+                "resource": "USB0::FAKE::INSTR",
+                "simulate": False,
+                "dry_run": False,
+                "confirm": True,
+                "model_profile": "E3646A",
+            },
+            "parameters": {"channel": 1, "voltage": 1, "current": 0.05},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "finished", job_data.get("error")
+    assert job_data["result"]["idn"]["model"] == "E3646A"
+    assert session.queries[0] == "*IDN?"
+    assert "INST:NSEL 1" in session.writes
+    assert "CURR 0.05" in session.writes
+    assert "VOLT 1" in session.writes
+    assert "CURR 0.05,(@1)" not in session.writes
+    assert "VOLT 1,(@1)" not in session.writes
+
+
+def test_webui_raw_live_expected_model_mismatch_fails_before_output_writes(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FakeCoreSession("Agilent Technologies,E3646A,0,1.0")
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "set",
+            "runtime": {
+                "resource": "USB0::FAKE::INSTR",
+                "simulate": False,
+                "dry_run": False,
+                "confirm": True,
+                "model_profile": "E36312A",
+            },
+            "parameters": {"channel": 1, "voltage": 1, "current": 0.05},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "failed"
+    assert "Expected model E36312A" in job_data["error"]
+    assert "connected instrument reported E3646A" in job_data["error"]
+    assert "does not override" in job_data["error"]
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+
+
+def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestClient) -> None:
+    explicit = client.post(
+        "/api/jobs",
+        json={
+            "command": "output-on",
+            "runtime": {
+                "resource": "USB0::FAKE::E3646A::INSTR",
+                "dry_run": True,
+                "simulate": False,
+                "model_profile": "E3646A",
+            },
+            "parameters": {"channel": "all"},
+        },
+    )
+    assert explicit.status_code == 200
+    explicit_job = wait_for_job(client, explicit.json()["job_id"])
+    assert explicit_job["status"] == "finished", explicit_job.get("error")
+    assert explicit_job["result"]["target"]["model_profile"] == "E3646A"
+    assert [step["parameters"]["channel"] for step in explicit_job["result"]["steps"]] == [1, 2]
+
+    inferred = client.post(
+        "/api/jobs",
+        json={
+            "command": "output-on",
+            "runtime": {
+                "resource": "ASRL1::SIM::E3646A::INSTR",
+                "dry_run": True,
+                "simulate": False,
+            },
+            "parameters": {"channel": "all"},
+        },
+    )
+    assert inferred.status_code == 200
+    inferred_job = wait_for_job(client, inferred.json()["job_id"])
+    assert inferred_job["status"] == "finished", inferred_job.get("error")
+    assert inferred_job["result"]["target"]["model_profile"] == "E3646A"
+
+    missing = client.post(
+        "/api/jobs",
+        json={
+            "command": "output-on",
+            "runtime": {
+                "resource": "USB0::FAKE::E3646A::INSTR",
+                "dry_run": True,
+                "simulate": False,
+            },
+            "parameters": {"channel": 1},
+        },
+    )
+    assert missing.status_code == 200
+    missing_job = wait_for_job(client, missing.json()["job_id"])
+    assert missing_job["status"] == "failed"
+    assert "require --model" in missing_job["error"]
 
 
 def test_post_job_real_output_without_confirm_fails(client: TestClient):

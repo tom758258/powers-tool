@@ -50,7 +50,7 @@ script included in the same `keysight-powers` distribution.
   independent-channel DC output ratings and effective safety limits.
 - `keysight_power_core.capabilities`: command and model capability reporting.
 - `keysight_power_core.model_resolution`: strict no-hardware model profile
-  resolution for dry-run and simulator planning.
+  resolution for dry-run/simulator planning and live expected-model guards.
 - `keysight_power_core.testing`: no-hardware simulator used by tests and CLI
   simulation mode.
 
@@ -148,9 +148,10 @@ Fake or live-looking resources such as `USB0::FAKE::E36312A::INSTR` are test
 placeholders and must not imply a model. Deterministic SIM resources such as
 `USB0::SIM::E36312A::INSTR` are accepted because they map to known simulator
 IDN/model data. Trigger no-hardware planning accepts only E36312A. Live
-hardware uses the IDN-detected model. `model_profile` is for no-hardware
-dry-run/simulate planning unless a future explicit expected-model guard is
-added, and it is rejected for live trigger requests before opening VISA.
+hardware uses the IDN-detected model. In live mode, `model_profile` is an
+expected-model guard: after `*IDN?`, Core requires the detected model to match
+before setup/write SCPI. The selected model never overrides the IDN-selected
+driver.
 
 ## Output Workflow Pulses
 

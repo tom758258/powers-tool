@@ -164,6 +164,21 @@ button.resource-collapse-toggle {
   line-height: 1.4;
 }
 
+.model-profile-control {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.model-profile-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-transform: none;
+}
+
 .device-resource-body {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(320px, 1fr);
