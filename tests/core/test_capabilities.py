@@ -73,6 +73,26 @@ def test_command_support_edu36311a_output_protection_and_trigger_boundary() -> N
         assert support[command]["hardware_validation"] == "not_supported_by_model"
 
 
+@pytest.mark.parametrize("command", ["trigger-step", "trigger-list"])
+def test_command_support_e36312a_native_trigger_policy(command: str) -> None:
+    support = capabilities.command_support("E36312A")
+
+    assert support[command]["real"] is True
+    assert support[command]["simulate"] is True
+    assert support[command]["dry_run"] is True
+    assert support[command]["hardware_validation"] == "validated"
+
+
+@pytest.mark.parametrize("command", ["snapshot", "restore-from-snapshot"])
+def test_command_support_edu36311a_snapshot_restore_disabled(command: str) -> None:
+    support = capabilities.command_support("EDU36311A")
+
+    assert support[command]["real"] is False
+    assert support[command]["simulate"] is False
+    assert support[command]["dry_run"] is False
+    assert support[command]["hardware_validation"] == "not_supported_by_model"
+
+
 def test_command_support_generic_fallback() -> None:
     support = capabilities.command_support(None)
 
@@ -151,6 +171,67 @@ def test_command_support_e3646a_rs232_read_only_boundary() -> None:
             assert support[command]["simulate"] is False
             assert support[command]["dry_run"] is False
         assert support[command]["hardware_validation"] == "not_enabled"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "protection-set",
+        "clear-protection",
+        "snapshot",
+        "restore-from-snapshot",
+        "trigger-pulse",
+        "trigger-status",
+        "trigger-step",
+        "trigger-list",
+        "trigger-fire",
+        "trigger-abort",
+    ],
+)
+def test_command_support_e3646a_unsupported_mutating_and_native_workflows_disabled(command: str) -> None:
+    support = capabilities.command_support("E3646A")
+
+    assert support[command]["real"] is False
+    assert support[command]["simulate"] is False
+    assert support[command]["dry_run"] is False
+    assert support[command]["hardware_validation"] == "not_enabled"
+
+
+@pytest.mark.parametrize("command", ["ramp-list", "sequence"])
+def test_command_support_e3646a_software_workflows_remain_allowed(command: str) -> None:
+    support = capabilities.command_support("E3646A")
+
+    assert support[command]["real"] is True
+    assert support[command]["simulate"] is True
+    assert support[command]["hardware_validation"] == "validated"
+
+
+@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
+def test_command_support_unvalidated_live_models_do_not_enable_mutating_workflows(model: str) -> None:
+    support = capabilities.command_support(model)
+
+    for command in (
+        "set",
+        "apply",
+        "output-on",
+        "output-off",
+        "safe-off",
+        "cycle-output",
+        "ramp",
+        "ramp-list",
+        "smoke-output",
+        "sequence",
+        "protection-set",
+        "clear-protection",
+        "snapshot",
+        "restore-from-snapshot",
+        "trigger-pulse",
+        "trigger-step",
+        "trigger-list",
+        "trigger-fire",
+        "trigger-abort",
+    ):
+        assert support[command]["real"] is False, command
 
 
 def test_known_capability_commands_include_cli_queryable_commands() -> None:

@@ -224,8 +224,10 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "Auto uses the detected live model when known" in html
     assert "frontend capability planning" in html
     assert "never overrides the IDN-selected driver" in html
-    for model in ("E36312A", "EDU36311A", "E3646A", "E36103B", "E36232A"):
+    for model in ("E36312A", "EDU36311A", "E3646A"):
         assert f'<option value="{model}">{model}</option>' in html
+    for unvalidated_model in ("E36103B", "E36232A"):
+        assert f'<option value="{unvalidated_model}">{unvalidated_model}</option>' not in html
     assert '<option value="GENERIC">GENERIC</option>' not in html
     assert "Optional ASRL/serial overrides" in html
     assert "serial-panel" not in html
@@ -241,6 +243,17 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "runtime.serial_remote = true" in runtime_block
     assert "runtime.serial_local_on_close = true" in runtime_block
     assert ".serial-grid" in styles_css
+
+
+def test_static_normal_model_dropdown_policy() -> None:
+    html, _app_js, _styles_css = read_static_texts()
+    model_select = html[html.index('id="model-profile"'):html.index("</select>", html.index('id="model-profile"'))]
+
+    assert '<option value="">Auto</option>' in model_select
+    for model in ("E36312A", "EDU36311A", "E3646A"):
+        assert f'<option value="{model}">{model}</option>' in model_select
+    for unvalidated_model in ("E36103B", "E36232A"):
+        assert unvalidated_model not in model_select
 
 
 def test_static_device_resource_summary_uses_model_wording():
@@ -763,6 +776,44 @@ def test_static_pulse_child_fields_and_rear_pin_select_contracts():
     assert "function updatePulseChildVisibility(command)" in app_js
 
 
+def test_static_frontend_uses_command_support_to_disable_unsupported_model_commands():
+    _index_html, app_js, _styles_css = read_static_texts()
+    command_meta = extract_js_function(app_js, "commandMeta")
+    update_selected = extract_js_function(app_js, "updateSelectedCommandState")
+    selected_command = extract_js_function(app_js, "selectedCommandModel")
+
+    assert "const support = selectedCommandSupport(name);" in command_meta
+    assert "support.real !== false" in command_meta
+    assert "disabled: true" in command_meta
+    assert "commandDisabledReason(support, selectedCommandModel())" in command_meta
+    assert "runButton.disabled = Boolean(meta.disabled" in update_selected
+    assert "state.commandSupportByModel?.[expected]" in selected_command
+
+
+def test_static_frontend_policy_for_edu_and_e3646a_disabled_controls():
+    _index_html, app_js, _styles_css = read_static_texts()
+    command_meta = extract_js_function(app_js, "commandMeta")
+    update_selected = extract_js_function(app_js, "updateSelectedCommandState")
+
+    assert '"trigger-step"' in app_js
+    assert '"trigger-list"' in app_js
+    assert '"snapshot"' in app_js
+    assert '"restore-from-snapshot"' in app_js
+    assert '"protection-set"' in app_js
+    assert '"trigger-pulse"' in app_js
+    assert "support.real !== false" in command_meta
+    assert "disabled: true" in command_meta
+    assert "runButton.disabled = Boolean(meta.disabled" in update_selected
+
+
+def test_static_e3646a_ramp_list_and_sequence_wording_does_not_imply_native_list_support():
+    index_html, app_js, _styles_css = read_static_texts()
+
+    assert "native LIST" not in index_html
+    assert "native LIST" not in extract_param_block(app_js, "ramp-list")
+    assert "Native LIST" not in extract_param_block(app_js, "ramp-list")
+
+
 def test_static_job_result_summary_contract():
     _index_html, app_js, _styles_css = read_static_texts()
 
@@ -1256,6 +1307,38 @@ def patch_core_opener(monkeypatch: pytest.MonkeyPatch, session: FakeCoreSession)
         return real_run_core_command(request, opener=fake_opener, **kwargs)
 
     monkeypatch.setattr(commands, "run_core_command", fake_run_core_command)
+
+
+def assert_direct_job_rejected(client: TestClient, payload: dict[str, Any], *message_fragments: str) -> None:
+    response = client.post("/api/jobs", json=payload)
+    if response.status_code == 400:
+        detail = response.json()["detail"]
+        for fragment in message_fragments:
+            assert fragment in detail
+        return
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "failed", job_data.get("result")
+    error = job_data.get("error") or ""
+    for fragment in message_fragments:
+        assert fragment in error
+
+
+def policy_snapshot_document(model: str) -> dict[str, Any]:
+    return {
+        "idn": {
+            "raw": f"KEYSIGHT,{model},SERIAL0000,1.0",
+            "manufacturer": "KEYSIGHT",
+            "model": model,
+            "serial": "SERIAL0000",
+            "firmware": "1.0",
+            "parse_ok": True,
+        },
+        "outputs": [{"channel": 1, "enabled": False}],
+        "readback": [{"channel": 1, "setpoints": {"voltage": 1.0, "current": 0.05}}],
+        "protection_settings": [{"channel": 1, "protection": {"ovp_voltage": 5.0, "ocp_enabled": True}}],
+    }
 
 
 def test_index_uses_cache_busted_assets_and_no_store(client: TestClient):
@@ -1911,6 +1994,153 @@ def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestC
     missing_job = wait_for_job(client, missing.json()["job_id"])
     assert missing_job["status"] == "failed"
     assert "require --model" in missing_job["error"]
+
+
+@pytest.mark.parametrize(
+    ("payload", "fragments"),
+    [
+        (
+            {
+                "command": "trigger-step",
+                "runtime": {"dry_run": True, "model_profile": "EDU36311A"},
+                "parameters": {"channel": 1, "source": "bus", "fire": True},
+            },
+            ("E36312A",),
+        ),
+        (
+            {
+                "command": "trigger-list",
+                "runtime": {"dry_run": True, "model_profile": "EDU36311A"},
+                "parameters": {
+                    "channel": 1,
+                    "source": "bus",
+                    "fire": True,
+                    "wait_complete": True,
+                    "voltage_list": [0.0, 1.0],
+                    "current_list": [0.05, 0.05],
+                    "dwell_list": [0.01, 0.01],
+                },
+            },
+            ("E36312A",),
+        ),
+        (
+            {
+                "command": "snapshot",
+                "runtime": {"simulate": True, "resource": "USB0::SIM::EDU36311A::INSTR"},
+                "parameters": {},
+            },
+            ("E36312A",),
+        ),
+        (
+            {
+                "command": "restore-from-snapshot",
+                "runtime": {"dry_run": True, "model_profile": "EDU36311A"},
+                "parameters": {"document": policy_snapshot_document("EDU36311A"), "channel": 1},
+            },
+            ("E36312A",),
+        ),
+    ],
+)
+def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
+    client: TestClient,
+    payload: dict[str, Any],
+    fragments: tuple[str, ...],
+) -> None:
+    assert_direct_job_rejected(client, payload, *fragments)
+
+
+@pytest.mark.parametrize(
+    ("payload", "fragments"),
+    [
+        (
+            {
+                "command": "protection-set",
+                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "parameters": {"channel": 1, "ovp_voltage": 5.0},
+            },
+            ("not",),
+        ),
+        (
+            {
+                "command": "trigger-step",
+                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "parameters": {"channel": 1, "source": "bus", "fire": True},
+            },
+            ("E36312A",),
+        ),
+        (
+            {
+                "command": "trigger-list",
+                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "parameters": {
+                    "channel": 1,
+                    "source": "bus",
+                    "fire": True,
+                    "wait_complete": True,
+                    "voltage_list": [0.0, 1.0],
+                    "current_list": [0.05, 0.05],
+                    "dwell_list": [0.01, 0.01],
+                },
+            },
+            ("E36312A",),
+        ),
+        (
+            {
+                "command": "snapshot",
+                "runtime": {"simulate": True, "resource": "ASRL1::SIM::E3646A::INSTR"},
+                "parameters": {},
+            },
+            ("E36312A",),
+        ),
+        (
+            {
+                "command": "restore-from-snapshot",
+                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "parameters": {"document": policy_snapshot_document("E3646A"), "channel": 1},
+            },
+            ("E36312A",),
+        ),
+        (
+            {
+                "command": "sequence",
+                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "parameters": {"document": {"version": 1, "steps": [{"action": "trigger-pulse", "channel": 1, "pins": [1]}]}},
+            },
+            ("E36312A",),
+        ),
+    ],
+)
+def test_webui_direct_jobs_reject_e3646a_disabled_workflows(
+    client: TestClient,
+    payload: dict[str, Any],
+    fragments: tuple[str, ...],
+) -> None:
+    assert_direct_job_rejected(client, payload, *fragments)
+
+
+def test_webui_direct_e3646a_sequence_validated_read_only_and_output_steps_allowed(client: TestClient) -> None:
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "sequence",
+            "runtime": {"dry_run": True, "model_profile": "E3646A"},
+            "parameters": {
+                "document": {
+                    "version": 1,
+                    "steps": [
+                        {"action": "readback", "channel": 1},
+                        {"action": "set", "channel": 2, "voltage": 1.0, "current": 0.05},
+                        {"action": "output-off", "channel": 2},
+                    ],
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "finished", job_data.get("error")
+    assert job_data["result"]["plan"]["target"]["model_profile"] == "E3646A"
 
 
 def test_post_job_real_output_without_confirm_fails(client: TestClient):
