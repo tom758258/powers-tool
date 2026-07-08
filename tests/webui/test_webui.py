@@ -1951,6 +1951,38 @@ def test_webui_raw_live_expected_model_mismatch_fails_before_output_writes(
     assert session.writes == []
 
 
+@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
+def test_webui_live_job_blocks_descoped_idn_before_generic_fallback(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    model: str,
+) -> None:
+    session = FakeCoreSession(f"KEYSIGHT,{model},SERIAL0000,1.0")
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "read-status",
+            "runtime": {
+                "resource": "USB0::FAKE::INSTR",
+                "simulate": False,
+                "dry_run": False,
+            },
+            "parameters": {"channel": 1},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "failed"
+    assert model in job_data["error"]
+    assert "de-scoped and not active supported" in job_data["error"]
+    assert "blocked from generic fallback" in job_data["error"]
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+
+
 def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestClient) -> None:
     explicit = client.post(
         "/api/jobs",
@@ -2611,27 +2643,14 @@ def test_live_data_live_panel_emits_three_channel_panel_sample(client: TestClien
 
 
 @pytest.mark.parametrize("envelope_key", ["result", "data"])
-def test_live_data_live_panel_unwraps_envelope(client: TestClient, monkeypatch: pytest.MonkeyPatch, envelope_key: str):
-    def fake_live_panel(runtime: Any, parameters: dict[str, Any]) -> dict[str, Any]:
-        return {envelope_key: _fake_e36312a_live_panel(runtime.resource)}
+def test_live_data_live_panel_unwraps_envelope(envelope_key: str):
+    from keysight_power_webui.app import _live_panel_sample_from_reading
 
-    from keysight_power_webui import commands
-
-    monkeypatch.setattr(commands, "execute_live_panel_read", fake_live_panel)
-    response = client.post(
-        "/api/live",
-        json={
-            "runtime": {
-                "resource": "USB0::FAKE::E36312A::INSTR",
-                "simulate": False,
-            },
-            "parameters": {"interval_ms": 50},
-        },
+    sample = _live_panel_sample_from_reading(
+        {envelope_key: _fake_e36312a_live_panel("USB0::FAKE::E36312A::INSTR")},
+        {"resource": "USB0::FAKE::E36312A::INSTR"},
     )
-    assert response.status_code == 200
-    job_id = response.json()["job_id"]
 
-    sample = _wait_for_live_progress(job_id)["data"]
     assert sample["status"] == "ok"
     assert sample["stale"] is False
     assert sample["mode"] == "live"
@@ -2647,8 +2666,6 @@ def test_live_data_live_panel_unwraps_envelope(client: TestClient, monkeypatch: 
     assert sample["channels"][1]["set_voltage"] == 0.0
     assert sample["channels"][1]["over_current_protection_enabled"] is False
     assert sample["channels"][2]["measured_current"] == 0.0
-
-    assert client.post(f"/api/live/{job_id}/stop").status_code == 200
 
 
 def test_live_data_live_panel_with_no_panel_records_is_stale_error(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -2884,6 +2901,8 @@ def _wait_for_live_progress(job_id: str) -> dict[str, Any]:
 
     for _ in range(30):
         job = job_manager.jobs[job_id]
+        if job.status.value in {"failed", "cancelled"}:
+            raise AssertionError(f"live job ended before progress: {job.status.value}: {job.error}")
         progress = [event for event in job.events if event["type"] == "progress"]
         if progress:
             return progress[-1]

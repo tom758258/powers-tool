@@ -215,6 +215,21 @@ def test_verify_prints_idn_response(monkeypatch, capsys) -> None:
     assert opened == [("USB0::FAKE::INSTR", "@py", 1234)]
 
 
+@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
+def test_identity_diagnostics_report_descoped_raw_idn(monkeypatch, capsys, model: str) -> None:
+    raw_idn = f"KEYSIGHT,{model},SERIAL0000,1.0"
+    monkeypatch.setattr(cli, "list_resources", lambda *, backend=None: ("USB0::FAKE::INSTR",))
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: FakeSession(raw_idn))
+
+    assert cli.main(["verify", "--resource", "USB0::FAKE::INSTR"]) == 0
+    assert capsys.readouterr().out == f"{raw_idn}\n"
+
+    assert cli.main(["list-resources", "--live-only"]) == 0
+    captured = capsys.readouterr()
+    assert raw_idn in captured.out
+    assert captured.err == ""
+
+
 def test_verify_serial_flags_are_forwarded_to_opener(monkeypatch, capsys) -> None:
     opened = []
 
@@ -1154,6 +1169,28 @@ def test_measure_real_generic_channel_two_is_rejected_after_idn(
     assert payload["error"]["type"] == "validation"
     assert payload["error"]["code"] == "argument_error"
     assert "channel 1 only" in payload["error"]["message"]
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
+def test_model_aware_live_command_blocks_descoped_idn_before_generic_fallback(
+    monkeypatch,
+    capsys,
+    model: str,
+) -> None:
+    session = FakeSession(idn=f"KEYSIGHT,{model},SERIAL0000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["read-status", "--json", "--resource", OUTPUT_RESOURCE]) == 2
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert payload["error"]["code"] == "unsupported_model_for_status"
+    assert model in payload["error"]["message"]
+    assert "de-scoped and not active supported" in payload["error"]["message"]
+    assert "blocked from generic fallback" in payload["error"]["message"]
     assert captured.err == ""
 
 

@@ -19,7 +19,7 @@ def test_preview_measure_scpi_uses_first_target_channel_list_queries(idn, channe
 
 
 def test_preview_measure_scpi_uses_generic_queries_for_fallback_driver() -> None:
-    assert preview_measure_scpi("KEYSIGHT,E36103B,SERIAL0000,1.0", channel=1) == (
+    assert preview_measure_scpi("KEYSIGHT,UNKNOWN,SERIAL0000,1.0", channel=1) == (
         "MEAS:VOLT?",
         "MEAS:CURR?",
     )

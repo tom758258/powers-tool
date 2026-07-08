@@ -9,7 +9,15 @@ from keysight_power_core.drivers.e36312a import E36312APowerSupply
 from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.drivers.generic_scpi import ChannelStrategy, GenericScpiPowerSupply
-from keysight_power_core.models import IdnInfo, ModelInfo, lookup_model, parse_idn
+from keysight_power_core.core import UnsupportedModelError
+from keysight_power_core.models import (
+    DE_SCOPED_MODELS,
+    IdnInfo,
+    ModelInfo,
+    de_scoped_model_message,
+    lookup_model,
+    parse_idn,
+)
 from keysight_power_core.safety import SafetyLimits
 from keysight_power_core.transport import SessionLike
 
@@ -40,6 +48,10 @@ def select_driver(idn: str | IdnInfo) -> DriverSelection:
     """Select the safest available driver for an IDN response."""
 
     parsed_idn = parse_idn(idn) if isinstance(idn, str) else idn
+    parsed_model = parsed_idn.model.strip().upper() if parsed_idn.model else None
+    if parsed_idn.parse_ok and parsed_model in DE_SCOPED_MODELS:
+        raise UnsupportedModelError(de_scoped_model_message(parsed_model))
+
     model_info = lookup_model(parsed_idn.model) if parsed_idn.parse_ok else None
 
     if not parsed_idn.parse_ok:

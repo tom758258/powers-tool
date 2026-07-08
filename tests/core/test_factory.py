@@ -1,3 +1,5 @@
+import pytest
+
 from keysight_power_core.drivers.base import DriverCapabilities
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
 from keysight_power_core.drivers.e3646a import E3646APowerSupply
@@ -5,6 +7,7 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
 from keysight_power_core.electrical_ratings import E36312A_ELECTRICAL_RATINGS, EDU36311A_ELECTRICAL_RATINGS
 from keysight_power_core.factory import create_power_supply, select_driver
+from keysight_power_core.core import UnsupportedModelError
 from keysight_power_core.models import parse_idn
 
 
@@ -70,17 +73,24 @@ def test_first_target_drivers_expose_conservative_capabilities() -> None:
     )
 
 
-def test_descoped_model_falls_back_as_unknown_generic_driver() -> None:
-    selection = select_driver("KEYSIGHT,E36103B,SERIAL0000,1.0")
+def test_descoped_models_are_blocked_from_generic_fallback() -> None:
+    for model in ("E36103B", "E36232A"):
+        with pytest.raises(UnsupportedModelError) as excinfo:
+            select_driver(f"KEYSIGHT,{model},SERIAL0000,1.0")
 
-    assert selection.model_info is None
-    assert selection.driver_class is GenericScpiPowerSupply
-    assert selection.reason == "unknown_model_generic_fallback"
-    assert selection.capabilities == DriverCapabilities(
-        channels=(1,),
-        simulated_measure_channels=(1,),
-        real_measure_channels=(1,),
-    )
+        message = str(excinfo.value)
+        assert model in message
+        assert "de-scoped and not active supported" in message
+        assert "blocked from generic fallback" in message
+
+
+def test_descoped_model_create_power_supply_does_not_wrap_session() -> None:
+    session = FakeSession()
+
+    with pytest.raises(UnsupportedModelError):
+        create_power_supply(session, "KEYSIGHT,E36103B,SERIAL0000,1.0")
+
+    assert session.commands == []
 
 
 def test_near_term_and_later_models_are_recognized() -> None:

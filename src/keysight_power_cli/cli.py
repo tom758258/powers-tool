@@ -3154,6 +3154,19 @@ def _run_read_only_command(
             ),
             {},
         )
+    except UnsupportedModelError as exc:
+        return (
+            _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code=unsupported_code,
+                message=str(exc),
+                retryable=False,
+                hardware_intent=True,
+            ),
+            {},
+        )
     except VisaConnectionError as exc:
         code = failure_code if opened else "connection_failed"
         message = (

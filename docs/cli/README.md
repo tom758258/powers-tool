@@ -348,7 +348,9 @@ step-limited software `sequence`; those workflows are not native LIST support
 and reject unsupported protection, trigger, snapshot, restore, native LIST,
 and completion-pulse sequence steps. E36103B and E36232A are not active
 supported models and are rejected as model profiles and live expected-model
-guards.
+guards. If live `*IDN?` reports either model, model-aware commands reject the
+instrument instead of falling back to `GenericScpiPowerSupply`; `verify` and
+`list-resources --live-only` may still report the raw IDN as diagnostics.
 
 Real CLI measurement keeps generic instruments on channel 1. E36312A and
 EDU36311A channels 2 and 3 use IDN-selected channel-list measurement queries.

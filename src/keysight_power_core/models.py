@@ -79,6 +79,20 @@ REGISTERED_MODELS: dict[str, ModelInfo] = {
     ),
 }
 
+DE_SCOPED_MODELS = frozenset({"E36103B", "E36232A"})
+
+
+def de_scoped_model_message(model: str) -> str:
+    """Return the current support-boundary message for a de-scoped model."""
+
+    return (
+        f"{model} is de-scoped and not active supported. It was previously "
+        "considered as an unvalidated planning model, but is now blocked from "
+        "generic fallback. Future reintroduction requires a new "
+        "model-enablement plan, programming-guide review, simulator/fake "
+        "coverage, explicit feature matrix, and real hardware validation."
+    )
+
 
 def parse_idn(raw: str) -> IdnInfo:
     """Parse a SCPI `*IDN?` response into the stable project model."""

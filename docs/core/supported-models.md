@@ -53,9 +53,11 @@ model.
 
 E36103B and E36232A are not active supported models. They are rejected as
 no-hardware model profiles, live expected-model guards, WebUI model selections,
-and `scripts/live-cli-check.ps1` targets. Additional Keysight E36xxx /
-E36000-series models may be evaluated later after programming-guide review,
-fake/simulator coverage, and real hardware validation.
+`scripts/live-cli-check.ps1` targets, and live `*IDN?`-detected model-aware
+operations. They must not fall back to `GenericScpiPowerSupply`. Additional
+Keysight E36xxx / E36000-series models may be evaluated later after
+programming-guide review, fake/simulator coverage, and real hardware
+validation.
 
 ## Command Support Notes
 
