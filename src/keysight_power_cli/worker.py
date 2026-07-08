@@ -570,6 +570,7 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
         safety_config=settings.get("safety_config"),
         simulate=(config["mode"] == "simulate"),
         dry_run=dry_run_req,
+        model_profile="E36312A" if dry_run_req else None,
         backend=settings.get("backend"),
         timeout_ms=settings.get("timeout_ms", 5000),
         confirm=confirm_req,

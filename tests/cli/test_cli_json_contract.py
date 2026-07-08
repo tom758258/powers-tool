@@ -5,7 +5,7 @@ import pytest
 import keysight_power_cli.cli as cli
 
 
-SIM_RESOURCE = "USB0::SIM::E36103B::INSTR"
+SIM_RESOURCE = "USB0::SIM::E36312A::INSTR"
 SIM_E36312A_RESOURCE = "USB0::SIM::E36312A::INSTR"
 ENVELOPE_KEYS = {
     "schema_version",

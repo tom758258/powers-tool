@@ -7,6 +7,7 @@ import time
 from dataclasses import replace
 from typing import Any, Callable, Sequence
 
+from keysight_power_core import capabilities
 from keysight_power_core.connection import open_resource, serial_open_kwargs
 from keysight_power_core.cancellation import StopRequested, interruptible_sleep, raise_if_cancelled
 from keysight_power_core.core import (
@@ -82,6 +83,8 @@ def run_operation(
 
     runtime = resolve_no_hardware_runtime(request.runtime)
     request = replace(request, runtime=runtime)
+    if request.runtime.dry_run or request.runtime.simulate:
+        _ensure_operation_supported(request)
     validate_general_workflow_parameters(request)
     if request.runtime.dry_run or request.runtime.simulate:
         return output_plan(request)
@@ -113,6 +116,8 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
 
     runtime = resolve_no_hardware_runtime(request.runtime)
     request = replace(request, runtime=runtime)
+    if request.runtime.dry_run or request.runtime.simulate:
+        _ensure_operation_supported(request)
     validate_general_workflow_parameters(request)
     validate_request_parameters(request)
     _validate_known_simulated_model_setpoints(request)
@@ -603,6 +608,11 @@ def _execute_output_write(
 
 def _validate_real_gate(request: OperationRequest) -> None:
     return None
+
+
+def _ensure_operation_supported(request: OperationRequest) -> None:
+    mode = "dry_run" if request.runtime.dry_run else "simulate"
+    capabilities.ensure_command_supported(request.command, request.runtime.model_profile, mode)
 
 
 def _validate_setpoint_for_request(

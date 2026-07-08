@@ -6,6 +6,7 @@ import math
 from dataclasses import replace
 from typing import Any, Callable
 
+from keysight_power_core import capabilities
 from keysight_power_core.connection import open_resource
 from keysight_power_core.core import (
     ConfirmationRequiredError,
@@ -49,9 +50,11 @@ def run_protection(
         return _run_status(request, opener=opener, scpi_logger=scpi_logger)
     if request.command == "protection-set":
         request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
+        _ensure_protection_supported(request)
         return _run_set(request, opener=opener, scpi_logger=scpi_logger)
     if request.command == "clear-protection":
         request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
+        _ensure_protection_supported(request)
         return _run_clear(request, opener=opener, scpi_logger=scpi_logger)
     raise CoreValidationError(f"unsupported protection command {request.command!r}")
 
@@ -225,6 +228,13 @@ def _require_supported(power_supply: Any, command: str) -> None:
         raise UnsupportedModelError(
             f"{command} is only supported for E36312A or EDU36311A; found {type(power_supply).__name__} from *IDN? response"
         )
+
+
+def _ensure_protection_supported(request: OperationRequest) -> None:
+    if not (request.runtime.dry_run or request.runtime.simulate):
+        return
+    mode = "dry_run" if request.runtime.dry_run else "simulate"
+    capabilities.ensure_command_supported(request.command, request.runtime.model_profile, mode)
 
 
 def _selected_channel(request: OperationRequest) -> int | str:

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 from typing import Any, Callable
 
+from keysight_power_core import capabilities
 from keysight_power_core.connection import open_resource
 from keysight_power_core.cancellation import StopRequested, raise_if_cancelled
 from keysight_power_core.core import ConfirmationRequiredError, CoreIoError, CoreValidationError, OperationRequest, UnsupportedModelError
@@ -13,6 +15,7 @@ from keysight_power_core.drivers.e36312a import E36312APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
+from keysight_power_core.model_resolution import resolve_no_hardware_runtime
 from keysight_power_core.operations import IDN_QUERY, ScpiLoggingSession
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
 from keysight_power_core.testing.simulator import SimulatedResourceManager
@@ -28,6 +31,15 @@ def run_restore(
     if request.command != "restore-from-snapshot":
         raise CoreValidationError(f"unsupported restore command {request.command!r}")
     snapshot = _snapshot_document(request)
+    if request.runtime.dry_run or request.runtime.simulate:
+        if request.runtime.model_profile is None:
+            snapshot_idn = snapshot.get("idn") if isinstance(snapshot.get("idn"), dict) else {}
+            snapshot_model = snapshot_idn.get("model")
+            if isinstance(snapshot_model, str) and snapshot_model:
+                request = replace(request, runtime=replace(request.runtime, model_profile=snapshot_model))
+        request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
+        mode = "dry_run" if request.runtime.dry_run else "simulate"
+        capabilities.ensure_command_supported(request.command, request.runtime.model_profile, mode)
     channels = _restore_channels(request, snapshot)
     plan = restore_plan(
         snapshot,

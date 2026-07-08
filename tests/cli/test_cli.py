@@ -8,7 +8,7 @@ import keysight_power_cli.cli as cli
 from keysight_power_core.errors import VisaConnectionError
 
 
-OUTPUT_RESOURCE = "USB0::SIM::E36103B::INSTR"
+OUTPUT_RESOURCE = "USB0::SIM::E36312A::INSTR"
 WRITE_VERIFICATION_REQUEST_DEFAULTS = {
     "settle_ms": 0,
     "verify_after_write": False,
@@ -1439,7 +1439,7 @@ def test_output_commands_dry_run_json_emit_logical_plans(
     assert payload["data"]["plan"]["operation"] == {"name": args[0]}
     assert payload["data"]["plan"]["target"] == {
         "resource": OUTPUT_RESOURCE,
-        "model_profile": "E36103B",
+        "model_profile": "E36312A",
         "channel": 1,
     }
     assert payload["data"]["plan"]["hardware_touched"] is False

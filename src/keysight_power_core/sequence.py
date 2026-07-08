@@ -245,6 +245,8 @@ def normalize_sequence_step(index: int, raw_step: Any) -> dict[str, Any]:
 def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> None:
     action = step["action"]
     parameters = step["parameters"]
+    if (request.runtime.dry_run or request.runtime.simulate) and request.runtime.model_profile == "E3646A" and action == "trigger-pulse":
+        raise CoreValidationError("unsupported sequence trigger-pulse for E3646A; E36312A supports this step")
     if action in {"measure", "readback", "output-state", "safe-off", "output-on", "output-off", "cycle-output"}:
         channel = sequence_channel(parameters.get("channel", 1), allow_all=(action in {"safe-off", "output-state", "output-on", "output-off", "cycle-output"}))
         _validate_no_hardware_sequence_channels(request, channel)

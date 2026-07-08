@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Callable
 
+from keysight_power_core import capabilities
 from keysight_power_core.connection import open_resource
 from keysight_power_core.core import CoreIoError, CoreValidationError, OperationRequest, UnsupportedModelError
 from keysight_power_core.drivers.e36312a import E36312APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
+from keysight_power_core.model_resolution import resolve_no_hardware_runtime
 from keysight_power_core.operations import ScpiLoggingSession
 from keysight_power_core.testing.simulator import SimulatedResourceManager
 
@@ -24,6 +27,10 @@ def run_snapshot(
 ) -> dict[str, Any]:
     if request.command != "snapshot":
         raise CoreValidationError(f"unsupported snapshot command {request.command!r}")
+    if request.runtime.dry_run or request.runtime.simulate:
+        request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
+        mode = "dry_run" if request.runtime.dry_run else "simulate"
+        capabilities.ensure_command_supported(request.command, request.runtime.model_profile, mode)
     instrument, idn = _open(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
         power_supply = create_power_supply(instrument.session, idn)

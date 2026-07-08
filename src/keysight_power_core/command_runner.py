@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Callable
 
+from keysight_power_core import capabilities
 from keysight_power_core.core import CoreValidationError, OperationRequest, SequenceRequest, TriggerRequest
 from keysight_power_core.discovery import run_discovery
 from keysight_power_core.instrument_io import run_instrument_io
+from keysight_power_core.model_resolution import resolve_no_hardware_runtime
 from keysight_power_core.operations import run_operation
 from keysight_power_core.parameter_constraints import validate_request_parameters
 from keysight_power_core.protection import run_protection
@@ -29,6 +32,7 @@ def run_core_command(
     scpi_logger: Callable[[str, str, str], None] | None = None,
     cleanup_reporter: CleanupReporter | None = None,
 ) -> dict[str, Any]:
+    request = _apply_no_hardware_support_gate(request)
     command = request.command
     validate_request_parameters(request)
     if isinstance(request, OperationRequest):
@@ -93,6 +97,19 @@ def run_core_command(
             kwargs["opener"] = opener
         return run_operation(request, **kwargs)
     raise CoreValidationError(f"unsupported core command {command!r}")
+
+
+def _apply_no_hardware_support_gate(
+    request: OperationRequest | TriggerRequest | SequenceRequest,
+) -> OperationRequest | TriggerRequest | SequenceRequest:
+    if not (request.runtime.dry_run or request.runtime.simulate):
+        return request
+    if request.command not in capabilities.known_capability_commands():
+        return request
+    runtime = resolve_no_hardware_runtime(request.runtime)
+    mode = "dry_run" if runtime.dry_run else "simulate"
+    capabilities.ensure_command_supported(request.command, runtime.model_profile, mode)
+    return replace(request, runtime=runtime)
 
 
 def _default_opener(*args: Any, **kwargs: Any) -> Any:

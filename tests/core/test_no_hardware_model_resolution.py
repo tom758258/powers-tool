@@ -176,7 +176,7 @@ def test_e3646a_no_hardware_channel_three_is_rejected_across_planners() -> None:
     with pytest.raises(CoreValidationError, match="channel 3"):
         run_sequence(SequenceRequest(runtime=runtime, parameters={"document": sequence_document}))
 
-    with pytest.raises(CoreValidationError, match="channel 3"):
+    with pytest.raises(CoreValidationError, match="not supported for E3646A"):
         run_protection(
             OperationRequest(
                 command="clear-protection",
@@ -186,7 +186,7 @@ def test_e3646a_no_hardware_channel_three_is_rejected_across_planners() -> None:
         )
 
 
-def test_sequence_and_protection_e3646a_all_expand_to_two_channels() -> None:
+def test_sequence_e3646a_all_expands_to_two_channels_and_protection_is_policy_disabled() -> None:
     runtime = RuntimeOptions(dry_run=True, model_profile="E3646A")
 
     sequence_data = run_sequence(
@@ -198,18 +198,14 @@ def test_sequence_and_protection_e3646a_all_expand_to_two_channels() -> None:
     assert sequence_data["plan"]["target"]["model_profile"] == "E3646A"
     assert sequence_data["plan"]["steps"][0]["preview"]["commands"] == ["OUTP OFF,(@1)", "OUTP OFF,(@2)"]
 
-    protection_data = run_protection(
-        OperationRequest(
-            command="clear-protection",
-            runtime=runtime,
-            parameters={"channel": "all"},
+    with pytest.raises(CoreValidationError, match="not supported for E3646A"):
+        run_protection(
+            OperationRequest(
+                command="clear-protection",
+                runtime=runtime,
+                parameters={"channel": "all"},
+            )
         )
-    )
-    assert protection_data["plan"]["target"]["model_profile"] == "E3646A"
-    assert [step["command"] for step in protection_data["plan"]["steps"]] == [
-        "OUTP:PROT:CLE (@1)",
-        "OUTP:PROT:CLE (@2)",
-    ]
 
 
 def test_trigger_dry_run_requires_e36312a_model_or_known_sim_resource() -> None:
