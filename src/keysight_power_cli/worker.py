@@ -70,6 +70,7 @@ TRIGGER_COMMANDS = {
 ALLOWED_COMMANDS = READ_ONLY_COMMANDS | OUTPUT_COMMANDS | PROTECTION_COMMANDS | TRIGGER_COMMANDS
 OUTPUT_AFFECTING_COMMANDS = OUTPUT_COMMANDS | {"protection-set", "clear-protection", "restore-from-snapshot", "sequence"}
 REQUEST_KEYS = {"command", "arguments", "job_id"}
+RUNTIME_ARGUMENT_KEYS = {"dry_run", "confirm_output", "model_profile"}
 
 _event_lock = threading.Lock()
 _sequence_counter = 1
@@ -186,6 +187,8 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "arguments.dry_run must be boolean"})
     if "confirm_output" in arguments and not isinstance(arguments["confirm_output"], bool):
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "arguments.confirm_output must be boolean"})
+    if "model_profile" in arguments and (not isinstance(arguments["model_profile"], str) or not arguments["model_profile"].strip()):
+        return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "arguments.model_profile must be a non-empty string"})
     if "channel" in arguments:
         channel = arguments["channel"]
         if channel != "all":
@@ -213,8 +216,9 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
                         resource_alias=settings.get("resource_alias"),
                         safety_config=settings.get("safety_config"),
                         dry_run=True,
+                        model_profile=arguments.get("model_profile"),
                     ),
-                    parameters={key: value for key, value in arguments.items() if key not in {"dry_run", "confirm_output"}},
+                    parameters=_command_parameters(arguments),
                 ),
                 document,
             )
@@ -231,8 +235,9 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
                 resource_alias=settings.get("resource_alias"),
                 safety_config=settings.get("safety_config"),
                 dry_run=True,
+                model_profile=arguments.get("model_profile"),
             ),
-            parameters={key: value for key, value in arguments.items() if key not in {"dry_run", "confirm_output"}},
+            parameters=_command_parameters(arguments),
         )
         try:
             ramp_list_plan(validation_request, ramp_list_document_for_request(validation_request))
@@ -242,7 +247,7 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
         request_type = TriggerRequest if command.startswith("trigger-") else OperationRequest
         validation_request = request_type(
             command=command,
-            parameters={key: value for key, value in arguments.items() if key not in {"dry_run", "confirm_output"}},
+            parameters=_command_parameters(arguments),
         )
         validate_general_workflow_parameters(validation_request)
         validate_request_parameters(validation_request)
@@ -507,6 +512,10 @@ def get_opener(state: WorkerState) -> Callable[..., Any]:
         return opener
 
 
+def _command_parameters(arguments: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in arguments.items() if key not in RUNTIME_ARGUMENT_KEYS}
+
+
 def job_runner(state: WorkerState) -> None:
     """Asynchronous job processing loop running in a dedicated background thread."""
     while not state.shutdown_event.is_set():
@@ -559,9 +568,10 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             }
     emit_event(config, "job_started", {"job_id": client_job_id, "worker_job_id": worker_job_id, "command": cmd, "run_id": state.run_id})
 
-    params = {key: value for key, value in arguments.items() if key not in {"dry_run", "confirm_output"}}
+    params = _command_parameters(arguments)
     confirm_req = bool(arguments.get("confirm_output", False))
     dry_run_req = bool(arguments.get("dry_run", False))
+    model_profile_req = arguments.get("model_profile")
 
     # Initialize RuntimeOptions
     runtime = RuntimeOptions(
@@ -570,7 +580,7 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
         safety_config=settings.get("safety_config"),
         simulate=(config["mode"] == "simulate"),
         dry_run=dry_run_req,
-        model_profile="E36312A" if dry_run_req else None,
+        model_profile=model_profile_req,
         backend=settings.get("backend"),
         timeout_ms=settings.get("timeout_ms", 5000),
         confirm=confirm_req,

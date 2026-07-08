@@ -93,22 +93,20 @@ cache entries.
 Selecting a resource copies it into the `VISA resource` input. You may also
 type a known operator-provided VISA resource manually.
 
-Device options include `Model / expected model`. Leave it on Auto for normal
-live use. Auto uses the detected live model for command availability and
-channel controls after the WebUI identifies the resource. When a model is
-selected, the WebUI uses it for frontend capability planning and for
-dry-run/simulate planning. For a live command, the selected model is only an
-expected-model guard: the connected `*IDN?` model must match before setup or
-write SCPI, and the selection does not force that model's driver. The Device /
-Resource summary shows the detected live model and expected model selection
-separately, for example `live E3646A / Expected Auto` or `live E3646A / Require
-E36312A`.
+Device options include `Expected model`. Leave it on `Auto-detect` for normal
+live use. Auto-detect uses the connected instrument IDN. When `Require
+<model>` is selected, the WebUI uses it for frontend capability planning and
+sends it as an expected-model guard: the connected `*IDN?` model must match
+before setup or write SCPI, and the selection does not force that model's
+driver. The Device / Resource summary shows the detected live model and
+expected model selection separately, for example `live E3646A / Auto-detect`
+or `live E3646A / Require E36312A`.
 
 The normal model dropdown intentionally shows only active supported models:
 E36312A, EDU36311A, and E3646A. Unsupported direct model submissions are still
-rejected by the WebUI backend and Core. Auto may still use detected live model
-metadata when available, but frontend state never overrides the Core
-IDN-selected live driver.
+rejected by the WebUI backend and Core. Auto-detect may still use detected
+live model metadata when available, but frontend state never overrides the
+Core IDN-selected live driver.
 
 If no live resource appears, check instrument power, cabling, VISA driver
 visibility, and whether another program is holding the instrument.
@@ -182,17 +180,17 @@ Typical job states include accepted, started, progress, finished, failed,
 cancel requested, and cancelled. A failed job should include a message in the
 result payload.
 
-Simulate and dry-run jobs are useful for checking payload shape before live
-hardware execution. Real output-affecting jobs require confirmation.
-When submitting raw WebUI API jobs instead of using the browser form, include
-`runtime.model_profile` for no-hardware dry-run/simulate jobs that need a
-model-specific plan, or use a deterministic SIM resource such as
-`USB0::SIM::E36312A::INSTR`. For live raw API jobs, `runtime.model_profile` is
-an expected-model guard checked against `*IDN?`; mismatch fails before setup or
-write SCPI. The browser learns live model support from scan/job IDN metadata;
-fake resource strings do not imply a model. Browser disabled or hidden state is
-not the safety boundary; direct `/api/jobs` submissions are still rejected by
-the WebUI backend and Core when the model, command, or mode is unsupported.
+The browser UI is live-oriented and does not provide general dry-run or
+simulate controls. When submitting raw WebUI API jobs instead of using the
+browser form, include `runtime.model_profile` for no-hardware
+dry-run/simulate jobs that need a model-specific plan, or use a deterministic
+SIM resource such as `USB0::SIM::E36312A::INSTR`. For live raw API jobs,
+`runtime.model_profile` is an expected-model guard checked against `*IDN?`;
+mismatch fails before setup or write SCPI. The browser learns live model
+support from scan/job IDN metadata; fake resource strings do not imply a
+model. Browser disabled or hidden state is not the safety boundary; direct
+`/api/jobs` submissions are still rejected by the WebUI backend and Core when
+the model, command, or mode is unsupported.
 
 ## Stop And Cancel
 

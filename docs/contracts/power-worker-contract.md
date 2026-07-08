@@ -135,6 +135,10 @@ Common `arguments` keys:
 
 - `dry_run`: optional boolean, default `false`. When true, no VISA I/O is performed.
 - `confirm_output`: optional boolean, default `false`. Required with Worker config `settings.allow_output_writes: true` for live non-dry-run output-affecting commands.
+- `model_profile`: optional string. In Worker dry-run/simulate requests, this
+  is the explicit no-hardware model profile. In live requests, it is an
+  expected-model guard only; the IDN-detected model remains the runtime
+  driver. Worker does not provide a config-level model default.
 
 Command-specific fields match the CLI/core names, including `channel`,
 `voltage`, `current`, `max_errors`, `max_reads`, `file`, `document`,
@@ -149,6 +153,12 @@ or `document`; each segment selects one positive integer channel.
 omitted setpoint is left unchanged on the instrument and must not be replaced
 with zero or readback-derived values. Requests with neither `voltage` nor
 `current` return HTTP 400 before artifact creation or queue mutation.
+
+Worker dry-run/simulate requests that need model-specific planning must pass
+`arguments.model_profile` or use a known deterministic SIM resource in Worker
+settings. Fake or live-looking resource strings do not imply a model. If both
+`arguments.model_profile` and a SIM resource are present, their models must
+match.
 
 Worker runtime settings may include optional ASRL serial fields under
 `settings.serial_options`: `baud_rate`, `data_bits`, `parity`, `stop_bits`,

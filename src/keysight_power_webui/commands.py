@@ -123,8 +123,6 @@ def channel_capabilities_by_model() -> dict[str, dict[str, Any]]:
 def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
     simulate = bool(runtime_dict.get("simulate", False))
     resource = runtime_dict.get("resource")
-    if simulate and not resource:
-        resource = "USB0::SIM::E36312A::INSTR"
     return RuntimeOptions(
         resource=resource,
         resource_alias=runtime_dict.get("resource_alias"),

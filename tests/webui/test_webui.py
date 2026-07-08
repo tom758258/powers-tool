@@ -220,21 +220,25 @@ def test_static_ui_exposes_advanced_serial_controls():
         assert_static_id(html, element_id)
         assert panel_index < html.index(f'id="{element_id}"') < body_index
 
-    assert "Model / expected model" in html
-    assert "Auto uses the detected live model when known" in html
-    assert "frontend capability planning" in html
-    assert "never overrides the IDN-selected driver" in html
-    assert "Active model profiles are E36312A, EDU36311A, and E3646A" in html
+    assert "Expected model" in html
+    assert "Model / expected model" not in html
+    assert "Auto-detect uses the connected instrument IDN" in html
+    assert "Select a model only when you want to require a specific one" in html
+    assert "detected IDN model remains the runtime driver" in html
     for model in ("E36312A", "EDU36311A", "E3646A"):
-        assert f'<option value="{model}">{model}</option>' in html
+        assert f'<option value="{model}">Require {model}</option>' in html
     for unvalidated_model in ("E36103B", "E36232A"):
         assert f'<option value="{unvalidated_model}">{unvalidated_model}</option>' not in html
     assert '<option value="GENERIC">GENERIC</option>' not in html
     assert "Optional ASRL/serial overrides" in html
     assert "serial-panel" not in html
     assert ".serial-panel" not in styles_css
-    assert "No resource / not scanned / Expected Auto" in html
-    assert "Auto-detect" not in html
+    assert "No resource / not scanned / Auto-detect" in html
+    assert "Expected Auto" not in html
+    assert 'id="dry-run"' not in html
+    assert 'id="simulate"' not in html
+    assert "Dry-run" not in html
+    assert "Simulate" not in html
 
     runtime_block = extract_js_function(app_js, "runtimePayload")
     assert 'const modelProfile = valueOrNull("model-profile");' in runtime_block
@@ -250,12 +254,12 @@ def test_static_normal_model_dropdown_policy() -> None:
     html, _app_js, _styles_css = read_static_texts()
     model_select = html[html.index('id="model-profile"'):html.index("</select>", html.index('id="model-profile"'))]
 
-    assert '<option value="">Auto</option>' in model_select
+    assert '<option value="">Auto-detect</option>' in model_select
     for model in ("E36312A", "EDU36311A", "E3646A"):
-        assert f'<option value="{model}">{model}</option>' in model_select
+        assert f'<option value="{model}">Require {model}</option>' in model_select
     for unvalidated_model in ("E36103B", "E36232A"):
         assert unvalidated_model not in model_select
-    assert "Active model profiles are E36312A, EDU36311A, and E3646A" in html
+    assert "Auto-detect uses the connected instrument IDN" in html
 
 
 def test_static_device_resource_summary_uses_model_wording():
@@ -264,14 +268,14 @@ def test_static_device_resource_summary_uses_model_wording():
     live_summary = extract_js_function(app_js, "liveResourceSummary")
     expected_summary = extract_js_function(app_js, "expectedModelSummary")
 
-    assert "Auto-detect" not in summary
+    assert "Auto-detect" in expected_summary
     assert "Manual" not in summary
     assert "const liveText = liveResourceSummary(resource, select);" in summary
     assert "const expectedText = expectedModelSummary();" in summary
     assert "`${resourceText} / ${liveText} / ${expectedText}`" in summary
     assert "detectedResourceModel(resource)" in live_summary
     assert "return `live ${detected}`;" in live_summary
-    assert 'return expected ? `Require ${expected}` : "Expected Auto";' in expected_summary
+    assert 'return expected ? `Require ${expected}` : "Auto-detect";' in expected_summary
     assert "resourceDisplayModels: {}" in app_js
     assert "state.resourceDisplayModels[resource] = String(model).trim().toUpperCase();" in app_js
 
@@ -288,7 +292,7 @@ def test_static_model_profile_change_refreshes_effective_ui_model():
 
     assert 'document.getElementById("model-profile")?.addEventListener("change", handleModelProfileChanged);' in bind
     assert 'return valueOrNull("model-profile");' in selected_expected
-    assert 'return expected ? `Require ${expected}` : "Auto";' in selected_expected_label
+    assert 'return expected ? `Require ${expected}` : "Auto-detect";' in selected_expected_label
     assert "state.commandSupportByModel?.[expected]" in selected_command
     assert "return detectedCommandModelForResource(valueOrNull(\"resource\"));" in selected_command
     assert "state.channelCapabilitiesByModel?.[expected]" in selected_channel
@@ -2037,6 +2041,21 @@ def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestC
     assert missing_job["status"] == "failed"
     assert "require --model" in missing_job["error"]
 
+    missing_simulate = client.post(
+        "/api/jobs",
+        json={
+            "command": "output-on",
+            "runtime": {
+                "simulate": True,
+            },
+            "parameters": {"channel": 1},
+        },
+    )
+    assert missing_simulate.status_code == 200
+    missing_simulate_job = wait_for_job(client, missing_simulate.json()["job_id"])
+    assert missing_simulate_job["status"] == "failed"
+    assert "require --model" in missing_simulate_job["error"]
+
 
 @pytest.mark.parametrize("model", ["E36103B", "E36232A"])
 @pytest.mark.parametrize("runtime_mode", ["dry_run", "simulate", "live"])
@@ -2432,7 +2451,7 @@ def test_sequence_lint_dry_run(client: TestClient):
 def test_ramp_list_lint_dry_run(client: TestClient):
     payload = {
         "command": "ramp-list",
-        "runtime": {"simulate": True, "dry_run": True},
+        "runtime": {"simulate": True, "dry_run": True, "resource": "USB0::SIM::E36312A::INSTR"},
         "parameters": {
             "lint": True,
             "document": {
@@ -3032,7 +3051,7 @@ def test_webui_commands_simulate_mode(client: TestClient):
     for cmd, params in commands_to_test:
         payload = {
             "command": cmd,
-            "runtime": {"simulate": True},
+            "runtime": {"simulate": True, "resource": "USB0::SIM::E36312A::INSTR"},
             "parameters": params
         }
         response = client.post("/api/jobs", json=payload)

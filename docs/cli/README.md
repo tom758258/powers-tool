@@ -436,6 +436,11 @@ Start the worker in simulation mode on a dynamic port:
 uv run keysight-power worker --id power_1 --mode simulate --control-port 0
 ```
 
+Worker dry-run/simulate requests that need model-specific planning must pass
+`arguments.model_profile` in the `/command` request, unless the configured
+resource is a known deterministic SIM resource. Worker does not provide a
+config-level model default.
+
 `POST /stop` is cooperative: the handler only sets stop state and wakes the
 runner. The Worker emits structured `power_cleanup` JSONL events and does not
 emit its final `summary` or stop the HTTP server until runner cleanup finishes.

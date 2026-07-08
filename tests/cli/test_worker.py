@@ -34,6 +34,37 @@ def _last_stdout_json(capsys) -> dict:
     return json.loads(lines[-1])
 
 
+def _run_worker_job_for_test(tmp_path: Path, *, command: str, arguments: dict, config: dict | None = None) -> dict:
+    job_dir = tmp_path / f"job_{command.replace('-', '_')}_{len(list(tmp_path.iterdir()))}"
+    job_dir.mkdir()
+    state = WorkerState(
+        config
+        or {
+            "id": "test",
+            "type": "power",
+            "enabled": True,
+            "mode": "live",
+            "control_host": "127.0.0.1",
+            "control_port": 0,
+            "artifacts_dir": str(tmp_path),
+            "events_jsonl": None,
+            "settings": {"resource": "USB0::FAKE::E36312A::INSTR"},
+        },
+        0,
+    )
+    _run_job_impl(
+        state,
+        {
+            "job_id": None,
+            "worker_job_id": job_dir.name,
+            "command": command,
+            "arguments": arguments,
+            "dir": job_dir,
+        },
+    )
+    return json.loads((job_dir / "result.json").read_text(encoding="utf-8"))
+
+
 def test_write_json_artifact_atomic_publishes_complete_json_and_cleans_temp(tmp_path):
     result_path = tmp_path / "result.json"
     payload = {"ok": True, "data": {"value": 1}}
@@ -355,7 +386,7 @@ def test_worker_readonly_dry_run_does_not_open_live_resource(tmp_path, monkeypat
         assert actual_port is not None
         req = urllib.request.Request(
             f"http://127.0.0.1:{actual_port}/command",
-            data=json.dumps({"command": "read-status", "arguments": {"dry_run": True}}).encode("utf-8"),
+            data=json.dumps({"command": "read-status", "arguments": {"dry_run": True, "model_profile": "E36312A"}}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(req) as res:
@@ -397,7 +428,7 @@ def test_worker_measure_all_rejects_channel_filter(running_worker):
 def test_worker_output_commands_accept_all_channel_dry_run(running_worker, command):
     port = running_worker["port"]
     artifacts_dir = running_worker["artifacts_dir"]
-    arguments = {"channel": "all", "dry_run": True}
+    arguments = {"channel": "all", "dry_run": True, "model_profile": "E36312A"}
     if command == "cycle-output":
         arguments["duration_ms"] = 250
     req = urllib.request.Request(
@@ -413,8 +444,73 @@ def test_worker_output_commands_accept_all_channel_dry_run(running_worker, comma
     result_data = _wait_for_json_file(artifacts_dir / "jobs" / job_id / "result.json")
     assert result_data["ok"] is True
     assert result_data["request"]["arguments"]["channel"] == "all"
+    assert result_data["request"]["arguments"]["model_profile"] == "E36312A"
     plan = result_data["data"].get("plan", result_data["data"])
     assert plan["target"]["channel"] == "all"
+    assert plan["target"]["model_profile"] == "E36312A"
+
+
+def test_worker_dry_run_missing_model_profile_does_not_default_to_e36312a(tmp_path):
+    result = _run_worker_job_for_test(
+        tmp_path,
+        command="output-on",
+        arguments={"channel": 1, "dry_run": True},
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["type"] == "validation"
+    assert result["error"]["code"] == "argument_error"
+    assert "--dry-run and --simulate require --model or a known deterministic SIM resource" in result["error"]["message"]
+
+
+def test_worker_dry_run_explicit_e36312a_model_profile_still_works(tmp_path):
+    result = _run_worker_job_for_test(
+        tmp_path,
+        command="output-on",
+        arguments={"channel": 1, "dry_run": True, "model_profile": "E36312A"},
+    )
+
+    assert result["ok"] is True
+    assert result["data"]["target"]["model_profile"] == "E36312A"
+    assert result["data"]["target"]["channel"] == 1
+
+
+def test_worker_dry_run_explicit_e3646a_uses_e3646a_channel_rules(tmp_path):
+    result = _run_worker_job_for_test(
+        tmp_path,
+        command="output-on",
+        arguments={"channel": 3, "dry_run": True, "model_profile": "E3646A"},
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["type"] == "validation"
+    assert result["error"]["code"] == "argument_error"
+    assert "channel 3 is not supported" in result["error"]["message"]
+    assert "(1, 2)" in result["error"]["message"]
+
+
+def test_worker_simulate_model_profile_resource_mismatch_fails(tmp_path):
+    result = _run_worker_job_for_test(
+        tmp_path,
+        command="output-on",
+        arguments={"channel": 1, "model_profile": "E3646A"},
+        config={
+            "id": "test",
+            "type": "power",
+            "enabled": True,
+            "mode": "simulate",
+            "control_host": "127.0.0.1",
+            "control_port": 0,
+            "artifacts_dir": str(tmp_path),
+            "events_jsonl": None,
+            "settings": {"resource": "USB0::SIM::E36312A::INSTR"},
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["error"]["type"] == "validation"
+    assert result["error"]["code"] == "argument_error"
+    assert "--model E3646A does not match SIM resource model E36312A" in result["error"]["message"]
 
 
 def test_worker_result_artifact_write_failure_reports_artifact_error_without_fake_path(tmp_path, monkeypatch):

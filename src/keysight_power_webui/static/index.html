@@ -17,7 +17,7 @@
       <div class="device-resource-header">
         <div class="device-resource-heading">
           <strong id="device-resource-title" class="device-resource-title">Device / Resource</strong>
-          <p id="device-resource-summary" class="device-resource-summary">No resource / not scanned / Expected Auto</p>
+          <p id="device-resource-summary" class="device-resource-summary">No resource / not scanned / Auto-detect</p>
         </div>
         <div class="device-resource-actions">
           <div class="device-options">
@@ -32,15 +32,15 @@
             >&#9881;</button>
             <div id="device-options-panel" class="device-options-panel" role="dialog" aria-label="Device options" hidden>
               <div class="model-profile-control">
-                <label>Model / expected model
+                <label>Expected model
                   <select id="model-profile">
-                    <option value="">Auto</option>
-                    <option value="E36312A">E36312A</option>
-                    <option value="EDU36311A">EDU36311A</option>
-                    <option value="E3646A">E3646A</option>
+                    <option value="">Auto-detect</option>
+                    <option value="E36312A">Require E36312A</option>
+                    <option value="EDU36311A">Require EDU36311A</option>
+                    <option value="E3646A">Require E3646A</option>
                   </select>
                 </label>
-                <p class="model-profile-help">Auto uses the detected live model when known. A selected model drives frontend capability planning and the live expected-model guard; it never overrides the IDN-selected driver. Active model profiles are E36312A, EDU36311A, and E3646A.</p>
+                <p class="model-profile-help">Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one. In live mode, the detected IDN model remains the runtime driver.</p>
               </div>
               <p class="device-options-help">Optional ASRL/serial overrides. Usually needed only for RS-232 instruments such as E3646A.</p>
               <div class="serial-grid">

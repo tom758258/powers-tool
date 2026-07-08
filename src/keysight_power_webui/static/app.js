@@ -350,7 +350,7 @@ function liveResourceSummary(resource, select) {
 
 function expectedModelSummary() {
   const expected = selectedExpectedModel();
-  return expected ? `Require ${expected}` : "Expected Auto";
+  return expected ? `Require ${expected}` : "Auto-detect";
 }
 
 function selectedExpectedModel() {
@@ -359,7 +359,7 @@ function selectedExpectedModel() {
 
 function selectedExpectedModelLabel() {
   const expected = selectedExpectedModel();
-  return expected ? `Require ${expected}` : "Auto";
+  return expected ? `Require ${expected}` : "Auto-detect";
 }
 
 function detectedResourceModel(resource) {

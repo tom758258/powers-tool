@@ -135,8 +135,8 @@ Dry-run example:
 not infer a dry-run/simulate model from fake or live-looking resource strings;
 use `model_profile` or a deterministic SIM resource such as
 `USB0::SIM::E36312A::INSTR`. WebUI live resource support is learned from
-scan/job IDN metadata, while WebUI dry-run/simulate planning uses
-`model_profile` when supplied.
+scan/job IDN metadata. The browser UI remains live-oriented and does not
+provide general dry-run or simulate controls.
 
 Cancelling an executing job first moves it to non-terminal
 `cancel_requested`. The WebUI keeps `active_job_id` and the hardware lock until
@@ -159,16 +159,16 @@ The static UI is a three-panel dashboard:
 Machine-facing command IDs remain kebab-case. Human-facing WebUI command names
 use spaces and sentence case.
 
-The connection area includes advanced device options. `Model / expected model`
-defaults to Auto, which omits `runtime.model_profile`. Auto uses the detected
-live model for frontend command, channel, and rating UI when the WebUI has
-identified one. Selecting a model drives dry-run/simulate planning UI and sends
-`runtime.model_profile`: it is a no-hardware model profile for dry-run/simulate
-jobs and a live expected-model guard for real jobs. The Device / Resource
-summary shows the detected live model separately from the expected model
-selection, such as `live E3646A / Expected Auto` or `live E3646A / Require
-E36312A`. A selected model never overrides the IDN-selected live driver; Core
-remains the authority for live mismatch rejection before setup or write SCPI.
+The connection area includes advanced device options. `Expected model`
+defaults to `Auto-detect`, which omits `runtime.model_profile`. Auto-detect
+uses the connected instrument IDN for live operation. Selecting `Require
+<model>` sends `runtime.model_profile` as a live expected-model guard and may
+drive frontend command, channel, and rating planning when metadata exists. The
+Device / Resource summary shows the detected live model separately from the
+expected model selection, such as `live E3646A / Auto-detect` or `live E3646A /
+Require E36312A`. A selected model never overrides the IDN-selected live
+driver; Core remains the authority for live mismatch rejection before setup or
+write SCPI.
 The serial fields are optional; blank fields are omitted from the runtime
 payload and do not override VISA backend or Connection Expert settings.
 Read/write termination fields accept `CR`, `LF`, `CRLF`, and `NONE` aliases.
