@@ -117,6 +117,24 @@ def test_live_expected_model_rejects_generic() -> None:
         canonical_live_expected_model("GENERIC")
 
 
+@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
+def test_descoped_models_are_rejected_as_live_expected_models(model: str) -> None:
+    with pytest.raises(CoreValidationError, match="unsupported model profile"):
+        canonical_live_expected_model(model)
+
+
+@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
+def test_descoped_models_are_rejected_as_no_hardware_model_profiles(model: str) -> None:
+    with pytest.raises(CoreValidationError, match="unsupported model profile"):
+        output_plan(
+            OperationRequest(
+                command="output-on",
+                runtime=RuntimeOptions(dry_run=True, model_profile=model),
+                parameters={"channel": 1},
+            )
+        )
+
+
 def test_live_expected_model_mismatch_message_is_explicit() -> None:
     with pytest.raises(CoreValidationError) as exc:
         validate_live_expected_model("E36312A", "E3646A", command="set")
@@ -235,7 +253,7 @@ def test_trigger_no_hardware_rejects_unsupported_models(model: str, mode: str) -
         model_profile=model,
     )
 
-    with pytest.raises(CoreValidationError, match="not supported|deterministic simulator"):
+    with pytest.raises(CoreValidationError, match="not supported|deterministic simulator|unsupported model profile"):
         run_core_command(
             TriggerRequest(
                 command="trigger-fire",

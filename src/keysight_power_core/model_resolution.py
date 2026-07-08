@@ -7,15 +7,11 @@ from dataclasses import replace
 from keysight_power_core.core import CoreValidationError, RuntimeOptions
 from keysight_power_core.models import parse_idn
 
-CANONICAL_MODEL_PROFILES = frozenset(
-    {"E36103B", "E36232A", "E36312A", "EDU36311A", "E3646A", "GENERIC"}
-)
+CANONICAL_MODEL_PROFILES = frozenset({"E36312A", "EDU36311A", "E3646A", "GENERIC"})
 
 LIVE_EXPECTED_MODEL_PROFILES = CANONICAL_MODEL_PROFILES - {"GENERIC"}
 
 MODEL_PROFILE_CHANNELS = {
-    "E36103B": (1,),
-    "E36232A": (1,),
     "E36312A": (1, 2, 3),
     "EDU36311A": (1, 2, 3),
     "E3646A": (1, 2),
@@ -23,8 +19,6 @@ MODEL_PROFILE_CHANNELS = {
 }
 
 SIMULATED_RESOURCE_FOR_MODEL = {
-    "E36103B": "USB0::SIM::E36103B::INSTR",
-    "E36232A": "TCPIP0::SIM::E36232A::INSTR",
     "E36312A": "USB0::SIM::E36312A::INSTR",
     "EDU36311A": "USB0::SIM::EDU36311A::INSTR",
     "E3646A": "ASRL1::SIM::E3646A::INSTR",

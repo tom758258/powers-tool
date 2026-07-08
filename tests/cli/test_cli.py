@@ -37,7 +37,7 @@ def test_root_version_prints_package_version(capsys) -> None:
 class FakeSession:
     def __init__(
         self,
-        idn: str = "KEYSIGHT,E36103B,SERIAL0000,1.0",
+        idn: str = "KEYSIGHT,UNKNOWN,SERIAL0000,1.0",
         *,
         query_responses: dict[str, list[str] | str] | None = None,
     ) -> None:
@@ -148,7 +148,7 @@ def test_list_resources_live_only_prints_openable_idn_resources(monkeypatch, cap
     def fake_open_resource(resource, *, backend=None, timeout_ms=5000):
         if resource == "USB0::DEAD::INSTR":
             raise VisaConnectionError("not reachable")
-        return FakeSession("KEYSIGHT,E36103B,SERIAL0000,1.0")
+        return FakeSession("KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
 
     monkeypatch.setattr(cli, "open_resource", fake_open_resource)
 
@@ -158,7 +158,7 @@ def test_list_resources_live_only_prints_openable_idn_resources(monkeypatch, cap
     assert captured.out == (
         "Live resources:\n"
         "  USB0::FAKE::INSTR\n"
-        "    IDN: KEYSIGHT,E36103B,SERIAL0000,1.0\n"
+        "    IDN: KEYSIGHT,UNKNOWN,SERIAL0000,1.0\n"
     )
     assert captured.err == ""
 
@@ -169,7 +169,7 @@ def test_list_resources_live_only_can_log_scpi(monkeypatch, capsys) -> None:
         cli,
         "open_resource",
         lambda resource, *, backend=None, timeout_ms=5000: FakeSession(
-            "KEYSIGHT,E36103B,SERIAL0000,1.0"
+            "KEYSIGHT,UNKNOWN,SERIAL0000,1.0"
         ),
     )
 
@@ -179,10 +179,10 @@ def test_list_resources_live_only_can_log_scpi(monkeypatch, capsys) -> None:
     assert captured.out == (
         "Live resources:\n"
         "  USB0::FAKE::INSTR\n"
-        "    IDN: KEYSIGHT,E36103B,SERIAL0000,1.0\n"
+        "    IDN: KEYSIGHT,UNKNOWN,SERIAL0000,1.0\n"
     )
     assert "USB0::FAKE::INSTR SCPI >> *IDN?" in captured.err
-    assert "USB0::FAKE::INSTR SCPI << KEYSIGHT,E36103B,SERIAL0000,1.0" in captured.err
+    assert "USB0::FAKE::INSTR SCPI << KEYSIGHT,UNKNOWN,SERIAL0000,1.0" in captured.err
 
 
 def test_verify_prints_idn_response(monkeypatch, capsys) -> None:
@@ -190,7 +190,7 @@ def test_verify_prints_idn_response(monkeypatch, capsys) -> None:
 
     def fake_open_resource(resource, *, backend=None, timeout_ms=5000):
         opened.append((resource, backend, timeout_ms))
-        return FakeSession("KEYSIGHT,E36232A,SERIAL0000,1.0")
+        return FakeSession("KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
 
     monkeypatch.setattr(cli, "open_resource", fake_open_resource)
 
@@ -210,7 +210,7 @@ def test_verify_prints_idn_response(monkeypatch, capsys) -> None:
     )
 
     captured = capsys.readouterr()
-    assert captured.out == "KEYSIGHT,E36232A,SERIAL0000,1.0\n"
+    assert captured.out == "KEYSIGHT,UNKNOWN,SERIAL0000,1.0\n"
     assert captured.err == ""
     assert opened == [("USB0::FAKE::INSTR", "@py", 1234)]
 
@@ -442,7 +442,7 @@ def test_verify_json_prints_machine_readable_payload(monkeypatch, capsys) -> Non
         cli,
         "open_resource",
         lambda resource, resource_manager=None, *, backend=None, timeout_ms=5000: FakeSession(
-            "KEYSIGHT,E36232A,SERIAL0000,1.0"
+            "KEYSIGHT,UNKNOWN,SERIAL0000,1.0"
         ),
     )
 
@@ -471,7 +471,7 @@ def test_verify_json_prints_machine_readable_payload(monkeypatch, capsys) -> Non
             "resource": expected_resource(
                 "USB0::FAKE::INSTR",
                 reachable=True,
-                idn="KEYSIGHT,E36232A,SERIAL0000,1.0",
+                idn="KEYSIGHT,UNKNOWN,SERIAL0000,1.0",
             ),
         },
         "warnings": [],
@@ -560,8 +560,6 @@ def test_list_resources_simulate_does_not_create_real_resource_manager(monkeypat
 
     captured = capsys.readouterr()
     assert captured.out == (
-        "USB0::SIM::E36103B::INSTR\n"
-        "TCPIP0::SIM::E36232A::INSTR\n"
         "USB0::SIM::E36312A::INSTR\n"
         "USB0::SIM::EDU36311A::INSTR\n"
         "ASRL1::SIM::E3646A::INSTR\n"
@@ -595,19 +593,6 @@ def test_list_resources_simulate_live_only_json_logs_scpi_to_stderr(monkeypatch,
     }
     assert payload["data"]["resources"] == [
         expected_resource(
-            "USB0::SIM::E36103B::INSTR",
-            simulated=True,
-            reachable=True,
-            idn="KEYSIGHT,E36103B,SIM000001,1.0",
-        ),
-        expected_resource(
-            "TCPIP0::SIM::E36232A::INSTR",
-            interface="TCPIP",
-            simulated=True,
-            reachable=True,
-            idn="KEYSIGHT,E36232A,SIM000002,1.0",
-        ),
-        expected_resource(
             "USB0::SIM::E36312A::INSTR",
             simulated=True,
             reachable=True,
@@ -627,12 +612,11 @@ def test_list_resources_simulate_live_only_json_logs_scpi_to_stderr(monkeypatch,
                 idn="KEYSIGHT,E3646A,SIM000005,1.0",
             ),
         ]
-    assert payload["data"]["count"] == 5
+    assert payload["data"]["count"] == 3
     assert payload["warnings"] == []
     assert payload["error"] is None
     assert payload["metadata"]["duration_ms"] >= 0
     assert "SCPI >> *IDN?" in captured.err
-    assert "KEYSIGHT,E36103B,SIM000001,1.0" in captured.err
     assert "KEYSIGHT,E36312A,SIM000003,1.0" in captured.err
 
 
@@ -649,7 +633,7 @@ def test_verify_simulate_json_does_not_create_real_resource_manager(monkeypatch,
                 "--simulate",
                 "--json",
                 "--resource",
-                "USB0::SIM::E36103B::INSTR",
+                "USB0::SIM::E36312A::INSTR",
             ]
         )
         == 0
@@ -665,16 +649,16 @@ def test_verify_simulate_json_does_not_create_real_resource_manager(monkeypatch,
         "hardware_touched": False,
     }
     assert payload["request"] == {
-        "resource": "USB0::SIM::E36103B::INSTR",
+        "resource": "USB0::SIM::E36312A::INSTR",
         "backend": None,
         "timeout_ms": 5000,
     }
     assert payload["data"] == {
         "resource": expected_resource(
-            "USB0::SIM::E36103B::INSTR",
+            "USB0::SIM::E36312A::INSTR",
             simulated=True,
             reachable=True,
-            idn="KEYSIGHT,E36103B,SIM000001,1.0",
+            idn="KEYSIGHT,E36312A,SIM000003,1.0",
         ),
     }
     assert captured.err == ""
@@ -772,7 +756,7 @@ def test_error_simulate_json_does_not_create_real_resource_manager(monkeypatch, 
                 "--simulate",
                 "--json",
                 "--resource",
-                "USB0::SIM::E36103B::INSTR",
+                "USB0::SIM::E36312A::INSTR",
             ]
         )
         == 0
@@ -786,7 +770,7 @@ def test_error_simulate_json_does_not_create_real_resource_manager(monkeypatch, 
         "hardware_touched": False,
     }
     assert payload["request"] == {
-        "resource": "USB0::SIM::E36103B::INSTR",
+        "resource": "USB0::SIM::E36312A::INSTR",
         "backend": None,
         "timeout_ms": 5000,
         "max_reads": 20,
@@ -872,7 +856,7 @@ def test_measure_simulate_json_does_not_create_real_resource_manager(monkeypatch
                 "--simulate",
                 "--json",
                 "--resource",
-                "USB0::SIM::E36103B::INSTR",
+                "USB0::SIM::E36312A::INSTR",
                 "--channel",
                 "1",
             ]
@@ -888,13 +872,13 @@ def test_measure_simulate_json_does_not_create_real_resource_manager(monkeypatch
         "hardware_touched": False,
     }
     assert payload["request"] == {
-        "resource": "USB0::SIM::E36103B::INSTR",
+        "resource": "USB0::SIM::E36312A::INSTR",
         "channel": 1,
         "backend": None,
         "timeout_ms": 5000,
     }
     assert payload["data"]["channel"] == 1
-    assert payload["data"]["measurements"] == {"voltage": 1.0, "current": 0.05}
+    assert payload["data"]["measurements"] == {"voltage": 1.1, "current": 0.11}
     assert captured.err == ""
 
 
@@ -1007,7 +991,7 @@ def test_measure_simulate_model_driver_logs_channel_list_scpi_to_stderr(
     assert "USB0::SIM::E36312A::INSTR SCPI >> MEAS:CURR? (@2)" in captured.err
 
 
-def test_measure_simulate_generic_channel_two_is_rejected_without_real_visa(
+def test_measure_simulate_e3646a_channel_three_is_rejected_without_real_visa(
     monkeypatch,
     capsys,
 ) -> None:
@@ -1023,9 +1007,9 @@ def test_measure_simulate_generic_channel_two_is_rejected_without_real_visa(
                 "--simulate",
                 "--json",
                 "--resource",
-                "USB0::SIM::E36103B::INSTR",
+                "ASRL1::SIM::E3646A::INSTR",
                 "--channel",
-                "2",
+                "3",
             ]
         )
         == 2
@@ -1036,8 +1020,8 @@ def test_measure_simulate_generic_channel_two_is_rejected_without_real_visa(
     assert payload["execution"]["hardware_touched"] is False
     assert payload["error"]["type"] == "validation"
     assert payload["error"]["code"] == "argument_error"
-    assert "GenericScpiPowerSupply" in payload["error"]["message"]
-    assert "channel 1 only" in payload["error"]["message"]
+    assert "E3646APowerSupply" in payload["error"]["message"]
+    assert "channels 1, 2" in payload["error"]["message"]
     assert captured.err == ""
 
 
@@ -1154,7 +1138,7 @@ def test_measure_real_generic_channel_two_is_rejected_after_idn(
     monkeypatch,
     capsys,
 ) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36103B,SERIAL0000,1.0")
+    session = FakeSession(idn="KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert (
@@ -1922,7 +1906,7 @@ max_current = 0.5
 allowed_channels = [1, 2]
 
 [[resources]]
-alias = "sim-e36103b"
+alias = "sim-e36312a"
 resource = "{OUTPUT_RESOURCE}"
 max_voltage = 3.3
 max_current = 0.1
@@ -1935,7 +1919,7 @@ allowed_channels = [1]
             [
                 "set",
                 "--resource-alias",
-                "sim-e36103b",
+                "sim-e36312a",
                 "--channel",
                 "1",
                 "--voltage",
@@ -1955,7 +1939,7 @@ allowed_channels = [1]
     payload = json.loads(captured.out)
     assert payload["request"] == {
         "resource": OUTPUT_RESOURCE,
-        "resource_alias": "sim-e36103b",
+        "resource_alias": "sim-e36312a",
         "channel": 1,
         "voltage": 1.0,
         "current": 0.05,
@@ -1978,7 +1962,7 @@ max_current = 0.5
 allowed_channels = [1, 2]
 
 [[resources]]
-alias = "sim-e36103b"
+alias = "sim-e36312a"
 resource = "{OUTPUT_RESOURCE}"
 max_voltage = 0.5
 allowed_channels = [1]
@@ -2022,7 +2006,7 @@ def test_resource_alias_requires_explicit_safety_config(capsys) -> None:
             [
                 "set",
                 "--resource-alias",
-                "sim-e36103b",
+                "sim-e36312a",
                 "--channel",
                 "1",
                 "--voltage",
@@ -2039,7 +2023,7 @@ def test_resource_alias_requires_explicit_safety_config(capsys) -> None:
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert payload["request"]["resource"] is None
-    assert payload["request"]["resource_alias"] == "sim-e36103b"
+    assert payload["request"]["resource_alias"] == "sim-e36312a"
     assert payload["error"]["type"] == "validation"
     assert payload["error"]["code"] == "argument_error"
     assert "resource alias requires --safety-config" in payload["error"]["message"]
@@ -2054,7 +2038,7 @@ def test_unknown_resource_alias_uses_json_validation_error(tmp_path, capsys) -> 
 max_voltage = 5.0
 
 [[resources]]
-alias = "sim-e36103b"
+alias = "sim-e36312a"
 resource = "{OUTPUT_RESOURCE}"
 """.strip(),
     )
@@ -2109,7 +2093,7 @@ max_current = 0.5
 allowed_channels = [1]
 
 [[resources]]
-alias = "sim-e36103b"
+alias = "sim-e36312a"
 resource = "{OUTPUT_RESOURCE}"
 max_current = 0.1
 """.strip(),
@@ -2120,7 +2104,7 @@ max_current = 0.1
             [
                 "set",
                 "--resource-alias",
-                "sim-e36103b",
+                "sim-e36312a",
                 "--channel",
                 "1",
                 "--voltage",
@@ -2138,7 +2122,7 @@ max_current = 0.1
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert payload["request"]["resource"] == OUTPUT_RESOURCE
-    assert payload["request"]["resource_alias"] == "sim-e36103b"
+    assert payload["request"]["resource_alias"] == "sim-e36312a"
     assert payload["execution"]["hardware_touched"] is True
     assert session.writes == ["CURR 0.05,(@1)", "VOLT 1,(@1)"]
     assert captured.err == ""
@@ -3135,7 +3119,7 @@ def test_set_real_e36312a_with_log_scpi(monkeypatch, capsys) -> None:
     json.loads(captured.out)
 
 
-@pytest.mark.parametrize("idn", ["KEYSIGHT,E36103B,SERIAL0000,1.0", "UNKNOWN,MODEL,SN,FW"])
+@pytest.mark.parametrize("idn", ["KEYSIGHT,UNKNOWN,SERIAL0000,1.0", "UNKNOWN,MODEL,SN,FW"])
 def test_set_real_non_e36312a_models_are_rejected(monkeypatch, capsys, idn) -> None:
     session = FakeSession(idn=idn)
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
@@ -3491,7 +3475,7 @@ def test_output_on_real_e36312a_with_log_scpi(monkeypatch, capsys) -> None:
     json.loads(captured.out)  # must not raise - stdout is valid JSON
 
 
-@pytest.mark.parametrize("idn", ["KEYSIGHT,E36103B,SERIAL0000,1.0", "UNKNOWN,MODEL,SN,FW"])
+@pytest.mark.parametrize("idn", ["KEYSIGHT,UNKNOWN,SERIAL0000,1.0", "UNKNOWN,MODEL,SN,FW"])
 def test_output_on_real_non_e36312a_models_are_rejected(monkeypatch, capsys, idn) -> None:
     session = FakeSession(idn=idn)
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
@@ -3831,7 +3815,7 @@ def test_output_off_real_e36312a_with_log_scpi(monkeypatch, capsys) -> None:
 
 
 def test_output_off_real_generic_e36312a_is_rejected(monkeypatch, capsys) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36103B,SERIAL0000,1.0")
+    session = FakeSession(idn="KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert (
@@ -3854,7 +3838,7 @@ def test_output_off_real_generic_e36312a_is_rejected(monkeypatch, capsys) -> Non
     assert payload["execution"]["hardware_touched"] is True
     assert payload["error"]["type"] == "validation"
     assert payload["error"]["code"] == "unsupported_model_for_output_off"
-    assert "mutating workflows remain disabled" in payload["error"]["message"]
+    assert "E36312A-only" in payload["error"]["message"]
     assert session.closed is True
 
 
@@ -3909,7 +3893,7 @@ def test_output_off_real_unsupported_channel_is_rejected(monkeypatch, capsys) ->
 
 
 def test_output_state_real_non_e36312a_is_rejected(monkeypatch, capsys) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36103B,SERIAL0000,1.0")
+    session = FakeSession(idn="KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert (
@@ -3980,7 +3964,7 @@ def test_cycle_output_real_invalid_duration_rejected(capsys) -> None:
 
 
 def test_apply_real_generic_model_is_rejected(monkeypatch, capsys) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36103B,SERIAL0000,1.0")
+    session = FakeSession(idn="KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert (
@@ -4341,7 +4325,7 @@ def test_validate_readonly_real_sends_expected_scpi_for_supported_models(
 
 
 def test_validate_readonly_rejects_generic_model(monkeypatch, capsys) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36103B,SERIAL0000,1.0")
+    session = FakeSession(idn="KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert cli.main(["validate-readonly", "--json", "--resource", OUTPUT_RESOURCE]) == 2
@@ -4911,7 +4895,7 @@ def test_new_real_commands_reject_non_e36312a(
     extra_args,
     code,
 ) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36103B,SERIAL0000,1.0")
+    session = FakeSession(idn="KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert cli.main([command, "--json", "--resource", OUTPUT_RESOURCE, *extra_args]) == 2
@@ -6517,7 +6501,7 @@ def test_doctor_capabilities_and_safety_inspect_json(capsys) -> None:
                 "--safety-config",
                 "examples/safety-config.toml",
                 "--resource-alias",
-                "sim-e36103b",
+                "sim-e36312a",
                 "--channel",
                 "1",
             ]
@@ -7267,7 +7251,7 @@ def test_snapshot_compare_tolerance_override_allows_measurement_delta(tmp_path, 
     ],
 )
 def test_new_e36312a_commands_reject_non_e36312a(monkeypatch, capsys, command, extra_args, code) -> None:
-    session = FakeSession(idn="KEYSIGHT,E36103B,SERIAL0000,1.0")
+    session = FakeSession(idn="KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert cli.main([command, "--json", "--resource", OUTPUT_RESOURCE, *extra_args]) == 2

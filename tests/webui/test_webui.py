@@ -224,7 +224,7 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "Auto uses the detected live model when known" in html
     assert "frontend capability planning" in html
     assert "never overrides the IDN-selected driver" in html
-    assert "E36103B and E36232A are hidden until hardware validation enables normal WebUI use" in html
+    assert "Active model profiles are E36312A, EDU36311A, and E3646A" in html
     for model in ("E36312A", "EDU36311A", "E3646A"):
         assert f'<option value="{model}">{model}</option>' in html
     for unvalidated_model in ("E36103B", "E36232A"):
@@ -255,7 +255,7 @@ def test_static_normal_model_dropdown_policy() -> None:
         assert f'<option value="{model}">{model}</option>' in model_select
     for unvalidated_model in ("E36103B", "E36232A"):
         assert unvalidated_model not in model_select
-    assert "E36103B and E36232A are hidden until hardware validation enables normal WebUI use" in html
+    assert "Active model profiles are E36312A, EDU36311A, and E3646A" in html
 
 
 def test_static_device_resource_summary_uses_model_wording():
@@ -2004,6 +2004,38 @@ def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestC
     missing_job = wait_for_job(client, missing.json()["job_id"])
     assert missing_job["status"] == "failed"
     assert "require --model" in missing_job["error"]
+
+
+@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
+@pytest.mark.parametrize("runtime_mode", ["dry_run", "simulate", "live"])
+def test_webui_direct_jobs_reject_descoped_model_profiles(
+    client: TestClient,
+    model: str,
+    runtime_mode: str,
+) -> None:
+    runtime: dict[str, Any] = {"model_profile": model}
+    if runtime_mode == "dry_run":
+        runtime["dry_run"] = True
+    elif runtime_mode == "simulate":
+        runtime["simulate"] = True
+    else:
+        runtime["resource"] = "USB0::FAKE::INSTR"
+        runtime["confirm"] = True
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "set",
+            "runtime": runtime,
+            "parameters": {"channel": 1, "voltage": 1, "current": 0.05},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "failed"
+    assert "unsupported model profile" in job_data["error"]
+    assert model in job_data["error"]
 
 
 @pytest.mark.parametrize(

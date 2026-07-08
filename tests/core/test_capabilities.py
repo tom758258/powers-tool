@@ -103,7 +103,7 @@ def test_command_support_generic_fallback() -> None:
     assert support["set"]["hardware_validation"] == "not_enabled"
 
 
-@pytest.mark.parametrize("model", [None, "E36103B", "E36232A"])
+@pytest.mark.parametrize("model", [None, "UNKNOWN"])
 def test_command_support_non_e36312a_models_disable_trigger_no_hardware(model: str | None) -> None:
     support = capabilities.command_support(model)
 
@@ -206,8 +206,8 @@ def test_command_support_e3646a_software_workflows_remain_allowed(command: str) 
     assert support[command]["hardware_validation"] == "validated"
 
 
-@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
-def test_command_support_unvalidated_live_models_do_not_enable_mutating_workflows(model: str) -> None:
+@pytest.mark.parametrize("model", ["UNKNOWN", "FUTURE123"])
+def test_command_support_unknown_models_do_not_enable_mutating_workflows(model: str) -> None:
     support = capabilities.command_support(model)
 
     for command in (
@@ -305,12 +305,11 @@ def test_e3646a_disabled_workflow_errors_explain_validation_boundary(command: st
         assert "software workflows, not native LIST" in message
 
 
-@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
-def test_unvalidated_model_mutating_error_explains_expected_guard_only(model: str) -> None:
+@pytest.mark.parametrize("model", ["UNKNOWN", "FUTURE123"])
+def test_unknown_model_mutating_error_explains_feature_lock(model: str) -> None:
     message = _unsupported_message("output-on", model, "live")
 
     assert "output-on" in message
     assert model in message
     assert "live mode" in message
-    assert "expected-model guard/probing model" in message
-    assert "mutating workflows remain disabled" in message
+    assert "E36312A-only" in message

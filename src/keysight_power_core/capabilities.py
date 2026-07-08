@@ -314,11 +314,6 @@ def unsupported_command_reason(command: str, model: str | None) -> str:
                 "E3646A completion-pulse workflows are disabled until separately validated. "
                 "E3646A ramp-list and sequence are software workflows, not native LIST."
             )
-    if model_label in {"E36103B", "E36232A"}:
-        return (
-            f"{model_label} may be used as an expected-model guard/probing model, "
-            "but mutating workflows remain disabled until hardware validation."
-        )
     e36312a_support = command_support("E36312A").get(command, {})
     if any(e36312a_support.get(key) is True for key in ("real", "simulate", "dry_run")):
         return "This workflow is currently E36312A-only for supported modes."

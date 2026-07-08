@@ -11,8 +11,6 @@ from keysight_power_core.testing.simulator import (
 
 def test_simulator_lists_first_target_resources() -> None:
     assert SIMULATED_RESOURCES == (
-        "USB0::SIM::E36103B::INSTR",
-        "TCPIP0::SIM::E36232A::INSTR",
         "USB0::SIM::E36312A::INSTR",
         "USB0::SIM::EDU36311A::INSTR",
         "ASRL1::SIM::E3646A::INSTR",
@@ -54,19 +52,10 @@ def test_first_target_simulator_supports_channel_list_measurements(
     assert session.query(f"MEAS:CURR? (@{channel})") == expected_current
 
 
-def test_generic_simulator_supports_default_measurement_queries() -> None:
-    session = SimulatedResourceManager().open_resource("USB0::SIM::E36103B::INSTR")
-
-    assert session.query("MEAS:VOLT?") == "1.000"
-    assert session.query("MEAS:CURR?") == "0.050"
-    assert session.query("OUTP?") == "OFF"
-
-
-def test_generic_simulator_rejects_unmodeled_channel_list() -> None:
-    session = SimulatedResourceManager().open_resource("USB0::SIM::E36103B::INSTR")
-
-    with pytest.raises(VisaConnectionError, match="No simulated response"):
-        session.query("MEAS:VOLT? (@2)")
+@pytest.mark.parametrize("resource", ["USB0::SIM::E36103B::INSTR", "TCPIP0::SIM::E36232A::INSTR"])
+def test_descoped_simulator_resources_are_not_available(resource: str) -> None:
+    with pytest.raises(VisaConnectionError, match="Unknown simulated resource"):
+        SimulatedResourceManager().open_resource(resource)
 
 
 @pytest.mark.parametrize(

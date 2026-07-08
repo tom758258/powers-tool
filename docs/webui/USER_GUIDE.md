@@ -104,9 +104,9 @@ Resource summary shows the detected live model and expected model selection
 separately, for example `live E3646A / Expected Auto` or `live E3646A / Require
 E36312A`.
 
-The normal model dropdown intentionally shows only models enabled for normal
-WebUI use. E36103B and E36232A are hidden until hardware validation enables
-normal WebUI workflows for those models. Auto may still use detected live model
+The normal model dropdown intentionally shows only active supported models:
+E36312A, EDU36311A, and E3646A. Unsupported direct model submissions are still
+rejected by the WebUI backend and Core. Auto may still use detected live model
 metadata when available, but frontend state never overrides the Core
 IDN-selected live driver.
 

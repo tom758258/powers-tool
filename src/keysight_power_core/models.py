@@ -62,16 +62,6 @@ REGISTERED_MODELS: dict[str, ModelInfo] = {
         model="E3646A",
         target_group="read-only-serial",
     ),
-    "E36103B": ModelInfo(
-        manufacturer="KEYSIGHT",
-        model="E36103B",
-        target_group="near-term",
-    ),
-    "E36232A": ModelInfo(
-        manufacturer="KEYSIGHT",
-        model="E36232A",
-        target_group="near-term",
-    ),
     "E36233A": ModelInfo(
         manufacturer="KEYSIGHT",
         model="E36233A",

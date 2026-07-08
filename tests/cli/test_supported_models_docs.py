@@ -116,7 +116,8 @@ def test_no_hardware_scripts_use_model_or_deterministic_sim_resources():
     assert "USB0::SIM::E36312A::INSTR" in preflight
     assert "USB0::SIM::EDU36311A::INSTR" in preflight
     assert "ASRL1::SIM::E3646A::INSTR" in live_cli_check
-    assert "TCPIP0::SIM::E36232A::INSTR" in live_cli_check
+    assert "E36103B" not in live_cli_check
+    assert "E36232A" not in live_cli_check
     assert "deterministic SIM resources" in preflight
     assert "Test-DeterministicSimResource" in batch
     assert '"USB0::SIM::E36312A::INSTR"' in batch

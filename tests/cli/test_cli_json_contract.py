@@ -384,7 +384,7 @@ def assert_contract_envelope(payload: dict[str, object], *, command: str, ok: bo
                 "--safety-config",
                 "examples/safety-config.toml",
                 "--resource-alias",
-                "sim-e36103b",
+                "sim-e36312a",
                 "--channel",
                 "1",
             ],

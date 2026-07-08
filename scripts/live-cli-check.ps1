@@ -20,13 +20,11 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = "Stop"
 
-$SupportedTargets = @("E36312A", "EDU36311A", "E3646A", "E36103B", "E36232A")
+$SupportedTargets = @("E36312A", "EDU36311A", "E3646A")
 $SimResources = @{
     E36312A = "USB0::SIM::E36312A::INSTR"
     EDU36311A = "USB0::SIM::EDU36311A::INSTR"
     E3646A = "ASRL1::SIM::E3646A::INSTR"
-    E36103B = "USB0::SIM::E36103B::INSTR"
-    E36232A = "TCPIP0::SIM::E36232A::INSTR"
 }
 
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
@@ -220,7 +218,7 @@ function Get-SupportedSuites {
     if ($Model -eq "E3646A") {
         return @("readonly", "output", "software-sequence")
     }
-    return @("readonly")
+    Fail-Validation "Unsupported -Target '$Model'. Supported targets: $($SupportedTargets -join ', ')."
 }
 
 function New-CommandCase {

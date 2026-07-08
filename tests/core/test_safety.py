@@ -125,15 +125,15 @@ max_current = 0.5
 allowed_channels = [1, 2]
 
 [[resources]]
-alias = "sim-e36103b"
-resource = "USB0::SIM::E36103B::INSTR"
+alias = "sim-e36312a"
+resource = "USB0::SIM::E36312A::INSTR"
 max_voltage = 3.3
 allowed_channels = [1]
 """.strip(),
         encoding="utf-8",
     )
 
-    limits = load_safety_config(config_path, resource_alias="sim-e36103b")
+    limits = load_safety_config(config_path, resource_alias="sim-e36312a")
 
     assert limits == SafetyLimits(
         max_voltage=3.3,
@@ -152,8 +152,8 @@ max_current = 0.5
 allowed_channels = [1, 2]
 
 [[resources]]
-alias = "sim-e36103b"
-resource = "USB0::SIM::E36103B::INSTR"
+alias = "sim-e36312a"
+resource = "USB0::SIM::E36312A::INSTR"
 max_current = 0.1
 """.strip(),
         encoding="utf-8",
@@ -161,7 +161,7 @@ max_current = 0.1
 
     limits = load_safety_config(
         config_path,
-        resource="USB0::SIM::E36103B::INSTR",
+        resource="USB0::SIM::E36312A::INSTR",
     )
 
     assert limits == SafetyLimits(
@@ -180,8 +180,8 @@ max_voltage = 5.0
 max_current = 0.5
 
 [[resources]]
-alias = "sim-e36103b"
-resource = "USB0::SIM::E36103B::INSTR"
+alias = "sim-e36312a"
+resource = "USB0::SIM::E36312A::INSTR"
 max_voltage = 3.3
 """.strip(),
         encoding="utf-8",
@@ -200,8 +200,8 @@ def test_load_safety_config_rejects_unknown_resource_alias(tmp_path) -> None:
 max_voltage = 5.0
 
 [[resources]]
-alias = "sim-e36103b"
-resource = "USB0::SIM::E36103B::INSTR"
+alias = "sim-e36312a"
+resource = "USB0::SIM::E36312A::INSTR"
 """.strip(),
         encoding="utf-8",
     )
@@ -252,7 +252,7 @@ def test_load_safety_config_rejects_schema_errors(
 max_voltage = 5.0
 
 [[resources]]
-resource = "USB0::SIM::E36103B::INSTR"
+resource = "USB0::SIM::E36312A::INSTR"
 """.strip(),
             "resources entry 1 must define non-empty alias",
         ),
@@ -262,7 +262,7 @@ resource = "USB0::SIM::E36103B::INSTR"
 max_voltage = 5.0
 
 [[resources]]
-alias = "sim-e36103b"
+alias = "sim-e36312a"
 """.strip(),
             "resources entry 1 must define non-empty resource",
         ),
@@ -302,9 +302,9 @@ resource = "USB0::A::INSTR"
 max_voltage = 5.0
 
 [[resources]]
-alias = "sim-e36103b"
-resource = "USB0::SIM::E36103B::INSTR"
-model = "E36103B"
+alias = "sim-e36312a"
+resource = "USB0::SIM::E36312A::INSTR"
+model = "E36312A"
 """.strip(),
             "unsupported resources entry key: model",
         ),
@@ -314,8 +314,8 @@ model = "E36103B"
 max_voltage = 5.0
 
 [[resources]]
-alias = "sim-e36103b"
-resource = "USB0::SIM::E36103B::INSTR"
+alias = "sim-e36312a"
+resource = "USB0::SIM::E36312A::INSTR"
 max_current = -0.1
 """.strip(),
             "max_current must be non-negative",

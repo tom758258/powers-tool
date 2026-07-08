@@ -70,10 +70,12 @@ def test_first_target_drivers_expose_conservative_capabilities() -> None:
     )
 
 
-def test_generic_fallback_exposes_channel_one_measure_capability() -> None:
+def test_descoped_model_falls_back_as_unknown_generic_driver() -> None:
     selection = select_driver("KEYSIGHT,E36103B,SERIAL0000,1.0")
 
+    assert selection.model_info is None
     assert selection.driver_class is GenericScpiPowerSupply
+    assert selection.reason == "unknown_model_generic_fallback"
     assert selection.capabilities == DriverCapabilities(
         channels=(1,),
         simulated_measure_channels=(1,),
@@ -84,8 +86,6 @@ def test_generic_fallback_exposes_channel_one_measure_capability() -> None:
 def test_near_term_and_later_models_are_recognized() -> None:
     for model in (
         "E36313A",
-        "E36103B",
-        "E36232A",
         "E36233A",
         "E36441A",
         "E36155A",
@@ -117,13 +117,13 @@ def test_malformed_idn_falls_back_to_generic_driver_without_model_metadata() -> 
 
 
 def test_select_driver_accepts_preparsed_idn() -> None:
-    parsed = parse_idn("KEYSIGHT,E36232A,SERIAL0000,1.0")
+    parsed = parse_idn("KEYSIGHT,E36312A,SERIAL0000,1.0")
 
     selection = select_driver(parsed)
 
     assert selection.idn is parsed
     assert selection.model_info is not None
-    assert selection.model_info.model == "E36232A"
+    assert selection.model_info.model == "E36312A"
 
 
 def test_create_power_supply_wraps_session_without_commands() -> None:

@@ -36,7 +36,7 @@ class FakeResource:
         self.commands: list[str] = []
         self.fail_writes: set[str] = set()
         self.responses: dict[str, list[str]] = {
-            "*IDN?": ["KEYSIGHT,E36103B,SERIAL0000,1.0"],
+            "*IDN?": ["KEYSIGHT,E36312A,SERIAL0000,1.0"],
             "SYST:ERR?": ['0,"No error"'],
         }
         self.closed = False
@@ -97,7 +97,7 @@ def test_instrument_session_wraps_basic_scpi_helpers() -> None:
     resource = FakeResource()
     session = InstrumentSession(resource, "USB0::FAKE::INSTR")
 
-    assert session.identify() == "KEYSIGHT,E36103B,SERIAL0000,1.0"
+    assert session.identify() == "KEYSIGHT,E36312A,SERIAL0000,1.0"
     session.clear_status()
     assert session.query_error() == '0,"No error"'
     assert resource.commands == ["*IDN?", "*CLS", "SYST:ERR?"]

@@ -166,7 +166,6 @@ Supported suites are model-aware:
 | E36312A | `readonly`, `output`, `protection`, `snapshot`, `trigger-list` |
 | EDU36311A | `readonly`, `output`, `protection` |
 | E3646A | `readonly`, `output`, `software-sequence` |
-| E36103B / E36232A | `readonly` only, for probing workflows |
 
 A passed suite means the target model matched, the selected connection type
 was used, the selected suite/cases passed, and artifacts were recorded under
@@ -327,29 +326,29 @@ uv run keysight-power set --model E36312A --resource "$env:POWER_USB_RESOURCE" -
 
 This requires the connected `*IDN?` model to be `E36312A`.
 
-Accepted no-hardware model profiles are `E36103B`, `E36232A`, `E36312A`,
-`EDU36311A`, `E3646A`, and `GENERIC`. In `--simulate` mode, `--model` can
-derive the matching deterministic simulator resource for all listed models
-except `GENERIC`. `GENERIC` is a conservative no-hardware profile and is not
-a live expected model. If both `--model` and a SIM resource are provided,
-their models must match. Unsupported models, including EDU36311A, do not
-expose trigger dry-run or simulator behavior.
+Accepted no-hardware model profiles are `E36312A`, `EDU36311A`, `E3646A`,
+and `GENERIC`. In `--simulate` mode, `--model` can derive the matching
+deterministic simulator resource for active supported models except
+`GENERIC`. `GENERIC` is a conservative no-hardware profile and is not a live
+expected model. If both `--model` and a SIM resource are provided, their models
+must match. Unsupported models, including EDU36311A, do not expose trigger
+dry-run or simulator behavior.
 
 No-hardware plans include `data.plan.target.model_profile`. Channel validation
 and `--channel all` expansion use that profile: E3646A expands `all` to CH1
 and CH2 and rejects CH3; E36312A and EDU36311A expand to CH1, CH2, and CH3;
-E36103B, E36232A, and GENERIC conservatively allow CH1 only.
+GENERIC conservatively allows CH1 only.
 
 Trigger/native LIST workflows are E36312A-only. EDU36311A supports validated
 read-only, output, and protection workflows, but trigger/native LIST,
 `snapshot`, and `restore-from-snapshot` are disabled in live, simulate, and
-dry-run until separately implemented and hardware validated. E36103B and
-E36232A may be used as expected-model/probing profiles, but mutating workflows
-remain disabled until hardware validation. E3646A supports validated RS-232
-read-only/output workflows plus software `ramp-list` and step-limited software
-`sequence`; those workflows are not native LIST support and reject unsupported
-protection, trigger, snapshot, restore, native LIST, and completion-pulse
-sequence steps.
+dry-run until separately implemented and hardware validated. E3646A supports
+validated RS-232 read-only/output workflows plus software `ramp-list` and
+step-limited software `sequence`; those workflows are not native LIST support
+and reject unsupported protection, trigger, snapshot, restore, native LIST,
+and completion-pulse sequence steps. E36103B and E36232A are not active
+supported models and are rejected as model profiles and live expected-model
+guards.
 
 Real CLI measurement keeps generic instruments on channel 1. E36312A and
 EDU36311A channels 2 and 3 use IDN-selected channel-list measurement queries.
@@ -772,8 +771,8 @@ max_current = 0.5
 allowed_channels = [1, 2, 3]
 
 [[resources]]
-alias = "sim-e36103b"
-resource = "USB0::SIM::E36103B::INSTR"
+alias = "sim-e36312a"
+resource = "USB0::SIM::E36312A::INSTR"
 max_voltage = 3.3
 max_current = 0.1
 allowed_channels = [1]
@@ -825,7 +824,7 @@ uv run keysight-power ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE"
 Clear instrument status and the error queue on a simulated resource:
 
 ```powershell
-uv run keysight-power clear --dry-run --json --resource "USB0::SIM::E36103B::INSTR"
+uv run keysight-power clear --dry-run --json --resource "USB0::SIM::E36312A::INSTR"
 ```
 
 Measure voltage and current on a simulated resource:
@@ -843,7 +842,7 @@ uv run keysight-power snapshot --simulate --json --redact-resource --resource "U
 Preview output-affecting commands with no hardware writes:
 
 ```powershell
-uv run keysight-power set --dry-run --json --resource "USB0::SIM::E36103B::INSTR" --channel 1 --voltage 1 --current 0.05
+uv run keysight-power set --dry-run --json --resource "USB0::SIM::E36312A::INSTR" --channel 1 --voltage 1 --current 0.05
 uv run keysight-power output-on --dry-run --json --model E3646A --channel all
 ```
 
@@ -852,7 +851,7 @@ Run offline diagnostics, capabilities, and safety inspect checks:
 ```powershell
 uv run keysight-power doctor --simulate --json
 uv run keysight-power capabilities --simulate --json --resource "USB0::SIM::EDU36311A::INSTR" --command protection-set
-uv run keysight-power safety inspect --json --explain --safety-config examples\safety-config.toml --resource-alias sim-e36103b --channel 1
+uv run keysight-power safety inspect --json --explain --safety-config examples\safety-config.toml --resource-alias sim-e36312a --channel 1
 ```
 
 The early standalone examples provide the same passive discovery and identity

@@ -172,7 +172,7 @@ def test_model_profile_is_not_argparse_choices(argv: list[str]) -> None:
 
 
 @pytest.mark.parametrize("model", ["E36103B", "E36232A"])
-def test_unvalidated_expected_models_are_parser_neutral_for_model_profile_commands(model: str) -> None:
+def test_descoped_models_are_parser_neutral_for_model_profile_commands(model: str) -> None:
     args = _parse_args(
         [
             "set",
@@ -421,12 +421,13 @@ def test_live_without_model_remains_idn_driven(monkeypatch, capsys) -> None:
 
 
 @pytest.mark.parametrize("model", ["E36103B", "E36232A"])
-def test_unvalidated_model_profile_does_not_unlock_mutating_dry_run(capsys, model: str) -> None:
+@pytest.mark.parametrize("mode_flag", ["--dry-run", "--simulate"])
+def test_descoped_model_profile_is_rejected_in_no_hardware_paths(capsys, model: str, mode_flag: str) -> None:
     assert (
         cli.main(
             [
                 "set",
-                "--dry-run",
+                mode_flag,
                 "--json",
                 "--model",
                 model,
@@ -443,12 +444,43 @@ def test_unvalidated_model_profile_does_not_unlock_mutating_dry_run(capsys, mode
 
     payload = json.loads(capsys.readouterr().out)
     message = payload["error"]["message"]
-    assert "set" in message
     assert model in message
-    assert "dry-run mode" in message
-    assert "mutating workflows remain disabled" in message
-    assert "--model" in message
-    assert "not a feature unlock" in message or "does not enable" in message
+    assert "unsupported model profile" in message
+
+
+@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
+def test_descoped_live_expected_model_fails_before_opening(monkeypatch, capsys, model: str) -> None:
+    opened: list[str] = []
+
+    def fake_open_resource(resource: str, *args, **kwargs):
+        opened.append(resource)
+        return FakeLiveSession("Keysight Technologies,E36312A,0,1.0")
+
+    monkeypatch.setattr(cli, "_open_resource", fake_open_resource)
+
+    assert (
+        cli.main(
+            [
+                "set",
+                "--json",
+                "--model",
+                model,
+                "--resource",
+                "USB0::FAKE::INSTR",
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert "unsupported model profile" in payload["error"]["message"]
+    assert opened == []
 
 
 @pytest.mark.parametrize(

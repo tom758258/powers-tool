@@ -17,7 +17,6 @@ features, other connection types, or the whole model.
 | E36312A | USB-local or LAN-network | `readonly`, `output`, `protection`, `snapshot`, `trigger-list` | Trigger/native LIST and snapshot/restore are considered suite validated only when the corresponding suite/cases pass for the selected connection. |
 | EDU36311A | USB-local or LAN-network | `readonly`, `output`, `protection` | Trigger/native LIST, snapshot, and restore-from-snapshot remain disabled in live, simulate, and dry-run. |
 | E3646A | RS-232 / ASRL | `readonly`, `output`, `software-sequence` | CH1/CH2 only. `OUTP ON/OFF` is global. `ramp-list` and `sequence` are software workflows, not native LIST. |
-| E36103B / E36232A | Explicit supported probing resources | `readonly` only | May be accepted as live expected-model guards for probing/read-only workflows; mutating workflows remain disabled. |
 
 EDU36311A USB read-only, output/write, and protection commands are enabled for
 real execution after staged validation. Use `scripts/live-cli-check.ps1
@@ -27,9 +26,9 @@ smoke checks only. EDU36311A `protection-set` and
 `clear-protection` require `--confirm` for real execution and report
 `hardware_validation=validated`.
 
-Trigger workflows are E36312A-only. EDU36311A, E3646A, E36103B, E36232A, and
-GENERIC do not expose trigger dry-run or simulator behavior; their trigger
-commands report `real=false`, `simulate=false`, and `dry_run=false`.
+Trigger workflows are E36312A-only. EDU36311A, E3646A, and GENERIC do not
+expose trigger dry-run or simulator behavior; their trigger commands report
+`real=false`, `simulate=false`, and `dry_run=false`.
 
 ## No-Hardware Model-Profile Matrix
 
@@ -43,8 +42,6 @@ placeholders and must not imply a model.
 | E36312A | `USB0::SIM::E36312A::INSTR` | CH1, CH2, CH3 | Per-channel output control; `all` expands to CH1-CH3 | Trigger workflows and native LIST are E36312A-only and validated for live E36312A paths. Protection read/write paths are supported. |
 | EDU36311A | `USB0::SIM::EDU36311A::INSTR` | CH1, CH2, CH3 | Per-channel output control; `all` expands to CH1-CH3 | Protection read/write paths are supported. Trigger workflows and native LIST are not exposed in dry-run, simulate, or real mode. |
 | E3646A | `ASRL1::SIM::E3646A::INSTR` | CH1, CH2 | Global output enable/disable; channel selection is used for setpoints and readback | RS-232 / ASRL output workflows are live validated. Protection writes, trigger workflows, snapshot restore, completion pulses, and native LIST are disabled. |
-| E36103B | `USB0::SIM::E36103B::INSTR` | CH1 | Single-channel conservative no-hardware profile | Trigger workflows, native LIST, and protection writes are not exposed. |
-| E36232A | `TCPIP0::SIM::E36232A::INSTR` | CH1 | Single-channel conservative no-hardware profile | Trigger workflows, native LIST, and protection writes are not exposed. |
 | GENERIC | None; use explicit `--model GENERIC` / `model_profile="GENERIC"` | CH1 | Unknown | Conservative no-hardware planning only. Trigger workflows, native LIST, and protection writes are not exposed. |
 
 Live hardware uses the IDN-detected model. In live mode, `--model` and
@@ -53,6 +50,12 @@ Live hardware uses the IDN-detected model. In live mode, `--model` and
 SCPI on mismatch. The selected model never overrides the IDN-selected driver.
 `GENERIC` is a conservative no-hardware profile and is not a live expected
 model.
+
+E36103B and E36232A are not active supported models. They are rejected as
+no-hardware model profiles, live expected-model guards, WebUI model selections,
+and `scripts/live-cli-check.ps1` targets. Additional Keysight E36xxx /
+E36000-series models may be evaluated later after programming-guide review,
+fake/simulator coverage, and real hardware validation.
 
 ## Command Support Notes
 
@@ -132,10 +135,6 @@ command-level facts:
   expand to CH1 and CH2; CH3 is rejected.
 - Live trigger behavior remains IDN-driven. `--model` is a live
   expected-model guard and does not override connected hardware.
-- E36103B and E36232A remain accepted CLI expected-model/probing profiles for
-  limited read-only workflows, but mutating workflows are disabled until
-  hardware validation. They are intentionally absent from the normal WebUI
-  model dropdown.
 - `snapshot-diff`, `snapshot-diff --summary`, and `hardware-report` are
   offline/no-hardware tools and never open VISA. `sequence --lint` also
   validates without opening VISA and remains syntax/document validation unless

@@ -74,8 +74,6 @@ def test_known_model_registry_lookup() -> None:
         "EDU36311A",
         "E36313A",
         "E3646A",
-        "E36103B",
-        "E36232A",
         "E36233A",
         "E36441A",
         "E36155A",
@@ -88,4 +86,6 @@ def test_known_model_registry_lookup() -> None:
     assert model.model == "E36312A"
     assert model.target_group == "initial"
     assert model.first_hardware_target is True
+    assert lookup_model("E36103B") is None
+    assert lookup_model("E36232A") is None
     assert lookup_model("UNKNOWN") is None

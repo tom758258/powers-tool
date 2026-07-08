@@ -8,28 +8,18 @@ import re
 from keysight_power_core.errors import VisaConnectionError
 
 SIMULATED_RESOURCES = (
-    "USB0::SIM::E36103B::INSTR",
-    "TCPIP0::SIM::E36232A::INSTR",
     "USB0::SIM::E36312A::INSTR",
     "USB0::SIM::EDU36311A::INSTR",
     "ASRL1::SIM::E3646A::INSTR",
 )
 
 SIMULATED_IDN = {
-    "USB0::SIM::E36103B::INSTR": "KEYSIGHT,E36103B,SIM000001,1.0",
-    "TCPIP0::SIM::E36232A::INSTR": "KEYSIGHT,E36232A,SIM000002,1.0",
     "USB0::SIM::E36312A::INSTR": "KEYSIGHT,E36312A,SIM000003,1.0",
     "USB0::SIM::EDU36311A::INSTR": "KEYSIGHT,EDU36311A,SIM000004,1.0",
     "ASRL1::SIM::E3646A::INSTR": "KEYSIGHT,E3646A,SIM000005,1.0",
 }
 
 SIMULATED_MEASUREMENTS = {
-    "USB0::SIM::E36103B::INSTR": {
-        1: {"voltage": "1.000", "current": "0.050"},
-    },
-    "TCPIP0::SIM::E36232A::INSTR": {
-        1: {"voltage": "1.000", "current": "0.050"},
-    },
     "USB0::SIM::E36312A::INSTR": {
         1: {"voltage": "1.100", "current": "0.110"},
         2: {"voltage": "2.200", "current": "0.220"},
@@ -47,8 +37,6 @@ SIMULATED_MEASUREMENTS = {
 }
 
 SIMULATED_OUTPUT_STATES = {
-    "USB0::SIM::E36103B::INSTR": {1: False},
-    "TCPIP0::SIM::E36232A::INSTR": {1: False},
     "USB0::SIM::E36312A::INSTR": {1: False, 2: False, 3: False},
     "USB0::SIM::EDU36311A::INSTR": {1: False, 2: False, 3: False},
     "ASRL1::SIM::E3646A::INSTR": {1: False, 2: False},

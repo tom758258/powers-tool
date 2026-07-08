@@ -137,7 +137,29 @@ def test_live_cli_check_full_suite_composition_is_model_aware():
     assert 'return @("readonly", "output", "protection", "snapshot", "trigger-list")' in script
     assert 'return @("readonly", "output", "protection")' in script
     assert 'return @("readonly", "output", "software-sequence")' in script
-    assert 'return @("readonly")' in script
+
+
+@pytest.mark.parametrize("target", ["E36103B", "E36232A", "GENERIC"])
+def test_live_cli_check_descoped_and_generic_targets_fail_before_live(target: str):
+    result = _run_live_cli_check(
+        "-Target",
+        target,
+        "-Connection",
+        "USB",
+        "-Resource",
+        "USB0::SIM::E36312A::INSTR",
+        "-Suite",
+        "readonly",
+        "-PlanOnly",
+    )
+
+    assert result.returncode == 2
+    combined = result.stdout + result.stderr
+    if target == "GENERIC":
+        assert "GENERIC is no-hardware only" in combined
+    else:
+        assert "Unsupported -Target" in combined
+    assert "Running no-hardware preflight" not in result.stdout
 
 
 def test_live_smoke_script_remains_compatible_legacy_entrypoint():
