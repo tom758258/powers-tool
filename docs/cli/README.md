@@ -304,7 +304,11 @@ read-only, output, and protection workflows, but trigger/native LIST,
 `snapshot`, and `restore-from-snapshot` are disabled in live, simulate, and
 dry-run until separately implemented and hardware validated. E36103B and
 E36232A may be used as expected-model/probing profiles, but mutating workflows
-remain disabled until hardware validation.
+remain disabled until hardware validation. E3646A supports validated RS-232
+read-only/output workflows plus software `ramp-list` and step-limited software
+`sequence`; those workflows are not native LIST support and reject unsupported
+protection, trigger, snapshot, restore, native LIST, and completion-pulse
+sequence steps.
 
 Real CLI measurement keeps generic instruments on channel 1. E36312A and
 EDU36311A channels 2 and 3 use IDN-selected channel-list measurement queries.
@@ -475,6 +479,9 @@ E3646A uses `INST:NSEL` channel preselection for setpoint writes and readbacks.
 `OUTP ON/OFF` is a global output enable/disable on this model, so `output-on`,
 `output-off`, `safe-off`, `cycle-output`, and `smoke-output` can affect the
 instrument output state globally even when a command accepts a channel.
+E3646A `sequence` accepts only validated read-only/output steps; protection,
+trigger, snapshot, restore, native LIST, and completion-pulse step types are
+rejected by the current feature-lock policy.
 
 Set the ASRL resource once per PowerShell session:
 

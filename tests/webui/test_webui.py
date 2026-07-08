@@ -2072,6 +2072,22 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
         ),
         (
             {
+                "command": "clear-protection",
+                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "parameters": {"channel": 1},
+            },
+            ("E3646A", "protection workflows are disabled"),
+        ),
+        (
+            {
+                "command": "trigger-pulse",
+                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "parameters": {"channel": 1, "pins": [1], "polarity": "positive"},
+            },
+            ("E3646A", "completion-pulse workflows are disabled"),
+        ),
+        (
+            {
                 "command": "trigger-step",
                 "runtime": {"dry_run": True, "model_profile": "E3646A"},
                 "parameters": {"channel": 1, "source": "bus", "fire": True},
@@ -2126,6 +2142,39 @@ def test_webui_direct_jobs_reject_e3646a_disabled_workflows(
     fragments: tuple[str, ...],
 ) -> None:
     assert_direct_job_rejected(client, payload, *fragments)
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        "protection-set",
+        "clear-protection",
+        "trigger-pulse",
+        "trigger-list",
+        "snapshot",
+        "restore-from-snapshot",
+        "native-list",
+        "completion-pulse",
+    ],
+)
+def test_webui_direct_jobs_reject_e3646a_unsupported_sequence_steps(
+    client: TestClient,
+    action: str,
+) -> None:
+    assert_direct_job_rejected(
+        client,
+        {
+            "command": "sequence",
+            "runtime": {"dry_run": True, "model_profile": "E3646A"},
+            "parameters": {
+                "document": {
+                    "version": 1,
+                    "steps": [{"action": action, "channel": 1, "pins": [1]}],
+                }
+            },
+        },
+        "unsupported" if action != "trigger-pulse" else "E36312A",
+    )
 
 
 def test_webui_direct_e3646a_sequence_validated_read_only_and_output_steps_allowed(client: TestClient) -> None:

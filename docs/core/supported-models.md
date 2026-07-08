@@ -108,7 +108,9 @@ command-level facts:
   snapshot, restore, completion pulses, and native LIST remain disabled.
   E3646A `ramp-list` is software setpoint stepping, and E3646A `sequence` is a
   software workflow limited to validated output/read-only steps. Neither is
-  native instrument LIST support.
+  native instrument LIST support. E3646A sequence rejects unsupported step
+  types such as protection, trigger, snapshot, restore, native LIST, and
+  completion-pulse steps.
 - E3646A serial settings are explicit only. If no serial options are provided,
   the program does not overwrite VISA backend, Keysight IO Libraries Suite, or
   Connection Expert serial settings. The factory example is 9600 baud, 8 data

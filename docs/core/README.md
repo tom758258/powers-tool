@@ -21,7 +21,7 @@ script included in the same `keysight-powers` distribution.
 - `keysight_power_core.connection`: VISA backend selection, resource listing,
   identity query, and connection helpers.
 - `keysight_power_core.factory`: IDN-based driver selection for generic SCPI,
-  E36312A, and EDU36311A instruments.
+  E36312A, EDU36311A, and E3646A instruments.
 - `keysight_power_core.drivers`: model-specific driver implementations and
   shared SCPI channel strategies.
 - `keysight_power_core.operations`: output and setpoint operations such as
@@ -117,8 +117,9 @@ commands, state-changing behavior, and report locations are documented in the
 
 ## Status
 
-Active package. E36312A and EDU36311A are the main model-specific targets.
-Model-specific driver foundations are selected from valid `*IDN?` responses.
+Active package. E36312A, EDU36311A, and E3646A are the current model-specific
+targets. Model-specific driver foundations are selected from valid `*IDN?`
+responses.
 Channel-list SCPI, snapshot/readback parsing, protection state handling,
 sequence loading/planning, safety validation, simulator behavior, and
 output-operation planning are covered by no-hardware tests.
@@ -134,6 +135,12 @@ execution belongs only to `trigger-list`; Ramp always uses software setpoint
 steps. Trigger workflows are E36312A-only. Unsupported models, including
 EDU36311A, do not expose trigger dry-run or simulator behavior.
 Hardware-affecting behavior remains explicit and opt-in.
+
+E3646A RS-232 support covers validated read-only/output workflows plus
+software `ramp-list` and step-limited software `sequence`. These workflows are
+not native LIST support. E3646A protection, trigger/native LIST,
+snapshot/restore, completion-pulse, and unsupported sequence step types remain
+disabled by the feature-lock policy.
 
 The adapter boundary is intentionally one-way: core contains driver methods,
 SCPI helpers, simulator selection, no-hardware model resolution, and dry-run

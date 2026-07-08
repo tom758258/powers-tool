@@ -174,6 +174,12 @@ payload and do not override VISA backend or Connection Expert settings.
 Read/write termination fields accept `CR`, `LF`, `CRLF`, and `NONE` aliases.
 `NONE`, blank, or omitted termination means no termination override is applied.
 
+The frontend command rail may hide or disable unsupported commands for
+operator clarity, but this is UX only. Direct `/api/jobs` submissions still
+pass through WebUI backend validation and Core support gates, so unsupported
+model/command/mode combinations are rejected even when a caller bypasses the
+browser controls.
+
 The `set` command accepts Voltage, Current, or both in Basic command and
 Commands. Blank setpoint fields are omitted from the job payload and left
 unchanged by Core; Live Data/readback remains the source for complete
@@ -267,7 +273,11 @@ error queue.
 
 Commands outside the WebUI surface are marked disabled by `/api/commands` and
 return `not_implemented_in_webui` if submitted directly. No hardware tests are
-run from this package by default.
+run from this package by default. Model feature-lock policy is also enforced
+for direct `/api/jobs` submissions: EDU36311A trigger/native LIST and
+snapshot/restore jobs, E3646A protection/trigger/native LIST/snapshot/restore
+and completion-pulse jobs, and unsupported E3646A sequence step types are
+rejected by the backend/Core boundary.
 
 ## Test
 

@@ -109,8 +109,20 @@ def test_e3646a_unsupported_core_workflows_rejected(core_request: OperationReque
         run_core_command(core_request)
 
 
-@pytest.mark.parametrize("action", ["trigger-pulse", "completion-pulse"])
-def test_e3646a_sequence_unsupported_pulse_steps_fail(action: str) -> None:
+@pytest.mark.parametrize(
+    "action",
+    [
+        "protection-set",
+        "clear-protection",
+        "trigger-pulse",
+        "trigger-list",
+        "snapshot",
+        "restore-from-snapshot",
+        "native-list",
+        "completion-pulse",
+    ],
+)
+def test_e3646a_sequence_unsupported_step_types_fail(action: str) -> None:
     request = SequenceRequest(
         runtime=RuntimeOptions(dry_run=True, model_profile="E3646A"),
         parameters={"document": {"version": 1, "steps": [{"action": action, "channel": 1, "pins": [1]}]}},

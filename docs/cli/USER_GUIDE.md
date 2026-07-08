@@ -126,6 +126,9 @@ restore, completion pulses, and native LIST remain disabled for E3646A.
 E3646A uses `INST:NSEL` channel preselection for setpoint writes and readbacks.
 `OUTP ON/OFF` is a global output enable/disable on this model, so output
 enable/disable actions can affect the instrument output state globally.
+E3646A `ramp-list` and `sequence` are software workflows, not native LIST.
+Sequence accepts only validated read-only/output steps; protection, trigger,
+snapshot, restore, native LIST, and completion-pulse steps are rejected.
 
 Set the ASRL resource once per PowerShell session:
 
@@ -274,7 +277,9 @@ E36312A-only. EDU36311A supports read-only, output, and protection workflows,
 but not trigger/native LIST or snapshot/restore. E3646A supports validated
 RS-232 read-only/output workflows plus software `ramp-list` and step-limited
 software `sequence`; protection, trigger/native LIST, snapshot/restore,
-completion-pulse, and native LIST workflows remain disabled.
+completion-pulse, and native LIST workflows remain disabled. E3646A sequence
+also rejects unsupported protection, trigger, snapshot, restore, native LIST,
+and completion-pulse steps.
 
 ## Common Problems
 

@@ -39,6 +39,9 @@ In live mode, `--model` / `model_profile` is an expected-model guard. The
 connected instrument is still identified with `*IDN?`, and Core requires the
 reported model to match the selected model before any setup or write SCPI. The
 selected model never overrides the IDN-detected driver.
+`GENERIC` is no-hardware only and is not accepted as a live expected model.
+Unsupported model, command, and mode failures are intentional feature-lock
+behavior; selecting a model is not a feature unlock.
 
 Valid no-hardware examples:
 
@@ -56,6 +59,15 @@ uv run keysight-power set --model E36312A --resource "$env:POWER_USB_RESOURCE" -
 
 This command requires the connected `*IDN?` model to be `E36312A`; it does not
 force the E36312A driver if another model answers.
+
+Current model boundaries are enforced across Core, CLI, and WebUI backend
+direct jobs. Trigger/native LIST is E36312A-only. EDU36311A supports
+read-only/output/protection workflows but not trigger/native LIST or
+snapshot/restore. E3646A supports validated RS-232 read-only/output workflows
+plus software `ramp-list` and step-limited software `sequence`; these are not
+native LIST workflows, and E3646A protection, trigger/native LIST,
+snapshot/restore, completion-pulse, and unsupported sequence steps remain
+disabled.
 
 This is intentionally rejected:
 

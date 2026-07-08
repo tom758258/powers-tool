@@ -165,7 +165,9 @@ read-only, output, and protection workflows, but not trigger/native LIST or
 snapshot/restore. E3646A supports validated RS-232 read-only/output workflows,
 software `ramp-list`, and step-limited software `sequence`; protection,
 trigger/native LIST, snapshot/restore, completion-pulse, and native LIST
-workflows remain disabled.
+workflows remain disabled. E3646A sequence accepts only validated read-only and
+output steps; protection, trigger, snapshot, restore, native LIST, and
+completion-pulse steps are rejected.
 
 Some editors support JSON Load/Save, including Sequence, Ramp List, and Trigger
 List workspaces. Use these for repeatable workflows, and keep saved files free
@@ -188,7 +190,9 @@ model-specific plan, or use a deterministic SIM resource such as
 `USB0::SIM::E36312A::INSTR`. For live raw API jobs, `runtime.model_profile` is
 an expected-model guard checked against `*IDN?`; mismatch fails before setup or
 write SCPI. The browser learns live model support from scan/job IDN metadata;
-fake resource strings do not imply a model.
+fake resource strings do not imply a model. Browser disabled or hidden state is
+not the safety boundary; direct `/api/jobs` submissions are still rejected by
+the WebUI backend and Core when the model, command, or mode is unsupported.
 
 ## Stop And Cancel
 
