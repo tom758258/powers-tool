@@ -1538,7 +1538,7 @@ def test_live_generic_expected_model_fails_before_hardware_io(monkeypatch, capsy
         == 2
     )
     payload = json.loads(capsys.readouterr().out)
-    assert "unsupported live expected model" in payload["error"]["message"]
+    assert "GENERIC is no-hardware only" in payload["error"]["message"]
 
 
 def test_e3646a_dry_run_all_expands_two_channels_and_rejects_three(capsys) -> None:
@@ -3148,7 +3148,7 @@ def test_set_real_non_e36312a_models_are_rejected(monkeypatch, capsys, idn) -> N
     assert payload["execution"]["hardware_touched"] is True
     assert payload["error"]["type"] == "validation"
     assert payload["error"]["code"] == "unsupported_model_for_set"
-    assert "E36312A" in payload["error"]["message"]
+    assert "not supported" in payload["error"]["message"]
     assert session.closed is True
 
 
@@ -3516,7 +3516,7 @@ def test_output_on_real_non_e36312a_models_are_rejected(monkeypatch, capsys, idn
     assert payload["execution"]["hardware_touched"] is True
     assert payload["error"]["type"] == "validation"
     assert payload["error"]["code"] == "unsupported_model_for_output_on"
-    assert "E36312A" in payload["error"]["message"]
+    assert "not supported" in payload["error"]["message"]
     assert session.closed is True
 
 
@@ -3854,7 +3854,7 @@ def test_output_off_real_generic_e36312a_is_rejected(monkeypatch, capsys) -> Non
     assert payload["execution"]["hardware_touched"] is True
     assert payload["error"]["type"] == "validation"
     assert payload["error"]["code"] == "unsupported_model_for_output_off"
-    assert "E36312A" in payload["error"]["message"]
+    assert "mutating workflows remain disabled" in payload["error"]["message"]
     assert session.closed is True
 
 
@@ -5360,7 +5360,7 @@ def test_trigger_step_no_hardware_edu36311a_is_rejected(capsys, mode: str) -> No
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["code"] == "unsupported_model_for_trigger"
-    assert "only supported for E36312A" in payload["error"]["message"]
+    assert "trigger/native LIST workflows are disabled in live, simulate, and dry-run" in payload["error"]["message"]
 
 
 def test_trigger_step_real_edu36311a_is_rejected(monkeypatch, capsys) -> None:

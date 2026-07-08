@@ -65,7 +65,7 @@ def _run_status(request: OperationRequest, *, opener: Callable[..., Any], scpi_l
     instrument, idn = _open(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
         power_supply = create_power_supply(instrument.session, idn)
-        _require_supported(power_supply, request.command)
+        _require_supported(power_supply, request.command, parse_idn(idn).model)
         channels = _channels(selected, power_supply.capabilities.channels)
         protection_by_channel = [
             {
@@ -121,7 +121,7 @@ def _run_clear(request: OperationRequest, *, opener: Callable[..., Any], scpi_lo
             command=request.command,
         )
         power_supply = create_power_supply(instrument.session, idn)
-        _require_supported(power_supply, request.command)
+        _require_supported(power_supply, request.command, parse_idn(idn).model)
         channels = _channels(selected, power_supply.capabilities.channels)
         for channel in channels:
             power_supply.clear_output_protection(channel=channel)
@@ -164,7 +164,7 @@ def _run_set(request: OperationRequest, *, opener: Callable[..., Any], scpi_logg
             command=request.command,
         )
         power_supply = create_power_supply(instrument.session, idn)
-        _require_supported(power_supply, request.command)
+        _require_supported(power_supply, request.command, parse_idn(idn).model)
         channels = _channels(_selected_channel(request), power_supply.capabilities.channels)
         for channel in channels:
             if p.get("ovp_voltage") is not None:
@@ -223,10 +223,11 @@ class _ManagedSession:
         self.context.__exit__(exc_type, exc, tb)
 
 
-def _require_supported(power_supply: Any, command: str) -> None:
+def _require_supported(power_supply: Any, command: str, model: str | None) -> None:
     if not isinstance(power_supply, SUPPORTED_TYPES):
         raise UnsupportedModelError(
-            f"{command} is only supported for E36312A or EDU36311A; found {type(power_supply).__name__} from *IDN? response"
+            f"{capabilities.unsupported_command_message(command, model, 'live')}\n"
+            f"Found {type(power_supply).__name__} from *IDN? response."
         )
 
 

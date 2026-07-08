@@ -272,6 +272,12 @@ resource, queries `*IDN?`, and requires the reported model to match before any
 setup or write SCPI. The selected model never overrides the IDN-detected
 driver.
 
+Unsupported model, command, and mode failures are intentional feature-lock
+behavior. `--model` is not a feature unlock: in dry-run/simulate mode it only
+selects the no-hardware planning profile, and in live mode it only checks that
+the connected `*IDN?` model is the expected one. `GENERIC` is no-hardware only
+and cannot be used as a live expected model.
+
 Live guard example:
 
 ```powershell
@@ -292,6 +298,13 @@ No-hardware plans include `data.plan.target.model_profile`. Channel validation
 and `--channel all` expansion use that profile: E3646A expands `all` to CH1
 and CH2 and rejects CH3; E36312A and EDU36311A expand to CH1, CH2, and CH3;
 E36103B, E36232A, and GENERIC conservatively allow CH1 only.
+
+Trigger/native LIST workflows are E36312A-only. EDU36311A supports validated
+read-only, output, and protection workflows, but trigger/native LIST,
+`snapshot`, and `restore-from-snapshot` are disabled in live, simulate, and
+dry-run until separately implemented and hardware validated. E36103B and
+E36232A may be used as expected-model/probing profiles, but mutating workflows
+remain disabled until hardware validation.
 
 Real CLI measurement keeps generic instruments on channel 1. E36312A and
 EDU36311A channels 2 and 3 use IDN-selected channel-list measurement queries.
@@ -455,6 +468,8 @@ Model-supported commands include `identify`, `measure`, `readback`,
 available as a model-independent connection diagnostic that opens the selected
 resource and queries `*IDN?`. Protection writes, trigger workflows, snapshot
 restore, completion pulses, and native LIST remain disabled.
+`ramp-list` is software setpoint stepping, and `sequence` is a step-limited
+software workflow for validated output/read-only steps; neither is native LIST.
 
 E3646A uses `INST:NSEL` channel preselection for setpoint writes and readbacks.
 `OUTP ON/OFF` is a global output enable/disable on this model, so `output-on`,

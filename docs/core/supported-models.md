@@ -58,6 +58,14 @@ model.
 for one map entry. The matrix above must stay consistent with these
 command-level facts:
 
+- Unsupported model, command, and mode combinations fail intentionally. These
+  feature-lock failures mean the workflow is not enabled for that model yet,
+  not that `--model` or the WebUI selector can unlock it.
+- CLI `--model` and WebUI `runtime.model_profile` are no-hardware planning
+  profiles in dry-run/simulate mode. In live mode they are expected-model
+  guards only: live driver selection always follows the connected `*IDN?`
+  response. `GENERIC` is no-hardware only and is not accepted as a live
+  expected model.
 - E36312A USB-local has validated real read-only, output, protection, trigger,
   snapshot, and restore paths.
 - E36312A native trigger/LIST support is exposed through `trigger-status`,
@@ -77,6 +85,8 @@ command-level facts:
 - EDU36311A trigger commands remain disabled. `capabilities --json` reports
   all trigger commands with `hardware_validation=not_supported_by_model` and
   does not expose trigger dry-run or simulator behavior.
+- EDU36311A snapshot and restore-from-snapshot are not enabled. They remain
+  E36312A-only until separately implemented and hardware validated.
 - E3646A RS-232 support implements live-validated identity, measurement,
   readback, read-status, output-state, capabilities, and output workflows.
   The validated output commands are `set`, `apply`, `output-on`,
@@ -96,6 +106,9 @@ command-level facts:
   used for setpoint writes and readbacks, but output enable/disable affects the
   instrument output state globally. Protection changes, trigger workflows,
   snapshot, restore, completion pulses, and native LIST remain disabled.
+  E3646A `ramp-list` is software setpoint stepping, and E3646A `sequence` is a
+  software workflow limited to validated output/read-only steps. Neither is
+  native instrument LIST support.
 - E3646A serial settings are explicit only. If no serial options are provided,
   the program does not overwrite VISA backend, Keysight IO Libraries Suite, or
   Connection Expert serial settings. The factory example is 9600 baud, 8 data
@@ -114,6 +127,10 @@ command-level facts:
   expand to CH1 and CH2; CH3 is rejected.
 - Live trigger behavior remains IDN-driven. `--model` is a live
   expected-model guard and does not override connected hardware.
+- E36103B and E36232A remain accepted CLI expected-model/probing profiles for
+  limited read-only workflows, but mutating workflows are disabled until
+  hardware validation. They are intentionally absent from the normal WebUI
+  model dropdown.
 - `snapshot-diff`, `snapshot-diff --summary`, and `hardware-report` are
   offline/no-hardware tools and never open VISA. `sequence --lint` also
   validates without opening VISA and remains syntax/document validation unless

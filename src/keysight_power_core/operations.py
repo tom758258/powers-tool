@@ -310,10 +310,10 @@ def _run_output_write_operation(
                 else OUTPUT_WRITE_POWER_SUPPLY_TYPES
             )
             if not isinstance(power_supply, allowed_types):
-                supported_models = "E36312A, E3646A, or EDU36311A"
+                model = parse_idn(idn).model
                 raise UnsupportedModelError(
-                    f"{request.command} real execution is only supported for {supported_models}; "
-                    f"found {type(power_supply).__name__} from *IDN? response"
+                    f"{capabilities.unsupported_command_message(request.command, model, 'live')}\n"
+                    f"Found {type(power_supply).__name__} from *IDN? response."
                 )
             return _execute_output_write(
                 request,

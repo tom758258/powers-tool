@@ -113,7 +113,7 @@ def test_live_expected_model_normalization_is_case_insensitive(requested: str, e
 
 
 def test_live_expected_model_rejects_generic() -> None:
-    with pytest.raises(CoreValidationError, match="unsupported live expected model"):
+    with pytest.raises(CoreValidationError, match="GENERIC is no-hardware only"):
         canonical_live_expected_model("GENERIC")
 
 
@@ -235,7 +235,7 @@ def test_trigger_no_hardware_rejects_unsupported_models(model: str, mode: str) -
         model_profile=model,
     )
 
-    with pytest.raises(CoreValidationError, match="only supported for E36312A|deterministic simulator"):
+    with pytest.raises(CoreValidationError, match="not supported|deterministic simulator"):
         run_core_command(
             TriggerRequest(
                 command="trigger-fire",
@@ -255,7 +255,7 @@ def test_trigger_sim_resource_infers_e36312a_and_rejects_edu36311a() -> None:
 
     assert data["plan"]["target"]["model_profile"] == "E36312A"
 
-    with pytest.raises(CoreValidationError, match="only supported for E36312A"):
+    with pytest.raises(CoreValidationError, match="trigger/native LIST workflows are disabled"):
         run_core_command(
             TriggerRequest(
                 command="trigger-status",

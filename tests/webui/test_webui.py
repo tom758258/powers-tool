@@ -224,6 +224,7 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "Auto uses the detected live model when known" in html
     assert "frontend capability planning" in html
     assert "never overrides the IDN-selected driver" in html
+    assert "E36103B and E36232A are hidden until hardware validation enables normal WebUI use" in html
     for model in ("E36312A", "EDU36311A", "E3646A"):
         assert f'<option value="{model}">{model}</option>' in html
     for unvalidated_model in ("E36103B", "E36232A"):
@@ -254,6 +255,7 @@ def test_static_normal_model_dropdown_policy() -> None:
         assert f'<option value="{model}">{model}</option>' in model_select
     for unvalidated_model in ("E36103B", "E36232A"):
         assert unvalidated_model not in model_select
+    assert "E36103B and E36232A are hidden until hardware validation enables normal WebUI use" in html
 
 
 def test_static_device_resource_summary_uses_model_wording():
@@ -1544,9 +1546,17 @@ def test_commands_metadata_includes_model_aware_support(client: TestClient):
     assert support["E36312A"]["trigger-list"]["real"] is True
     assert support["EDU36311A"]["trigger-list"]["real"] is False
     assert support["EDU36311A"]["trigger-list"]["hardware_validation"] == "not_supported_by_model"
+    assert "trigger/native LIST workflows are disabled in live, simulate, and dry-run" in support["EDU36311A"]["trigger-list"]["disabled_reason"]
+    assert "E36312A-only" in support["EDU36311A"]["snapshot"]["disabled_reason"]
     assert support["E3646A"]["identify"]["real"] is True
     assert support["E3646A"]["set"]["real"] is True
     assert support["E3646A"]["set"]["hardware_validation"] == "validated"
+    assert "protection workflows are disabled until separately validated" in support["E3646A"]["protection-set"]["disabled_reason"]
+    assert "software workflows, not native LIST" in support["E3646A"]["trigger-list"]["disabled_reason"]
+    assert "snapshot/restore workflows are disabled until separately validated" in support["E3646A"]["restore-from-snapshot"]["disabled_reason"]
+    assert "completion-pulse workflows are disabled" in support["E3646A"]["trigger-pulse"]["disabled_reason"]
+    assert "disabled_reason" not in support["E3646A"]["ramp-list"]
+    assert "disabled_reason" not in support["E3646A"]["sequence"]
     assert support["GENERIC"]["set"]["real"] is False
     for model in ("E36312A", "E3646A", "EDU36311A", "GENERIC"):
         assert support[model]["clear"]["real"] is True
@@ -2066,7 +2076,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
                 "runtime": {"dry_run": True, "model_profile": "E3646A"},
                 "parameters": {"channel": 1, "source": "bus", "fire": True},
             },
-            ("E36312A",),
+            ("E3646A", "native LIST and trigger workflows are disabled"),
         ),
         (
             {
@@ -2082,7 +2092,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
                     "dwell_list": [0.01, 0.01],
                 },
             },
-            ("E36312A",),
+            ("E3646A", "software workflows, not native LIST"),
         ),
         (
             {
@@ -2090,7 +2100,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
                 "runtime": {"simulate": True, "resource": "ASRL1::SIM::E3646A::INSTR"},
                 "parameters": {},
             },
-            ("E36312A",),
+            ("E3646A", "snapshot/restore workflows are disabled"),
         ),
         (
             {
@@ -2098,7 +2108,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
                 "runtime": {"dry_run": True, "model_profile": "E3646A"},
                 "parameters": {"document": policy_snapshot_document("E3646A"), "channel": 1},
             },
-            ("E36312A",),
+            ("E3646A", "snapshot/restore workflows are disabled"),
         ),
         (
             {

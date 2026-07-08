@@ -443,6 +443,10 @@ def test_unvalidated_model_profile_does_not_unlock_mutating_dry_run(capsys, mode
 
     payload = json.loads(capsys.readouterr().out)
     message = payload["error"]["message"]
+    assert "set" in message
+    assert model in message
+    assert "dry-run mode" in message
+    assert "mutating workflows remain disabled" in message
     assert "--model" in message
     assert "not a feature unlock" in message or "does not enable" in message
 
@@ -458,14 +462,21 @@ def test_edu36311a_trigger_step_no_hardware_cli_exits_nonzero(capsys, argv: list
     assert cli.main(argv) == 2
 
     payload = json.loads(capsys.readouterr().out)
-    assert "E36312A" in payload["error"]["message"] or "not supported" in payload["error"]["message"]
+    message = payload["error"]["message"]
+    assert "trigger-step" in message
+    assert "EDU36311A" in message
+    assert "disabled in live, simulate, and dry-run" in message
+    assert "E36312A" in message
 
 
 def test_edu36311a_snapshot_cli_exits_nonzero(capsys) -> None:
     assert cli.main(["snapshot", "--simulate", "--json", "--resource", "USB0::SIM::EDU36311A::INSTR"]) == 2
 
     payload = json.loads(capsys.readouterr().out)
-    assert "E36312A" in payload["error"]["message"] or "not supported" in payload["error"]["message"]
+    message = payload["error"]["message"]
+    assert "snapshot" in message
+    assert "E36312A-only" in message
+    assert "hardware validated" in message
 
 
 def test_edu36311a_restore_from_snapshot_cli_exits_nonzero(tmp_path, capsys) -> None:
@@ -491,4 +502,58 @@ def test_edu36311a_restore_from_snapshot_cli_exits_nonzero(tmp_path, capsys) -> 
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert "E36312A" in payload["error"]["message"] or "not supported" in payload["error"]["message"]
+    message = payload["error"]["message"]
+    assert "restore-from-snapshot" in message
+    assert "E36312A-only" in message
+    assert "hardware validated" in message
+
+
+@pytest.mark.parametrize(
+    ("argv", "fragments"),
+    [
+        (
+            ["protection-set", "--dry-run", "--json", "--model", "E3646A", "--channel", "1", "--ovp-voltage", "5"],
+            ("protection-set", "E3646A", "disabled until separately validated"),
+        ),
+        (
+            ["trigger-list", "--dry-run", "--json", "--model", "E3646A", "--channel", "1", "--source", "bus", "--fire", "--wait-complete", "--voltage-list", "0,1", "--current-list", "0.05,0.05", "--dwell-list", "0.01,0.01"],
+            ("trigger-list", "E3646A", "native LIST", "software workflows, not native LIST"),
+        ),
+        (
+            ["snapshot", "--simulate", "--json", "--resource", "ASRL1::SIM::E3646A::INSTR"],
+            ("snapshot", "E3646A", "snapshot/restore workflows are disabled"),
+        ),
+    ],
+)
+def test_e3646a_unsupported_cli_errors_are_policy_explanations(capsys, argv: list[str], fragments: tuple[str, ...]) -> None:
+    assert cli.main(argv) == 2
+
+    payload = json.loads(capsys.readouterr().out)
+    message = payload["error"]["message"]
+    for fragment in fragments:
+        assert fragment in message
+
+
+def test_generic_live_expected_model_error_is_no_hardware_only(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "set",
+                "--json",
+                "--model",
+                "GENERIC",
+                "--resource",
+                "USB0::FAKE::INSTR",
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["message"].startswith("GENERIC is no-hardware only")

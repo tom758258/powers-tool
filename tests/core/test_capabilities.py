@@ -264,3 +264,53 @@ def test_capabilities_static_groups_preserve_json_lists() -> None:
             "trigger-abort",
         ],
     }
+
+
+def _unsupported_message(command: str, model: str, mode: str) -> str:
+    with pytest.raises(Exception) as exc:
+        capabilities.ensure_command_supported(command, model, mode)
+    return str(exc.value)
+
+
+def test_edu36311a_trigger_error_explains_feature_lock() -> None:
+    message = _unsupported_message("trigger-step", "EDU36311A", "dry-run")
+
+    assert "trigger-step" in message
+    assert "EDU36311A" in message
+    assert "dry-run mode" in message
+    assert "disabled in live, simulate, and dry-run" in message
+    assert "Use E36312A" in message
+
+
+@pytest.mark.parametrize("command", ["snapshot", "restore-from-snapshot"])
+def test_edu36311a_snapshot_restore_error_explains_e36312a_only(command: str) -> None:
+    message = _unsupported_message(command, "EDU36311A", "simulate")
+
+    assert command in message
+    assert "EDU36311A" in message
+    assert "simulate mode" in message
+    assert "E36312A-only" in message
+    assert "hardware validated" in message
+
+
+@pytest.mark.parametrize("command", ["protection-set", "trigger-list", "snapshot", "restore-from-snapshot", "trigger-pulse"])
+def test_e3646a_disabled_workflow_errors_explain_validation_boundary(command: str) -> None:
+    message = _unsupported_message(command, "E3646A", "live")
+
+    assert command in message
+    assert "E3646A" in message
+    assert "live mode" in message
+    assert "disabled until separately validated" in message
+    if command in {"trigger-list", "trigger-pulse"}:
+        assert "software workflows, not native LIST" in message
+
+
+@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
+def test_unvalidated_model_mutating_error_explains_expected_guard_only(model: str) -> None:
+    message = _unsupported_message("output-on", model, "live")
+
+    assert "output-on" in message
+    assert model in message
+    assert "live mode" in message
+    assert "expected-model guard/probing model" in message
+    assert "mutating workflows remain disabled" in message

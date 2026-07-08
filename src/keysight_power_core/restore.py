@@ -70,9 +70,10 @@ def run_restore(
             _validate_restore_identity(parse_idn(idn_raw), snapshot.get("idn") if isinstance(snapshot.get("idn"), dict) else {})
             power_supply = create_power_supply(session, idn_raw)
             if not isinstance(power_supply, E36312APowerSupply):
+                model = parse_idn(idn_raw).model
                 raise UnsupportedModelError(
-                    "restore-from-snapshot real execution is only supported for E36312A; "
-                    f"found {type(power_supply).__name__} from *IDN? response"
+                    f"{capabilities.unsupported_command_message('restore-from-snapshot', model, 'live')}\n"
+                    f"Found {type(power_supply).__name__} from *IDN? response."
                 )
             _validate_restore_setpoints(power_supply, plan)
             _execute_restore_plan(power_supply, plan, stop_requested=stop_requested)

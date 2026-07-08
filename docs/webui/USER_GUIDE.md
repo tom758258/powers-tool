@@ -104,6 +104,12 @@ Resource summary shows the detected live model and expected model selection
 separately, for example `live E3646A / Expected Auto` or `live E3646A / Require
 E36312A`.
 
+The normal model dropdown intentionally shows only models enabled for normal
+WebUI use. E36103B and E36232A are hidden until hardware validation enables
+normal WebUI workflows for those models. Auto may still use detected live model
+metadata when available, but frontend state never overrides the Core
+IDN-selected live driver.
+
 If no live resource appears, check instrument power, cabling, VISA driver
 visibility, and whether another program is holding the instrument.
 
@@ -152,6 +158,14 @@ Trigger, Snapshot, and Advanced Diagnostics.
 The form is generated from WebUI command metadata. Required fields must be
 filled before Run. Disabled commands or controls indicate unsupported model,
 mode, or WebUI scope.
+
+Disabled-command explanations are intentional feature-lock guidance, not random
+UI failures. Trigger/native LIST workflows are E36312A-only. EDU36311A supports
+read-only, output, and protection workflows, but not trigger/native LIST or
+snapshot/restore. E3646A supports validated RS-232 read-only/output workflows,
+software `ramp-list`, and step-limited software `sequence`; protection,
+trigger/native LIST, snapshot/restore, completion-pulse, and native LIST
+workflows remain disabled.
 
 Some editors support JSON Load/Save, including Sequence, Ramp List, and Trigger
 List workspaces. Use these for repeatable workflows, and keep saved files free
@@ -226,6 +240,9 @@ You can still type a known VISA resource manually.
 Read the visible validation message and Result Detail. Common causes are a
 missing resource, missing required command field, unsupported model, unsafe
 setpoint, or missing confirmation for real output-affecting commands.
+Selecting an expected model does not unlock disabled commands; it only plans
+no-hardware requests or guards a live command against the connected `*IDN?`
+model.
 
 ### Output buttons do not look current
 

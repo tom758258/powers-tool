@@ -256,13 +256,73 @@ def ensure_command_supported(command: str, model: str | None, mode: str) -> None
         return
     model_label = model or "GENERIC"
     mode_label = "dry-run" if mode_key == "dry_run" else mode_key
-    detail = f"{command} is not supported for {model_label} in {mode_label} mode"
-    e36312a_support = command_support("E36312A").get(command, {})
-    if e36312a_support.get(mode_key) is True:
-        detail += "; only supported for E36312A in this mode"
-    if mode_key in {"dry_run", "simulate"}:
-        detail += "; --model is not a feature unlock and does not enable unsupported commands"
+    detail = unsupported_command_message(command, model_label, mode_label)
     raise UnsupportedModelError(detail)
+
+
+def unsupported_command_message(command: str, model: str | None, mode: str) -> str:
+    """Return a user-facing unsupported command message."""
+
+    model_label = (model or "GENERIC").upper()
+    mode_label = "dry-run" if mode == "dry_run" else mode
+    reason = unsupported_command_reason(command, model_label)
+    detail = f"{command} is not supported for {model_label} in {mode_label} mode."
+    if reason:
+        detail = f"{detail}\n{reason}"
+    if mode_label in {"dry-run", "simulate"}:
+        detail = (
+            f"{detail}\n"
+            "--model is not a feature unlock and does not enable unsupported commands."
+        )
+    return detail
+
+
+def unsupported_command_reason(command: str, model: str | None) -> str:
+    """Return the policy reason for an unsupported model/command pair."""
+
+    model_label = (model or "GENERIC").upper()
+    if model_label == "GENERIC":
+        return "GENERIC is no-hardware only and cannot be used as a live expected model."
+    if model_label == "EDU36311A":
+        if command in TRIGGER_COMMANDS:
+            return (
+                "EDU36311A trigger/native LIST workflows are disabled in live, simulate, and dry-run. "
+                "Use E36312A for trigger/native LIST workflows, or choose a supported EDU36311A command "
+                "such as read-only, output, or protection."
+            )
+        if command in {"snapshot", "restore-from-snapshot"}:
+            return (
+                f"{command} is currently E36312A-only. "
+                f"EDU36311A {command} remains disabled until separately implemented and hardware validated."
+            )
+    if model_label == "E3646A":
+        if command in {"protection-set", "clear-protection", "protection-status"}:
+            return (
+                "E3646A protection workflows are disabled until separately validated. "
+                "E3646A software ramp-list and step-limited sequence remain available for validated "
+                "output/read-only workflows."
+            )
+        if command in {"trigger-step", "trigger-list", "trigger-status", "trigger-fire", "trigger-abort"}:
+            return (
+                "E3646A native LIST and trigger workflows are disabled until separately validated. "
+                "E3646A ramp-list and sequence are software workflows, not native LIST."
+            )
+        if command in {"snapshot", "restore-from-snapshot"}:
+            return "E3646A snapshot/restore workflows are disabled until separately validated."
+        if command == "trigger-pulse":
+            return (
+                "E3646A completion-pulse workflows are disabled until separately validated. "
+                "E3646A ramp-list and sequence are software workflows, not native LIST."
+            )
+    if model_label in {"E36103B", "E36232A"}:
+        return (
+            f"{model_label} may be used as an expected-model guard/probing model, "
+            "but mutating workflows remain disabled until hardware validation."
+        )
+    e36312a_support = command_support("E36312A").get(command, {})
+    if any(e36312a_support.get(key) is True for key in ("real", "simulate", "dry_run")):
+        return "This workflow is currently E36312A-only for supported modes."
+    return "This command is intentionally disabled by the model feature-lock policy."
 
 
 def known_capability_commands() -> set[str]:

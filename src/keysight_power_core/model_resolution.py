@@ -46,6 +46,11 @@ def canonical_live_expected_model(model: str | None) -> str | None:
         return None
     normalized = canonical_model_profile(model)
     if normalized not in LIVE_EXPECTED_MODEL_PROFILES:
+        if normalized == "GENERIC":
+            raise CoreValidationError(
+                "GENERIC is no-hardware only and cannot be used as a live expected model. "
+                "--model is an expected-model guard in live mode and does not override the IDN-detected driver."
+            )
         supported = ", ".join(sorted(LIVE_EXPECTED_MODEL_PROFILES))
         raise CoreValidationError(
             f"unsupported live expected model {model!r}; supported: {supported}. "

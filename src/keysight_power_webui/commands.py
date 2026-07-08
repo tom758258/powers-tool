@@ -330,6 +330,12 @@ def _filtered_command_support(model: str | None, command_names: set[str]) -> dic
         for command in sorted(command_names)
         if command in support
     }
+    for command, entry in filtered.items():
+        if entry.get("real") is False:
+            entry["disabled_reason"] = core_capabilities.unsupported_command_reason(
+                command,
+                model or "GENERIC",
+            )
     for command in sorted(command_names & MODEL_INDEPENDENT_DIAGNOSTICS):
         filtered[command] = {
             "real": True,

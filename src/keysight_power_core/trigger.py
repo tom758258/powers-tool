@@ -7,6 +7,7 @@ from dataclasses import replace
 from typing import Any, Callable, Sequence
 
 from keysight_power_core.cancellation import StopRequested, raise_if_cancelled
+from keysight_power_core.capabilities import unsupported_command_message
 from keysight_power_core.connection import open_resource
 from keysight_power_core.core import (
     CoreExecutionError,
@@ -26,6 +27,11 @@ from keysight_power_core.transport import dry_run_plan
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
 
 IDN_QUERY = "*IDN?"
+
+
+def _power_supply_model(power_supply: Any) -> str | None:
+    idn = getattr(power_supply, "_core_idn_raw", None)
+    return parse_idn(idn).model if isinstance(idn, str) else None
 
 
 def run_trigger(
@@ -98,18 +104,18 @@ def _resolve_trigger_runtime(request: TriggerRequest) -> TriggerRequest:
     runtime = resolve_no_hardware_runtime(request.runtime)
     request = replace(request, runtime=runtime)
     if request.runtime.dry_run or request.runtime.simulate:
-        _require_trigger_model_profile(request.runtime.model_profile)
+        _require_trigger_model_profile(request.command, request.runtime.model_profile)
     return request
 
 
-def _require_trigger_model_profile(model_profile: str | None) -> None:
+def _require_trigger_model_profile(command: str, model_profile: str | None) -> None:
     if model_profile is None:
         raise CoreValidationError(
             "trigger no-hardware workflows require --model E36312A or a known deterministic E36312A SIM resource"
         )
     if model_profile != "E36312A":
         raise UnsupportedModelError(
-            f"trigger no-hardware workflows are only supported for E36312A; requested model profile {model_profile}"
+            unsupported_command_message(command, model_profile, "dry-run")
         )
 
 
@@ -611,10 +617,11 @@ def _run_trigger_pulse(
             idn = instrument.query(IDN_QUERY)
             _validate_trigger_expected_model(request, idn)
             power_supply = create_power_supply(instrument, idn)
+            setattr(power_supply, "_core_idn_raw", idn)
             if not isinstance(power_supply, E36312APowerSupply):
                 raise UnsupportedModelError(
-                    "trigger-pulse is only supported for E36312A; "
-                    f"found {type(power_supply).__name__} from *IDN? response"
+                    f"{unsupported_command_message('trigger-pulse', _power_supply_model(power_supply), 'live')}\n"
+                    f"Found {type(power_supply).__name__} from *IDN? response."
                 )
             channel = int(p.get("channel", 1))
             voltage = power_supply.programmed_voltage(channel=channel)
@@ -668,10 +675,11 @@ def _run_trigger_status(
             idn = instrument.query(IDN_QUERY)
             _validate_trigger_expected_model(request, idn)
             power_supply = create_power_supply(instrument, idn)
+            setattr(power_supply, "_core_idn_raw", idn)
             if not isinstance(power_supply, E36312APowerSupply):
                 raise UnsupportedModelError(
-                    "trigger-status is only supported for E36312A; "
-                    f"found {type(power_supply).__name__} from *IDN? response"
+                    f"{unsupported_command_message('trigger-status', _power_supply_model(power_supply), 'live')}\n"
+                    f"Found {type(power_supply).__name__} from *IDN? response."
                 )
             channels = _trigger_channels_from_selection(selected, power_supply.capabilities.channels)
             return {
@@ -762,7 +770,9 @@ def _run_trigger_step(
                     stop_requested=stop_requested,
                 )
             else:
-                raise UnsupportedModelError("trigger-step is only supported for E36312A")
+                raise UnsupportedModelError(
+                    unsupported_command_message("trigger-step", _power_supply_model(power_supply), "live")
+                )
             _raise_on_instrument_errors(power_supply, request.command)
             return {"_resource": request.runtime.resource, "idn": getattr(power_supply, "_core_idn_raw", None), "trigger": trigger}
     except VisaConnectionError as exc:
@@ -792,7 +802,9 @@ def _run_trigger_list(
                 expected_model=request.runtime.model_profile,
             )
             if not isinstance(power_supply, E36312APowerSupply):
-                raise UnsupportedModelError("trigger-list is only supported for E36312A")
+                raise UnsupportedModelError(
+                    unsupported_command_message("trigger-list", _power_supply_model(power_supply), "live")
+                )
             trigger = _native_list(
                 request,
                 power_supply,
@@ -835,7 +847,9 @@ def _run_trigger_fire(
                 expected_model=request.runtime.model_profile,
             )
             if not isinstance(power_supply, E36312APowerSupply):
-                raise UnsupportedModelError("trigger-fire is only supported for E36312A")
+                raise UnsupportedModelError(
+                    unsupported_command_message("trigger-fire", _power_supply_model(power_supply), "live")
+                )
             power_supply.fire_bus_trigger()
             completed = False
             if p.get("wait_complete", False):
@@ -887,7 +901,9 @@ def _run_trigger_abort(
                 expected_model=request.runtime.model_profile,
             )
             if not isinstance(power_supply, E36312APowerSupply):
-                raise UnsupportedModelError("trigger-abort is only supported for E36312A")
+                raise UnsupportedModelError(
+                    unsupported_command_message("trigger-abort", _power_supply_model(power_supply), "live")
+                )
             errors = []
             for selected_channel in channels:
                 try:

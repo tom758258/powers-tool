@@ -35,8 +35,10 @@ def run_snapshot(
     with instrument:
         power_supply = create_power_supply(instrument.session, idn)
         if not isinstance(power_supply, E36312APowerSupply):
+            model = parse_idn(idn).model
             raise UnsupportedModelError(
-                f"snapshot is only supported for E36312A; found {type(power_supply).__name__} from *IDN? response"
+                f"{capabilities.unsupported_command_message('snapshot', model, 'live')}\n"
+                f"Found {type(power_supply).__name__} from *IDN? response."
             )
         channels = power_supply.capabilities.channels
         errors, read_count = _read_errors(power_supply, int(request.parameters.get("max_errors", 20)))

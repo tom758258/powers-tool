@@ -267,6 +267,15 @@ SCPI:
 This requires the connected model to be E36312A and does not force the E36312A
 driver.
 
+`--model` is not a feature unlock. Unsupported model, command, and mode
+failures are intentional feature-lock behavior. `GENERIC` is no-hardware only
+and cannot be used as a live expected model. Trigger/native LIST workflows are
+E36312A-only. EDU36311A supports read-only, output, and protection workflows,
+but not trigger/native LIST or snapshot/restore. E3646A supports validated
+RS-232 read-only/output workflows plus software `ramp-list` and step-limited
+software `sequence`; protection, trigger/native LIST, snapshot/restore,
+completion-pulse, and native LIST workflows remain disabled.
+
 ## Common Problems
 
 If `keysight-power.exe` is missing, confirm you are in the folder that contains
@@ -281,6 +290,9 @@ normal operator path or `--verify` to diagnose stale VISA cache entries.
 If a command refuses to run, read the validation message before retrying. The
 CLI intentionally rejects unsupported models, channels, unsafe setpoints, and
 missing confirmations before performing risky actions.
+If the message says a workflow is disabled for a model, choose a supported
+command for that model or use hardware that supports that workflow. Retrying
+with `--model` does not enable unvalidated features.
 
 If JSON output is needed for logs or automation, add `--json`. Diagnostic SCPI
 logs from `--log-scpi` are written separately so JSON stdout remains parseable.
