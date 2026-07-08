@@ -4,23 +4,26 @@ This document records manually maintained support decisions that are broader
 than one CLI command. Command-level behavior is documented in
 `../contracts/power-cli-jsonl-contract.md`.
 
-## Smoke Validation Matrix
+## Live Suite Validation Matrix
 
-This table is the single manually maintained source of truth for the smoke
-validation wrapper workflow.
+This table is the manually maintained source of truth for suite-based live
+validation records. A passed `scripts/live-cli-check.ps1` run validates only
+the selected target model, connection, suite, and cases in that run's
+`.tmp_tests` artifacts. It does not validate unsupported suites, skipped
+features, other connection types, or the whole model.
 
-| Target | Connection | dry-run | simulate | live | Notes |
-| --- | --- | --- | --- | --- | --- |
-| E36312A | USB-local | yes | yes | yes | Full output smoke runs read-only checks, protection-status reads, and low-power CH1-CH3 output smoke through `scripts/live-smoke-validation-check.ps1`; Phase 1-8 USB validation passed on 2026-05-22. |
-| E36312A | LAN-network | yes | yes | yes | Full output smoke is allowed only with an explicit `-Resource`; no LAN scan is performed. |
-| EDU36311A | USB-local or LAN-network | yes | yes | yes | Default live smoke is low-power CH1-CH3 output smoke at 1 V / 0.05 A. The legacy read-only profile remains available with `-Profile readonly`. |
-| E3646A | RS-232 / ASRL | yes | yes | yes | Identity, measurement, readback, read-status, output-state, capabilities, and RS-232 / ASRL output workflows are live validated. `verify` remains available as a model-independent connection diagnostic. Serial settings are applied only when explicitly provided. |
+| Target | Connection | Supported suites in `full` | Notes |
+| --- | --- | --- | --- |
+| E36312A | USB-local or LAN-network | `readonly`, `output`, `protection`, `snapshot`, `trigger-list` | Trigger/native LIST and snapshot/restore are considered suite validated only when the corresponding suite/cases pass for the selected connection. |
+| EDU36311A | USB-local or LAN-network | `readonly`, `output`, `protection` | Trigger/native LIST, snapshot, and restore-from-snapshot remain disabled in live, simulate, and dry-run. |
+| E3646A | RS-232 / ASRL | `readonly`, `output`, `software-sequence` | CH1/CH2 only. `OUTP ON/OFF` is global. `ramp-list` and `sequence` are software workflows, not native LIST. |
+| E36103B / E36232A | Explicit supported probing resources | `readonly` only | May be accepted as live expected-model guards for probing/read-only workflows; mutating workflows remain disabled. |
 
 EDU36311A USB read-only, output/write, and protection commands are enabled for
-real execution after staged validation. The live wrapper defaults to no-DUT
-low-power output validation; run `scripts/live-smoke-validation-check.ps1
--Target EDU36311A -Connection USB -Resource ... -Profile readonly` only for
-legacy read-only validation. EDU36311A `protection-set` and
+real execution after staged validation. Use `scripts/live-cli-check.ps1
+-Target EDU36311A -Connection USB -Resource ... -Suite full` for current
+suite validation. The legacy smoke wrapper remains available for bounded
+smoke checks only. EDU36311A `protection-set` and
 `clear-protection` require `--confirm` for real execution and report
 `hardware_validation=validated`.
 

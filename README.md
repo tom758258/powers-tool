@@ -264,6 +264,21 @@ Run the full no-hardware suite:
 Scripted no-hardware and live validation workflows are documented in the
 [CLI README](docs/cli/README.md).
 
+Live feature validation is suite-based. A passed
+`scripts\live-cli-check.ps1` run validates only the selected target model,
+connection type, suite, and cases recorded in that run's artifacts. It does
+not mean every feature on that model, or the same feature on another
+connection, is live validated.
+
+Examples:
+
+```powershell
+.\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target E3646A -Connection ASRL -Resource $env:E3646A_ASRL_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite output -PlanOnly
+```
+
 ## Documentation
 
 - [Core README](docs/core/README.md)

@@ -99,12 +99,14 @@ the CLI adapter. Run the no-hardware gate before live validation:
 
 ```powershell
 .\scripts\no-hardware-regression.ps1
-.\scripts\preflight-smoke-validation.ps1 -Target E36312A
+.\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource USB0::SIM::E36312A::INSTR -Suite readonly -PlanOnly
 ```
 
-Live smoke and hardware pytest are explicit, opt-in hardware checks. Their
-commands, state-changing behavior, and report locations are documented in the
-[CLI README scripted validation section](../cli/README.md#scripted-validation).
+Live suite checks and hardware pytest are explicit, opt-in hardware checks.
+`scripts\live-cli-check.ps1` records target/connection/suite/case artifacts
+under `.tmp_tests`; a passing suite validates only those recorded cases, not
+the entire model. Commands, state-changing behavior, and report locations are
+documented in the [CLI README scripted validation section](../cli/README.md#scripted-validation).
 
 ## Docs
 

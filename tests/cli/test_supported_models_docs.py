@@ -14,7 +14,8 @@ def test_supported_models_matrix_matches_cli_support(capsys):
     matrix = Path("docs/core/supported-models.md").read_text(encoding="utf-8")
     assert "E36312A" in matrix
     assert "EDU36311A" in matrix
-    assert "Smoke Validation Matrix" in matrix
+    assert "Live Suite Validation Matrix" in matrix
+    assert "scripts/live-cli-check.ps1" in matrix
     assert "E36312A-only" in matrix
     assert "not_supported_by_model" in matrix
 
@@ -71,6 +72,7 @@ def test_public_docs_describe_strict_no_hardware_model_profiles():
     combined = "\n".join(docs.values())
 
     assert "No-Hardware Model-Profile Matrix" in docs["docs/core/supported-models.md"]
+    assert "suite validates only" in "\n".join(docs.values())
     assert "runtime.model_profile" in docs["docs/contracts/power-cli-jsonl-contract.md"]
     assert "runtime.model" in docs["docs/contracts/power-cli-jsonl-contract.md"]
     assert "runtime.model_profile" in docs["docs/webui/README.md"]
@@ -108,10 +110,13 @@ def test_public_dry_run_examples_do_not_use_live_resource_without_model():
 
 def test_no_hardware_scripts_use_model_or_deterministic_sim_resources():
     preflight = Path("scripts/preflight-smoke-validation.ps1").read_text(encoding="utf-8")
+    live_cli_check = Path("scripts/live-cli-check.ps1").read_text(encoding="utf-8")
     batch = Path("scripts/batch-validation.ps1").read_text(encoding="utf-8")
 
     assert "USB0::SIM::E36312A::INSTR" in preflight
     assert "USB0::SIM::EDU36311A::INSTR" in preflight
+    assert "ASRL1::SIM::E3646A::INSTR" in live_cli_check
+    assert "TCPIP0::SIM::E36232A::INSTR" in live_cli_check
     assert "deterministic SIM resources" in preflight
     assert "Test-DeterministicSimResource" in batch
     assert '"USB0::SIM::E36312A::INSTR"' in batch

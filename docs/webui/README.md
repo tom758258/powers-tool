@@ -279,6 +279,12 @@ snapshot/restore jobs, E3646A protection/trigger/native LIST/snapshot/restore
 and completion-pulse jobs, and unsupported E3646A sequence step types are
 rejected by the backend/Core boundary.
 
+Live validation status is recorded by CLI suite artifacts, not by the browser
+selector. A passing `scripts\live-cli-check.ps1` suite validates only the
+selected model, connection, suite, and cases in that run. WebUI hiding or
+disabling remains UX only; backend/Core rejection is still the safety
+boundary for unsupported direct submissions.
+
 ## Test
 
 ```powershell

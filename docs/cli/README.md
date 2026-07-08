@@ -118,8 +118,9 @@ machine-readable `report.json` and a human-readable `summary.md` under
 | Script | Hardware use | Purpose |
 | --- | --- | --- |
 | `scripts\no-hardware-regression.ps1` | No hardware | Runs focused follow-up checks, JSON/docs contract checks, and the full default pytest suite. Use this as the normal no-hardware regression gate. |
+| `scripts\live-cli-check.ps1` | Plan-only or explicit live hardware | Runs Meters-style target/connection/suite validation cases. Use this for feature validation records. |
 | `scripts\preflight-smoke-validation.ps1` | No hardware | Runs target-specific dry-run and simulator smoke checks for E36312A or EDU36311A before live work. |
-| `scripts\live-smoke-validation-check.ps1` | Live hardware | Runs the matching no-hardware preflight, then performs bounded live smoke checks against one explicit `-Resource` after confirmation. |
+| `scripts\live-smoke-validation-check.ps1` | Live hardware | Legacy smoke wrapper for E36312A/EDU36311A bounded smoke checks. It is not the feature-suite validation record; use `live-cli-check.ps1` for suite validation. |
 | `scripts\batch-validation.ps1` | Selected by switches | Runs only the selected simulated or live validation tasks and writes one batch report. |
 
 If the current Windows execution policy blocks `.ps1` files, use a
@@ -143,6 +144,42 @@ another Python executable or report directory:
 ```powershell
 .\scripts\no-hardware-regression.ps1 -Python .\.venv\Scripts\python.exe -OutputDir .tmp_tests\my_regression
 ```
+
+Suite live validation uses an explicit target, connection, resource, and
+suite. `-PlanOnly` runs only simulator, dry-run, lint, and expected-failure
+checks; it does not open VISA. Without `-PlanOnly`, the script runs the same
+preflight first, then requires interactive Enter confirmation before opening
+VISA. If stdin is redirected, live execution is refused with a
+confirmation-required report.
+
+```powershell
+.\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target E3646A -Connection ASRL -Resource $env:E3646A_ASRL_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite output -PlanOnly
+```
+
+Supported suites are model-aware:
+
+| Target | `full` suite composition |
+| --- | --- |
+| E36312A | `readonly`, `output`, `protection`, `snapshot`, `trigger-list` |
+| EDU36311A | `readonly`, `output`, `protection` |
+| E3646A | `readonly`, `output`, `software-sequence` |
+| E36103B / E36232A | `readonly` only, for probing workflows |
+
+A passed suite means the target model matched, the selected connection type
+was used, the selected suite/cases passed, and artifacts were recorded under
+`.tmp_tests`. It does not imply untested features, skipped suites, other
+models, or other connection types are validated, and it does not validate the
+entire model. Explicit unsupported suite requests fail before live execution
+instead of silently skipping everything.
+
+E3646A suite validation is ASRL/RS-232 focused. It uses CH1/CH2, records that
+`OUTP ON/OFF` is global, and treats `ramp-list` and `sequence` as software
+workflows only, not native LIST. E3646A protection, trigger/native LIST,
+snapshot/restore, completion-pulse, and unsupported sequence steps remain
+disabled in live, simulate, and dry-run paths.
 
 Smoke preflight uses only `--dry-run` and `--simulate`; it does not open VISA
 or touch hardware. It uses deterministic SIM resources for the selected target
@@ -187,6 +224,10 @@ EDU36311A can still run the legacy read-only profile with `-Profile readonly`.
 `-Connection LAN` is also supported when an explicit LAN VISA resource is
 supplied. Use `-Backend "@ivi"` or another backend only when the local VISA
 setup requires it.
+
+Legacy smoke success is a bounded smoke result, not a complete
+feature-validation suite result. For enabling or recording a model-specific
+feature, use the corresponding `live-cli-check.ps1` suite/case result.
 
 Batch validation runs only the checks selected by switches. Simulated
 resources are useful for checking the batch/report workflow without hardware:
