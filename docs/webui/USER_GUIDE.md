@@ -94,10 +94,15 @@ Selecting a resource copies it into the `VISA resource` input. You may also
 type a known operator-provided VISA resource manually.
 
 Device options include `Model / expected model`. Leave it on Auto for normal
-live use. When a model is selected for a live command, the WebUI only requires
-the connected `*IDN?` model to match before setup or write SCPI; it does not
-force that model's driver. For dry-run/simulate jobs submitted through the
-WebUI API, the selected model is the no-hardware planning profile.
+live use. Auto uses the detected live model for command availability and
+channel controls after the WebUI identifies the resource. When a model is
+selected, the WebUI uses it for frontend capability planning and for
+dry-run/simulate planning. For a live command, the selected model is only an
+expected-model guard: the connected `*IDN?` model must match before setup or
+write SCPI, and the selection does not force that model's driver. The Device /
+Resource summary shows the detected live model and expected model selection
+separately, for example `live E3646A / Expected Auto` or `live E3646A / Require
+E36312A`.
 
 If no live resource appears, check instrument power, cabling, VISA driver
 visibility, and whether another program is holding the instrument.

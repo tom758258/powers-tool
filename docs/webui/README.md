@@ -160,13 +160,19 @@ Machine-facing command IDs remain kebab-case. Human-facing WebUI command names
 use spaces and sentence case.
 
 The connection area includes advanced device options. `Model / expected model`
-defaults to Auto, which omits `runtime.model_profile`. Selecting a model sends
+defaults to Auto, which omits `runtime.model_profile`. Auto uses the detected
+live model for frontend command, channel, and rating UI when the WebUI has
+identified one. Selecting a model drives dry-run/simulate planning UI and sends
 `runtime.model_profile`: it is a no-hardware model profile for dry-run/simulate
-jobs and a live expected-model guard for real jobs. The serial fields are
-optional; blank fields are omitted from the runtime payload and do not override
-VISA backend or Connection Expert settings. Read/write termination fields
-accept `CR`, `LF`, `CRLF`, and `NONE` aliases. `NONE`, blank, or omitted
-termination means no termination override is applied.
+jobs and a live expected-model guard for real jobs. The Device / Resource
+summary shows the detected live model separately from the expected model
+selection, such as `live E3646A / Expected Auto` or `live E3646A / Require
+E36312A`. A selected model never overrides the IDN-selected live driver; Core
+remains the authority for live mismatch rejection before setup or write SCPI.
+The serial fields are optional; blank fields are omitted from the runtime
+payload and do not override VISA backend or Connection Expert settings.
+Read/write termination fields accept `CR`, `LF`, `CRLF`, and `NONE` aliases.
+`NONE`, blank, or omitted termination means no termination override is applied.
 
 The `set` command accepts Voltage, Current, or both in Basic command and
 Commands. Blank setpoint fields are omitted from the job payload and left

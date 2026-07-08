@@ -221,14 +221,16 @@ def test_static_ui_exposes_advanced_serial_controls():
         assert panel_index < html.index(f'id="{element_id}"') < body_index
 
     assert "Model / expected model" in html
-    assert "Auto uses the detected IDN model in live mode" in html
+    assert "Auto uses the detected live model when known" in html
+    assert "frontend capability planning" in html
+    assert "never overrides the IDN-selected driver" in html
     for model in ("E36312A", "EDU36311A", "E3646A", "E36103B", "E36232A"):
         assert f'<option value="{model}">{model}</option>' in html
     assert '<option value="GENERIC">GENERIC</option>' not in html
     assert "Optional ASRL/serial overrides" in html
     assert "serial-panel" not in html
     assert ".serial-panel" not in styles_css
-    assert "No resource / not scanned / Model unknown" in html
+    assert "No resource / not scanned / Expected Auto" in html
     assert "Auto-detect" not in html
 
     runtime_block = extract_js_function(app_js, "runtimePayload")
@@ -244,17 +246,50 @@ def test_static_ui_exposes_advanced_serial_controls():
 def test_static_device_resource_summary_uses_model_wording():
     _html, app_js, _styles_css = read_static_texts()
     summary = extract_js_function(app_js, "updateDeviceResourceSummary")
-    summary_model = extract_js_function(app_js, "resourceSummaryModel")
+    live_summary = extract_js_function(app_js, "liveResourceSummary")
+    expected_summary = extract_js_function(app_js, "expectedModelSummary")
 
     assert "Auto-detect" not in summary
     assert "Manual" not in summary
-    assert 'const liveSelected = Boolean(liveResource && liveResource === resource);' in summary
-    assert 'const liveText = liveSelected ? "live selected"' in summary
-    assert "const modelText = resourceSummaryModel(resource);" in summary
-    assert "Model unknown" in summary_model
-    assert 'return state.resourceDisplayModels[resource] || "Model unknown";' in summary_model
+    assert "const liveText = liveResourceSummary(resource, select);" in summary
+    assert "const expectedText = expectedModelSummary();" in summary
+    assert "`${resourceText} / ${liveText} / ${expectedText}`" in summary
+    assert "detectedResourceModel(resource)" in live_summary
+    assert "return `live ${detected}`;" in live_summary
+    assert 'return expected ? `Require ${expected}` : "Expected Auto";' in expected_summary
     assert "resourceDisplayModels: {}" in app_js
     assert "state.resourceDisplayModels[resource] = String(model).trim().toUpperCase();" in app_js
+
+
+def test_static_model_profile_change_refreshes_effective_ui_model():
+    _html, app_js, _styles_css = read_static_texts()
+    bind = extract_js_function(app_js, "bind")
+    handler = extract_js_function(app_js, "handleModelProfileChanged")
+    selected_expected = extract_js_function(app_js, "selectedExpectedModel")
+    selected_expected_label = extract_js_function(app_js, "selectedExpectedModelLabel")
+    selected_command = extract_js_function(app_js, "selectedCommandModel")
+    selected_channel = extract_js_function(app_js, "selectedChannelModel")
+    runtime_block = extract_js_function(app_js, "runtimePayload")
+
+    assert 'document.getElementById("model-profile")?.addEventListener("change", handleModelProfileChanged);' in bind
+    assert 'return valueOrNull("model-profile");' in selected_expected
+    assert 'return expected ? `Require ${expected}` : "Auto";' in selected_expected_label
+    assert "state.commandSupportByModel?.[expected]" in selected_command
+    assert "return detectedCommandModelForResource(valueOrNull(\"resource\"));" in selected_command
+    assert "state.channelCapabilitiesByModel?.[expected]" in selected_channel
+    assert "return detectedChannelModelForResource(valueOrNull(\"resource\"));" in selected_channel
+    assert "updateDeviceResourceSummary();" in handler
+    assert "refreshBasicInputConstraints();" in handler
+    assert "syncBasicFromLivePanel(state.livePanel);" in handler
+    assert "refreshElectricalRatingConstraints();" in handler
+    assert "renderWorkspaceSummary();" in handler
+    assert "updateSelectedCommandState();" in handler
+    assert "resourceModels" not in handler
+    assert "resourceChannelModels" not in handler
+    assert "resourceDisplayModels" not in handler
+    assert 'const modelProfile = valueOrNull("model-profile");' in runtime_block
+    assert "if (modelProfile !== null) runtime.model_profile = modelProfile;" in runtime_block
+    assert 'runtime.model_profile = ""' not in runtime_block
 
 
 def test_static_device_options_popover_behavior():
@@ -826,7 +861,10 @@ def test_static_commands_disable_by_selected_resource_model():
     assert "state.channelCapabilitiesByModel = payload.channel_capabilities_by_model || {};" in app_js
     assert "updateResourceModels(resources);" in app_js
     assert "resource.idn?.model" in app_js
+    assert "function selectedCommandModel()" in app_js
+    assert "function detectedCommandModelForResource(resource)" in app_js
     assert "state.commandSupportByModel?.[model]?.[name]" in app_js
+    assert "const model = selectedCommandModel();" in extract_js_function(app_js, "selectedCommandSupport")
     assert 'if (!resource || typeof model !== "string" || !model.trim()) return false;' in app_js
     assert "!next.stale && updateResourceModel(next.resource, next.model)" in app_js
     assert "support.real !== false" in app_js
@@ -843,11 +881,14 @@ def test_static_channel_capability_guards_use_metadata():
     assert "if (!capability || !capability.channels.length) return [...DEFAULT_CHANNELS];" in app_js
     assert "function channelCapabilityForCurrentModel()" in app_js
     assert "function channelCapabilityForModel(model)" in app_js
+    assert "function selectedChannelModel()" in app_js
+    assert "function detectedChannelModelForResource(resource)" in app_js
     assert "metadata.channels" in app_js
     assert "metadata.output_control_scope" in app_js
     assert "Array.isArray(metadata)" in app_js
     assert 'return "GENERIC";' in extract_js_function(app_js, "supportedModelKey")
     assert "function currentChannelCapabilityModel()" in app_js
+    assert "return selectedChannelModel();" in extract_js_function(app_js, "currentChannelCapabilityModel")
     assert "function channelModelKey(model)" in app_js
     assert "state.resourceChannelModels[resource] = nextChannelModel;" in app_js
     assert "channelAvailabilityGuardReason(state.selected, parameters)" in app_js

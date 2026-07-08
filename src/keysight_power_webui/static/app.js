@@ -258,6 +258,7 @@ function bind() {
   document.getElementById("resource").addEventListener("input", updateDeviceResourceSummary);
   document.getElementById("resource").addEventListener("change", updateDeviceResourceSummary);
   document.getElementById("resource-select").addEventListener("change", updateDeviceResourceSummary);
+  document.getElementById("model-profile")?.addEventListener("change", handleModelProfileChanged);
   document.getElementById("device-options-toggle").addEventListener("click", (event) => {
     event.stopPropagation();
     setDeviceOptionsExpanded(document.getElementById("device-options-toggle").getAttribute("aria-expanded") !== "true");
@@ -324,19 +325,88 @@ function updateDeviceResourceSummary() {
   const summary = document.getElementById("device-resource-summary");
   const resource = document.getElementById("resource").value.trim();
   const select = document.getElementById("resource-select");
-  const liveResource = select.value.trim();
-  const firstOption = select.options[0]?.textContent?.trim() || "";
-  const liveSelected = Boolean(liveResource && liveResource === resource);
-  const liveText = liveSelected ? "live selected" : (firstOption === "No live resources found" ? "no live resources" : "not scanned");
   const resourceText = resource || "No resource";
-  const modelText = resourceSummaryModel(resource);
-  summary.textContent = `${resourceText} / ${liveText} / ${modelText}`;
+  const liveText = liveResourceSummary(resource, select);
+  const expectedText = expectedModelSummary();
+  summary.textContent = `${resourceText} / ${liveText} / ${expectedText}`;
   summary.title = summary.textContent;
+  const detected = detectedResourceModel(resource);
+  const expected = selectedExpectedModel();
+  if (detected && expected && detected !== expected) {
+    summary.title = "Selected expected model does not match the last scanned model. Live commands will fail before setup/write SCPI.";
+  }
 }
 
-function resourceSummaryModel(resource) {
-  if (!resource) return "Model unknown";
-  return state.resourceDisplayModels[resource] || "Model unknown";
+function liveResourceSummary(resource, select) {
+  if (!resource) return "not scanned";
+  const detected = detectedResourceModel(resource);
+  if (detected) return `live ${detected}`;
+  const selectedLiveResource = Boolean(select.value.trim() && select.value.trim() === resource);
+  if (selectedLiveResource) return "live selected";
+  const firstOption = select.options[0]?.textContent?.trim() || "";
+  if (firstOption === "No live resources found") return "no live resources";
+  return "not scanned";
+}
+
+function expectedModelSummary() {
+  const expected = selectedExpectedModel();
+  return expected ? `Require ${expected}` : "Expected Auto";
+}
+
+function selectedExpectedModel() {
+  return valueOrNull("model-profile");
+}
+
+function selectedExpectedModelLabel() {
+  const expected = selectedExpectedModel();
+  return expected ? `Require ${expected}` : "Auto";
+}
+
+function detectedResourceModel(resource) {
+  if (!resource) return null;
+  return state.resourceDisplayModels[resource] || null;
+}
+
+function detectedCommandModelForResource(resource) {
+  if (!resource) return null;
+  return state.resourceModels[resource] || null;
+}
+
+function detectedChannelModelForResource(resource) {
+  if (!resource) return null;
+  return state.resourceChannelModels[resource] || null;
+}
+
+function selectedCommandModel() {
+  const expected = selectedExpectedModel();
+  if (expected && state.commandSupportByModel?.[expected]) return expected;
+  return detectedCommandModelForResource(valueOrNull("resource"));
+}
+
+function selectedChannelModel() {
+  const expected = selectedExpectedModel();
+  if (expected && state.channelCapabilitiesByModel?.[expected]) return expected;
+  return detectedChannelModelForResource(valueOrNull("resource"));
+}
+
+function selectedElectricalRatingModel() {
+  const expected = selectedExpectedModel();
+  if (expected && state.electricalRatingsByModel?.[expected]) return expected;
+  return currentResourceModel();
+}
+
+function handleModelProfileChanged() {
+  updateDeviceResourceSummary();
+  refreshBasicInputConstraints();
+  syncBasicFromLivePanel(state.livePanel);
+  refreshElectricalRatingConstraints();
+  if (state.selected) {
+    selectCommand(state.selected);
+  } else {
+    renderCommands();
+  }
+  renderWorkspaceSummary();
+  updateSelectedCommandState();
 }
 
 function updateLiveMonitorButton(monitoring, disabled = false) {
@@ -2340,7 +2410,7 @@ function selectedChannelRating() {
 }
 
 function selectedChannelRatingFor(selected) {
-  const model = currentResourceModel();
+  const model = selectedElectricalRatingModel();
   const ratings = state.electricalRatingsByModel?.[model]?.channels;
   if (!Array.isArray(ratings)) return null;
   const channels = selected === "all" ? ratings : ratings.filter((rating) => String(rating.channel) === String(selected));
@@ -2894,12 +2964,12 @@ function commandMeta(name) {
   return {
     ...meta,
     disabled: true,
-    disabled_reason: meta.disabled_reason || commandDisabledReason(support, currentResourceModel())
+    disabled_reason: meta.disabled_reason || commandDisabledReason(support, selectedCommandModel())
   };
 }
 
 function selectedCommandSupport(name) {
-  const model = currentResourceModel();
+  const model = selectedCommandModel();
   if (!model) return null;
   return state.commandSupportByModel?.[model]?.[name] || null;
 }
@@ -2907,7 +2977,7 @@ function selectedCommandSupport(name) {
 function currentResourceModel() {
   const resource = valueOrNull("resource");
   if (!resource) return null;
-  return state.resourceModels[resource] || null;
+  return detectedCommandModelForResource(resource);
 }
 
 function supportedModelKey(model) {
@@ -2969,9 +3039,7 @@ function channelCapabilityForModel(model) {
 }
 
 function currentChannelCapabilityModel() {
-  const resource = valueOrNull("resource");
-  if (!resource) return null;
-  return state.resourceChannelModels[resource] || null;
+  return selectedChannelModel();
 }
 
 function channelModelKey(model) {
@@ -3455,6 +3523,7 @@ function renderLivePanel(data) {
 
   setLiveState(liveStateText(next.status, next.timestamp, next.message, next.stale), liveStateClass(next.status, next.stale), next.message);
 
+  if (next.resource && next.resource === valueOrNull("resource")) updateDeviceResourceSummary();
   next.channels.forEach((channel) => renderChannelCard(channel, next));
   syncBasicFromLivePanel(next);
   if (modelChanged) renderCommands();
@@ -3757,7 +3826,7 @@ function setRequiresSetpointGuardReason(command, parameters) {
 }
 
 function electricalRatingGuardReason(command, parameters) {
-  const model = currentResourceModel();
+  const model = selectedElectricalRatingModel();
   const ratings = state.electricalRatingsByModel?.[model]?.channels;
   if (!Array.isArray(ratings)) return "";
   const check = (channel, voltage, current) => {
@@ -3779,7 +3848,7 @@ function electricalRatingGuardReason(command, parameters) {
 }
 
 function pulseControlsUnavailableReason() {
-  const model = currentResourceModel();
+  const model = selectedChannelModel();
   return model && model !== "E36312A" ? `Rear trigger pulse is only supported on E36312A, not ${model}.` : "";
 }
 

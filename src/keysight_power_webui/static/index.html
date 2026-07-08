@@ -17,7 +17,7 @@
       <div class="device-resource-header">
         <div class="device-resource-heading">
           <strong id="device-resource-title" class="device-resource-title">Device / Resource</strong>
-          <p id="device-resource-summary" class="device-resource-summary">No resource / not scanned / Model unknown</p>
+          <p id="device-resource-summary" class="device-resource-summary">No resource / not scanned / Expected Auto</p>
         </div>
         <div class="device-resource-actions">
           <div class="device-options">
@@ -42,7 +42,7 @@
                     <option value="E36232A">E36232A</option>
                   </select>
                 </label>
-                <p class="model-profile-help">Auto uses the detected IDN model in live mode. In dry-run/simulate, select a model when the resource does not encode one. In live mode, a selected model only requires the IDN to match; it never overrides the driver.</p>
+                <p class="model-profile-help">Auto uses the detected live model when known. A selected model drives frontend capability planning and the live expected-model guard; it never overrides the IDN-selected driver.</p>
               </div>
               <p class="device-options-help">Optional ASRL/serial overrides. Usually needed only for RS-232 instruments such as E3646A.</p>
               <div class="serial-grid">
