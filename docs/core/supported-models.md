@@ -91,6 +91,36 @@ SCPI on mismatch. The selected model never overrides the IDN-selected driver.
 `GENERIC` is a conservative no-hardware profile and is not a live expected
 model.
 
+## Output Setpoint Programming Ranges
+
+For output workflows, `voltage` means output voltage setpoint and `current`
+means output current limit/current setting. The values below are programming
+range metadata from the model manuals; they are separate from the existing DC
+output rating safety limits. Powers does not currently enforce a hard
+manual-derived decimal-place rule and does not round or truncate user
+setpoints before SCPI.
+
+| Model | Channel / output | Range | Voltage programming range | Current-limit programming range | Current MIN keyword value |
+| --- | --- | --- | --- | --- | --- |
+| E36312A | CH1 / P6V | fixed | 0 to 6.18 V | 0 to 5.15 A | 0.001 A |
+| E36312A | CH2 / P25V | fixed | 0 to 25.75 V | 0 to 1.03 A | 0.001 A |
+| E36312A | CH3 / P25V | fixed | 0 to 25.75 V | 0 to 1.03 A | 0.001 A |
+| EDU36311A | CH1 / P6V | fixed | 0 to 6.18 V | 0 to 5.15 A | 0.002 A |
+| EDU36311A | CH2 / P30V | fixed | 0 to 30.9 V | 0 to 1.03 A | 0.001 A |
+| EDU36311A | CH3 / N30V | fixed | 0 to 30.9 V | 0 to 1.03 A | 0.001 A |
+| E3646A | OUT1 / CH1 | LOW / P8V | 0 to 8.24 V | 0 to 3.09 A | 0 A |
+| E3646A | OUT1 / CH1 | HIGH / P20V | 0 to 20.60 V | 0 to 1.545 A | 0 A |
+| E3646A | OUT2 / CH2 | LOW / P8V | 0 to 8.24 V | 0 to 3.09 A | 0 A |
+| E3646A | OUT2 / CH2 | HIGH / P20V | 0 to 20.60 V | 0 to 1.545 A | 0 A |
+
+Sources: E36300 Series Programmable DC Power Supplies Programming Guide,
+manual part number E36311-90008, printed page 16; EDU36311A Programming Guide,
+manual part number EDU36311-90013, printed pages 15 and 39; Agilent E364xA
+Dual Output DC Power Supplies User's and Service Guide, manual part number
+E3646-90001, printed pages 82, 83, 84, and 91. E3646A ranges are
+range-dependent and are not flattened into a single voltage/current maximum.
+At *RST, the E3646A low voltage range is selected.
+
 E36103B and E36232A are not active supported models. They are rejected as
 no-hardware model profiles, live expected-model guards, WebUI model selections,
 `scripts/live-cli-check.ps1` targets, and live `*IDN?`-detected model-aware

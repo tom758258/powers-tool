@@ -70,6 +70,15 @@ native LIST workflows, and E3646A protection, trigger/native LIST,
 snapshot/restore, completion-pulse, and unsupported sequence steps remain
 disabled.
 
+For output commands, `voltage` means the output voltage setpoint and `current`
+means the output current limit/current setting for E36312A, EDU36311A, and
+E3646A. Core exposes official programming-range metadata from the model
+programming manuals separately from the existing DC output rating safety
+limits. E3646A programming ranges are range-dependent: LOW/P8V is 0 to 8.24 V
+and 0 to 3.09 A, while HIGH/P20V is 0 to 20.60 V and 0 to 1.545 A. Powers does
+not currently claim an official manual-required decimal-place rejection rule
+and does not round or truncate user setpoints before SCPI.
+
 This is intentionally rejected:
 
 ```powershell

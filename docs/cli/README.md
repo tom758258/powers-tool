@@ -399,6 +399,14 @@ and for live-validated E3646A RS-232 / ASRL channels 1 and 2. It accepts
 both are supplied, it writes the current limit before voltage. It does not
 enable output.
 
+For all active models, `--voltage` is the output voltage setpoint and
+`--current` is the output current limit/current setting. Core publishes
+official programming-range metadata from the model manuals: E36312A and
+EDU36311A use fixed channel ranges, while E3646A has LOW/P8V and HIGH/P20V
+range-dependent voltage/current-limit ranges. This metadata does not add a new
+CLI range selector, does not silently round or truncate setpoints, and does
+not implement hard decimal-place rejection.
+
 Real CLI `output-on` is supported for E36312A and EDU36311A channels 1, 2, 3,
 and `all`, and for live-validated E3646A RS-232 / ASRL channels 1, 2, and
 `all`. After `*IDN?`, it reads back programmed voltage/current setpoints

@@ -266,7 +266,9 @@ def _requires_real_confirmation(command: str, runtime: RuntimeOptions) -> bool:
 
 def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
     from keysight_power_core.drivers.e36312a import E36312APowerSupply
+    from keysight_power_core.drivers.e3646a import E3646APowerSupply
     from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
+    from keysight_power_core.setpoint_ranges import setpoint_ranges_for_model
 
     if runtime.resource:
         manager = SimulatedResourceManager() if runtime.simulate else None
@@ -305,6 +307,11 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
             "hardware_validation": core_capabilities.hardware_validation_status(selection.idn.model),
             "command_support": core_capabilities.command_support(selection.idn.model),
             "electrical_ratings": caps.electrical_ratings.to_dict() if caps.electrical_ratings else None,
+            "setpoint_ranges": (
+                setpoint_ranges_for_model(selection.idn.model).to_dict()
+                if setpoint_ranges_for_model(selection.idn.model)
+                else None
+            ),
         }
 
     return {
@@ -312,10 +319,17 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
             "E36312A": {
                 "channels": list(E36312APowerSupply.capabilities.channels),
                 "electrical_ratings": E36312APowerSupply.capabilities.electrical_ratings.to_dict(),
+                "setpoint_ranges": setpoint_ranges_for_model("E36312A").to_dict(),
             },
             "EDU36311A": {
                 "channels": list(EDU36311APowerSupply.capabilities.channels),
                 "electrical_ratings": EDU36311APowerSupply.capabilities.electrical_ratings.to_dict(),
+                "setpoint_ranges": setpoint_ranges_for_model("EDU36311A").to_dict(),
+            },
+            "E3646A": {
+                "channels": list(E3646APowerSupply.capabilities.channels),
+                "electrical_ratings": None,
+                "setpoint_ranges": setpoint_ranges_for_model("E3646A").to_dict(),
             },
         }
     }

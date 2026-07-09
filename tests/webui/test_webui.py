@@ -311,6 +311,14 @@ def test_static_model_profile_change_refreshes_effective_ui_model():
     assert 'runtime.model_profile = ""' not in runtime_block
 
 
+def test_static_commands_payload_stores_setpoint_range_metadata():
+    _html, app_js, _styles_css = read_static_texts()
+    load_commands = extract_js_function(app_js, "loadCommands")
+
+    assert "setpointRangesByModel: {}" in app_js
+    assert "state.setpointRangesByModel = payload.setpoint_ranges_by_model || {};" in load_commands
+
+
 def test_static_device_options_popover_behavior():
     _html, app_js, _styles_css = read_static_texts()
     bind = extract_js_function(app_js, "bind")
@@ -1399,6 +1407,15 @@ def test_commands_metadata(client: TestClient):
         "max_voltage": 6.0,
         "max_current": 5.0,
     }
+    setpoint_ranges = data["setpoint_ranges_by_model"]
+    assert set(setpoint_ranges) == {"E36312A", "EDU36311A", "E3646A"}
+    e3646a_ch1_ranges = setpoint_ranges["E3646A"]["channels"][0]["ranges"]
+    assert e3646a_ch1_ranges[0]["name"] == "LOW"
+    assert e3646a_ch1_ranges[0]["voltage_max"] == 8.24
+    assert e3646a_ch1_ranges[0]["current_max"] == 3.09
+    assert e3646a_ch1_ranges[1]["name"] == "HIGH"
+    assert e3646a_ch1_ranges[1]["voltage_max"] == 20.6
+    assert e3646a_ch1_ranges[1]["current_max"] == 1.545
     assert data["parameter_constraints"]["delay_ms"]["min"] == 0
     assert data["parameter_constraints"]["poll_ms"]["min"] == 50
 

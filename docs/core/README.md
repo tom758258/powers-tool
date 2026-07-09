@@ -48,6 +48,9 @@ script included in the same `keysight-powers` distribution.
   validation.
 - `keysight_power_core.electrical_ratings` and `setpoint_limits`: verified
   independent-channel DC output ratings and effective safety limits.
+- `keysight_power_core.setpoint_ranges`: official output voltage setpoint and
+  output current limit programming-range metadata from model programming
+  manuals.
 - `keysight_power_core.capabilities`: command and model capability reporting.
 - `keysight_power_core.model_resolution`: strict no-hardware model profile
   resolution for dry-run/simulator planning and live expected-model guards.
@@ -155,6 +158,13 @@ not native LIST support. EDU36311A trigger/native LIST and snapshot/restore
 remain disabled. E3646A protection, trigger/native LIST, snapshot/restore,
 completion-pulse, and unsupported sequence step types remain disabled by the
 feature-lock policy.
+
+For output workflows, `voltage` is the output voltage setpoint and `current`
+is the output current limit/current setting on E36312A, EDU36311A, and
+E3646A. Core exposes official programming-range metadata separately from
+independent-channel DC output rating safety limits. The manuals document common
+SCPI numeric parameter handling, so this metadata does not introduce
+decimal-place rejection or silent rounding/truncation in Core.
 
 The adapter boundary is intentionally one-way: core contains driver methods,
 SCPI helpers, simulator selection, no-hardware model resolution, and dry-run

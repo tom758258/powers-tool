@@ -184,6 +184,14 @@ The `set` command accepts Voltage, Current, or both in Basic command and
 Commands. Blank setpoint fields are omitted from the job payload and left
 unchanged by Core; Live Data/readback remains the source for complete
 instrument setpoint state.
+Voltage is the output voltage setpoint, and Current is the output current
+limit/current setting for E36312A, EDU36311A, and E3646A. `/api/commands`
+includes official setpoint programming-range metadata for these active models.
+E3646A metadata is range-dependent for LOW/P8V and HIGH/P20V; the current
+WebUI does not add a range selector from that metadata. Browser constraints
+and hints are UX only, and backend Core validation remains authoritative. The
+metadata does not introduce hard decimal-place rejection or silent
+rounding/truncation.
 Basic output controls are lit-state ON buttons: an unlit ON control represents
 OFF/unknown, and a lit ON control represents ON according to fresh Live Data.
 

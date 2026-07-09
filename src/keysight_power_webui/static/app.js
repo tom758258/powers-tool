@@ -4,6 +4,7 @@ const state = {
   channelCapabilitiesByModel: {},
   parameterConstraints: {},
   electricalRatingsByModel: {},
+  setpointRangesByModel: {},
   resourceModels: {},
   resourceDisplayModels: {},
   resourceChannelModels: {},
@@ -476,6 +477,7 @@ async function loadCommands() {
   state.channelCapabilitiesByModel = payload.channel_capabilities_by_model || {};
   state.parameterConstraints = payload.parameter_constraints || {};
   state.electricalRatingsByModel = payload.electrical_ratings_by_model || {};
+  state.setpointRangesByModel = payload.setpoint_ranges_by_model || {};
   refreshBasicInputConstraints();
   renderCommands();
 }
