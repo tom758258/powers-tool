@@ -96,10 +96,7 @@ class E36312APowerSupply(GenericScpiPowerSupply):
         """Set a rear digital pin function."""
 
         _validate_trigger_pins((pin,))
-        normalized = function.strip().upper()
-        if normalized not in {"DIO", "TOUT", "TINP"}:
-            raise ValueError("digital pin function must be DIO, TOUT, or TINP")
-        self._session.write(f"DIG:PIN{pin}:FUNC {normalized}")
+        self._session.write(f"DIG:PIN{pin}:FUNC {_digital_pin_function_command(function)}")
 
     def set_digital_pin_polarity(self, pin: int, polarity: str) -> None:
         """Set a rear digital pin polarity using POS/NEG or positive/negative."""
@@ -457,6 +454,20 @@ def _trigger_polarity_command(polarity: str) -> str:
     if normalized in {"negative", "neg"}:
         return "NEG"
     raise ValueError("trigger polarity must be positive or negative")
+
+
+def _digital_pin_function_command(function: str) -> str:
+    normalized = function.strip().upper()
+    aliases = {
+        "DIO": "DIO",
+        "DINP": "DIO",
+        "TOUT": "TOUT",
+        "TINP": "TINP",
+    }
+    try:
+        return aliases[normalized]
+    except KeyError as exc:
+        raise ValueError("digital pin function must be DIO, DINP, TOUT, or TINP") from exc
 
 
 def _validate_trigger_pins(pins: tuple[int, ...]) -> None:

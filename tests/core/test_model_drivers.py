@@ -236,6 +236,72 @@ def test_e36312a_restore_trigger_snapshot_accepts_fixed_modes() -> None:
     assert session.commands.count("VOLT:MODE FIX,(@1)") == 1
 
 
+def test_e36312a_restore_trigger_snapshot_maps_dinp_pin_function_to_dio() -> None:
+    session = FakeSession()
+    power_supply = E36312APowerSupply(session)
+    snapshot = TriggerSnapshot(
+        channel=1,
+        digital_pins={
+            1: {"function": "DINP", "polarity": "POS"},
+            2: {"function": "DINP", "polarity": "POS"},
+            3: {"function": "DINP", "polarity": "POS"},
+        },
+        trigger_output_bus_enabled=False,
+        trigger={
+            "source": "BUS",
+            "delay": 0.0,
+            "voltage_mode": "FIX",
+            "current_mode": "FIX",
+            "triggered_voltage": 0.0,
+            "triggered_current": 0.002,
+        },
+        list_state={
+            "voltage": (0.0,),
+            "current": (0.002,),
+            "dwell": (0.01,),
+            "tout_bost": (False,),
+            "tout_eost": (False,),
+            "count": 1,
+            "step_mode": "AUTO",
+            "terminate_last": False,
+        },
+    )
+
+    power_supply.restore_trigger_snapshot(snapshot)
+
+    assert "DIG:PIN1:FUNC DIO" in session.commands
+    assert "DIG:PIN2:FUNC DIO" in session.commands
+    assert "DIG:PIN3:FUNC DIO" in session.commands
+
+
+@pytest.mark.parametrize(
+    ("function", "expected_command"),
+    [
+        ("DIO", "DIG:PIN1:FUNC DIO"),
+        ("DINP", "DIG:PIN1:FUNC DIO"),
+        ("TOUT", "DIG:PIN1:FUNC TOUT"),
+        ("TINP", "DIG:PIN1:FUNC TINP"),
+    ],
+)
+def test_e36312a_set_digital_pin_function_accepts_supported_values(function, expected_command) -> None:
+    session = FakeSession()
+    power_supply = E36312APowerSupply(session)
+
+    power_supply.set_digital_pin_function(1, function)
+
+    assert session.commands == [expected_command]
+
+
+def test_e36312a_set_digital_pin_function_rejects_invalid_value() -> None:
+    session = FakeSession()
+    power_supply = E36312APowerSupply(session)
+
+    with pytest.raises(ValueError, match="digital pin function"):
+        power_supply.set_digital_pin_function(1, "BAD")
+
+    assert session.commands == []
+
+
 def test_e36312a_trigger_mode_switch_always_passes_through_fix() -> None:
     session = FakeSession()
     power_supply = E36312APowerSupply(session)

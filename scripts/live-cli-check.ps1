@@ -221,6 +221,18 @@ function Get-SupportedSuites {
     Fail-Validation "Unsupported -Target '$Model'. Supported targets: $($SupportedTargets -join ', ')."
 }
 
+function Test-LiveExecutionMode {
+    param([string]$Mode)
+
+    return $Mode -in @("real", "live")
+}
+
+function Get-CaseArtifactBaseName {
+    param([Parameter(Mandatory = $true)]$Case)
+
+    return "$($Case.phase)-$($Case.name)"
+}
+
 function New-CommandCase {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
@@ -473,9 +485,10 @@ function Get-SuiteCases {
 function Invoke-ValidationCommand {
     param([Parameter(Mandatory = $true)]$Case)
 
-    $jsonPath = Join-Path $script:OutputDir ($Case.name + ".json")
-    $stdoutPath = Join-Path $script:OutputDir ($Case.name + ".stdout.txt")
-    $stderrPath = Join-Path $script:OutputDir ($Case.name + ".stderr-scpi.txt")
+    $artifactBaseName = Get-CaseArtifactBaseName -Case $Case
+    $jsonPath = Join-Path $script:OutputDir ($artifactBaseName + ".json")
+    $stdoutPath = Join-Path $script:OutputDir ($artifactBaseName + ".stdout.txt")
+    $stderrPath = Join-Path $script:OutputDir ($artifactBaseName + ".stderr-scpi.txt")
     $argsWithBackend = if ($Case.phase -eq "live") { Add-BackendArgument -Arguments $Case.args } else { $Case.args }
     $hasSaveJson = $false
     foreach ($arg in $argsWithBackend) {
@@ -485,6 +498,18 @@ function Invoke-ValidationCommand {
         }
     }
     $allArgs = if ($hasSaveJson) { $argsWithBackend } else { @($argsWithBackend + @("--save-json", $jsonPath)) }
+    $actualJsonPath = $jsonPath
+    if ($hasSaveJson) {
+        for ($index = 0; $index -lt $allArgs.Count; $index++) {
+            if ($allArgs[$index] -eq "--save-json" -and $index + 1 -lt $allArgs.Count) {
+                $actualJsonPath = $allArgs[$index + 1]
+                break
+            }
+        }
+    }
+    if (Test-Path -LiteralPath $actualJsonPath) {
+        Remove-Item -LiteralPath $actualJsonPath -Force
+    }
 
     $oldErrorActionPreference = $ErrorActionPreference
     $nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
@@ -508,15 +533,6 @@ function Invoke-ValidationCommand {
 
     $payload = $null
     $parseError = $null
-    $actualJsonPath = $jsonPath
-    if ($hasSaveJson) {
-        for ($index = 0; $index -lt $allArgs.Count; $index++) {
-            if ($allArgs[$index] -eq "--save-json" -and $index + 1 -lt $allArgs.Count) {
-                $actualJsonPath = $allArgs[$index + 1]
-                break
-            }
-        }
-    }
     if (Test-Path -LiteralPath $actualJsonPath) {
         try {
             $payload = Get-Content -LiteralPath $actualJsonPath -Raw | ConvertFrom-Json
@@ -561,7 +577,7 @@ function Invoke-ValidationCommand {
             $casePassed = $false
             $failure = "$($Case.name) reported execution.hardware_touched=$hardwareTouched during no-hardware validation."
         }
-        elseif ($Case.phase -eq "live" -and $mode -ne "live") {
+        elseif ($Case.phase -eq "live" -and -not (Test-LiveExecutionMode -Mode $mode)) {
             $casePassed = $false
             $failure = "$($Case.name) reported execution.mode=$mode during live validation."
         }
@@ -625,6 +641,31 @@ function Invoke-SafeOffCleanup {
     }
     catch {
         $script:Failures.Add("Failure cleanup threw: " + $_.Exception.Message)
+    }
+}
+
+function Write-LiveConfirmationWarnings {
+    param([Parameter(Mandatory = $true)][string[]]$SuitesToRun)
+
+    if (@($SuitesToRun | Where-Object { $_ -in @("output", "protection", "trigger-list", "software-sequence") }).Count -gt 0) {
+        Write-Host "Possible state changes:"
+        if (@($SuitesToRun | Where-Object { $_ -in @("output", "trigger-list", "software-sequence") }).Count -gt 0) {
+            Write-Host "- Low-power setpoints may be written: 1 V / 0.05 A."
+            Write-Host "- Outputs may briefly turn on for output, trigger-list, or software-sequence cases."
+        }
+        if ("protection" -in $SuitesToRun) {
+            Write-Host "- Protection suite writes OVP/OCP settings and clears protection state."
+        }
+        Write-Host "- Safe-off cleanup may be attempted when Restore is true."
+        if ("protection" -in $SuitesToRun) {
+            Write-Host "- Cleanup does not restore original voltage/current/protection settings."
+        }
+        else {
+            Write-Host "- Cleanup does not restore original voltage/current settings."
+        }
+    }
+    else {
+        Write-Host "This suite is non-output-affecting except for possible status/error queue reads."
     }
 }
 
@@ -730,6 +771,10 @@ function Write-ValidationArtifacts {
     Write-Utf8NoBomFile -LiteralPath $summaryPath -Value $lines
 }
 
+if ($env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1") {
+    return
+}
+
 $NormalizedTarget = Resolve-Target -Value $Target
 $ConnectionLabel = Resolve-Connection -Value $Connection
 if ([string]::IsNullOrWhiteSpace($Resource)) {
@@ -811,17 +856,7 @@ if (-not [string]::IsNullOrWhiteSpace($Backend)) {
 }
 Write-Host "Suites: $($SuitesToRun -join ', ')"
 Write-Host ""
-if ($script:StateChanging) {
-    Write-Host "Possible state changes:"
-    Write-Host "- Low-power setpoints may be written: 1 V / 0.05 A."
-    Write-Host "- Outputs may briefly turn on for output, trigger-list, or software-sequence cases."
-    Write-Host "- Protection suite writes OVP/OCP settings and clears protection state."
-    Write-Host "- Safe-off cleanup may be attempted when Restore is true."
-    Write-Host "- Cleanup does not restore original voltage/current/protection settings."
-}
-else {
-    Write-Host "This suite is non-output-affecting except for possible status/error queue reads."
-}
+Write-LiveConfirmationWarnings -SuitesToRun $SuitesToRun
 if ($NormalizedTarget -eq "E3646A") {
     Write-Host "- E3646A OUTP ON/OFF is global, not independent per-channel relay behavior."
     Write-Host "- E3646A ramp-list and sequence are software workflows, not native LIST."
