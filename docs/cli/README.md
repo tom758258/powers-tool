@@ -204,8 +204,6 @@ execution instead of silently skipping everything.
 | E36312A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
 | EDU36311A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
 | E3646A | not current scope | not current scope | validated/open |
-This implementation pass does not claim new real hardware validation. Public
-zh-TW docs were not updated in this pass.
 
 E3646A suite validation is ASRL/RS-232 focused. It uses CH1/CH2, records that
 `OUTP ON/OFF` is global, and treats `ramp-list` and `sequence` as software
