@@ -163,22 +163,41 @@ Supported suites are model-aware:
 
 | Target | `full` suite composition |
 | --- | --- |
-| E36312A | `readonly`, `output`, `protection`, `snapshot`, `trigger-list` |
-| EDU36311A | `readonly`, `output`, `protection` |
+| E36312A | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` |
+| EDU36311A | `readonly`, `output`, `protection`, `software-sequence` |
 | E3646A | `readonly`, `output`, `software-sequence` |
+
+For each active model, `-Suite full` is the complete validation gate for all
+currently project-supported LIVE features of that model. After the expanded
+full suite passes for the approved model and connection, the model's currently
+project-supported LIVE features may be opened. Disabled, unimplemented,
+out-of-scope, or factory-only features are not implied by the pass.
 
 A passed suite means the target model matched, the selected connection type
 was used, the selected suite/cases passed, and artifacts were recorded under
 `.tmp_tests`. It does not imply untested features, skipped suites, other
-models, or other connection types are validated, and it does not validate the
-entire model. Explicit unsupported suite requests fail before live execution
-instead of silently skipping everything.
+models, other connection types, disabled features, out-of-scope factory
+features, or every instrument function are validated. It does not validate
+the entire model. Explicit unsupported suite requests fail before live
+execution instead of silently skipping everything.
+
+Previous live artifacts for E36312A and EDU36311A passed before
+`software-sequence` was added to their `full` suites. After this change, those
+previous artifacts do not prove the expanded full suite. The expanded full
+suites must be rerun before claiming those models' currently
+project-supported LIVE features are fully validated and may be opened.
+This implementation pass does not claim new real hardware validation. Public
+zh-TW docs were not updated in this pass.
 
 E3646A suite validation is ASRL/RS-232 focused. It uses CH1/CH2, records that
 `OUTP ON/OFF` is global, and treats `ramp-list` and `sequence` as software
 workflows only, not native LIST. E3646A protection, trigger/native LIST,
 snapshot/restore, completion-pulse, and unsupported sequence steps remain
 disabled in live, simulate, and dry-run paths.
+
+EDU36311A `software-sequence` validation covers only project-supported
+software `ramp-list` and sequence read-only/output workflows. It does not
+enable trigger/native LIST, snapshot, or restore-from-snapshot.
 
 Smoke preflight uses only `--dry-run` and `--simulate`; it does not open VISA
 or touch hardware. It uses deterministic SIM resources for the selected target

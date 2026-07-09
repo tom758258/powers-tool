@@ -186,8 +186,11 @@ async def create_job(request: Request):
                 SequenceRequest(
                     runtime=RuntimeOptions(
                         resource=runtime.get("resource"),
+                        resource_alias=runtime.get("resource_alias"),
                         safety_config=runtime.get("safety_config"),
+                        simulate=bool(runtime.get("simulate", False)),
                         dry_run=True,
+                        model_profile=runtime.get("model_profile") or runtime.get("model"),
                     ),
                     parameters=parameters,
                 ),
@@ -201,8 +204,11 @@ async def create_job(request: Request):
                 command="ramp-list",
                 runtime=RuntimeOptions(
                     resource=runtime.get("resource"),
+                    resource_alias=runtime.get("resource_alias"),
                     safety_config=runtime.get("safety_config"),
+                    simulate=bool(runtime.get("simulate", False)),
                     dry_run=True,
+                    model_profile=runtime.get("model_profile") or runtime.get("model"),
                 ),
                 parameters=parameters,
             )

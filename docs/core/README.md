@@ -104,9 +104,15 @@ the CLI adapter. Run the no-hardware gate before live validation:
 
 Live suite checks and hardware pytest are explicit, opt-in hardware checks.
 `scripts\live-cli-check.ps1` records target/connection/suite/case artifacts
-under `.tmp_tests`; a passing suite validates only those recorded cases, not
-the entire model. Commands, state-changing behavior, and report locations are
-documented in the [CLI README scripted validation section](../cli/README.md#scripted-validation).
+under `.tmp_tests`. For each active model, `-Suite full` is the complete
+validation gate for all currently project-supported LIVE features of that
+model. After the expanded full suite passes for the approved model and
+connection, the model's currently project-supported LIVE features may be
+opened. Disabled, unimplemented, out-of-scope, or factory-only features are
+not implied by the pass. A passing suite validates only the selected model,
+connection, suite, and recorded cases; it does not validate other connection
+types or every factory instrument function. Commands, state-changing behavior,
+and report locations are documented in the [CLI README scripted validation section](../cli/README.md#scripted-validation).
 
 ## Docs
 
@@ -138,11 +144,18 @@ steps. Trigger workflows are E36312A-only. Unsupported models, including
 EDU36311A, do not expose trigger dry-run or simulator behavior.
 Hardware-affecting behavior remains explicit and opt-in.
 
+E36312A and EDU36311A `full` suites now include `software-sequence`; previous
+live artifacts for those models passed before that suite was added and do not
+prove the expanded full suite. The expanded full suites must be rerun before
+claiming those models' currently project-supported LIVE features are fully
+validated and may be opened.
+
 E3646A RS-232 support covers validated read-only/output workflows plus
 software `ramp-list` and step-limited software `sequence`. These workflows are
-not native LIST support. E3646A protection, trigger/native LIST,
-snapshot/restore, completion-pulse, and unsupported sequence step types remain
-disabled by the feature-lock policy.
+not native LIST support. EDU36311A trigger/native LIST and snapshot/restore
+remain disabled. E3646A protection, trigger/native LIST, snapshot/restore,
+completion-pulse, and unsupported sequence step types remain disabled by the
+feature-lock policy.
 
 The adapter boundary is intentionally one-way: core contains driver methods,
 SCPI helpers, simulator selection, no-hardware model resolution, and dry-run

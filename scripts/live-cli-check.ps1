@@ -210,10 +210,10 @@ function Get-SupportedSuites {
     param([string]$Model)
 
     if ($Model -eq "E36312A") {
-        return @("readonly", "output", "protection", "snapshot", "trigger-list")
+        return @("readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence")
     }
     if ($Model -eq "EDU36311A") {
-        return @("readonly", "output", "protection")
+        return @("readonly", "output", "protection", "software-sequence")
     }
     if ($Model -eq "E3646A") {
         return @("readonly", "output", "software-sequence")
@@ -272,7 +272,7 @@ function New-ValidationSequenceFile {
         [Parameter(Mandatory = $true)][string[]]$Lines
     )
 
-    $path = Join-Path $script:OutputDir ("generated-" + $Name + ".yaml")
+    $path = Join-Path $script:OutputDir ($Name + ".yaml")
     Write-Utf8NoBomFile -LiteralPath $path -Value $Lines
     return $path
 }
@@ -407,36 +407,56 @@ function Get-SoftwareSequenceCases {
 
     $resource = if ($Live) { $script:RawResource } else { $SimResources[$Model] }
     $phase = if ($Live) { "live" } else { "preflight" }
-    $safeSequence = New-ValidationSequenceFile -Name ($Model.ToLowerInvariant() + "-safe-sequence") -Lines @(
+    $readOnlySequence = New-ValidationSequenceFile -Name "sequence-readonly" -Lines @(
+        "version: 1",
+        "steps:",
+        "  - action: readback",
+        "    channel: 1",
+        "  - action: output-state",
+        "    channel: 1"
+    )
+    $outputSequence = New-ValidationSequenceFile -Name "sequence-output-low-power" -Lines @(
         "version: 1",
         "steps:",
         "  - action: set",
         "    channel: 1",
         "    voltage: 1",
         "    current: 0.05",
-        "  - action: readback",
+        "  - action: output-on",
         "    channel: 1",
-        "  - action: safe-off",
-        "    channel: all"
+        "  - action: wait",
+        "    seconds: 0.1",
+        "  - action: output-off",
+        "    channel: 1"
     )
+    $rampListArgs = @("--segment", "1", "0.05", "0", "1", "0.25", "100", "0")
     $cases = New-Object System.Collections.Generic.List[object]
-    $cases.Add((New-CommandCase -Name "sequence-lint-safe" -Suite "software-sequence" -Phase $phase -Args @("sequence", "--lint", "--json", "--resource", $resource, "--file", $safeSequence)))
     if ($Live) {
-        $cases.Add((New-CommandCase -Name "sequence-live-safe" -Suite "software-sequence" -Phase $phase -Args @("sequence", "--json", "--resource", $resource, "--file", $safeSequence, "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true))
-        $cases.Add((New-CommandCase -Name "ramp-list-live" -Suite "software-sequence" -Phase $phase -Args @("ramp-list", "--json", "--resource", $resource, "--segment", "1", "0.05", "0", "1", "0.25", "100", "0", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true))
+        $safeOffArgs = @("safe-off", "--json", "--resource", $resource, "--channel", "all", "--log-scpi")
+        $cases.Add((New-CommandCase -Name "safe-off-before-software-sequence" -Suite "software-sequence" -Phase $phase -Args $safeOffArgs -StateChanging:$true -LiveHardwareExpected:$true))
+        $cases.Add((New-CommandCase -Name "ramp-list-live-low-power" -Suite "software-sequence" -Phase $phase -Args (@("ramp-list", "--json", "--resource", $resource) + $rampListArgs + @("--log-scpi")) -StateChanging:$true -LiveHardwareExpected:$true))
+        $cases.Add((New-CommandCase -Name "sequence-live-readonly" -Suite "software-sequence" -Phase $phase -Args @("sequence", "--json", "--resource", $resource, "--file", $readOnlySequence, "--log-scpi") -LiveHardwareExpected:$true))
+        $cases.Add((New-CommandCase -Name "sequence-live-output-low-power" -Suite "software-sequence" -Phase $phase -Args @("sequence", "--json", "--resource", $resource, "--file", $outputSequence, "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true))
+        $cases.Add((New-CommandCase -Name "safe-off-after-software-sequence" -Suite "software-sequence" -Phase $phase -Args $safeOffArgs -StateChanging:$true -LiveHardwareExpected:$true))
     }
     else {
-        $cases.Add((New-CommandCase -Name "sequence-dry-run-safe" -Suite "software-sequence" -Phase $phase -Args @("sequence", "--dry-run", "--json", "--model", $Model, "--resource", $resource, "--file", $safeSequence)))
-        $cases.Add((New-CommandCase -Name "ramp-list-dry-run" -Suite "software-sequence" -Phase $phase -Args @("ramp-list", "--dry-run", "--json", "--model", $Model, "--segment", "1", "0.05", "0", "1", "0.25", "100", "0")))
-        if ($Model -eq "E3646A") {
+        $cases.Add((New-CommandCase -Name "ramp-list-lint" -Suite "software-sequence" -Phase $phase -Args (@("ramp-list", "--lint", "--json", "--model", $Model) + $rampListArgs)))
+        $cases.Add((New-CommandCase -Name "ramp-list-dry-run" -Suite "software-sequence" -Phase $phase -Args (@("ramp-list", "--dry-run", "--json", "--model", $Model) + $rampListArgs)))
+        $cases.Add((New-CommandCase -Name "sequence-lint-readonly" -Suite "software-sequence" -Phase $phase -Args @("sequence", "--lint", "--json", "--model", $Model, "--resource", $resource, "--file", $readOnlySequence)))
+        $cases.Add((New-CommandCase -Name "sequence-dry-run-readonly" -Suite "software-sequence" -Phase $phase -Args @("sequence", "--dry-run", "--json", "--model", $Model, "--resource", $resource, "--file", $readOnlySequence)))
+        if ($Model -in @("EDU36311A", "E3646A")) {
             $negativeCases = @(
-                @{ Name = "reject-protection-step"; Action = "protection-set"; Expected = "protection" },
-                @{ Name = "reject-trigger-step"; Action = "trigger-list"; Expected = "trigger" },
-                @{ Name = "reject-snapshot-step"; Action = "snapshot"; Expected = "snapshot" },
-                @{ Name = "reject-restore-step"; Action = "restore-from-snapshot"; Expected = "restore" },
-                @{ Name = "reject-native-list-step"; Action = "native-list"; Expected = "native-list" },
-                @{ Name = "reject-completion-pulse-step"; Action = "trigger-pulse"; Expected = "trigger-pulse" }
+                @{ Name = "sequence-unsupported-trigger"; Action = "trigger-list"; Expected = "trigger-list" },
+                @{ Name = "sequence-unsupported-snapshot"; Action = "snapshot"; Expected = "snapshot" },
+                @{ Name = "sequence-unsupported-restore"; Action = "restore-from-snapshot"; Expected = "restore" },
+                @{ Name = "sequence-unsupported-native-list"; Action = "native-list"; Expected = "native-list" }
             )
+            if ($Model -eq "E3646A") {
+                $negativeCases += @(
+                    @{ Name = "sequence-unsupported-protection"; Action = "protection-set"; Expected = "protection" },
+                    @{ Name = "sequence-unsupported-completion-pulse"; Action = "trigger-pulse"; Expected = "trigger-pulse" }
+                )
+            }
             foreach ($negative in $negativeCases) {
                 $badSequence = New-ValidationSequenceFile -Name $negative.Name -Lines @(
                     "version: 1",
@@ -444,7 +464,8 @@ function Get-SoftwareSequenceCases {
                     ("  - action: " + $negative.Action),
                     "    channel: 1"
                 )
-                $cases.Add((New-CommandCase -Name $negative.Name -Suite "software-sequence" -Phase $phase -Args @("sequence", "--dry-run", "--json", "--model", "E3646A", "--resource", $resource, "--file", $badSequence) -ExpectedSuccess:$false -ExpectedErrorContains $negative.Expected))
+                $cases.Add((New-CommandCase -Name ($negative.Name + "-dry-run") -Suite "software-sequence" -Phase $phase -Args @("sequence", "--dry-run", "--json", "--model", $Model, "--resource", $resource, "--file", $badSequence) -ExpectedSuccess:$false -ExpectedErrorContains $negative.Expected))
+                $cases.Add((New-CommandCase -Name ($negative.Name + "-simulate") -Suite "software-sequence" -Phase $phase -Args @("sequence", "--simulate", "--json", "--model", $Model, "--resource", $resource, "--file", $badSequence) -ExpectedSuccess:$false -ExpectedErrorContains $negative.Expected))
             }
         }
     }

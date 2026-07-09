@@ -178,7 +178,11 @@ Ramp List documents are JSON objects with `kind: "keysight-power-ramp-list"`,
 Ramp accepts `completion_pulse_timing`; step timing accepts `delay_ms = 0`
 and uses software post-action pulses. Sequence accepts canonical
 `trigger-pulse` actions with `channel`, `pins`, `polarity`, and optional
-`leave_trigger_configured`. Rear pulse pins and output channels are separate.
+`leave_trigger_configured` for E36312A only. Sequence must not bypass model
+feature gates: EDU36311A trigger/native LIST and snapshot/restore remain
+disabled, and E3646A protection, trigger/native LIST, snapshot/restore,
+completion-pulse, and native LIST remain disabled. Rear pulse pins and output
+channels are separate.
 Ramp rejects the removed `completion_pulse_mode`,
 `completion_pulse_dwell_ms`, `wait_timeout_ms`, and `poll_ms` fields before
 artifact creation or queue mutation. Native LIST and trigger wait controls are

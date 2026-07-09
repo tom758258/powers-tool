@@ -280,10 +280,31 @@ and completion-pulse jobs, and unsupported E3646A sequence step types are
 rejected by the backend/Core boundary.
 
 Live validation status is recorded by CLI suite artifacts, not by the browser
-selector. A passing `scripts\live-cli-check.ps1` suite validates only the
-selected model, connection, suite, and cases in that run. WebUI hiding or
-disabling remains UX only; backend/Core rejection is still the safety
-boundary for unsupported direct submissions.
+selector. For each active model, `-Suite full` is the complete validation gate
+for all currently project-supported LIVE features of that model. After the
+expanded full suite passes for the approved model and connection, the model's
+currently project-supported LIVE features may be opened. Disabled,
+unimplemented, out-of-scope, or factory-only features are not implied by the
+pass. A passing `scripts\live-cli-check.ps1` suite validates only the selected
+model, connection, suite, and cases in that run. It does not validate other
+connection types or every factory instrument function. WebUI hiding or
+disabling remains UX only; backend/Core rejection is still the safety boundary
+for unsupported direct submissions.
+
+E36312A `full` now includes `software-sequence` in addition to read-only,
+output, protection, snapshot, and trigger-list suites. EDU36311A `full` now
+includes `software-sequence` in addition to read-only, output, and protection
+suites; EDU36311A trigger/native LIST and snapshot/restore remain disabled.
+E3646A `full` remains `readonly`, `output`, and `software-sequence`; E3646A
+`ramp-list` and `sequence` are software workflows, not native LIST, and
+protection, trigger/native LIST, snapshot/restore, and completion-pulse remain
+disabled.
+
+Previous live artifacts for E36312A and EDU36311A passed before
+`software-sequence` was added to their `full` suites. After this change, those
+previous artifacts do not prove the expanded full suite. The expanded full
+suites must be rerun before claiming those models' currently
+project-supported LIVE features are fully validated and may be opened.
 
 ## Test
 

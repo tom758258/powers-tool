@@ -343,21 +343,180 @@ def test_live_cli_check_e3646a_full_plan_contains_software_sequence_not_native_l
     report = json.loads(_report_path(result.stdout, result.stderr).read_text(encoding="utf-8"))
     assert report["suites"] == ["readonly", "output", "software-sequence"]
     case_names = {case["name"] for case in report["cases"]}
-    assert "reject-protection-step" in case_names
-    assert "reject-trigger-step" in case_names
-    assert "reject-snapshot-step" in case_names
-    assert "reject-restore-step" in case_names
-    assert "reject-native-list-step" in case_names
-    assert "reject-completion-pulse-step" in case_names
+    assert "sequence-unsupported-protection-dry-run" in case_names
+    assert "sequence-unsupported-trigger-dry-run" in case_names
+    assert "sequence-unsupported-snapshot-dry-run" in case_names
+    assert "sequence-unsupported-restore-dry-run" in case_names
+    assert "sequence-unsupported-native-list-dry-run" in case_names
+    assert "sequence-unsupported-completion-pulse-dry-run" in case_names
     assert all(command["hardware_touched"] is False for command in report["commands"])
 
 
 def test_live_cli_check_full_suite_composition_is_model_aware():
     script = SCRIPT.read_text(encoding="utf-8")
 
-    assert 'return @("readonly", "output", "protection", "snapshot", "trigger-list")' in script
-    assert 'return @("readonly", "output", "protection")' in script
+    assert 'return @("readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence")' in script
+    assert 'return @("readonly", "output", "protection", "software-sequence")' in script
     assert 'return @("readonly", "output", "software-sequence")' in script
+
+
+@pytest.mark.parametrize(
+    ("target", "connection", "resource", "expected_suites"),
+    [
+        (
+            "E36312A",
+            "USB",
+            "USB0::SIM::E36312A::INSTR",
+            ["readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence"],
+        ),
+        (
+            "EDU36311A",
+            "USB",
+            "USB0::SIM::EDU36311A::INSTR",
+            ["readonly", "output", "protection", "software-sequence"],
+        ),
+        (
+            "E3646A",
+            "ASRL",
+            "ASRL1::SIM::E3646A::INSTR",
+            ["readonly", "output", "software-sequence"],
+        ),
+    ],
+)
+def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
+    target: str,
+    connection: str,
+    resource: str,
+    expected_suites: list[str],
+):
+    result = _run_live_cli_check(
+        "-Target",
+        target,
+        "-Connection",
+        connection,
+        "-Resource",
+        resource,
+        "-Suite",
+        "full",
+        "-PlanOnly",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = _report_path(result.stdout, result.stderr)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    summary = report_path.with_name("summary.md").read_text(encoding="utf-8")
+    assert report["suites"] == expected_suites
+    assert "software-sequence" in report["suites"]
+    assert "software-sequence" in summary
+    case_names = {case["name"] for case in report["cases"] if case["suite"] == "software-sequence"}
+    assert {
+        "ramp-list-lint",
+        "ramp-list-dry-run",
+        "sequence-lint-readonly",
+        "sequence-dry-run-readonly",
+    } <= case_names
+    assert all(command["hardware_touched"] is False for command in report["commands"])
+
+
+@pytest.mark.parametrize(
+    ("target", "connection", "resource"),
+    [
+        ("E36312A", "USB", "USB0::SIM::E36312A::INSTR"),
+        ("EDU36311A", "USB", "USB0::SIM::EDU36311A::INSTR"),
+        ("E3646A", "ASRL", "ASRL1::SIM::E3646A::INSTR"),
+    ],
+)
+def test_live_cli_check_software_sequence_plan_only_supported_for_active_targets(target: str, connection: str, resource: str):
+    result = _run_live_cli_check(
+        "-Target",
+        target,
+        "-Connection",
+        connection,
+        "-Resource",
+        resource,
+        "-Suite",
+        "software-sequence",
+        "-PlanOnly",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = _report_path(result.stdout, result.stderr)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["suites"] == ["software-sequence"]
+    command_names = [command["name"] for command in report["commands"]]
+    assert "ramp-list-lint" in command_names
+    assert "ramp-list-dry-run" in command_names
+    assert "sequence-lint-readonly" in command_names
+    assert "sequence-dry-run-readonly" in command_names
+    assert len({command["json_path"] for command in report["commands"]}) == len(report["commands"])
+    assert len({command["stdout_path"] for command in report["commands"]}) == len(report["commands"])
+    assert len({command["stderr_path"] for command in report["commands"]}) == len(report["commands"])
+
+
+@pytest.mark.parametrize(
+    ("target", "connection", "resource", "expected_failures"),
+    [
+        (
+            "EDU36311A",
+            "USB",
+            "USB0::SIM::EDU36311A::INSTR",
+            {
+                "sequence-unsupported-trigger-dry-run",
+                "sequence-unsupported-trigger-simulate",
+                "sequence-unsupported-snapshot-dry-run",
+                "sequence-unsupported-snapshot-simulate",
+                "sequence-unsupported-restore-dry-run",
+                "sequence-unsupported-restore-simulate",
+                "sequence-unsupported-native-list-dry-run",
+                "sequence-unsupported-native-list-simulate",
+            },
+        ),
+        (
+            "E3646A",
+            "ASRL",
+            "ASRL1::SIM::E3646A::INSTR",
+            {
+                "sequence-unsupported-protection-dry-run",
+                "sequence-unsupported-protection-simulate",
+                "sequence-unsupported-trigger-dry-run",
+                "sequence-unsupported-trigger-simulate",
+                "sequence-unsupported-snapshot-dry-run",
+                "sequence-unsupported-snapshot-simulate",
+                "sequence-unsupported-restore-dry-run",
+                "sequence-unsupported-restore-simulate",
+                "sequence-unsupported-native-list-dry-run",
+                "sequence-unsupported-native-list-simulate",
+                "sequence-unsupported-completion-pulse-dry-run",
+                "sequence-unsupported-completion-pulse-simulate",
+            },
+        ),
+    ],
+)
+def test_live_cli_check_software_sequence_expected_failures_are_reported_as_passed(
+    target: str,
+    connection: str,
+    resource: str,
+    expected_failures: set[str],
+):
+    result = _run_live_cli_check(
+        "-Target",
+        target,
+        "-Connection",
+        connection,
+        "-Resource",
+        resource,
+        "-Suite",
+        "software-sequence",
+        "-PlanOnly",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(_report_path(result.stdout, result.stderr).read_text(encoding="utf-8"))
+    cases_by_name = {case["name"]: case for case in report["cases"]}
+    assert expected_failures <= set(cases_by_name)
+    for name in expected_failures:
+        assert cases_by_name[name]["expected_success"] is False
+        assert cases_by_name[name]["result"] == "passed"
 
 
 @pytest.mark.parametrize("target", ["E36103B", "E36232A", "GENERIC"])

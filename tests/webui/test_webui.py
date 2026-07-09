@@ -2227,6 +2227,24 @@ def test_webui_direct_jobs_reject_e3646a_disabled_workflows(
     assert_direct_job_rejected(client, payload, *fragments)
 
 
+def test_webui_direct_jobs_reject_edu36311a_sequence_trigger_pulse(client: TestClient) -> None:
+    assert_direct_job_rejected(
+        client,
+        {
+            "command": "sequence",
+            "runtime": {"dry_run": True, "model_profile": "EDU36311A"},
+            "parameters": {
+                "document": {
+                    "version": 1,
+                    "steps": [{"action": "trigger-pulse", "channel": 1, "pins": [1]}],
+                }
+            },
+        },
+        "EDU36311A",
+        "E36312A",
+    )
+
+
 @pytest.mark.parametrize(
     "action",
     [

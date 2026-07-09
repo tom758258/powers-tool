@@ -62,7 +62,8 @@ force the E36312A driver if another model answers.
 
 Current model boundaries are enforced across Core, CLI, and WebUI backend
 direct jobs. Trigger/native LIST is E36312A-only. EDU36311A supports
-read-only/output/protection workflows but not trigger/native LIST or
+read-only/output/protection workflows plus software `ramp-list` and
+step-limited software `sequence`, but not trigger/native LIST or
 snapshot/restore. E3646A supports validated RS-232 read-only/output workflows
 plus software `ramp-list` and step-limited software `sequence`; these are not
 native LIST workflows, and E3646A protection, trigger/native LIST,
@@ -264,11 +265,21 @@ Run the full no-hardware suite:
 Scripted no-hardware and live validation workflows are documented in the
 [CLI README](docs/cli/README.md).
 
-Live feature validation is suite-based. A passed
-`scripts\live-cli-check.ps1` run validates only the selected target model,
-connection type, suite, and cases recorded in that run's artifacts. It does
-not mean every feature on that model, or the same feature on another
-connection, is live validated.
+Live feature validation is suite-based. For each active model, `-Suite full`
+is the complete validation gate for all currently project-supported LIVE
+features of that model. After the expanded full suite passes for the approved
+model and connection, the model's currently project-supported LIVE features
+may be opened. Disabled, unimplemented, out-of-scope, or factory-only
+features are not implied by the pass.
+
+A passed `scripts\live-cli-check.ps1` run validates only the selected target
+model, connection type, suite, and cases recorded in that run's artifacts. It
+does not mean every factory feature on that instrument, or the same feature on
+another connection, is live validated. Previous E36312A and EDU36311A live
+artifacts passed before `software-sequence` was added to their `full` suites;
+those previous artifacts do not prove the expanded full suite. The expanded
+full suites must be rerun before claiming those models' currently
+project-supported LIVE features are fully validated and may be opened.
 
 Examples:
 

@@ -67,6 +67,23 @@ def test_edu36311a_snapshot_restore_rejected(command: str, core_request: Operati
 
 
 @pytest.mark.parametrize(
+    "runtime",
+    [
+        RuntimeOptions(dry_run=True, model_profile="EDU36311A"),
+        RuntimeOptions(simulate=True, resource="USB0::SIM::EDU36311A::INSTR"),
+    ],
+)
+def test_edu36311a_sequence_trigger_pulse_rejected(runtime: RuntimeOptions) -> None:
+    request = SequenceRequest(
+        runtime=runtime,
+        parameters={"document": {"version": 1, "steps": [{"action": "trigger-pulse", "channel": 1, "pins": [1]}]}},
+    )
+
+    with pytest.raises(CoreValidationError, match="trigger-pulse|E36312A"):
+        run_core_command(request)
+
+
+@pytest.mark.parametrize(
     "core_request",
     [
         OperationRequest(
