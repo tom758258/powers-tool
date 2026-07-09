@@ -9,7 +9,7 @@ than one CLI command. Command-level behavior is documented in
 This table is the manually maintained source of truth for suite-based live
 validation records. For each active model, `-Suite full` is the complete
 validation gate for all currently project-supported LIVE features of that
-model. After the expanded full suite passes for the approved model and
+model. With a passing expanded full-suite record for the approved model and
 connection, the model's currently project-supported LIVE features may be
 opened. Disabled, unimplemented, out-of-scope, or factory-only features are
 not implied by the pass. A passed `scripts/live-cli-check.ps1` run validates
@@ -18,17 +18,41 @@ only the selected target model, connection, suite, and cases in that run's
 features, other connection types, every factory instrument function, or the
 whole model.
 
-| Target | Connection | Supported suites in `full` | Notes |
+| Target | Connection scope | Supported suites in `full` | Notes |
 | --- | --- | --- | --- |
-| E36312A | USB-local or LAN-network | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` | Trigger/native LIST and snapshot/restore are considered suite validated only when the corresponding suite/cases pass for the selected connection. `software-sequence` covers project-supported software `ramp-list` and sequence workflows only. |
-| EDU36311A | USB-local or LAN-network | `readonly`, `output`, `protection`, `software-sequence` | `software-sequence` covers project-supported software `ramp-list` and sequence read-only/output workflows only. Trigger/native LIST, snapshot, and restore-from-snapshot remain disabled in live, simulate, and dry-run. |
-| E3646A | RS-232 / ASRL | `readonly`, `output`, `software-sequence` | CH1/CH2 only. `OUTP ON/OFF` is global. `ramp-list` and `sequence` are software workflows, not native LIST. |
+| E36312A | USB validated/open; LAN may be validated separately with an exact LAN VISA resource | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` | Trigger/native LIST and snapshot/restore are considered suite validated only when the corresponding suite/cases pass for the selected connection. `software-sequence` covers project-supported software `ramp-list` and sequence workflows only. |
+| EDU36311A | USB validated/open; LAN may be validated separately with an exact LAN VISA resource | `readonly`, `output`, `protection`, `software-sequence` | `software-sequence` covers project-supported software `ramp-list` and sequence read-only/output workflows only. Trigger/native LIST, snapshot, and restore-from-snapshot remain disabled in live, simulate, and dry-run. |
+| E3646A | RS-232 / ASRL only | `readonly`, `output`, `software-sequence` | CH1/CH2 only. `OUTP ON/OFF` is global. `ramp-list` and `sequence` are software workflows, not native LIST. |
 
-Previous live artifacts for E36312A and EDU36311A passed before
-`software-sequence` was added to their `full` suites. After this change, those
-previous artifacts do not prove the expanded full suite. The expanded full
-suites must be rerun before claiming those models' currently
-project-supported LIVE features are fully validated and may be opened.
+## Connection-scoped live validation status
+
+Live validation/opening is scoped by model, connection, suite, and cases. A
+passed `scripts/live-cli-check.ps1` artifact only proves validation for the
+selected model and connection; it does not mean the same feature is validated
+on another connection type, another model, disabled workflows, or factory-only
+features.
+
+Current validated/open records:
+
+- E36312A USB: validated/open
+- EDU36311A USB: validated/open
+- E3646A ASRL / RS-232: validated/open
+
+E36312A LAN and EDU36311A LAN are not opened by current USB artifacts. They
+may be validated later with an exact known LAN VISA resource and a passed
+`scripts/live-cli-check.ps1 -Suite full` artifact. E3646A live validation is
+currently restricted to ASRL / RS-232.
+
+| Model | USB | LAN | ASRL / RS-232 |
+| --- | --- | --- | --- |
+| E36312A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
+| EDU36311A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
+| E3646A | not current scope | not current scope | validated/open |
+
+EDU36311A trigger/native LIST and snapshot/restore remain disabled in live,
+simulate, and dry-run. E3646A protection, trigger/native LIST,
+snapshot/restore, and completion-pulse remain disabled. E3646A `ramp-list` and
+`sequence` remain software workflows only, not native LIST.
 
 EDU36311A USB read-only, output/write, and protection commands are enabled for
 real execution after staged validation. Use `scripts/live-cli-check.ps1
@@ -90,19 +114,19 @@ command-level facts:
   expected model.
 - E36312A USB-local full-suite validation covers project-supported read-only,
   output, protection, snapshot, trigger/native LIST, software `ramp-list`, and
-  software `sequence` paths after the expanded full suite is rerun and passes.
+  software `sequence` paths after the 2026-07-09 expanded full-suite USB pass.
 - E36312A native trigger/LIST support is exposed through `trigger-status`,
   `trigger-step`, `trigger-list`, `trigger-fire`, and `trigger-abort`. The
-  trigger dry-run and simulator paths are also E36312A-only.
-  Native LIST execution is limited to 100 steps, dwell values from 0.01 to
-  3600 seconds, and count values from 1 to 256. Real native trigger sources
-  are currently limited to BUS and immediate; rear pin and external input
-  sources remain dry-run/simulator only until hardware validation.
+  trigger dry-run and simulator paths are also E36312A-only. Native LIST
+  execution is limited to 100 steps, dwell values from 0.01 to 3600 seconds,
+  and count values from 1 to 256. Real native trigger sources are currently
+  limited to BUS and immediate; rear pin and external input sources remain
+  dry-run/simulator only until hardware validation.
 - Ramp always uses software setpoint steps. Native LIST execution is confined
   to `trigger-list`.
 - EDU36311A USB-local read-only/output/protection commands plus software
   `ramp-list` and sequence read-only/output workflows are enabled after the
-  expanded full suite is rerun and passes. LAN uses the same explicit-resource
+  2026-07-09 expanded full-suite USB pass. LAN uses the same explicit-resource
   suite wrapper and must be validated with the target instrument before
   acceptance.
 - E36312A and EDU36311A OVP/OCP trip status is queried per channel. Aggregate

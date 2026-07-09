@@ -281,15 +281,35 @@ rejected by the backend/Core boundary.
 
 Live validation status is recorded by CLI suite artifacts, not by the browser
 selector. For each active model, `-Suite full` is the complete validation gate
-for all currently project-supported LIVE features of that model. After the
-expanded full suite passes for the approved model and connection, the model's
-currently project-supported LIVE features may be opened. Disabled,
+for all currently project-supported LIVE features of that model. With a
+passing expanded full-suite record for the approved model and connection, the
+model's currently project-supported LIVE features may be opened. Disabled,
 unimplemented, out-of-scope, or factory-only features are not implied by the
 pass. A passing `scripts\live-cli-check.ps1` suite validates only the selected
 model, connection, suite, and cases in that run. It does not validate other
 connection types or every factory instrument function. WebUI hiding or
 disabling remains UX only; backend/Core rejection is still the safety boundary
 for unsupported direct submissions.
+
+The WebUI expected-model field is a safety guard and planning hint only. It
+does not change the IDN-selected live driver or cause the browser to open a
+different connection type. Current recorded opening status is connection-
+scoped:
+
+- E36312A USB: validated/open
+- EDU36311A USB: validated/open
+- E3646A ASRL / RS-232: validated/open
+
+E36312A LAN and EDU36311A LAN are not opened by current USB artifacts. They
+may be validated later with an exact known LAN VISA resource and a passed full-
+suite `scripts\live-cli-check.ps1` artifact. E3646A live validation is currently
+restricted to ASRL / RS-232.
+
+| Model | USB | LAN | ASRL / RS-232 |
+| --- | --- | --- | --- |
+| E36312A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
+| EDU36311A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
+| E3646A | not current scope | not current scope | validated/open |
 
 E36312A `full` now includes `software-sequence` in addition to read-only,
 output, protection, snapshot, and trigger-list suites. EDU36311A `full` now
@@ -300,11 +320,6 @@ E3646A `full` remains `readonly`, `output`, and `software-sequence`; E3646A
 protection, trigger/native LIST, snapshot/restore, and completion-pulse remain
 disabled.
 
-Previous live artifacts for E36312A and EDU36311A passed before
-`software-sequence` was added to their `full` suites. After this change, those
-previous artifacts do not prove the expanded full suite. The expanded full
-suites must be rerun before claiming those models' currently
-project-supported LIVE features are fully validated and may be opened.
 
 ## Test
 

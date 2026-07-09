@@ -670,9 +670,19 @@ function Write-LiveConfirmationWarnings {
 
     if (@($SuitesToRun | Where-Object { $_ -in @("output", "protection", "trigger-list", "software-sequence") }).Count -gt 0) {
         Write-Host "Possible state changes:"
-        if (@($SuitesToRun | Where-Object { $_ -in @("output", "trigger-list", "software-sequence") }).Count -gt 0) {
+        $outputAffectingSuites = @(@("output", "trigger-list", "software-sequence") | Where-Object { $_ -in $SuitesToRun })
+        if (@($outputAffectingSuites).Count -gt 0) {
+            if (@($outputAffectingSuites).Count -eq 1) {
+                $outputCaseText = "$($outputAffectingSuites[0]) cases"
+            }
+            elseif (@($outputAffectingSuites).Count -eq 2) {
+                $outputCaseText = "$($outputAffectingSuites[0]) or $($outputAffectingSuites[1]) cases"
+            }
+            else {
+                $outputCaseText = "$($outputAffectingSuites[0]), $($outputAffectingSuites[1]), or $($outputAffectingSuites[2]) cases"
+            }
             Write-Host "- Low-power setpoints may be written: 1 V / 0.05 A."
-            Write-Host "- Outputs may briefly turn on for output, trigger-list, or software-sequence cases."
+            Write-Host "- Outputs may briefly turn on for $outputCaseText."
         }
         if ("protection" -in $SuitesToRun) {
             Write-Host "- Protection suite writes OVP/OCP settings and clears protection state."

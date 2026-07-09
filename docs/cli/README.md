@@ -152,6 +152,23 @@ preflight first, then requires interactive Enter confirmation before opening
 VISA. If stdin is redirected, live execution is refused with a
 confirmation-required report.
 
+`live-cli-check.ps1` is a validation tool, not the same thing as declaring a
+connection opened for normal use. A passed validation run is scoped to the
+selected model, connection, suite, and cases; it does not prove every feature,
+every connection type, or every model, and it does not mean USB validation
+covers LAN validation.
+
+Current opened records from passing validation artifacts:
+
+- E36312A USB: validated/open
+- EDU36311A USB: validated/open
+- E3646A ASRL / RS-232: validated/open
+
+E36312A LAN and EDU36311A LAN are not opened by current recorded artifacts.
+They may be validated later by running `live-cli-check.ps1 -Suite full` with an
+exact known LAN VISA resource and recording the passing artifact. E3646A live
+validation is currently restricted to ASRL / RS-232.
+
 ```powershell
 .\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
 .\scripts\live-cli-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE -Suite full
@@ -168,10 +185,11 @@ Supported suites are model-aware:
 | E3646A | `readonly`, `output`, `software-sequence` |
 
 For each active model, `-Suite full` is the complete validation gate for all
-currently project-supported LIVE features of that model. After the expanded
-full suite passes for the approved model and connection, the model's currently
-project-supported LIVE features may be opened. Disabled, unimplemented,
-out-of-scope, or factory-only features are not implied by the pass.
+currently project-supported LIVE features of that model. With a passing
+expanded full-suite record for the approved model and connection, the model's
+currently project-supported LIVE features may be opened. Disabled,
+unimplemented, out-of-scope, or factory-only features are not implied by the
+pass.
 
 A passed suite means the target model matched, the selected connection type
 was used, the selected suite/cases passed, and artifacts were recorded under
@@ -181,11 +199,11 @@ features, or every instrument function are validated. It does not validate
 the entire model. Explicit unsupported suite requests fail before live
 execution instead of silently skipping everything.
 
-Previous live artifacts for E36312A and EDU36311A passed before
-`software-sequence` was added to their `full` suites. After this change, those
-previous artifacts do not prove the expanded full suite. The expanded full
-suites must be rerun before claiming those models' currently
-project-supported LIVE features are fully validated and may be opened.
+| Model | USB | LAN | ASRL / RS-232 |
+| --- | --- | --- | --- |
+| E36312A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
+| EDU36311A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
+| E3646A | not current scope | not current scope | validated/open |
 This implementation pass does not claim new real hardware validation. Public
 zh-TW docs were not updated in this pass.
 

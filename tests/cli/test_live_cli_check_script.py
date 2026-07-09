@@ -167,18 +167,59 @@ def test_live_validation_still_rejects_real_mode_without_hardware_touch_fixture(
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_live_confirmation_warnings_are_scoped_to_selected_suites():
-    command = """
+def _confirmation_warnings_for_suites(suites):
+    suite_items = ", ".join(f'"{suite}"' for suite in suites)
+    command = f"""
 $env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\\scripts\\live-cli-check.ps1
-Write-LiveConfirmationWarnings -SuitesToRun @("readonly", "output", "software-sequence")
+Write-LiveConfirmationWarnings -SuitesToRun @({suite_items})
 """
-    result = _run_powershell_command(command)
+    return _run_powershell_command(command)
+
+
+def test_live_confirmation_warnings_are_scoped_to_selected_suites():
+    result = _confirmation_warnings_for_suites(
+        ["readonly", "output", "software-sequence"]
+    )
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Low-power setpoints may be written" in result.stdout
-    assert "Outputs may briefly turn on" in result.stdout
+    assert (
+        "Outputs may briefly turn on for output or software-sequence cases."
+        in result.stdout
+    )
+    assert "trigger-list cases" not in result.stdout
     assert "Protection suite writes" not in result.stdout
+
+
+def test_live_confirmation_warnings_include_trigger_list_when_selected():
+    result = _confirmation_warnings_for_suites(
+        ["readonly", "output", "trigger-list", "software-sequence"]
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Low-power setpoints may be written" in result.stdout
+    assert (
+        "Outputs may briefly turn on for output, trigger-list, or software-sequence cases."
+        in result.stdout
+    )
+    assert "Protection suite writes" not in result.stdout
+
+
+def test_live_confirmation_warnings_format_single_output_affecting_suite():
+    result = _confirmation_warnings_for_suites(["readonly", "output"])
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Outputs may briefly turn on for output cases." in result.stdout
+
+
+def test_live_confirmation_warnings_format_single_software_sequence_suite():
+    result = _confirmation_warnings_for_suites(["readonly", "software-sequence"])
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (
+        "Outputs may briefly turn on for software-sequence cases." in result.stdout
+    )
 
 
 def test_live_cli_check_uses_phase_specific_artifact_names(tmp_path):

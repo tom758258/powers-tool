@@ -267,19 +267,27 @@ Scripted no-hardware and live validation workflows are documented in the
 
 Live feature validation is suite-based. For each active model, `-Suite full`
 is the complete validation gate for all currently project-supported LIVE
-features of that model. After the expanded full suite passes for the approved
-model and connection, the model's currently project-supported LIVE features
-may be opened. Disabled, unimplemented, out-of-scope, or factory-only
+features of that model. With a passing expanded full-suite record for the
+approved model and connection, the model's currently project-supported LIVE
+features may be opened. Disabled, unimplemented, out-of-scope, or factory-only
 features are not implied by the pass.
 
 A passed `scripts\live-cli-check.ps1` run validates only the selected target
 model, connection type, suite, and cases recorded in that run's artifacts. It
 does not mean every factory feature on that instrument, or the same feature on
-another connection, is live validated. Previous E36312A and EDU36311A live
-artifacts passed before `software-sequence` was added to their `full` suites;
-those previous artifacts do not prove the expanded full suite. The expanded
-full suites must be rerun before claiming those models' currently
-project-supported LIVE features are fully validated and may be opened.
+another connection, is live validated.
+
+Current validated/open records are scoped by model, connection, suite, and
+cases:
+
+- E36312A USB: validated/open
+- EDU36311A USB: validated/open
+- E3646A ASRL / RS-232: validated/open
+
+E36312A LAN and EDU36311A LAN are not opened by current USB artifacts. They
+may be validated later with an exact known LAN VISA resource and a passed
+`scripts\live-cli-check.ps1 -Suite full` artifact. E3646A live validation is
+currently restricted to ASRL / RS-232.
 
 Examples:
 

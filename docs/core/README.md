@@ -106,7 +106,7 @@ Live suite checks and hardware pytest are explicit, opt-in hardware checks.
 `scripts\live-cli-check.ps1` records target/connection/suite/case artifacts
 under `.tmp_tests`. For each active model, `-Suite full` is the complete
 validation gate for all currently project-supported LIVE features of that
-model. After the expanded full suite passes for the approved model and
+model. With a passing expanded full-suite record for the approved model and
 connection, the model's currently project-supported LIVE features may be
 opened. Disabled, unimplemented, out-of-scope, or factory-only features are
 not implied by the pass. A passing suite validates only the selected model,
@@ -144,11 +144,11 @@ steps. Trigger workflows are E36312A-only. Unsupported models, including
 EDU36311A, do not expose trigger dry-run or simulator behavior.
 Hardware-affecting behavior remains explicit and opt-in.
 
-E36312A and EDU36311A `full` suites now include `software-sequence`; previous
-live artifacts for those models passed before that suite was added and do not
-prove the expanded full suite. The expanded full suites must be rerun before
-claiming those models' currently project-supported LIVE features are fully
-validated and may be opened.
+The current expanded full-suite records have passed for E36312A USB,
+EDU36311A USB, and E3646A ASRL / RS-232. These records remain scoped to the
+recorded model, connection, suite, and cases. E36312A and EDU36311A LAN are not
+opened by those USB artifacts and require their own exact LAN full-suite
+validation artifacts before being opened.
 
 E3646A RS-232 support covers validated read-only/output workflows plus
 software `ramp-list` and step-limited software `sequence`. These workflows are
