@@ -161,17 +161,21 @@ covers LAN validation.
 Current opened records from passing validation artifacts:
 
 - E36312A USB: validated/open
+- E36312A LAN: validated/open
 - EDU36311A USB: validated/open
+- EDU36311A LAN: validated/open
 - E3646A ASRL / RS-232: validated/open
 
-E36312A LAN and EDU36311A LAN are not opened by current recorded artifacts.
-They may be validated later by running `live-cli-check.ps1 -Suite full` with an
-exact known LAN VISA resource and recording the passing artifact. E3646A live
-validation is currently restricted to ASRL / RS-232.
+E36312A USB, E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL /
+RS-232 are opened only by their own recorded full-suite artifacts. E3646A live
+validation is currently restricted to ASRL / RS-232; E3646A USB and LAN remain
+outside the current scope.
 
 ```powershell
 .\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target E36312A -Connection LAN -Resource $env:E36312A_LAN_RESOURCE -Suite full
 .\scripts\live-cli-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target EDU36311A -Connection LAN -Resource $env:EDU36311A_LAN_RESOURCE -Suite full
 .\scripts\live-cli-check.ps1 -Target E3646A -Connection ASRL -Resource $env:E3646A_ASRL_RESOURCE -Suite full
 .\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite output -PlanOnly
 ```
@@ -201,8 +205,8 @@ execution instead of silently skipping everything.
 
 | Model | USB | LAN | ASRL / RS-232 |
 | --- | --- | --- | --- |
-| E36312A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
-| EDU36311A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
+| E36312A | validated/open | validated/open | N/A |
+| EDU36311A | validated/open | validated/open | N/A |
 | E3646A | not current scope | not current scope | validated/open |
 
 E3646A suite validation is ASRL/RS-232 focused. It uses CH1/CH2, records that

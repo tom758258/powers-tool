@@ -20,8 +20,8 @@ whole model.
 
 | Target | Connection scope | Supported suites in `full` | Notes |
 | --- | --- | --- | --- |
-| E36312A | USB validated/open; LAN may be validated separately with an exact LAN VISA resource | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` | Trigger/native LIST and snapshot/restore are considered suite validated only when the corresponding suite/cases pass for the selected connection. `software-sequence` covers project-supported software `ramp-list` and sequence workflows only. |
-| EDU36311A | USB validated/open; LAN may be validated separately with an exact LAN VISA resource | `readonly`, `output`, `protection`, `software-sequence` | `software-sequence` covers project-supported software `ramp-list` and sequence read-only/output workflows only. Trigger/native LIST, snapshot, and restore-from-snapshot remain disabled in live, simulate, and dry-run. |
+| E36312A | USB validated/open; LAN validated/open | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` | Trigger/native LIST and snapshot/restore are considered suite validated only when the corresponding suite/cases pass for the selected connection. `software-sequence` covers project-supported software `ramp-list` and sequence workflows only. |
+| EDU36311A | USB validated/open; LAN validated/open | `readonly`, `output`, `protection`, `software-sequence` | `software-sequence` covers project-supported software `ramp-list` and sequence read-only/output workflows only. Trigger/native LIST, snapshot, and restore-from-snapshot remain disabled in live, simulate, and dry-run. |
 | E3646A | RS-232 / ASRL only | `readonly`, `output`, `software-sequence` | CH1/CH2 only. `OUTP ON/OFF` is global. `ramp-list` and `sequence` are software workflows, not native LIST. |
 
 ## Connection-scoped live validation status
@@ -35,18 +35,20 @@ features.
 Current validated/open records:
 
 - E36312A USB: validated/open
+- E36312A LAN: validated/open
 - EDU36311A USB: validated/open
+- EDU36311A LAN: validated/open
 - E3646A ASRL / RS-232: validated/open
 
-E36312A LAN and EDU36311A LAN are not opened by current USB artifacts. They
-may be validated later with an exact known LAN VISA resource and a passed
-`scripts/live-cli-check.ps1 -Suite full` artifact. E3646A live validation is
-currently restricted to ASRL / RS-232.
+E36312A USB, E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL /
+RS-232 are opened only by their own recorded full-suite artifacts. E3646A live
+validation is currently restricted to ASRL / RS-232; E3646A USB and LAN remain
+outside the current scope.
 
 | Model | USB | LAN | ASRL / RS-232 |
 | --- | --- | --- | --- |
-| E36312A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
-| EDU36311A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
+| E36312A | validated/open | validated/open | N/A |
+| EDU36311A | validated/open | validated/open | N/A |
 | E3646A | not current scope | not current scope | validated/open |
 
 EDU36311A trigger/native LIST and snapshot/restore remain disabled in live,
@@ -124,11 +126,9 @@ command-level facts:
   dry-run/simulator only until hardware validation.
 - Ramp always uses software setpoint steps. Native LIST execution is confined
   to `trigger-list`.
-- EDU36311A USB-local read-only/output/protection commands plus software
-  `ramp-list` and sequence read-only/output workflows are enabled after the
-  2026-07-09 expanded full-suite USB pass. LAN uses the same explicit-resource
-  suite wrapper and must be validated with the target instrument before
-  acceptance.
+- EDU36311A USB and LAN read-only/output/protection commands plus software
+  `ramp-list` and sequence read-only/output workflows are enabled after their
+  2026-07-09 expanded full-suite passes.
 - E36312A and EDU36311A OVP/OCP trip status is queried per channel. Aggregate
   `protection-status` flags are the OR of the selected channel results.
 - EDU36311A trigger commands remain disabled. `capabilities --json` reports

@@ -281,19 +281,23 @@ Current validated/open records are scoped by model, connection, suite, and
 cases:
 
 - E36312A USB: validated/open
+- E36312A LAN: validated/open
 - EDU36311A USB: validated/open
+- EDU36311A LAN: validated/open
 - E3646A ASRL / RS-232: validated/open
 
-E36312A LAN and EDU36311A LAN are not opened by current USB artifacts. They
-may be validated later with an exact known LAN VISA resource and a passed
-`scripts\live-cli-check.ps1 -Suite full` artifact. E3646A live validation is
-currently restricted to ASRL / RS-232.
+E36312A USB, E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL /
+RS-232 are opened only by their own recorded full-suite artifacts. E3646A live
+validation is currently restricted to ASRL / RS-232; E3646A USB and LAN remain
+outside the current scope.
 
 Examples:
 
 ```powershell
 .\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target E36312A -Connection LAN -Resource $env:E36312A_LAN_RESOURCE -Suite full
 .\scripts\live-cli-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target EDU36311A -Connection LAN -Resource $env:EDU36311A_LAN_RESOURCE -Suite full
 .\scripts\live-cli-check.ps1 -Target E3646A -Connection ASRL -Resource $env:E3646A_ASRL_RESOURCE -Suite full
 .\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite output -PlanOnly
 ```

@@ -145,10 +145,9 @@ EDU36311A, do not expose trigger dry-run or simulator behavior.
 Hardware-affecting behavior remains explicit and opt-in.
 
 The current expanded full-suite records have passed for E36312A USB,
-EDU36311A USB, and E3646A ASRL / RS-232. These records remain scoped to the
-recorded model, connection, suite, and cases. E36312A and EDU36311A LAN are not
-opened by those USB artifacts and require their own exact LAN full-suite
-validation artifacts before being opened.
+E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL / RS-232. These
+records remain scoped to the recorded model, connection, suite, and cases.
+E3646A USB and LAN remain outside the current scope.
 
 E3646A RS-232 support covers validated read-only/output workflows plus
 software `ramp-list` and step-limited software `sequence`. These workflows are

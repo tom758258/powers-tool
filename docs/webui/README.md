@@ -297,18 +297,20 @@ different connection type. Current recorded opening status is connection-
 scoped:
 
 - E36312A USB: validated/open
+- E36312A LAN: validated/open
 - EDU36311A USB: validated/open
+- EDU36311A LAN: validated/open
 - E3646A ASRL / RS-232: validated/open
 
-E36312A LAN and EDU36311A LAN are not opened by current USB artifacts. They
-may be validated later with an exact known LAN VISA resource and a passed full-
-suite `scripts\live-cli-check.ps1` artifact. E3646A live validation is currently
-restricted to ASRL / RS-232.
+E36312A USB, E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL /
+RS-232 are opened only by their own recorded full-suite artifacts. E3646A live
+validation is currently restricted to ASRL / RS-232; E3646A USB and LAN remain
+outside the current scope.
 
 | Model | USB | LAN | ASRL / RS-232 |
 | --- | --- | --- | --- |
-| E36312A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
-| EDU36311A | validated/open | not opened by current artifacts; may be validated later with exact LAN VISA resource | N/A |
+| E36312A | validated/open | validated/open | N/A |
+| EDU36311A | validated/open | validated/open | N/A |
 | E3646A | not current scope | not current scope | validated/open |
 
 E36312A `full` now includes `software-sequence` in addition to read-only,
