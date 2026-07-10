@@ -155,7 +155,7 @@ E36312A_SETPOINT_RANGES = _model_ranges(
         ),
         (
             3,
-            "P25V",
+            "N25V",
             _single_range(voltage_max=25.75, current_max=1.03, current_default=1.0, current_min_keyword_value=0.001),
         ),
     ),

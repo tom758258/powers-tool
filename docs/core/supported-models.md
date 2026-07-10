@@ -104,7 +104,7 @@ setpoints before SCPI.
 | --- | --- | --- | --- | --- | --- |
 | E36312A | CH1 / P6V | fixed | 0 to 6.18 V | 0 to 5.15 A | 0.001 A |
 | E36312A | CH2 / P25V | fixed | 0 to 25.75 V | 0 to 1.03 A | 0.001 A |
-| E36312A | CH3 / P25V | fixed | 0 to 25.75 V | 0 to 1.03 A | 0.001 A |
+| E36312A | CH3 / N25V | fixed | 0 to 25.75 V | 0 to 1.03 A | 0.001 A |
 | EDU36311A | CH1 / P6V | fixed | 0 to 6.18 V | 0 to 5.15 A | 0.002 A |
 | EDU36311A | CH2 / P30V | fixed | 0 to 30.9 V | 0 to 1.03 A | 0.001 A |
 | EDU36311A | CH3 / N30V | fixed | 0 to 30.9 V | 0 to 1.03 A | 0.001 A |

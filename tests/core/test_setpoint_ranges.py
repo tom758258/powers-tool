@@ -13,6 +13,14 @@ def only_range(model: str, channel: int) -> dict[str, object]:
     return channel_ranges.ranges[0].to_dict()
 
 
+def output_identifier(model: str, channel: int) -> str:
+    ranges = setpoint_ranges_for_model(model)
+    assert ranges is not None
+    channel_ranges = ranges.channel(channel)
+    assert channel_ranges is not None
+    return channel_ranges.output_identifier
+
+
 def test_e36312a_programming_ranges() -> None:
     assert only_range("E36312A", 1) == {
         "name": "fixed",
@@ -28,8 +36,10 @@ def test_e36312a_programming_ranges() -> None:
         "current_reset": 5.0,
         "current_min_keyword_value": 0.001,
     }
+    assert output_identifier("E36312A", 2) == "P25V"
     assert only_range("E36312A", 2)["voltage_max"] == 25.75
     assert only_range("E36312A", 2)["current_max"] == 1.03
+    assert output_identifier("E36312A", 3) == "N25V"
     assert only_range("E36312A", 3)["voltage_max"] == 25.75
     assert only_range("E36312A", 3)["current_min_keyword_value"] == 0.001
 
