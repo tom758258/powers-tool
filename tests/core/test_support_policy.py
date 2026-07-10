@@ -181,6 +181,27 @@ def test_backend_normalization(value: str | None, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("system_visa", BACKEND_SYSTEM_VISA),
+        ("pyvisa_py", BACKEND_PYVISA_PY),
+        ("custom_visa", BACKEND_CUSTOM_VISA),
+    ],
+)
+def test_canonical_backend_labels_remain_canonical(value: str, expected: str) -> None:
+    assert normalize_backend(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, "@py", "@ivi", "system_visa", "pyvisa_py", "custom_visa"],
+)
+def test_backend_normalization_is_idempotent(value: str | None) -> None:
+    normalized = normalize_backend(value)
+    assert normalize_backend(normalized) == normalized
+
+
+@pytest.mark.parametrize(
     ("model", "transport", "commands"),
     [
         ("E36312A", TRANSPORT_USB, E36312A_VALIDATED_COMMANDS),
@@ -373,6 +394,37 @@ def test_unknown_scope_status_fails_closed() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "status",
+    [
+        "future_status",
+        VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
+        VALIDATION_STATUS_TRANSPORT_PENDING,
+        VALIDATION_STATUS_FEATURE_PENDING,
+    ],
+)
+@pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
+def test_evaluator_rejects_invalid_top_level_status_with_valid_scope(
+    status: str, mode: str
+) -> None:
+    base = command_live_support("E36312A", "measure")
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "measure",
+        replace(base, validation_status=status),
+    )
+    with pytest.raises(LiveSupportPolicyError, match="command-policy validation status"):
+        ensure_live_scope_supported(
+            model="E36312A",
+            command="measure",
+            transport=base.scopes[0].transport_scope,
+            backend=base.scopes[0].backend_scope,
+            support_policy_mode=mode,
+            registry=registry,
+        )
+
+
 def test_profile_validated_without_an_exact_scope_does_not_open_live() -> None:
     policy = command_live_support("E36312A", "output-on")
     assert policy.validation_status == VALIDATION_STATUS_PROFILE_VALIDATED
@@ -485,7 +537,28 @@ def test_validator_rejects_duplicate_exact_scope() -> None:
     [
         (
             replace(command_live_support("E36312A", "measure"), validation_status="future"),
-            "unknown top-level validation status",
+            "invalid command-policy validation status",
+        ),
+        (
+            replace(
+                command_live_support("E36312A", "measure"),
+                validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
+            ),
+            "invalid command-policy validation status",
+        ),
+        (
+            replace(
+                command_live_support("E36312A", "measure"),
+                validation_status=VALIDATION_STATUS_TRANSPORT_PENDING,
+            ),
+            "invalid command-policy validation status",
+        ),
+        (
+            replace(
+                command_live_support("E36312A", "measure"),
+                validation_status=VALIDATION_STATUS_FEATURE_PENDING,
+            ),
+            "invalid command-policy validation status",
         ),
         (
             replace(
@@ -546,6 +619,38 @@ def test_validator_rejects_de_scoped_model() -> None:
         ModelSupportPolicy("E36103B", command_live_support_matrix("E36312A").values()),
     )
     with pytest.raises(ValueError, match="de-scoped model"):
+        validate_live_support_metadata(registry)
+
+
+@pytest.mark.parametrize("model", ["e36312a", " E36312A", "E36312A "])
+def test_validator_rejects_noncanonical_model_metadata(model: str) -> None:
+    registry = (replace(LIVE_SUPPORT_POLICY_REGISTRY[0], model=model),) + LIVE_SUPPORT_POLICY_REGISTRY[1:]
+    with pytest.raises(ValueError, match="noncanonical model policy"):
+        validate_live_support_metadata(registry)
+
+
+@pytest.mark.parametrize("command", ["Measure", " measure", "measure "])
+def test_validator_rejects_noncanonical_command_metadata(command: str) -> None:
+    base = command_live_support("E36312A", "measure")
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "measure",
+        replace(base, command=command),
+    )
+    with pytest.raises(ValueError, match="noncanonical command policy"):
+        validate_live_support_metadata(registry)
+
+
+def test_validator_rejects_unknown_exact_transport() -> None:
+    base = command_live_support("E36312A", "measure")
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "measure",
+        replace(base, scopes=(replace(base.scopes[0], transport_scope=TRANSPORT_UNKNOWN),)),
+    )
+    with pytest.raises(ValueError, match="exact live scope cannot use unknown transport"):
         validate_live_support_metadata(registry)
 
 

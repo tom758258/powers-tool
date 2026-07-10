@@ -41,10 +41,14 @@ PURE_OFFLINE_COMMANDS = frozenset(
 _POLICY_MODES = frozenset(
     {SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION}
 )
-_VALIDATION_STATUSES = frozenset(
+_COMMAND_POLICY_STATUSES = frozenset(
     {
         VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL,
         VALIDATION_STATUS_PROFILE_VALIDATED,
+    }
+)
+_SCOPE_STATUSES = frozenset(
+    {
         VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
         VALIDATION_STATUS_TRANSPORT_PENDING,
         VALIDATION_STATUS_FEATURE_PENDING,
@@ -55,13 +59,6 @@ _TRANSPORTS = frozenset(
 )
 _BACKENDS = frozenset(
     {BACKEND_SYSTEM_VISA, BACKEND_PYVISA_PY, BACKEND_CUSTOM_VISA}
-)
-_SCOPE_STATUSES = frozenset(
-    {
-        VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
-        VALIDATION_STATUS_TRANSPORT_PENDING,
-        VALIDATION_STATUS_FEATURE_PENDING,
-    }
 )
 _ALLOW_PRODUCT = frozenset({VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE})
 _ALLOW_VALIDATION = _ALLOW_PRODUCT | {
@@ -118,8 +115,12 @@ def normalize_backend(backend: str | None) -> str:
     normalized = (backend or "").strip().lower()
     if not normalized:
         return BACKEND_SYSTEM_VISA
-    if normalized == "@py":
+    if normalized in {"@py", BACKEND_PYVISA_PY}:
         return BACKEND_PYVISA_PY
+    if normalized == BACKEND_SYSTEM_VISA:
+        return BACKEND_SYSTEM_VISA
+    if normalized == BACKEND_CUSTOM_VISA:
+        return BACKEND_CUSTOM_VISA
     return BACKEND_CUSTOM_VISA
 
 
@@ -182,7 +183,7 @@ def find_live_support_scope(
     except LiveSupportPolicyError:
         return None
     normalized_transport = normalize_transport(transport)
-    normalized_backend = _normalize_backend_scope(backend)
+    normalized_backend = normalize_backend(backend)
     for scope in policy.scopes:
         if (
             scope.transport_scope == normalized_transport
@@ -205,7 +206,7 @@ def ensure_live_scope_supported(
 
     normalized_command = _canonical_command(command)
     normalized_transport = normalize_transport(transport)
-    normalized_backend = _normalize_backend_scope(backend)
+    normalized_backend = normalize_backend(backend)
     normalized_mode = (support_policy_mode or "").strip().lower()
     context = {
         "model": (model or "").strip().upper() or "UNKNOWN",
@@ -232,6 +233,14 @@ def ensure_live_scope_supported(
                 reason=str(exc),
             )
         ) from exc
+    if policy.validation_status not in _COMMAND_POLICY_STATUSES:
+        raise LiveSupportPolicyError(
+            _rejection_message(
+                **context,
+                status=policy.validation_status,
+                reason="the command-policy validation status is not valid for a command policy",
+            )
+        )
     if policy.validation_status == VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL:
         raise LiveSupportPolicyError(
             _rejection_message(
@@ -259,7 +268,7 @@ def ensure_live_scope_supported(
     if scope.validation_status not in allowed:
         reason = (
             "the exact scope is not allowed in this policy mode"
-            if scope.validation_status in _VALIDATION_STATUSES
+            if scope.validation_status in _SCOPE_STATUSES
             else "the exact scope has an unknown validation status"
         )
         raise LiveSupportPolicyError(
@@ -288,6 +297,8 @@ def validate_live_support_metadata(
     seen_models: set[str] = set()
     for model_policy in selected_registry:
         model = model_policy.model.strip().upper()
+        if model_policy.model != model:
+            raise ValueError(f"noncanonical model policy: {model_policy.model!r}")
         if model in seen_models:
             raise ValueError(f"duplicate model policy: {model}")
         seen_models.add(model)
@@ -298,6 +309,8 @@ def validate_live_support_metadata(
         seen_commands: set[str] = set()
         for policy in model_policy.commands:
             command = _canonical_command(policy.command)
+            if policy.command != command:
+                raise ValueError(f"noncanonical command policy: {model}/{policy.command!r}")
             if command in seen_commands:
                 raise ValueError(f"duplicate command policy: {model}/{command}")
             seen_commands.add(command)
@@ -305,8 +318,10 @@ def validate_live_support_metadata(
                 raise ValueError(f"exempt diagnostic entered live registry: {command}")
             if command not in expected_commands:
                 raise ValueError(f"metadata command is outside current inventory: {command}")
-            if policy.validation_status not in _VALIDATION_STATUSES:
-                raise ValueError(f"unknown top-level validation status: {policy.validation_status}")
+            if policy.validation_status not in _COMMAND_POLICY_STATUSES:
+                raise ValueError(
+                    f"invalid command-policy validation status: {policy.validation_status}"
+                )
             if (
                 policy.validation_status == VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL
                 and policy.scopes
@@ -328,6 +343,10 @@ def validate_live_support_metadata(
                     raise ValueError(f"unknown scope validation status: {scope.validation_status}")
                 if scope.transport_scope not in _TRANSPORTS:
                     raise ValueError(f"invalid transport value: {scope.transport_scope}")
+                if scope.transport_scope == TRANSPORT_UNKNOWN:
+                    raise ValueError(
+                        f"exact live scope cannot use unknown transport: {model}/{command}/{scope_key}"
+                    )
                 if scope.backend_scope not in _BACKENDS:
                     raise ValueError(f"invalid backend value: {scope.backend_scope}")
                 if scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE:
@@ -496,11 +515,6 @@ def _model_policy(
 
 def _canonical_command(command: str) -> str:
     return (command or "").strip().lower()
-
-
-def _normalize_backend_scope(backend: str | None) -> str:
-    backend_label = (backend or "").strip().lower()
-    return backend_label if backend_label in _BACKENDS else normalize_backend(backend)
 
 
 def _rejection_message(
