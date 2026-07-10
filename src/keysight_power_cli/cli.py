@@ -25,6 +25,7 @@ import keysight_power_core.instrument_io as instrument_io_core
 import keysight_power_core.operations as operations
 import keysight_power_core.protection as protection_core
 import keysight_power_core.ramp_list as ramp_list_core
+import keysight_power_core.readonly as readonly_core
 import keysight_power_core.restore as restore_core
 import keysight_power_core.sequence as sequence
 import keysight_power_core.snapshot as snapshot_core
@@ -60,6 +61,7 @@ from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply, select_driver
 from keysight_power_core.live_support import enforce_product_live_support_for_idn
+from keysight_power_core.support_policy import LiveSupportPolicyError
 from keysight_power_core.model_resolution import validate_live_expected_model
 from keysight_power_core.models import parse_idn, resource_interface
 from keysight_power_core.safety import (
@@ -1249,6 +1251,16 @@ def _run_measure(args: argparse.Namespace) -> int:
         else:
             print(str(exc), file=sys.stderr)
         return 2
+    except CoreValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_live_scope",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
     except CoreIoError as exc:
         return _emit_safe_io_error(
             args,
@@ -1275,8 +1287,6 @@ def _run_measure(args: argparse.Namespace) -> int:
 def _run_measure_all(args: argparse.Namespace) -> int:
     request = _request_for_args(args)
     execution = _execution_for_args(args, hardware_intent=True)
-    manager = _resource_manager_for_args(args)
-
     try:
         _resolve_optional_resource_alias(args)
         request = _request_for_args(args)
@@ -1290,71 +1300,32 @@ def _run_measure_all(args: argparse.Namespace) -> int:
             retryable=False,
         )
 
-    opened = False
     try:
-        with _open_resource(
-            args.resource,
-            manager,
-            backend=args.backend,
-            timeout_ms=args.timeout_ms,
-        ) as instrument:
-            opened = True
-            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
-            idn = session.query(IDN_QUERY)
-            power_supply = create_power_supply(session, idn)
-            if not isinstance(power_supply, E36312APowerSupply):
-                raise _MeasureAllModelError(
-                    "measure-all is only supported for E36312A; "
-                    f"found {type(power_supply).__name__} from *IDN? response"
-                )
-            channels = []
-            for channel in (1, 2, 3):
-                channels.append(
-                    {
-                        "channel": channel,
-                        "measurements": {
-                            "voltage": power_supply.measure_voltage(channel=channel),
-                            "current": power_supply.measure_current(channel=channel),
-                        },
-                    }
-                )
-    except _MeasureAllModelError as exc:
+        data = readonly_core.run_readonly(
+            _target_core_request_for_args(args),
+            opener=_core_opener_for_args(args),
+            scpi_logger=_log_scpi,
+        )
+    except CoreValidationError as exc:
         return _emit_cli_error(
             args,
             request=request,
             error_type="validation",
-            code="unsupported_model_for_measure_all",
+            code="unsupported_live_scope",
             message=str(exc),
             retryable=False,
             hardware_intent=True,
         )
-    except VisaConnectionError as exc:
-        code = "measure_all_failed" if opened else "connection_failed"
-        message = (
-            f"measure-all failed: {exc}"
-            if opened
-            else f"Could not open resource for measure-all: {exc}"
-        )
+    except CoreIoError as exc:
         return _emit_safe_io_error(
             args,
             request=request,
             execution=execution,
-            code=code,
-            message=message,
-        )
-    except ValueError as exc:
-        return _emit_safe_io_error(
-            args,
-            request=request,
-            execution=execution,
-            code="measure_all_failed",
-            message=f"measure-all failed: {exc}",
+            code="measure_all_failed" if exc.opened else "connection_failed",
+            message=str(exc),
         )
 
-    data = {
-        "resource": args.resource,
-        "channels": channels,
-    }
+    data.pop("idn_raw", None)
     if args.json:
         emit_json_success(
             command=args.command,
@@ -1364,7 +1335,7 @@ def _run_measure_all(args: argparse.Namespace) -> int:
         )
         return 0
 
-    for channel in channels:
+    for channel in data["channels"]:
         measurements = channel["measurements"]
         print(
             f"Channel {channel['channel']}: "
@@ -1435,7 +1406,11 @@ def _run_core_trigger(args: argparse.Namespace) -> int:
             print(str(exc), file=sys.stderr)
         return 130
     except CoreValidationError as exc:
-        code = "trigger_native_unsupported" if "disabled" in str(exc) or "native" in str(exc) else "argument_error"
+        code = (
+            "trigger_native_unsupported"
+            if "disabled" in str(exc) or "native" in str(exc)
+            else _core_validation_code(exc)
+        )
         return _emit_cli_error(args, request=request, error_type="validation", code=code, message=str(exc), retryable=False, hardware_intent=True)
     except CoreIoError as exc:
         failure_codes = {
@@ -2867,6 +2842,7 @@ def _run_status(args: argparse.Namespace) -> int:
     exit_code, data = result
     if exit_code != 0:
         return exit_code
+    data.pop("idn_raw", None)
     if args.json:
         emit_json_success(
             command=args.command,
@@ -2899,6 +2875,7 @@ def _run_readback(args: argparse.Namespace) -> int:
     exit_code, data = result
     if exit_code != 0:
         return exit_code
+    data.pop("idn_raw", None)
     if args.json:
         emit_json_success(
             command=args.command,
@@ -2941,9 +2918,7 @@ def _run_validate_readonly(args: argparse.Namespace) -> int:
             opened = True
             session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
             idn_raw = session.query(IDN_QUERY)
-            if not args.simulate:
-                validate_live_expected_model(request.runtime.model_profile, parse_idn(idn_raw).model, command="capabilities")
-                enforce_product_live_support_for_idn(request, idn_raw)
+            _enforce_live_cli_scope(args, idn_raw, command="validate-readonly")
             selection = select_driver(idn_raw)
             power_supply = selection.driver_class(session)
             if not isinstance(power_supply, (E36312APowerSupply, EDU36311APowerSupply)):
@@ -2995,6 +2970,16 @@ def _run_validate_readonly(args: argparse.Namespace) -> int:
             request=request,
             error_type="validation",
             code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except CoreValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_live_scope",
             message=str(exc),
             retryable=False,
             hardware_intent=True,
@@ -3107,90 +3092,33 @@ def _run_read_only_command(
             ),
             {},
         )
-    opened = False
     try:
-        with _open_resource(
-            args.resource,
-            manager,
-            backend=args.backend,
-            timeout_ms=args.timeout_ms,
-            serial_options=_serial_options_for_args(args),
-            serial_remote=getattr(args, "serial_remote", False),
-            serial_local_on_close=getattr(args, "serial_local_on_close", False),
-            scpi_logger=_connection_scpi_logger_for_args(args),
-        ) as instrument:
-            opened = True
-            session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
-            idn = session.query(IDN_QUERY)
-            power_supply = create_power_supply(session, idn)
-            if not isinstance(power_supply, (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)):
-                raise _ReadOnlyModelError(
-                    f"{command_label} is only supported for E36312A, E3646A, or EDU36311A; "
-                    f"found {type(power_supply).__name__} from *IDN? response"
-                )
-            channels = _read_only_channels_from_selection(
-                selected_channel,
-                power_supply.capabilities.channels,
-            )
-            return 0, operation(args, power_supply, idn, channels)
-    except _ReadOnlyModelError as exc:
+        return 0, readonly_core.run_readonly(
+            _target_core_request_for_args(args),
+            opener=_core_opener_for_args(args),
+            scpi_logger=_log_scpi,
+        )
+    except (CoreValidationError, UnsupportedModelError) as exc:
         return (
             _emit_cli_error(
                 args,
                 request=request,
                 error_type="validation",
-                code=unsupported_code,
+                code="unsupported_live_scope",
                 message=str(exc),
                 retryable=False,
                 hardware_intent=True,
             ),
             {},
         )
-    except _ReadOnlyChannelError as exc:
-        return (
-            _emit_cli_error(
-                args,
-                request=request,
-                error_type="validation",
-                code="argument_error",
-                message=str(exc),
-                retryable=False,
-                hardware_intent=True,
-            ),
-            {},
-        )
-    except UnsupportedModelError as exc:
-        return (
-            _emit_cli_error(
-                args,
-                request=request,
-                error_type="validation",
-                code=unsupported_code,
-                message=str(exc),
-                retryable=False,
-                hardware_intent=True,
-            ),
-            {},
-        )
-    except VisaConnectionError as exc:
-        code = failure_code if opened else "connection_failed"
-        message = (
-            f"{command_label} failed: {exc}"
-            if opened
-            else f"Could not open resource for {command_label}: {exc}"
-        )
-        return (
-            _emit_safe_io_error(args, request=request, execution=execution, code=code, message=message),
-            {},
-        )
-    except ValueError as exc:
+    except CoreIoError as exc:
         return (
             _emit_safe_io_error(
                 args,
                 request=request,
                 execution=execution,
-                code=failure_code,
-                message=f"{command_label} failed: {exc}",
+                code=failure_code if exc.opened else "connection_failed",
+                message=str(exc),
             ),
             {},
         )
@@ -3241,7 +3169,7 @@ def _run_clear_protection(args: argparse.Namespace) -> int:
             args,
             request=request,
             error_type="validation",
-            code="argument_error",
+            code=_core_validation_code(exc),
             message="clear-protection requires --channel N or --all",
             retryable=False,
         )
@@ -3269,7 +3197,7 @@ def _run_clear_protection(args: argparse.Namespace) -> int:
     except UnsupportedModelError as exc:
         return _emit_cli_error(args, request=request, error_type="validation", code="unsupported_model_for_clear_protection", message=str(exc), retryable=False, hardware_intent=True)
     except CoreValidationError as exc:
-        return _emit_cli_error(args, request=request, error_type="validation", code="argument_error", message=str(exc), retryable=False, hardware_intent=True)
+        return _emit_cli_error(args, request=request, error_type="validation", code=_core_validation_code(exc), message=str(exc), retryable=False, hardware_intent=True)
     except CoreIoError as exc:
         code = "clear_protection_failed" if exc.opened else "connection_failed"
         return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=str(exc))
@@ -3659,6 +3587,16 @@ def _run_log(args: argparse.Namespace) -> int:
             request=request,
             error_type="validation",
             code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except CoreValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_live_scope",
             message=str(exc),
             retryable=False,
             hardware_intent=True,
@@ -4091,11 +4029,22 @@ def _run_doctor(args: argparse.Namespace) -> int:
             with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
                 session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
                 idn = session.query(IDN_QUERY)
+                _enforce_live_cli_scope(args, idn, command="doctor")
             data["resource"] = _resource_payload(
                 args.resource,
                 simulated=args.simulate,
                 reachable=True,
                 idn_raw=idn,
+            )
+        except CoreValidationError as exc:
+            return _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code="unsupported_live_scope",
+                message=str(exc),
+                retryable=False,
+                hardware_intent=True,
             )
         except VisaConnectionError as exc:
             return _emit_safe_io_error(
@@ -4136,9 +4085,30 @@ def _run_capabilities(args: argparse.Namespace) -> int:
         with _open_resource(args.resource, manager, backend=args.backend, timeout_ms=args.timeout_ms) as instrument:
             session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
             idn_raw = session.query(IDN_QUERY)
+            _enforce_live_cli_scope(args, idn_raw, command="capabilities")
         selection = select_driver(idn_raw)
     except SafetyConfigError as exc:
         return _emit_cli_error(args, request=request, error_type="validation", code="argument_error", message=str(exc), retryable=False)
+    except CoreValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_live_scope",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except CoreValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_live_scope",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
     except VisaConnectionError as exc:
         return _emit_safe_io_error(
             args,
@@ -4739,7 +4709,11 @@ def _run_core_output_real(args: argparse.Namespace) -> int:
                 hardware_intent=True,
             )
         error_type = "safety" if args.command == "output-on" and "exceeds maximum" in str(exc) else "validation"
-        code = "unsafe_output_setpoint" if error_type == "safety" else "argument_error"
+        code = (
+            "unsafe_output_setpoint"
+            if error_type == "safety"
+            else _core_validation_code(exc)
+        )
         return _emit_cli_error(
             args,
             request=request,
@@ -4913,6 +4887,7 @@ def _collect_log_samples(
     ) as instrument:
         session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
         idn_raw = session.query(IDN_QUERY)
+        _enforce_live_cli_scope(args, idn_raw, command="log")
         idn = parse_idn(idn_raw)
         power_supply = create_power_supply(session, idn_raw)
         channels = _log_channels_for_power_supply(args, power_supply)
@@ -6381,6 +6356,16 @@ def _run_set_real(args: argparse.Namespace) -> int:
             request=request,
             error_type="validation",
             code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except CoreValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="unsupported_live_scope",
             message=str(exc),
             retryable=False,
             hardware_intent=True,
@@ -9241,6 +9226,24 @@ def _target_core_request_for_args(args: argparse.Namespace) -> OperationRequest:
         ),
         parameters=parameters,
     )
+
+
+def _enforce_live_cli_scope(args: argparse.Namespace, idn_raw: str, *, command: str | None = None) -> None:
+    """Apply the Core-owned gate in a legacy CLI runner that still owns I/O."""
+    request = _target_core_request_for_args(args)
+    if request.runtime.simulate:
+        return
+    effective_command = command or request.command
+    validate_live_expected_model(
+        request.runtime.model_profile,
+        parse_idn(idn_raw).model,
+        command=effective_command,
+    )
+    enforce_product_live_support_for_idn(request, idn_raw, command=effective_command)
+
+
+def _core_validation_code(exc: CoreValidationError, fallback: str = "argument_error") -> str:
+    return "unsupported_live_scope" if isinstance(exc, LiveSupportPolicyError) else fallback
 
 
 def _serial_options_for_args(args: argparse.Namespace) -> SerialOptions | None:

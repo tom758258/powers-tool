@@ -37,7 +37,7 @@ def test_root_version_prints_package_version(capsys) -> None:
 class FakeSession:
     def __init__(
         self,
-        idn: str = "KEYSIGHT,UNKNOWN,SERIAL0000,1.0",
+        idn: str = "KEYSIGHT,E36312A,SERIAL0000,1.0",
         *,
         query_responses: dict[str, list[str] | str] | None = None,
     ) -> None:
@@ -1057,7 +1057,7 @@ def test_measure_real_json_queries_voltage_then_current(monkeypatch, capsys) -> 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert session.writes == []
-    assert session.queries == ["MEAS:VOLT?", "MEAS:CURR?"]
+    assert session.queries == ["*IDN?", "MEAS:VOLT?", "MEAS:CURR?"]
     assert session.closed is True
     assert payload["execution"]["hardware_touched"] is True
     assert payload["data"]["measurements"] == {"voltage": 1.234, "current": 0.056}
@@ -1167,8 +1167,8 @@ def test_measure_real_generic_channel_two_is_rejected_after_idn(
     assert session.queries == ["*IDN?"]
     assert payload["execution"]["hardware_touched"] is True
     assert payload["error"]["type"] == "validation"
-    assert payload["error"]["code"] == "argument_error"
-    assert "channel 1 only" in payload["error"]["message"]
+    assert payload["error"]["code"] == "unsupported_live_scope"
+    assert "model=UNKNOWN" in payload["error"]["message"]
     assert captured.err == ""
 
 
@@ -1187,7 +1187,7 @@ def test_model_aware_live_command_blocks_descoped_idn_before_generic_fallback(
     payload = json.loads(captured.out)
     assert session.queries == ["*IDN?"]
     assert session.writes == []
-    assert payload["error"]["code"] == "unsupported_model_for_status"
+    assert payload["error"]["code"] == "unsupported_live_scope"
     assert model in payload["error"]["message"]
     assert "de-scoped and not active supported" in payload["error"]["message"]
     assert "blocked from generic fallback" in payload["error"]["message"]
@@ -4064,7 +4064,7 @@ def test_apply_real_edu36311a_all_no_output_writes_all_channels(monkeypatch, cap
     assert payload["data"]["output"]["enabled"] is False
 
 
-def test_measure_all_real_e36312a_sends_expected_scpi(monkeypatch, capsys) -> None:
+def test_measure_all_real_e36312a_rejects_without_exact_scope(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
         query_responses={
@@ -4078,33 +4078,19 @@ def test_measure_all_real_e36312a_sends_expected_scpi(monkeypatch, capsys) -> No
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
-    assert cli.main(["measure-all", "--json", "--resource", OUTPUT_RESOURCE]) == 0
+    assert cli.main(["measure-all", "--json", "--resource", OUTPUT_RESOURCE]) == 2
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert session.queries == [
-        "*IDN?",
-        "MEAS:VOLT? (@1)",
-        "MEAS:CURR? (@1)",
-        "MEAS:VOLT? (@2)",
-        "MEAS:CURR? (@2)",
-        "MEAS:VOLT? (@3)",
-        "MEAS:CURR? (@3)",
-    ]
+    assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed is True
-    assert payload["data"] == {
-        "resource": OUTPUT_RESOURCE,
-        "channels": [
-            {"channel": 1, "measurements": {"voltage": 1.1, "current": 0.11}},
-            {"channel": 2, "measurements": {"voltage": 2.2, "current": 0.22}},
-            {"channel": 3, "measurements": {"voltage": 3.3, "current": 0.33}},
-        ],
-    }
+    assert payload["error"]["code"] == "unsupported_live_scope"
+    assert payload["data"] is None
     assert captured.err == ""
 
 
-def test_measure_all_text_output(monkeypatch, capsys) -> None:
+def test_measure_all_text_output_rejects_without_exact_scope(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
         query_responses={
@@ -4118,14 +4104,10 @@ def test_measure_all_text_output(monkeypatch, capsys) -> None:
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
-    assert cli.main(["measure-all", "--resource", OUTPUT_RESOURCE]) == 0
+    assert cli.main(["measure-all", "--resource", OUTPUT_RESOURCE]) == 2
 
     captured = capsys.readouterr()
-    assert captured.out == (
-        "Channel 1: 1.1 V, 0.11 A\n"
-        "Channel 2: 2.2 V, 0.22 A\n"
-        "Channel 3: 3.3 V, 0.33 A\n"
-    )
+    assert "no exact transport/backend scope" in captured.err
 
 
 def test_status_real_reads_errors_then_outputs(monkeypatch, capsys) -> None:
@@ -4368,7 +4350,7 @@ def test_validate_readonly_rejects_generic_model(monkeypatch, capsys) -> None:
     assert cli.main(["validate-readonly", "--json", "--resource", OUTPUT_RESOURCE]) == 2
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["error"]["code"] == "unsupported_model_for_validate_readonly"
+    assert payload["error"]["code"] == "unsupported_live_scope"
 
 
 def test_validate_readonly_invalid_max_errors_is_argument_error(capsys) -> None:

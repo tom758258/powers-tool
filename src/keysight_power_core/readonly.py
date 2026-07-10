@@ -40,7 +40,7 @@ def run_readonly(
         raise CoreValidationError(f"unsupported read-only command {request.command!r}")
 
     p = request.parameters
-    if command == "measure-all" and "channel" in p:
+    if command == "measure-all" and p.get("channel") is not None:
         raise CoreValidationError("measure-all always reads all channels and does not accept channel")
 
     if request.runtime.dry_run:
