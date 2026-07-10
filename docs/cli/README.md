@@ -158,18 +158,17 @@ selected model, connection, suite, and cases; it does not prove every feature,
 every connection type, or every model, and it does not mean USB validation
 covers LAN validation.
 
-Current opened records from passing validation artifacts:
+Current accepted evidence connections from passing validation artifacts:
 
-- E36312A USB: validated/open
-- E36312A LAN: validated/open
-- EDU36311A USB: validated/open
-- EDU36311A LAN: validated/open
-- E3646A ASRL / RS-232: validated/open
+- E36312A USB + system VISA
+- E36312A LAN + system VISA
+- EDU36311A USB + system VISA
+- EDU36311A LAN + system VISA
+- E3646A ASRL / RS-232 + system VISA
 
-E36312A USB, E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL /
-RS-232 are opened only by their own recorded full-suite artifacts. E3646A live
-validation is currently restricted to ASRL / RS-232; E3646A USB and LAN remain
-outside the current scope.
+Only exact commands in the Core product matrix are opened for normal LIVE use
+on those connections. E3646A live validation remains restricted to ASRL /
+RS-232; E3646A USB and LAN remain outside the current scope.
 
 ```powershell
 .\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
@@ -188,10 +187,9 @@ Supported suites are model-aware:
 | EDU36311A | `readonly`, `output`, `protection`, `software-sequence` |
 | E3646A | `readonly`, `output`, `software-sequence` |
 
-For each active model, `-Suite full` is the complete validation gate for all
-currently project-supported LIVE features of that model. With a passing
-expanded full-suite record for the approved model and connection, the model's
-currently project-supported LIVE features may be opened. Disabled,
+For each active model, `-Suite full` is an evidence grouping. With a passing
+expanded full-suite record for the approved model and connection, only the
+commands recorded in the Core exact matrix may be opened. Disabled,
 unimplemented, out-of-scope, or factory-only features are not implied by the
 pass.
 
@@ -205,9 +203,9 @@ execution instead of silently skipping everything.
 
 | Model | USB | LAN | ASRL / RS-232 |
 | --- | --- | --- | --- |
-| E36312A | validated/open | validated/open | N/A |
-| EDU36311A | validated/open | validated/open | N/A |
-| E3646A | not current scope | not current scope | validated/open |
+| E36312A | accepted exact commands | accepted exact commands | N/A |
+| EDU36311A | accepted exact commands | accepted exact commands | N/A |
+| E3646A | not current scope | not current scope | accepted exact commands |
 
 E3646A suite validation is ASRL/RS-232 focused. It uses CH1/CH2, records that
 `OUTP ON/OFF` is global, and treats `ramp-list` and `sequence` as software
@@ -407,20 +405,15 @@ range-dependent voltage/current-limit ranges. This metadata does not add a new
 CLI range selector, does not silently round or truncate setpoints, and does
 not implement hard decimal-place rejection.
 
-Real CLI `output-on` is supported for E36312A and EDU36311A channels 1, 2, 3,
-and `all`, and for live-validated E3646A RS-232 / ASRL channels 1, 2, and
-`all`. After `*IDN?`, it reads back programmed voltage/current setpoints
-before enabling output. With `--safety-config`, unsafe readback setpoints are
-rejected before any output is enabled. Real CLI `output-off`, `output-state`,
-`safe-off`, `cycle-output`, `apply`, `smoke-output`, and setpoint-only `ramp`
-are also supported for these models.
-`output-off`, `output-state`, and `cycle-output` also accept `--channel all`;
-`set`, `ramp`, and `smoke-output` remain single-channel commands.
-
-Real CLI `measure-all` and `trigger-pulse` remain E36312A-first commands for
-all-channel measurement and rear digital trigger output pulses.
-`validate-readonly` is a one-shot read-only diagnostic for E36312A and
-EDU36311A.
+Product LIVE support is command-exact, not feature-family-wide. See the
+[Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix).
+`output-on`, `measure-all`, `trigger-pulse`, `trigger-fire`, `log`,
+resource-backed `doctor`, and `restore-from-snapshot` currently have no
+accepted exact product scope and fail after `*IDN?` before command-specific
+SCPI. They remain available where documented for dry-run or simulator
+planning. Accepted commands such as `set`, `output-off`, `safe-off`,
+`apply`, `ramp`, and model-appropriate read/protection/trigger commands
+still require an exact accepted model/transport/backend scope.
 
 `list-resources`, `verify`, `clear`, `error`, `measure`, `identify`,
 `protection-status`, `protection-set`, `clear-protection`, and `snapshot` now
@@ -554,25 +547,21 @@ uv run keysight-power error --resource "$env:KEYSIGHT_POWER_RESOURCE" --max-read
 
 ### E3646A RS-232 / ASRL Examples
 
-E3646A support over RS-232/ASRL includes live-validated read/status and output
-workflows. Before any live E3646A output command, confirm the physical setup
-has been checked and the requested voltage/current limits are safe for the
-connected load.
-
-Model-supported commands include `identify`, `measure`, `readback`,
-`read-status`, `output-state`, `capabilities`, `set`, `apply`, `output-on`,
-`output-off`, `safe-off`, `cycle-output`, `smoke-output`, `ramp`,
-`ramp-list`, and output-affecting `sequence` steps. `verify` is also
-available as a model-independent connection diagnostic that opens the selected
-resource and queries `*IDN?`. Protection writes, trigger workflows, snapshot
-restore, completion pulses, and native LIST remain disabled.
+E3646A product LIVE support is ASRL/RS-232 + system VISA only. Its exact
+product-open model-aware commands are `measure`, `readback`, `read-status`,
+`output-state`, `capabilities`, `set`, `apply`, `output-off`,
+`safe-off`, `cycle-output`, `smoke-output`, `ramp`, `ramp-list`, and
+`sequence`. `identify` and `verify` are diagnostics only. `output-on`,
+protection, trigger, snapshot/restore, completion pulses, and native LIST are
+not product-open.
 `ramp-list` is software setpoint stepping, and `sequence` is a step-limited
 software workflow for validated output/read-only steps; neither is native LIST.
 
 E3646A uses `INST:NSEL` channel preselection for setpoint writes and readbacks.
-`OUTP ON/OFF` is a global output enable/disable on this model, so `output-on`,
-`output-off`, `safe-off`, `cycle-output`, and `smoke-output` can affect the
-instrument output state globally even when a command accepts a channel.
+`OUTP ON/OFF` is a global output enable/disable on this model, so accepted
+commands such as `output-off`, `safe-off`, `cycle-output`, and
+`smoke-output` can affect the instrument output state globally even when a
+command accepts a channel.
 E3646A `sequence` accepts only validated read-only/output steps; protection,
 trigger, snapshot, restore, native LIST, and completion-pulse step types are
 rejected by the current feature-lock policy.
@@ -633,13 +622,12 @@ Validated output examples:
 ```powershell
 uv run keysight-power set @Base @Remote --channel 1 --voltage 1 --current 0.05 --json --log-scpi
 uv run keysight-power apply @Base @Remote --channel 1 --voltage 1 --current 0.05 --no-output --json --log-scpi
-uv run keysight-power output-on @Base @Remote --channel 1 --confirm --json --log-scpi
 uv run keysight-power output-off @Base @Remote --channel 1 --json --log-scpi
 uv run keysight-power safe-off @Base @Remote --channel 1 --json --log-scpi
 uv run keysight-power ramp @Base @Remote --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --json --log-scpi
 ```
 
-`output-on`, `cycle-output`, `smoke-output`, and `apply` without `--no-output`
+`cycle-output`, `smoke-output`, and `apply` without `--no-output`
 require `--confirm` when the selected setpoints exceed the configured
 confirmation threshold. `set`, `output-off`, `safe-off`, `ramp`, and
 `ramp-list` do not require `--confirm`.
@@ -665,10 +653,11 @@ uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channe
 uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 2 --log-scpi
 ```
 
-Measure all E36312A channels and read output state:
+Preview all-channel measurement without hardware, and read product-open live
+status:
 
 ```powershell
-uv run keysight-power measure-all --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run keysight-power measure-all --simulate --json --resource USB0::SIM::E36312A::INSTR
 uv run keysight-power read-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
@@ -722,18 +711,17 @@ Configure an E36312A rear digital pin as trigger output, arm one output channel
 with a no-change STEP trigger sequence, and emit `*TRG`:
 
 ```powershell
-uv run keysight-power trigger-pulse --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --pin 1 --channel 1 --polarity positive --log-scpi
+uv run keysight-power trigger-pulse --dry-run --json --model E36312A --pin 1 --channel 1 --polarity positive
 ```
 
 Use `--dry-run --model E36312A` or a deterministic E36312A SIM resource to
 preview trigger SCPI without opening VISA. Trigger dry-run and simulator
 behavior is E36312A-only; unsupported models do not expose trigger
 no-hardware behavior. The final `*TRG` may also trigger any already armed
-BUS-triggered instrument behavior. Real execution checks `SYST:ERR?` after
-output-affecting writes and fails the command if the instrument reports
-errors. Live trigger behavior remains IDN-driven; a live `--model` only
-requires the connected IDN model to match and never overrides connected
-hardware.
+BUS-triggered instrument behavior. `trigger-pulse` has no accepted product
+LIVE exact scope, so this remains a no-hardware preview. Live trigger behavior
+for accepted commands remains IDN-driven; a live `--model` only requires the
+connected IDN model to match and never overrides connected hardware.
 
 Native E36312A trigger/LIST commands:
 
@@ -742,7 +730,7 @@ uv run keysight-power trigger-status --json --resource "$env:KEYSIGHT_POWER_RESO
 uv run keysight-power trigger-step --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --source bus --fire --wait-complete
 uv run keysight-power trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --completion-pulse-pins 1 --fire --wait-complete
 uv run keysight-power trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --bost-list on,off --eost-list off,on --trigger-output-pins 1 --source immediate --wait-complete
-uv run keysight-power trigger-fire --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --wait-complete
+uv run keysight-power trigger-fire --dry-run --json --model E36312A --channel 1 --wait-complete
 uv run keysight-power trigger-abort --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all
 ```
 
@@ -755,8 +743,9 @@ would abort it. Trigger Step keeps its existing non-wait behavior. For
 `trigger-fire`, `--channel N` is required only with `--wait-complete`; it
 selects the output channel to abort if the instrument-wide completion wait
 times out or is interrupted. It does not limit the scope of `*TRG` or the
-completion wait. `trigger-pulse` is the legacy post-action pulse helper and is
-separate from the native trigger/list subsystem.
+completion wait. Both `trigger-fire` and the legacy `trigger-pulse` helper
+remain no-hardware-only in normal product use because neither has an accepted
+exact LIVE scope.
 Canonical Trigger LIST files and flags accept per-step `bost_list` and
 `eost_list` plus `trigger_output_pins` and `trigger_output_polarity`. Enabled
 pulses require explicit output pins. Legacy `--completion-pulse-pins` remains
@@ -782,19 +771,16 @@ EDU36311A with `*IDN?`, then writes only the requested setpoint fields. E3646A
 uses channels 1 and 2 with `INST:NSEL` preselection; E36312A and EDU36311A use
 channels 1, 2, and 3.
 
-Enable an E36312A, E3646A, or EDU36311A output only after setpoints are
-already safe:
+Preview the implemented `output-on` behavior without real hardware:
 
 ```powershell
-uv run keysight-power output-on --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --confirm --log-scpi
-uv run keysight-power output-on --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --confirm --log-scpi
+uv run keysight-power output-on --dry-run --json --model E36312A --channel 1
+uv run keysight-power output-on --simulate --json --resource USB0::SIM::E36312A::INSTR --channel all
 ```
 
-Real `output-on` first confirms the selected resource is an E36312A, E3646A,
-or EDU36311A with `*IDN?`, reads programmed voltage/current setpoints, then
-enables the selected output. It does not change voltage or current setpoints.
-For E3646A, `OUTP ON/OFF` is a global output enable/disable. Confirm the
-physical setup and connected load before enabling output.
+`output-on` has no accepted product LIVE exact scope. Normal real execution
+fails after `*IDN?` without setpoint queries or writes. The examples above
+exercise only dry-run/simulator planning.
 
 Read back and cycle output state:
 
@@ -924,20 +910,13 @@ stays parseable. Every JSON success and error envelope includes
 ## Safety Defaults
 
 - Output-affecting behavior must be explicit.
-- Real output execution is validated for E36312A, E3646A, and EDU36311A `set`,
-  `apply`, `output-on`, `output-off`, `output-state`, `cycle-output`,
-  `safe-off`, `smoke-output`, and `ramp` on explicit supported channels.
-  `apply`, `output-on`, `output-off`, `output-state`, `cycle-output`, and
-  `safe-off` accept `--channel all` and expand to the model's supported
-  channels in order. On E3646A, `OUTP ON/OFF` is global even when channel
-  selection is used for setpoint writes and readbacks.
-  `set`, `ramp`, and `smoke-output` remain single-channel commands.
-  `output-on` does not set voltage or current.
-- Real `measure-all`, `trigger-pulse`, `trigger-status`, `trigger-step`,
-  `trigger-list`, `trigger-fire`, and `trigger-abort` are enabled only for
-  E36312A. Trigger dry-run and simulator behavior is also E36312A-only.
-  `status`, `readback`, `log`, `validate-readonly`, and protection commands
-  are enabled for E36312A and EDU36311A.
+- Real product execution is limited to the exact commands and connections in
+  the [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix).
+  Feature-family, dry-run, simulator, or parser support does not widen it.
+- `output-on`, `measure-all`, `trigger-pulse`, `trigger-fire`, `log`,
+  resource-backed `doctor`, and `restore-from-snapshot` are not
+  product-open. Their no-hardware implementation remains available where
+  supported.
 - Real `clear`, `error`, and `measure` are safe I/O commands: `clear` sends
   `*CLS` and clears status/error state, while `error` and `measure` only query.
 - `--safety-config` is explicit only and applies local plan validation limits;

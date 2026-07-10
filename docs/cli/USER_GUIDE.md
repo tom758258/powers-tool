@@ -110,18 +110,13 @@ Please note:
 
 ## E3646A RS-232 / ASRL
 
-E3646A support over RS-232/ASRL includes live-validated read/status and output
-workflows. Before any live E3646A output command, confirm the physical setup
-has been checked and the requested voltage/current limits are safe for the
-connected load.
-
-Model-supported live commands are `identify`, `measure`, `readback`,
-`read-status`, `output-state`, `capabilities`, `set`, `apply`, `output-on`,
-`output-off`, `safe-off`, `cycle-output`, `smoke-output`, `ramp`,
-`ramp-list`, and output-affecting `sequence` steps. `verify` is also
-available as a model-independent connection diagnostic that opens the selected
-resource and queries `*IDN?`. Protection writes, trigger workflows, snapshot
-restore, completion pulses, and native LIST remain disabled for E3646A.
+E3646A product LIVE support is ASRL/RS-232 + system VISA only. Its exact
+product-open model-aware commands are `measure`, `readback`, `read-status`,
+`output-state`, `capabilities`, `set`, `apply`, `output-off`,
+`safe-off`, `cycle-output`, `smoke-output`, `ramp`, `ramp-list`, and
+`sequence`. `identify` and `verify` are explicit diagnostics and do not
+open another command. `output-on`, protection, trigger, snapshot/restore,
+completion pulses, and native LIST are not product-open for E3646A.
 
 E3646A uses `INST:NSEL` channel preselection for setpoint writes and readbacks.
 `OUTP ON/OFF` is a global output enable/disable on this model, so output
@@ -207,12 +202,10 @@ Read back the programmed state:
 .\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
 ```
 
-Enable output only after the setpoints are known safe. For E3646A, remember
-that `OUTP ON/OFF` is a global output enable/disable and confirm the physical
-setup and connected load before enabling output:
+Preview the implemented output-enable plan without opening real hardware:
 
 ```powershell
-.\keysight-power.exe output-on --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --confirm --json --log-scpi
+.\keysight-power.exe output-on --dry-run --model E36312A --channel 1 --json
 ```
 
 Turn output off when the check is complete:
@@ -238,7 +231,7 @@ against an unknown resource.
 | `protection-status` | Read protection state. |
 | `validate-readonly` | Run a read-only diagnostic pass. |
 | `set` | Set voltage/current without enabling output. |
-| `output-on` / `output-off` | Explicitly enable or disable output. |
+| `output-on` / `output-off` | Preview output enable without hardware; disable output on an accepted exact LIVE scope. |
 | `safe-off` | Turn output off using the supported safety path. |
 
 ## No-Hardware Checks
@@ -271,15 +264,12 @@ This requires the connected model to be E36312A and does not force the E36312A
 driver.
 
 `--model` is not a feature unlock. Unsupported model, command, and mode
-failures are intentional feature-lock behavior. `GENERIC` is no-hardware only
-and cannot be used as a live expected model. Trigger/native LIST workflows are
-E36312A-only. EDU36311A supports read-only, output, and protection workflows,
-but not trigger/native LIST or snapshot/restore. E3646A supports validated
-RS-232 read-only/output workflows plus software `ramp-list` and step-limited
-software `sequence`; protection, trigger/native LIST, snapshot/restore,
-completion-pulse, and native LIST workflows remain disabled. E3646A sequence
-also rejects unsupported protection, trigger, snapshot, restore, native LIST,
-and completion-pulse steps.
+failures are intentional feature-lock behavior. Product LIVE support is exact
+by detected model, command, transport, and backend; missing or pending scopes
+fail closed. System-VISA evidence does not validate pyvisa-py or a custom
+backend. A feature family or no-hardware plan does not imply that every command
+in that family is product-open. See the
+[exact matrix](../core/supported-models.md#product-live-exact-scope-matrix).
 
 ## Common Problems
 

@@ -288,38 +288,34 @@ and completion-pulse jobs, and unsupported E3646A sequence step types are
 rejected by the backend/Core boundary.
 
 Live validation status is recorded by CLI suite artifacts, not by the browser
-selector. For each active model, `-Suite full` is the complete validation gate
-for all currently project-supported LIVE features of that model. With a
-passing expanded full-suite record for the approved model and connection, the
-model's currently project-supported LIVE features may be opened. Disabled,
-unimplemented, out-of-scope, or factory-only features are not implied by the
-pass. A passing `scripts\live-cli-check.ps1` suite validates only the selected
-model, connection, suite, and cases in that run. It does not validate other
-connection types or every factory instrument function. WebUI hiding or
-disabling remains UX only; backend/Core rejection is still the safety boundary
-for unsupported direct submissions.
+selector. Suite names are evidence groupings and do not open every command in
+a feature family. Core requires an exact detected-model, command, transport,
+and backend scope; missing and pending scopes fail closed. The authoritative
+current command list is the
+[Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix).
+WebUI hiding or disabling remains UX only; backend/Core rejection is still the
+safety boundary for unsupported direct submissions.
 
 The WebUI expected-model field is a safety guard and planning hint only. It
 does not change the IDN-selected live driver or cause the browser to open a
 different connection type. Current recorded opening status is connection-
-scoped:
+scoped; only commands in the Core exact matrix are opened:
 
-- E36312A USB: validated/open
-- E36312A LAN: validated/open
-- EDU36311A USB: validated/open
-- EDU36311A LAN: validated/open
-- E3646A ASRL / RS-232: validated/open
+- E36312A USB + system VISA
+- E36312A LAN + system VISA
+- EDU36311A USB + system VISA
+- EDU36311A LAN + system VISA
+- E3646A ASRL / RS-232 + system VISA
 
-E36312A USB, E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL /
-RS-232 are opened only by their own recorded full-suite artifacts. E3646A live
-validation is currently restricted to ASRL / RS-232; E3646A USB and LAN remain
-outside the current scope.
+Only exact commands in the Core product matrix are opened on those
+connections. E3646A live validation remains restricted to ASRL / RS-232;
+E3646A USB and LAN remain outside the current scope.
 
 | Model | USB | LAN | ASRL / RS-232 |
 | --- | --- | --- | --- |
-| E36312A | validated/open | validated/open | N/A |
-| EDU36311A | validated/open | validated/open | N/A |
-| E3646A | not current scope | not current scope | validated/open |
+| E36312A | accepted exact commands | accepted exact commands | N/A |
+| EDU36311A | accepted exact commands | accepted exact commands | N/A |
+| E3646A | not current scope | not current scope | accepted exact commands |
 
 E36312A `full` now includes `software-sequence` in addition to read-only,
 output, protection, snapshot, and trigger-list suites. EDU36311A `full` now

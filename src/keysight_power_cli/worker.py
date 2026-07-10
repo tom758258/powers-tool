@@ -34,6 +34,7 @@ from keysight_power_core.parameter_constraints import validate_request_parameter
 from keysight_power_core.trigger import validate_trigger_request
 from keysight_power_core.sequence import load_sequence_document, sequence_plan
 from keysight_power_core.stop_cleanup import StopCleanupResult
+from keysight_power_core.support_policy import LiveSupportPolicyError
 from keysight_power_core.workflow_validation import validate_general_workflow_parameters
 
 READ_ONLY_COMMANDS = {
@@ -674,6 +675,8 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             err_type = "validation"
             if isinstance(exc, ConfirmationRequiredError):
                 code = "confirmation_required"
+            elif isinstance(exc, LiveSupportPolicyError):
+                code = "unsupported_live_scope"
             elif isinstance(exc, UnsupportedModelError):
                 code = f"unsupported_model_for_{cmd.replace('-', '_')}"
             elif isinstance(exc, UnsupportedChannelError):

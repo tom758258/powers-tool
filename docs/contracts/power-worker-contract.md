@@ -129,6 +129,13 @@ Trigger:
 - `trigger-fire`
 - `trigger-abort`
 
+These are Worker request names, not a blanket product LIVE allowlist. Worker
+passes model-aware live requests to the shared Core boundary, which selects
+the detected `*IDN?` model and requires an exact command/transport/backend
+product scope. Missing and pending scopes fail closed, and Worker provides no
+validation bypass. A command may remain useful in dry-run or simulator mode
+without an accepted real-hardware scope.
+
 ## Arguments
 
 Common `arguments` keys:

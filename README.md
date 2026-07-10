@@ -67,14 +67,14 @@ This command requires the connected `*IDN?` model to be `E36312A`; it does not
 force the E36312A driver if another model answers.
 
 Current model boundaries are enforced across Core, CLI, and WebUI backend
-direct jobs. Trigger/native LIST is E36312A-only. EDU36311A supports
-read-only/output/protection workflows plus software `ramp-list` and
-step-limited software `sequence`, but not trigger/native LIST or
-snapshot/restore. E3646A supports validated RS-232 read-only/output workflows
-plus software `ramp-list` and step-limited software `sequence`; these are not
-native LIST workflows, and E3646A protection, trigger/native LIST,
-snapshot/restore, completion-pulse, and unsupported sequence steps remain
-disabled.
+direct jobs. Feature-family and simulator support do not mean every command in
+that family has accepted product LIVE evidence. The exact command inventory is
+listed in [Supported Models](docs/core/supported-models.md); notably,
+`output-on`, `measure-all`, `trigger-pulse`, `trigger-fire`,
+`restore-from-snapshot`, `log`, and resource-backed `doctor` are not
+product-open. E3646A product LIVE remains ASRL / RS-232 + system VISA only,
+and its `ramp-list` and step-limited `sequence` are software workflows, not
+native LIST.
 
 For output commands, `voltage` means the output voltage setpoint and `current`
 means the output current limit/current setting for E36312A, EDU36311A, and
@@ -292,19 +292,18 @@ model, connection type, suite, and cases recorded in that run's artifacts. It
 does not mean every factory feature on that instrument, or the same feature on
 another connection, is live validated.
 
-Current validated/open records are scoped by model, connection, suite, and
-cases:
+Current accepted evidence connections are scoped by model, connection, suite,
+and exact recorded cases:
 
-- E36312A USB: validated/open
-- E36312A LAN: validated/open
-- EDU36311A USB: validated/open
-- EDU36311A LAN: validated/open
-- E3646A ASRL / RS-232: validated/open
+- E36312A USB + system VISA
+- E36312A LAN + system VISA
+- EDU36311A USB + system VISA
+- EDU36311A LAN + system VISA
+- E3646A ASRL / RS-232 + system VISA
 
-E36312A USB, E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL /
-RS-232 are opened only by their own recorded full-suite artifacts. E3646A live
-validation is currently restricted to ASRL / RS-232; E3646A USB and LAN remain
-outside the current scope.
+Only the exact commands in the Core policy matrix are product-open on these
+connections. E3646A live validation is restricted to ASRL / RS-232; E3646A
+USB and LAN remain outside the current scope.
 
 Examples:
 

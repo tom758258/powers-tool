@@ -49,6 +49,14 @@ Instrument/domain commands include:
 - `trigger-fire`
 - `trigger-abort`
 
+This list defines accepted command names and payload envelopes. It does not
+mean every command is product-open for real hardware. Model-aware LIVE
+execution requires an exact detected-model, command, transport, and backend
+scope in the Core support policy; missing or pending scopes fail closed.
+Dry-run/simulator availability also does not imply product LIVE support. The
+five explicit diagnostics are `list-resources`, `verify`, `identify`,
+`error`, and `clear`; their success does not promote another command.
+
 The former instrument `status` command is `read-status`. `keysight-power status` is reserved for Worker `GET /status`.
 
 ## Runtime JSONL

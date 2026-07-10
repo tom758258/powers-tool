@@ -1256,7 +1256,7 @@ def _run_measure(args: argparse.Namespace) -> int:
             args,
             request=request,
             error_type="validation",
-            code="unsupported_live_scope",
+            code=_core_validation_code(exc),
             message=str(exc),
             retryable=False,
             hardware_intent=True,
@@ -1311,7 +1311,7 @@ def _run_measure_all(args: argparse.Namespace) -> int:
             args,
             request=request,
             error_type="validation",
-            code="unsupported_live_scope",
+            code=_core_validation_code(exc),
             message=str(exc),
             retryable=False,
             hardware_intent=True,
@@ -2979,7 +2979,7 @@ def _run_validate_readonly(args: argparse.Namespace) -> int:
             args,
             request=request,
             error_type="validation",
-            code="unsupported_live_scope",
+            code=_core_validation_code(exc),
             message=str(exc),
             retryable=False,
             hardware_intent=True,
@@ -3098,13 +3098,26 @@ def _run_read_only_command(
             opener=_core_opener_for_args(args),
             scpi_logger=_log_scpi,
         )
-    except (CoreValidationError, UnsupportedModelError) as exc:
+    except UnsupportedModelError as exc:
         return (
             _emit_cli_error(
                 args,
                 request=request,
                 error_type="validation",
-                code="unsupported_live_scope",
+                code=unsupported_code,
+                message=str(exc),
+                retryable=False,
+                hardware_intent=True,
+            ),
+            {},
+        )
+    except CoreValidationError as exc:
+        return (
+            _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code=_core_validation_code(exc),
                 message=str(exc),
                 retryable=False,
                 hardware_intent=True,
@@ -3136,7 +3149,7 @@ def _run_protection_status(args: argparse.Namespace) -> int:
     except UnsupportedModelError as exc:
         return _emit_cli_error(args, request=request, error_type="validation", code="unsupported_model_for_protection_status", message=str(exc), retryable=False, hardware_intent=True)
     except CoreValidationError as exc:
-        return _emit_cli_error(args, request=request, error_type="validation", code="argument_error", message=str(exc), retryable=False, hardware_intent=True)
+        return _emit_cli_error(args, request=request, error_type="validation", code=_core_validation_code(exc), message=str(exc), retryable=False, hardware_intent=True)
     except CoreIoError as exc:
         code = "protection_status_failed" if exc.opened else "connection_failed"
         return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=str(exc))
@@ -3169,7 +3182,7 @@ def _run_clear_protection(args: argparse.Namespace) -> int:
             args,
             request=request,
             error_type="validation",
-            code=_core_validation_code(exc),
+            code="argument_error",
             message="clear-protection requires --channel N or --all",
             retryable=False,
         )
@@ -3213,7 +3226,7 @@ def _run_clear_protection(args: argparse.Namespace) -> int:
         emit_json_success(command=args.command, execution=execution, request=request, data=data)
         return 0
     print(f"Resource: {args.resource}")
-    print("Cleared channels: " + ", ".join(str(channel) for channel in channels))
+    print("Cleared channels: " + ", ".join(str(channel) for channel in data["cleared_channels"]))
     return 0
 
 
@@ -3250,7 +3263,7 @@ def _run_protection_set(args: argparse.Namespace) -> int:
             args,
             request=request,
             error_type="validation",
-            code="argument_error",
+            code=_core_validation_code(exc),
             message=str(exc),
             retryable=False,
         )
@@ -3322,7 +3335,7 @@ def _run_snapshot(args: argparse.Namespace) -> int:
     except UnsupportedModelError as exc:
         return _emit_cli_error(args, request=request, error_type="validation", code="unsupported_model_for_snapshot", message=str(exc), retryable=False, hardware_intent=True)
     except CoreValidationError as exc:
-        return _emit_cli_error(args, request=request, error_type="validation", code="argument_error", message=str(exc), retryable=False, hardware_intent=True)
+        return _emit_cli_error(args, request=request, error_type="validation", code=_core_validation_code(exc), message=str(exc), retryable=False, hardware_intent=True)
     except CoreIoError as exc:
         code = "snapshot_failed" if exc.opened else "connection_failed"
         return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=str(exc))
@@ -3508,7 +3521,11 @@ def _run_restore_from_snapshot(args: argparse.Namespace) -> int:
         )
     except CoreValidationError as exc:
         message = str(exc)
-        code = "snapshot_identity_mismatch" if "does not match snapshot" in message else "argument_error"
+        code = (
+            "snapshot_identity_mismatch"
+            if "does not match snapshot" in message
+            else _core_validation_code(exc)
+        )
         return _emit_cli_error(
             args,
             request=request,
@@ -3596,7 +3613,7 @@ def _run_log(args: argparse.Namespace) -> int:
             args,
             request=request,
             error_type="validation",
-            code="unsupported_live_scope",
+            code=_core_validation_code(exc),
             message=str(exc),
             retryable=False,
             hardware_intent=True,
@@ -3638,7 +3655,7 @@ def _run_sequence(args: argparse.Namespace) -> int:
             args,
             request=request,
             error_type="validation",
-            code="argument_error",
+            code=_core_validation_code(exc),
             message=str(exc),
             retryable=False,
         )
@@ -3658,7 +3675,17 @@ def _run_sequence(args: argparse.Namespace) -> int:
             code="sequence_failed",
             message=str(exc),
         )
-    except (CoreValidationError, SafetyValidationError, ValueError, OSError) as exc:
+    except CoreValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code=_core_validation_code(exc),
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
+        )
+    except (SafetyValidationError, ValueError, OSError) as exc:
         return _emit_cli_error(
             args,
             request=request,
@@ -3707,7 +3734,17 @@ def _run_ramp_list(args: argparse.Namespace) -> int:
             sleep=time.sleep,
             scpi_logger=_log_scpi,
         )
-    except (CoreValidationError, SafetyConfigError, SafetyValidationError, ValueError, OSError) as exc:
+    except CoreValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code=_core_validation_code(exc),
+            message=str(exc),
+            retryable=False,
+            hardware_intent=not getattr(args, "lint", False),
+        )
+    except (SafetyConfigError, SafetyValidationError, ValueError, OSError) as exc:
         return _emit_cli_error(
             args,
             request=request,
@@ -4041,7 +4078,7 @@ def _run_doctor(args: argparse.Namespace) -> int:
                 args,
                 request=request,
                 error_type="validation",
-                code="unsupported_live_scope",
+                code=_core_validation_code(exc),
                 message=str(exc),
                 retryable=False,
                 hardware_intent=True,
@@ -4094,17 +4131,7 @@ def _run_capabilities(args: argparse.Namespace) -> int:
             args,
             request=request,
             error_type="validation",
-            code="unsupported_live_scope",
-            message=str(exc),
-            retryable=False,
-            hardware_intent=True,
-        )
-    except CoreValidationError as exc:
-        return _emit_cli_error(
-            args,
-            request=request,
-            error_type="validation",
-            code="unsupported_live_scope",
+            code=_core_validation_code(exc),
             message=str(exc),
             retryable=False,
             hardware_intent=True,
@@ -6365,7 +6392,7 @@ def _run_set_real(args: argparse.Namespace) -> int:
             args,
             request=request,
             error_type="validation",
-            code="unsupported_live_scope",
+            code=_core_validation_code(exc),
             message=str(exc),
             retryable=False,
             hardware_intent=True,

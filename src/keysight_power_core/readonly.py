@@ -67,6 +67,8 @@ def run_readonly(
                 )
 
             channel_sel = p.get("channel", "all")
+            if channel_sel is None:
+                channel_sel = "all"
             if channel_sel == "all":
                 channels = power_supply.capabilities.channels
             else:

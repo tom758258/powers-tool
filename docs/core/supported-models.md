@@ -1,8 +1,37 @@
 # Supported Models
 
-This document records manually maintained support decisions that are broader
-than one CLI command. Command-level behavior is documented in
-`../contracts/power-cli-jsonl-contract.md`.
+This document summarizes the checked-in Core live-support policy. The
+authoritative command/transport/backend decisions are in
+`src/keysight_power_core/support_policy.py`; the CLI contract documents
+request and response shapes, not live-support promotion.
+
+## Product LIVE Exact-Scope Matrix
+
+Core identifies the connected model with `*IDN?`, checks any expected-model
+guard, and then requires an exact detected-model, command, transport, and
+backend match. Missing and pending scopes fail closed. System-VISA evidence
+does not validate pyvisa-py or a custom backend, and no public validation
+bypass exists.
+
+The current `live_validated_full_suite` command inventories are:
+
+| Model | Exact product connections | Product-open model-aware commands |
+| --- | --- | --- |
+| E36312A | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `snapshot`, `trigger-status`, `trigger-step`, `trigger-list`, `trigger-abort` |
+| EDU36311A | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection` |
+| E3646A | ASRL / RS-232 + system VISA | `measure`, `output-state`, `read-status`, `readback`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence` |
+
+`list-resources`, `verify`, `identify`, `error`, and `clear` are explicit
+diagnostic exemptions. Their success proves only that diagnostic operation; it
+does not open a model, feature family, transport/backend scope, or another
+command.
+
+`output-on`, `measure-all`, `log`, resource-backed `doctor`,
+`restore-from-snapshot`, `trigger-pulse`, and `trigger-fire` are
+implemented or represented in no-hardware planning/capability surfaces, but
+have no accepted exact product LIVE scope. Normal real execution therefore
+rejects them after `*IDN?` and before command-specific SCPI. Dry-run or
+simulator support does not imply product LIVE support.
 
 ## Live Suite Validation Matrix
 
@@ -20,8 +49,8 @@ whole model.
 
 | Target | Connection scope | Supported suites in `full` | Notes |
 | --- | --- | --- | --- |
-| E36312A | USB validated/open; LAN validated/open | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` | Trigger/native LIST and snapshot/restore are considered suite validated only when the corresponding suite/cases pass for the selected connection. `software-sequence` covers project-supported software `ramp-list` and sequence workflows only. |
-| EDU36311A | USB validated/open; LAN validated/open | `readonly`, `output`, `protection`, `software-sequence` | `software-sequence` covers project-supported software `ramp-list` and sequence read-only/output workflows only. Trigger/native LIST, snapshot, and restore-from-snapshot remain disabled in live, simulate, and dry-run. |
+| E36312A | USB accepted evidence; LAN accepted evidence | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` | Suite names are evidence groupings, not command permissions. Only commands in the exact matrix above are product-open. |
+| EDU36311A | USB accepted evidence; LAN accepted evidence | `readonly`, `output`, `protection`, `software-sequence` | Suite names are evidence groupings, not command permissions. Trigger/native LIST, snapshot, and restore-from-snapshot remain unsupported. |
 | E3646A | RS-232 / ASRL only | `readonly`, `output`, `software-sequence` | CH1/CH2 only. `OUTP ON/OFF` is global. `ramp-list` and `sequence` are software workflows, not native LIST. |
 
 ## Connection-scoped live validation status
@@ -32,13 +61,13 @@ selected model and connection; it does not mean the same feature is validated
 on another connection type, another model, disabled workflows, or factory-only
 features.
 
-Current validated/open records:
+Current accepted evidence records:
 
-- E36312A USB: validated/open
-- E36312A LAN: validated/open
-- EDU36311A USB: validated/open
-- EDU36311A LAN: validated/open
-- E3646A ASRL / RS-232: validated/open
+- E36312A USB + system VISA
+- E36312A LAN + system VISA
+- EDU36311A USB + system VISA
+- EDU36311A LAN + system VISA
+- E3646A ASRL / RS-232 + system VISA
 
 E36312A USB, E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL /
 RS-232 are opened only by their own recorded full-suite artifacts. E3646A live
@@ -47,9 +76,9 @@ outside the current scope.
 
 | Model | USB | LAN | ASRL / RS-232 |
 | --- | --- | --- | --- |
-| E36312A | validated/open | validated/open | N/A |
-| EDU36311A | validated/open | validated/open | N/A |
-| E3646A | not current scope | not current scope | validated/open |
+| E36312A | accepted exact commands only | accepted exact commands only | N/A |
+| EDU36311A | accepted exact commands only | accepted exact commands only | N/A |
+| E3646A | not current scope | not current scope | accepted exact commands only |
 
 EDU36311A trigger/native LIST and snapshot/restore remain disabled in live,
 simulate, and dry-run. E3646A protection, trigger/native LIST,
@@ -149,11 +178,11 @@ command-level facts:
   guards only: live driver selection always follows the connected `*IDN?`
   response. `GENERIC` is no-hardware only and is not accepted as a live
   expected model.
-- E36312A USB-local full-suite validation covers project-supported read-only,
-  output, protection, snapshot, trigger/native LIST, software `ramp-list`, and
-  software `sequence` paths after the 2026-07-09 expanded full-suite USB pass.
+- E36312A full-suite artifacts provide evidence only for the exact commands
+  listed in the product matrix above. A suite or feature-family label does not
+  open every command in that family.
 - E36312A native trigger/LIST support is exposed through `trigger-status`,
-  `trigger-step`, `trigger-list`, `trigger-fire`, and `trigger-abort`. The
+  `trigger-step`, `trigger-list`, and `trigger-abort`. The
   trigger dry-run and simulator paths are also E36312A-only. Native LIST
   execution is limited to 100 steps, dwell values from 0.01 to 3600 seconds,
   and count values from 1 to 256. Real native trigger sources are currently
@@ -161,9 +190,9 @@ command-level facts:
   dry-run/simulator only until hardware validation.
 - Ramp always uses software setpoint steps. Native LIST execution is confined
   to `trigger-list`.
-- EDU36311A USB and LAN read-only/output/protection commands plus software
-  `ramp-list` and sequence read-only/output workflows are enabled after their
-  2026-07-09 expanded full-suite passes.
+- EDU36311A USB and LAN product execution is limited to the exact commands in
+  the matrix above. Feature-family and sequence-step support do not widen that
+  command inventory.
 - E36312A and EDU36311A OVP/OCP trip status is queried per channel. Aggregate
   `protection-status` flags are the OR of the selected channel results.
 - EDU36311A trigger commands remain disabled. `capabilities --json` reports
@@ -174,17 +203,12 @@ command-level facts:
 - EDU36311A `sequence` must not bypass disabled trigger/native LIST,
   snapshot, or restore workflows; unsupported sequence step types stay
   rejected in live, simulate, and dry-run paths.
-- E3646A RS-232 support implements live-validated identity, measurement,
-  readback, read-status, output-state, capabilities, and output workflows.
-  The validated output commands are `set`, `apply`, `output-on`,
-  `output-off`, `safe-off`, `cycle-output`, `smoke-output`, `ramp`,
-  `ramp-list`, and output-affecting `sequence` steps. `apply`,
-  `output-on`, `cycle-output`, and `smoke-output` report
-  `hardware_validation=validated_confirm_threshold_conditional`; `set`,
-  `output-off`, `safe-off`, `ramp`, `ramp-list`, and output-affecting
-  `sequence` steps report `hardware_validation=validated`. Before any live
-  E3646A output command, confirm the physical setup has been checked and the
-  requested voltage/current limits are safe for the connected load.
+- E3646A product execution is limited to ASRL / RS-232 + system VISA and the
+  exact commands in the matrix above. In particular, `output-on` is not
+  product-open even though no-hardware planning and model capabilities describe
+  its implementation. Before any accepted live E3646A output command, confirm
+  the physical setup has been checked and the requested voltage/current limits
+  are safe for the connected load.
   `verify` is a model-independent connection diagnostic that opens the
   selected resource and queries `*IDN?`; it is not part of the model
   capability matrix. E3646A uses `INST:NSEL` channel preselection for channels

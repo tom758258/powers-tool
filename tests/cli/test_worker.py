@@ -65,6 +65,61 @@ def _run_worker_job_for_test(tmp_path: Path, *, command: str, arguments: dict, c
     return json.loads((job_dir / "result.json").read_text(encoding="utf-8"))
 
 
+class FakeWorkerLiveSession:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+        self.writes: list[str] = []
+        self.closed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.closed = True
+
+    def query(self, command: str) -> str:
+        self.queries.append(command)
+        return {
+            "*IDN?": "KEYSIGHT,E36312A,SERIAL0000,1.0",
+            "MEAS:VOLT?": "1.0",
+            "MEAS:CURR?": "0.05",
+        }[command]
+
+    def write(self, command: str) -> None:
+        self.writes.append(command)
+
+
+def test_worker_live_requests_use_core_exact_scope_and_policy_error_code(tmp_path, monkeypatch):
+    accepted_session = FakeWorkerLiveSession()
+    monkeypatch.setattr(worker_mod, "open_resource", lambda *args, **kwargs: accepted_session)
+
+    accepted = _run_worker_job_for_test(
+        tmp_path,
+        command="measure",
+        arguments={"channel": 1},
+    )
+
+    assert accepted["ok"] is True
+    assert accepted_session.queries == ["*IDN?", "MEAS:VOLT?", "MEAS:CURR?"]
+    assert accepted_session.closed is True
+
+    rejected_session = FakeWorkerLiveSession()
+    monkeypatch.setattr(worker_mod, "open_resource", lambda *args, **kwargs: rejected_session)
+
+    rejected = _run_worker_job_for_test(
+        tmp_path,
+        command="measure-all",
+        arguments={},
+    )
+
+    assert rejected["ok"] is False
+    assert rejected["error"]["type"] == "validation"
+    assert rejected["error"]["code"] == "unsupported_live_scope"
+    assert rejected_session.queries == ["*IDN?"]
+    assert rejected_session.writes == []
+    assert rejected_session.closed is True
+
+
 def test_write_json_artifact_atomic_publishes_complete_json_and_cleans_temp(tmp_path):
     result_path = tmp_path / "result.json"
     payload = {"ok": True, "data": {"value": 1}}

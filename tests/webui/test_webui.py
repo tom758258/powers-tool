@@ -1918,7 +1918,7 @@ def test_webui_raw_live_expected_model_match_uses_idn_driver(
         json={
             "command": "set",
             "runtime": {
-                "resource": "USB0::FAKE::INSTR",
+                "resource": "ASRL1::INSTR",
                 "simulate": False,
                 "dry_run": False,
                 "confirm": True,
@@ -1938,6 +1938,67 @@ def test_webui_raw_live_expected_model_match_uses_idn_driver(
     assert "VOLT 1" in session.writes
     assert "CURR 0.05,(@1)" not in session.writes
     assert "VOLT 1,(@1)" not in session.writes
+
+
+def test_webui_resource_capabilities_enforces_exact_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from keysight_power_webui import commands
+    from keysight_power_webui.jobs import Job
+
+    session = FakeCoreSession("KEYSIGHT,E36312A,SERIAL0000,1.0")
+    monkeypatch.setattr(commands, "open_resource", lambda *args, **kwargs: session)
+
+    result = commands.execute_job_command(
+        Job(
+            "capabilities-live",
+            "capabilities",
+            {
+                "resource": "USB0::FAKE::INSTR",
+                "simulate": False,
+                "dry_run": False,
+            },
+            {},
+        )
+    )
+
+    assert result["driver"]["class"] == "E36312APowerSupply"
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed is True
+
+
+def test_webui_resource_capabilities_rejects_pending_backend_after_idn(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from keysight_power_webui import commands
+
+    session = FakeCoreSession("KEYSIGHT,E36312A,SERIAL0000,1.0")
+    monkeypatch.setattr(commands, "open_resource", lambda *args, **kwargs: session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "capabilities",
+            "runtime": {
+                "resource": "TCPIP0::192.0.2.1::INSTR",
+                "backend": "@py",
+                "simulate": False,
+                "dry_run": False,
+            },
+            "parameters": {},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "failed"
+    assert "transport_pending" in job_data["error"]
+    assert "policy_mode=product" in job_data["error"]
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed is True
 
 
 def test_webui_raw_live_expected_model_mismatch_fails_before_output_writes(

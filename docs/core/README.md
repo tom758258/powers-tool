@@ -140,24 +140,23 @@ Core protection status preserves aggregate flags while calculating them from
 the selected channels, and the WebUI live-panel read returns parsed model
 identity plus channel-local OVP/OCP trip state.
 
-E36312A native trigger/LIST behavior has no-hardware coverage and live USB
-validation for channel 1 trigger-list, arm/fire, and trigger-fire. Native LIST
-execution belongs only to `trigger-list`; Ramp always uses software setpoint
-steps. Trigger workflows are E36312A-only. Unsupported models, including
-EDU36311A, do not expose trigger dry-run or simulator behavior.
-Hardware-affecting behavior remains explicit and opt-in.
+E36312A native trigger/LIST behavior has no-hardware coverage, while product
+LIVE execution is limited to exact commands with accepted scopes. In
+particular, `trigger-fire` and `trigger-pulse` are not product-open. Native
+LIST execution belongs only to `trigger-list`; Ramp always uses software
+setpoint steps. Unsupported models, including EDU36311A, do not expose trigger
+dry-run or simulator behavior.
 
 The current expanded full-suite records have passed for E36312A USB,
 E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL / RS-232. These
 records remain scoped to the recorded model, connection, suite, and cases.
 E3646A USB and LAN remain outside the current scope.
 
-E3646A RS-232 support covers validated read-only/output workflows plus
-software `ramp-list` and step-limited software `sequence`. These workflows are
-not native LIST support. EDU36311A trigger/native LIST and snapshot/restore
-remain disabled. E3646A protection, trigger/native LIST, snapshot/restore,
-completion-pulse, and unsupported sequence step types remain disabled by the
-feature-lock policy.
+E3646A product LIVE support is ASRL / RS-232 + system VISA and only the exact
+commands listed in [Supported Models](supported-models.md). A read-only or
+output feature family does not open every command; for example,
+`output-on` is not product-open. Software `ramp-list` and step-limited
+`sequence` are not native LIST support.
 
 For output workflows, `voltage` is the output voltage setpoint and `current`
 is the output current limit/current setting on E36312A, EDU36311A, and

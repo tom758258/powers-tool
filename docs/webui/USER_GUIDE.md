@@ -158,14 +158,12 @@ filled before Run. Disabled commands or controls indicate unsupported model,
 mode, or WebUI scope.
 
 Disabled-command explanations are intentional feature-lock guidance, not random
-UI failures. Trigger/native LIST workflows are E36312A-only. EDU36311A supports
-read-only, output, and protection workflows, but not trigger/native LIST or
-snapshot/restore. E3646A supports validated RS-232 read-only/output workflows,
-software `ramp-list`, and step-limited software `sequence`; protection,
-trigger/native LIST, snapshot/restore, completion-pulse, and native LIST
-workflows remain disabled. E3646A sequence accepts only validated read-only and
-output steps; protection, trigger, snapshot, restore, native LIST, and
-completion-pulse steps are rejected.
+UI failures. Product LIVE support is exact by detected model, command,
+transport, and backend. A read-only, output, protection, or trigger feature
+family does not mean every command in that family is product-open; missing and
+pending scopes fail closed. E3646A product LIVE remains ASRL / RS-232 + system
+VISA only, and its software `ramp-list` and step-limited `sequence` are not
+native LIST.
 
 Some editors support JSON Load/Save, including Sequence, Ramp List, and Trigger
 List workspaces. Use these for repeatable workflows, and keep saved files free
