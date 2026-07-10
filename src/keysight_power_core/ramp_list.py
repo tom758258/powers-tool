@@ -23,7 +23,7 @@ from keysight_power_core.model_resolution import (
     resolve_no_hardware_runtime,
     validate_live_expected_model,
 )
-from keysight_power_core.live_support import enforce_product_live_support_for_idn
+from keysight_power_core.live_support import enforce_live_support_for_idn
 from keysight_power_core.operations import ScpiLoggingSession, ramp_voltages
 from keysight_power_core.safety import SafetyConfigError, SafetyValidationError, resolve_safety_config, validate_setpoint
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
@@ -275,7 +275,7 @@ def execute_ramp_list(
                 parse_idn(idn_raw).model,
                 command=request.command,
             )
-            enforce_product_live_support_for_idn(request, idn_raw)
+            enforce_live_support_for_idn(request, idn_raw)
             power_supply = create_power_supply(session, idn_raw)
             if not isinstance(power_supply, OUTPUT_WRITE_POWER_SUPPLY_TYPES):
                 raise CoreValidationError(

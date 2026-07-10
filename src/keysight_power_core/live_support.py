@@ -1,4 +1,4 @@
-"""Core-owned product enforcement for exact live support scopes."""
+"""Core-owned enforcement for exact live support scopes."""
 
 from __future__ import annotations
 
@@ -21,7 +21,40 @@ def enforce_product_live_support(
     *,
     command: str | None = None,
 ) -> CommandLiveSupportScope | None:
-    """Fail closed against the detected model and the exact runtime scope."""
+    """Compatibility wrapper for callers that intentionally require product mode."""
+
+    return _enforce_live_support(
+        request,
+        detected_model,
+        command=command,
+        support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
+    )
+
+
+def enforce_live_support(
+    request: _Request,
+    detected_model: str | None,
+    *,
+    command: str | None = None,
+) -> CommandLiveSupportScope | None:
+    """Fail closed against the detected model and request exact runtime scope."""
+
+    return _enforce_live_support(
+        request,
+        detected_model,
+        command=command,
+        support_policy_mode=request.runtime.support_policy_mode,
+    )
+
+
+def _enforce_live_support(
+    request: _Request,
+    detected_model: str | None,
+    *,
+    command: str | None,
+    support_policy_mode: str,
+) -> CommandLiveSupportScope | None:
+    """Apply the exact policy with an explicit mode source."""
 
     effective_command = command or request.command
     if is_live_support_policy_exempt(effective_command):
@@ -34,7 +67,7 @@ def enforce_product_live_support(
         command=effective_command,
         transport=request.runtime.resource,
         backend=request.runtime.backend,
-        support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
+        support_policy_mode=support_policy_mode,
     )
 
 
@@ -47,3 +80,14 @@ def enforce_product_live_support_for_idn(
     """Parse a live IDN response before applying product exact-scope policy."""
 
     return enforce_product_live_support(request, parse_idn(idn_raw).model, command=command)
+
+
+def enforce_live_support_for_idn(
+    request: _Request,
+    idn_raw: str,
+    *,
+    command: str | None = None,
+) -> CommandLiveSupportScope | None:
+    """Parse a live IDN response before applying request-mode exact policy."""
+
+    return enforce_live_support(request, parse_idn(idn_raw).model, command=command)

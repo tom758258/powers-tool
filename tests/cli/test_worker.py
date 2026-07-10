@@ -14,6 +14,46 @@ from keysight_power_cli.worker import WorkerState, _run_job_impl, _write_json_ar
 from keysight_power_cli.cli import build_parser
 
 
+@pytest.mark.parametrize("field", ["support_policy_mode", "validation_allow_pending_live_support"])
+def test_worker_rejects_validation_mode_request_arguments(field: str) -> None:
+    state = WorkerState(
+        {
+            "id": "test",
+            "type": "power",
+            "enabled": True,
+            "mode": "live",
+            "control_host": "127.0.0.1",
+            "control_port": 0,
+            "artifacts_dir": ".tmp_tests/worker",
+            "events_jsonl": None,
+            "settings": {"resource": "USB0::FAKE::E36312A::INSTR"},
+        },
+        0,
+    )
+    status, payload = worker_mod._validate_command_body(
+        {"command": "measure", "arguments": {"channel": 1, field: "validation"}},
+        state,
+    )
+    assert status == 400
+    assert payload["error"]["code"] == "argument_error"
+
+
+def test_worker_rejects_validation_mode_setting() -> None:
+    config = {
+        "id": "test",
+        "type": "power",
+        "enabled": True,
+        "mode": "live",
+        "control_host": "127.0.0.1",
+        "control_port": 0,
+        "artifacts_dir": ".tmp_tests/worker",
+        "events_jsonl": None,
+        "settings": {"resource": "USB0::FAKE::E36312A::INSTR", "support_policy_mode": "validation"},
+    }
+    with pytest.raises(ValueError, match="validation support policy mode"):
+        worker_mod._validate_worker_config(config)
+
+
 def _wait_for_json_file(path: Path, timeout: float = 3.0) -> dict:
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None

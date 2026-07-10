@@ -2001,6 +2001,32 @@ def test_webui_resource_capabilities_rejects_pending_backend_after_idn(
     assert session.closed is True
 
 
+@pytest.mark.parametrize(
+    "field",
+    ["support_policy_mode", "validation_allow_pending_live_support", "validation-allow-pending-live-support"],
+)
+def test_webui_rejects_forged_validation_mode_fields(client: TestClient, field: str) -> None:
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "measure",
+            "runtime": {"resource": "TCPIP0::192.0.2.1::INSTR", field: "validation"},
+            "parameters": {"channel": 1},
+        },
+    )
+    assert response.status_code == 400
+    assert "validation support policy fields are not allowed" in response.json()["detail"]
+
+
+def test_webui_runtime_options_are_always_product_mode() -> None:
+    from keysight_power_webui.commands import build_runtime_options
+
+    runtime = build_runtime_options(
+        {"resource": "TCPIP0::192.0.2.1::INSTR", "support_policy_mode": "validation"}
+    )
+    assert runtime.support_policy_mode == "product"
+
+
 def test_webui_raw_live_expected_model_mismatch_fails_before_output_writes(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

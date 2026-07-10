@@ -16,7 +16,7 @@ from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn
 from keysight_power_core.model_resolution import resolve_no_hardware_runtime, validate_live_expected_model
-from keysight_power_core.live_support import enforce_product_live_support_for_idn
+from keysight_power_core.live_support import enforce_live_support_for_idn
 from keysight_power_core.operations import IDN_QUERY, ScpiLoggingSession
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
 from keysight_power_core.testing.simulator import SimulatedResourceManager
@@ -70,7 +70,7 @@ def run_restore(
             idn_raw = session.query(IDN_QUERY)
             validate_live_expected_model(request.runtime.model_profile, parse_idn(idn_raw).model, command=request.command)
             _validate_restore_identity(parse_idn(idn_raw), snapshot.get("idn") if isinstance(snapshot.get("idn"), dict) else {})
-            enforce_product_live_support_for_idn(request, idn_raw)
+            enforce_live_support_for_idn(request, idn_raw)
             power_supply = create_power_supply(session, idn_raw)
             if not isinstance(power_supply, E36312APowerSupply):
                 model = parse_idn(idn_raw).model

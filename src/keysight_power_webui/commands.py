@@ -140,6 +140,8 @@ def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
         serial_options=_serial_options_from_runtime(runtime_dict),
         serial_remote=bool(runtime_dict.get("serial_remote", False)),
         serial_local_on_close=bool(runtime_dict.get("serial_local_on_close", False)),
+        # WebUI is deliberately product-only; P4 mode selection is CLI-only.
+        support_policy_mode="product",
     )
 
 

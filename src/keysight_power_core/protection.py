@@ -26,7 +26,7 @@ from keysight_power_core.model_resolution import (
     resolve_no_hardware_runtime,
     validate_live_expected_model,
 )
-from keysight_power_core.live_support import enforce_product_live_support_for_idn
+from keysight_power_core.live_support import enforce_live_support_for_idn
 from keysight_power_core.operations import ScpiLoggingSession
 from keysight_power_core.safety import SafetyConfigError, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
 from keysight_power_core.testing.simulator import SimulatedResourceManager
@@ -67,7 +67,7 @@ def _run_status(request: OperationRequest, *, opener: Callable[..., Any], scpi_l
     with instrument:
         if not request.runtime.simulate:
             validate_live_expected_model(request.runtime.model_profile, parse_idn(idn).model, command=request.command)
-            enforce_product_live_support_for_idn(request, idn)
+            enforce_live_support_for_idn(request, idn)
         power_supply = create_power_supply(instrument.session, idn)
         _require_supported(power_supply, request.command, parse_idn(idn).model)
         channels = _channels(selected, power_supply.capabilities.channels)
@@ -124,7 +124,7 @@ def _run_clear(request: OperationRequest, *, opener: Callable[..., Any], scpi_lo
             parse_idn(idn).model,
             command=request.command,
         )
-        enforce_product_live_support_for_idn(request, idn)
+        enforce_live_support_for_idn(request, idn)
         power_supply = create_power_supply(instrument.session, idn)
         _require_supported(power_supply, request.command, parse_idn(idn).model)
         channels = _channels(selected, power_supply.capabilities.channels)
@@ -168,7 +168,7 @@ def _run_set(request: OperationRequest, *, opener: Callable[..., Any], scpi_logg
             parse_idn(idn).model,
             command=request.command,
         )
-        enforce_product_live_support_for_idn(request, idn)
+        enforce_live_support_for_idn(request, idn)
         power_supply = create_power_supply(instrument.session, idn)
         _require_supported(power_supply, request.command, parse_idn(idn).model)
         channels = _channels(_selected_channel(request), power_supply.capabilities.channels)

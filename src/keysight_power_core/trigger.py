@@ -23,7 +23,7 @@ from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.model_resolution import resolve_no_hardware_runtime, validate_live_expected_model
 from keysight_power_core.models import parse_idn
-from keysight_power_core.live_support import enforce_product_live_support_for_idn
+from keysight_power_core.live_support import enforce_live_support_for_idn
 from keysight_power_core.transport import dry_run_plan
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
 
@@ -618,7 +618,7 @@ def _run_trigger_pulse(
             idn = instrument.query(IDN_QUERY)
             _validate_trigger_expected_model(request, idn)
             if not request.runtime.simulate:
-                enforce_product_live_support_for_idn(request, idn)
+                enforce_live_support_for_idn(request, idn)
             power_supply = create_power_supply(instrument, idn)
             setattr(power_supply, "_core_idn_raw", idn)
             if not isinstance(power_supply, E36312APowerSupply):
@@ -678,7 +678,7 @@ def _run_trigger_status(
             idn = instrument.query(IDN_QUERY)
             _validate_trigger_expected_model(request, idn)
             if not request.runtime.simulate:
-                enforce_product_live_support_for_idn(request, idn)
+                enforce_live_support_for_idn(request, idn)
             power_supply = create_power_supply(instrument, idn)
             setattr(power_supply, "_core_idn_raw", idn)
             if not isinstance(power_supply, E36312APowerSupply):
@@ -1096,7 +1096,7 @@ def _trigger_power_supply(
         request.runtime.model_profile, parse_idn(idn).model, command=request.command
     )
     if not request.runtime.simulate:
-        enforce_product_live_support_for_idn(request, idn)
+        enforce_live_support_for_idn(request, idn)
     power_supply = create_power_supply(instrument, idn)
     setattr(power_supply, "_core_idn_raw", idn)
     return power_supply

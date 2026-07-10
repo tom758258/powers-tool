@@ -33,6 +33,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     runtime._add_json_argument(parser)
     runtime._add_simulate_argument(parser)
     runtime._add_dry_run_argument(parser)
+    runtime._add_validation_support_policy_argument(parser)
     runtime._add_model_argument(parser)
     parser.add_argument("--lint", action="store_true", help="Validate without opening VISA.")
     runtime._add_safety_config_argument(parser)
@@ -104,6 +105,7 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRe
             serial_options=runtime._serial_options_for_args(args),
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
+            support_policy_mode=runtime._support_policy_mode_for_args(args),
         ),
         parameters=parameters,
     )

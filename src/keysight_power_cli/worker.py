@@ -72,6 +72,11 @@ ALLOWED_COMMANDS = READ_ONLY_COMMANDS | OUTPUT_COMMANDS | PROTECTION_COMMANDS | 
 OUTPUT_AFFECTING_COMMANDS = OUTPUT_COMMANDS | {"protection-set", "clear-protection", "restore-from-snapshot", "sequence"}
 REQUEST_KEYS = {"command", "arguments", "job_id"}
 RUNTIME_ARGUMENT_KEYS = {"dry_run", "confirm_output", "model_profile"}
+_FORBIDDEN_VALIDATION_MODE_ARGUMENTS = {
+    "support_policy_mode",
+    "validation_allow_pending_live_support",
+}
+_FORBIDDEN_VALIDATION_MODE_SETTINGS = _FORBIDDEN_VALIDATION_MODE_ARGUMENTS
 
 _event_lock = threading.Lock()
 _sequence_counter = 1
@@ -176,6 +181,18 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
             command,
             job_id if isinstance(job_id, str) else None,
             error={"code": "invalid_arguments", "message": "arguments must be a JSON object"},
+        )
+    attempted_runtime_modes = sorted(_FORBIDDEN_VALIDATION_MODE_ARGUMENTS & set(arguments))
+    if attempted_runtime_modes:
+        return 400, _command_response(
+            "error",
+            command,
+            job_id if isinstance(job_id, str) else None,
+            error={
+                "code": "argument_error",
+                "message": "validation support policy mode is not available to Worker requests: "
+                f"{', '.join(attempted_runtime_modes)}",
+            },
         )
     if job_id is not None and not isinstance(job_id, str):
         return 400, _command_response(
@@ -908,6 +925,12 @@ def _validate_worker_config(config: dict[str, Any]) -> None:
         raise ValueError("Worker settings must be an object")
     if "default_action" in settings:
         raise ValueError("settings.default_action is not supported; use POST /command")
+    attempted_runtime_modes = sorted(_FORBIDDEN_VALIDATION_MODE_SETTINGS & set(settings))
+    if attempted_runtime_modes:
+        raise ValueError(
+            "settings validation support policy mode is not available to Worker: "
+            f"{', '.join(attempted_runtime_modes)}"
+        )
     serial_options = settings.get("serial_options")
     if serial_options is not None and not isinstance(serial_options, dict):
         raise ValueError("settings.serial_options must be an object")

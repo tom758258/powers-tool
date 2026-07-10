@@ -112,6 +112,98 @@ def test_live_policy_rejections_use_stable_validation_code(monkeypatch, capsys, 
     assert_live_scope_rejected(json.loads(capsys.readouterr().out), session)
 
 
+def test_hidden_validation_mode_is_parser_only_and_allows_registered_pending_scope(monkeypatch, capsys) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args(
+        [
+            "measure",
+            "--resource",
+            "TCPIP0::192.0.2.1::INSTR",
+            "--channel",
+            "1",
+            "--validation-allow-pending-live-support",
+        ]
+    )
+    assert args.validation_allow_pending_live_support is True
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["measure", "--help"])
+    assert "--validation-allow-pending-live-support" not in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--help"])
+    assert "--validation-allow-pending-live-support" not in capsys.readouterr().out
+
+    product_session = FakeSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: product_session)
+    assert (
+        cli.main(
+            [
+                "measure",
+                "--json",
+                "--resource",
+                "TCPIP0::192.0.2.1::INSTR",
+                "--backend",
+                "@py",
+                "--channel",
+                "1",
+            ]
+        )
+        == 2
+    )
+    assert_live_scope_rejected(json.loads(capsys.readouterr().out), product_session)
+
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
+        query_responses={"MEAS:VOLT?": "1.0", "MEAS:CURR?": "0.05"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+    assert (
+        cli.main(
+            [
+                "measure",
+                "--json",
+                "--resource",
+                "TCPIP0::192.0.2.1::INSTR",
+                "--backend",
+                "@py",
+                "--channel",
+                "1",
+                "--validation-allow-pending-live-support",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert session.queries == ["*IDN?", "MEAS:VOLT?", "MEAS:CURR?"]
+
+
+def test_hidden_validation_mode_keeps_no_hardware_feature_locks(monkeypatch, capsys) -> None:
+    def fail_open_resource(*args, **kwargs):
+        raise AssertionError("dry-run must not open VISA")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open_resource)
+    assert (
+        cli.main(
+            [
+                "trigger-step",
+                "--dry-run",
+                "--model",
+                "EDU36311A",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--channel",
+                "1",
+                "--source",
+                "bus",
+                "--validation-allow-pending-live-support",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert json.loads(capsys.readouterr().out)["error"]["type"] == "validation"
+
+
 def expected_idn(raw: str) -> dict[str, object]:
     manufacturer, model, serial, firmware = raw.split(",", maxsplit=3)
     return {

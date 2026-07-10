@@ -60,8 +60,12 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply, select_driver
-from keysight_power_core.live_support import enforce_product_live_support_for_idn
-from keysight_power_core.support_policy import LiveSupportPolicyError
+from keysight_power_core.live_support import enforce_live_support_for_idn
+from keysight_power_core.support_policy import (
+    LiveSupportPolicyError,
+    SUPPORT_POLICY_MODE_PRODUCT,
+    SUPPORT_POLICY_MODE_VALIDATION,
+)
 from keysight_power_core.model_resolution import validate_live_expected_model
 from keysight_power_core.models import parse_idn, resource_interface
 from keysight_power_core.safety import (
@@ -310,6 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_json_argument(measure_parser)
     _add_simulate_argument(measure_parser)
+    _add_validation_support_policy_argument(measure_parser)
     _add_backend_argument(measure_parser)
     _add_timeout_argument(measure_parser)
     _add_serial_arguments(measure_parser)
@@ -616,6 +621,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json_argument(restore_parser)
     _add_simulate_argument(restore_parser)
     _add_dry_run_argument(restore_parser)
+    _add_validation_support_policy_argument(restore_parser)
     restore_parser.add_argument("--plan-json", help="Write the dry-run restore plan data to a JSON file. Requires --dry-run.")
     _add_backend_argument(restore_parser)
     _add_timeout_argument(restore_parser)
@@ -691,6 +697,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_simulate_argument(doctor_parser)
     _add_backend_argument(doctor_parser)
     _add_timeout_argument(doctor_parser)
+    _add_validation_support_policy_argument(doctor_parser)
     doctor_parser.add_argument("--resource", help="Optional resource to identify.")
     doctor_parser.add_argument(
         "--log-scpi",
@@ -935,6 +942,17 @@ def _add_dry_run_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_validation_support_policy_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the contributor-only pending-scope validation switch."""
+
+    parser.add_argument(
+        "--validation-allow-pending-live-support",
+        dest="validation_allow_pending_live_support",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+
+
 def _add_model_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--model",
@@ -1020,6 +1038,7 @@ def _add_output_resource_arguments(parser: argparse.ArgumentParser) -> None:
         "--resource-alias",
         help="Alias from an explicit --safety-config [[resources]] entry.",
     )
+    _add_validation_support_policy_argument(parser)
 
 
 def _add_channel_or_all_argument(parser: argparse.ArgumentParser) -> None:
@@ -3489,6 +3508,7 @@ def _run_restore_from_snapshot(args: argparse.Namespace) -> int:
                     timeout_ms=args.timeout_ms,
                     log_scpi=args.log_scpi,
                     confirm=args.confirm,
+                    support_policy_mode=_support_policy_mode_for_args(args),
                 ),
                 parameters={
                     "snapshot": args.snapshot,
@@ -9217,6 +9237,7 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
             serial_options=_serial_options_for_args(args),
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
+            support_policy_mode=_support_policy_mode_for_args(args),
         ),
         parameters=parameters,
     )
@@ -9250,6 +9271,7 @@ def _target_core_request_for_args(args: argparse.Namespace) -> OperationRequest:
             serial_options=_serial_options_for_args(args),
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
+            support_policy_mode=_support_policy_mode_for_args(args),
         ),
         parameters=parameters,
     )
@@ -9266,7 +9288,15 @@ def _enforce_live_cli_scope(args: argparse.Namespace, idn_raw: str, *, command: 
         parse_idn(idn_raw).model,
         command=effective_command,
     )
-    enforce_product_live_support_for_idn(request, idn_raw, command=effective_command)
+    enforce_live_support_for_idn(request, idn_raw, command=effective_command)
+
+
+def _support_policy_mode_for_args(args: argparse.Namespace) -> str:
+    return (
+        SUPPORT_POLICY_MODE_VALIDATION
+        if getattr(args, "validation_allow_pending_live_support", False)
+        else SUPPORT_POLICY_MODE_PRODUCT
+    )
 
 
 def _core_validation_code(exc: CoreValidationError, fallback: str = "argument_error") -> str:
@@ -9394,6 +9424,7 @@ def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
             backend=getattr(args, "backend", None),
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
+            support_policy_mode=_support_policy_mode_for_args(args),
         ),
         parameters=parameters,
     )

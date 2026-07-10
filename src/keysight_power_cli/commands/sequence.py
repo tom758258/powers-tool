@@ -83,6 +83,7 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> SequenceReq
             serial_options=runtime._serial_options_for_args(args),
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
+            support_policy_mode=runtime._support_policy_mode_for_args(args),
         ),
         parameters={
             "file": getattr(args, "file", None),

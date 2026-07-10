@@ -20,7 +20,7 @@ from keysight_power_core.drivers.e3646a import E3646APowerSupply
 from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.models import parse_idn
-from keysight_power_core.live_support import enforce_product_live_support_for_idn
+from keysight_power_core.live_support import enforce_live_support_for_idn
 from keysight_power_core.model_resolution import validate_live_expected_model
 from keysight_power_core.testing.simulator import SimulatedResourceManager
 from keysight_power_core.transport import dry_run_plan
@@ -57,7 +57,7 @@ def run_readonly(
             idn_raw = instrument.query(IDN_QUERY)
             if not request.runtime.simulate:
                 validate_live_expected_model(request.runtime.model_profile, parse_idn(idn_raw).model, command=request.command)
-                enforce_product_live_support_for_idn(request, idn_raw)
+                enforce_live_support_for_idn(request, idn_raw)
             power_supply = create_power_supply(instrument, idn_raw)
 
             if not isinstance(power_supply, (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)):
@@ -174,7 +174,7 @@ def run_live_panel_read(
                     if parse_idn(idn_raw).model == "E3646A"
                     else ("measure", "output-state", "readback", "protection-status")
                 ):
-                    enforce_product_live_support_for_idn(request, idn_raw, command=required_command)
+                    enforce_live_support_for_idn(request, idn_raw, command=required_command)
             power_supply = create_power_supply(instrument, idn_raw)
             if not isinstance(power_supply, (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)):
                 raise UnsupportedModelError(

@@ -167,6 +167,19 @@ async def create_job(request: Request):
     runtime = payload.get("runtime", {})
     parameters = payload.get("parameters", {})
     artifacts = payload.get("artifacts")
+    if not isinstance(runtime, dict):
+        raise HTTPException(status_code=400, detail="runtime must be an object")
+    forbidden_runtime_fields = {
+        "support_policy_mode",
+        "validation_allow_pending_live_support",
+        "validation-allow-pending-live-support",
+    }
+    attempted = sorted(forbidden_runtime_fields & set(runtime))
+    if attempted:
+        raise HTTPException(
+            status_code=400,
+            detail=f"runtime validation support policy fields are not allowed: {', '.join(attempted)}",
+        )
     try:
         request_type = TriggerRequest if isinstance(command, str) and command.startswith("trigger-") else OperationRequest
         validation_request = request_type(command=command, parameters=parameters)

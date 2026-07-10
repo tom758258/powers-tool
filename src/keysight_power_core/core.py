@@ -25,6 +25,8 @@ class RuntimeOptions:
     serial_options: SerialOptions | None = None
     serial_remote: bool = False
     serial_local_on_close: bool = False
+    # Kept as a literal to avoid importing support_policy back into Core.
+    support_policy_mode: str = "product"
 
 
 @dataclass(frozen=True)
