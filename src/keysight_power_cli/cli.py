@@ -59,6 +59,8 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply, select_driver
+from keysight_power_core.live_support import enforce_product_live_support_for_idn
+from keysight_power_core.model_resolution import validate_live_expected_model
 from keysight_power_core.models import parse_idn, resource_interface
 from keysight_power_core.safety import (
     SafetyConfigError,
@@ -2939,6 +2941,9 @@ def _run_validate_readonly(args: argparse.Namespace) -> int:
             opened = True
             session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
             idn_raw = session.query(IDN_QUERY)
+            if not args.simulate:
+                validate_live_expected_model(request.runtime.model_profile, parse_idn(idn_raw).model, command="capabilities")
+                enforce_product_live_support_for_idn(request, idn_raw)
             selection = select_driver(idn_raw)
             power_supply = selection.driver_class(session)
             if not isinstance(power_supply, (E36312APowerSupply, EDU36311APowerSupply)):

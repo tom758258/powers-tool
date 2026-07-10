@@ -2,6 +2,7 @@ import pytest
 
 from keysight_power_core.core import CommandCancelled, ConfirmationRequiredError, CoreValidationError, OperationRequest, RuntimeOptions
 from keysight_power_core.operations import output_plan, run_operation
+from keysight_power_core.support_policy import LiveSupportPolicyError
 
 
 class FakeSession:
@@ -245,7 +246,7 @@ def test_real_output_affecting_operation_requires_confirm_above_config_threshold
         parameters=request("set").parameters,
     )
 
-    with pytest.raises(ConfirmationRequiredError):
+    with pytest.raises(LiveSupportPolicyError, match="output-on"):
         run_operation(core_request, opener=lambda *args, **kwargs: FakeSession())
 
 
@@ -296,7 +297,7 @@ def test_output_plan_all_channel_output_commands_expand_once() -> None:
     assert cycle_steps[3]["parameters"] == {"duration_ms": 250}
 
 
-def test_output_on_all_checks_readbacks_before_writes() -> None:
+def test_output_on_without_exact_evidence_rejects_before_readbacks() -> None:
     session = FakeSession(
         responses={
             "VOLT? (@1)": "1.0",
@@ -313,20 +314,10 @@ def test_output_on_all_checks_readbacks_before_writes() -> None:
         parameters=request("output-on", channel="all").parameters,
     )
 
-    data = run_operation(core_request, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
-
-    assert session.queries[:7] == [
-        "*IDN?",
-        "VOLT? (@1)",
-        "CURR? (@1)",
-        "VOLT? (@2)",
-        "CURR? (@2)",
-        "VOLT? (@3)",
-        "CURR? (@3)",
-    ]
-    assert session.writes == ["OUTP ON,(@1)", "OUTP ON,(@2)", "OUTP ON,(@3)"]
-    assert data["channel"] == "all"
-    assert [output["channel"] for output in data["outputs"]] == [1, 2, 3]
+    with pytest.raises(LiveSupportPolicyError, match="no exact transport/backend scope"):
+        run_operation(core_request, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
 
 
 def test_cycle_output_all_turns_on_all_then_sleeps_once_then_off() -> None:
@@ -517,7 +508,7 @@ def test_e3646a_operations_fake_execution() -> None:
     req_set = OperationRequest(
         command="set",
         parameters={"channel": 2, "voltage": 1.5, "current": 0.05, "confirm": True},
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
     )
     session_set = FakeSession(idn=idn, responses=responses)
     run_operation(req_set, opener=lambda *args, **kwargs: session_set)
@@ -529,7 +520,7 @@ def test_e3646a_operations_fake_execution() -> None:
     req_off = OperationRequest(
         command="output-off",
         parameters={"channel": 1, "confirm": True},
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
     )
     session_off = FakeSession(idn=idn, responses=responses)
     run_operation(req_off, opener=lambda *args, **kwargs: session_off)
@@ -538,7 +529,7 @@ def test_e3646a_operations_fake_execution() -> None:
     req_safe_all = OperationRequest(
         command="safe-off",
         parameters={"channel": "all", "confirm": True},
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
     )
     session_safe_all = FakeSession(idn=idn, responses=responses)
     run_operation(req_safe_all, opener=lambda *args, **kwargs: session_safe_all)
@@ -547,16 +538,17 @@ def test_e3646a_operations_fake_execution() -> None:
     req_on = OperationRequest(
         command="output-on",
         parameters={"channel": 2, "confirm": True},
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
     )
     session_on = FakeSession(idn=idn, responses=responses)
-    run_operation(req_on, opener=lambda *args, **kwargs: session_on)
-    assert "OUTP ON" in session_on.writes
+    with pytest.raises(LiveSupportPolicyError, match="no exact transport/backend scope"):
+        run_operation(req_on, opener=lambda *args, **kwargs: session_on)
+    assert session_on.queries == ["*IDN?"]
 
     req_apply_all = OperationRequest(
         command="apply",
         parameters={"channel": "all", "voltage": 1.2, "current": 0.04, "no_output": True, "confirm": True},
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
     )
     session_apply_all = FakeSession(idn=idn, responses=responses)
     run_operation(req_apply_all, opener=lambda *args, **kwargs: session_apply_all)
@@ -567,7 +559,7 @@ def test_e3646a_operations_fake_execution() -> None:
     req_cycle = OperationRequest(
         command="cycle-output",
         parameters={"channel": 2, "duration_ms": 10, "confirm": True},
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
     )
     session_cycle = FakeSession(idn=idn, responses=responses)
     run_operation(req_cycle, opener=lambda *args, **kwargs: session_cycle)
@@ -577,7 +569,7 @@ def test_e3646a_operations_fake_execution() -> None:
     req_smoke = OperationRequest(
         command="smoke-output",
         parameters={"channel": 1, "voltage": 1.1, "current": 0.05, "confirm": True},
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
     )
     session_smoke = FakeSession(idn=idn, responses=responses)
     run_operation(req_smoke, opener=lambda *args, **kwargs: session_smoke)
@@ -589,7 +581,7 @@ def test_e3646a_operations_fake_execution() -> None:
     req_ramp = OperationRequest(
         command="ramp",
         parameters={"channel": 1, "start_voltage": 0.5, "stop_voltage": 1.5, "step_voltage": 0.5, "current": 0.05, "delay_ms": 1, "confirm": True},
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
     )
     session_ramp = FakeSession(idn=idn, responses=responses)
     run_operation(req_ramp, opener=lambda *args, **kwargs: session_ramp)

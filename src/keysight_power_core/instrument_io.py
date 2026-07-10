@@ -12,6 +12,8 @@ from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.models import parse_idn, resource_interface
+from keysight_power_core.live_support import enforce_product_live_support_for_idn
+from keysight_power_core.model_resolution import validate_live_expected_model
 from keysight_power_core.operations import ScpiLoggingSession
 from keysight_power_core.testing.simulator import SimulatedResourceManager
 from keysight_power_core.transport import dry_run_plan
@@ -95,8 +97,10 @@ def _run_measure(
     channel = int(request.parameters.get("channel", 1))
     resource = _require_resource(request)
     if channel == 1 and not request.runtime.simulate and resource_interface(resource) != "ASRL":
-        instrument = _open_session(request, opener=opener, scpi_logger=scpi_logger)
+        instrument, idn = _open_power_supply(request, opener=opener, scpi_logger=scpi_logger)
         with instrument:
+            validate_live_expected_model(request.runtime.model_profile, parse_idn(idn).model, command=request.command)
+            enforce_product_live_support_for_idn(request, idn)
             measurements = {
                 "voltage": _parse_float(instrument.session.query("MEAS:VOLT?"), "voltage"),
                 "current": _parse_float(instrument.session.query("MEAS:CURR?"), "current"),
@@ -108,6 +112,9 @@ def _run_measure(
         }
     instrument, idn = _open_power_supply(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
+        if not request.runtime.simulate:
+            validate_live_expected_model(request.runtime.model_profile, parse_idn(idn).model, command=request.command)
+            enforce_product_live_support_for_idn(request, idn)
         power_supply = create_power_supply(instrument.session, idn)
         allowed = (
             power_supply.capabilities.simulated_measure_channels

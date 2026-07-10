@@ -91,6 +91,11 @@ SCPI on mismatch. The selected model never overrides the IDN-selected driver.
 `GENERIC` is a conservative no-hardware profile and is not a live expected
 model.
 
+For model-aware live execution, Core makes the final product decision using the
+detected `*IDN?` model plus the exact command, transport, and VISA backend.
+Pending TCPIP/pyvisa-py and missing scopes reject in normal product use;
+identity diagnostics do not imply model or feature support.
+
 ## Output Setpoint Programming Ranges
 
 For output workflows, `voltage` means output voltage setpoint and `current`

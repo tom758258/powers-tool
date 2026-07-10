@@ -271,7 +271,7 @@ def test_e3646a_ramp_list_unsupported_pulse() -> None:
     req = OperationRequest(
         command="ramp-list",
         parameters={"document": doc, "confirm": True},
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
     )
     with pytest.raises(CoreValidationError, match="completion pulses are only supported for E36312A"):
         run_ramp_list(req, opener=lambda *args, **kwargs: E3646AFakeSession(), sleep=lambda seconds: None)
@@ -300,7 +300,7 @@ def test_e3646a_ramp_list_simulate_and_real_execution() -> None:
     req_real = OperationRequest(
         command="ramp-list",
         parameters={"document": doc, "confirm": True},
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False)
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
     )
     session = E3646AFakeSession()
     data_real = run_ramp_list(req_real, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)

@@ -23,6 +23,7 @@ from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import create_power_supply
 from keysight_power_core.model_resolution import resolve_no_hardware_runtime, validate_live_expected_model
 from keysight_power_core.models import parse_idn
+from keysight_power_core.live_support import enforce_product_live_support_for_idn
 from keysight_power_core.transport import dry_run_plan
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
 
@@ -616,6 +617,8 @@ def _run_trigger_pulse(
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             idn = instrument.query(IDN_QUERY)
             _validate_trigger_expected_model(request, idn)
+            if not request.runtime.simulate:
+                enforce_product_live_support_for_idn(request, idn)
             power_supply = create_power_supply(instrument, idn)
             setattr(power_supply, "_core_idn_raw", idn)
             if not isinstance(power_supply, E36312APowerSupply):
@@ -674,6 +677,8 @@ def _run_trigger_status(
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             idn = instrument.query(IDN_QUERY)
             _validate_trigger_expected_model(request, idn)
+            if not request.runtime.simulate:
+                enforce_product_live_support_for_idn(request, idn)
             power_supply = create_power_supply(instrument, idn)
             setattr(power_supply, "_core_idn_raw", idn)
             if not isinstance(power_supply, E36312APowerSupply):
@@ -750,9 +755,7 @@ def _run_trigger_step(
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             power_supply = _trigger_power_supply(
                 instrument,
-                simulate=request.runtime.simulate,
-                command=request.command,
-                expected_model=request.runtime.model_profile,
+                request,
             )
             if isinstance(power_supply, E36312APowerSupply):
                 trigger = _native_step(
@@ -797,9 +800,7 @@ def _run_trigger_list(
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             power_supply = _trigger_power_supply(
                 instrument,
-                simulate=request.runtime.simulate,
-                command=request.command,
-                expected_model=request.runtime.model_profile,
+                request,
             )
             if not isinstance(power_supply, E36312APowerSupply):
                 raise UnsupportedModelError(
@@ -842,9 +843,7 @@ def _run_trigger_fire(
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             power_supply = _trigger_power_supply(
                 instrument,
-                simulate=request.runtime.simulate,
-                command=request.command,
-                expected_model=request.runtime.model_profile,
+                request,
             )
             if not isinstance(power_supply, E36312APowerSupply):
                 raise UnsupportedModelError(
@@ -896,9 +895,7 @@ def _run_trigger_abort(
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             power_supply = _trigger_power_supply(
                 instrument,
-                simulate=request.runtime.simulate,
-                command=request.command,
-                expected_model=request.runtime.model_profile,
+                request,
             )
             if not isinstance(power_supply, E36312APowerSupply):
                 raise UnsupportedModelError(
@@ -1092,13 +1089,14 @@ def _native_list(
 
 def _trigger_power_supply(
     instrument: Any,
-    *,
-    simulate: bool,
-    command: str,
-    expected_model: str | None = None,
+    request: TriggerRequest,
 ) -> Any:
     idn = instrument.query(IDN_QUERY)
-    validate_live_expected_model(expected_model, parse_idn(idn).model, command=command)
+    validate_live_expected_model(
+        request.runtime.model_profile, parse_idn(idn).model, command=request.command
+    )
+    if not request.runtime.simulate:
+        enforce_product_live_support_for_idn(request, idn)
     power_supply = create_power_supply(instrument, idn)
     setattr(power_supply, "_core_idn_raw", idn)
     return power_supply

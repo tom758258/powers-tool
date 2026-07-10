@@ -40,6 +40,12 @@ connected instrument is still identified with `*IDN?`, and Core requires the
 reported model to match the selected model before any setup or write SCPI. The
 selected model never overrides the IDN-detected driver.
 `GENERIC` is no-hardware only and is not accepted as a live expected model.
+
+For model-aware live commands, Core makes the final product decision after
+`*IDN?` using the detected model plus the exact command, resource transport,
+and VISA backend. Missing exact metadata and pending TCPIP/pyvisa-py scopes
+fail closed; system-VISA evidence does not validate another backend. Identity
+diagnostics do not imply command support, and no validation bypass exists.
 Unsupported model, command, and mode failures are intentional feature-lock
 behavior; selecting a model is not a feature unlock.
 

@@ -184,6 +184,11 @@ expected-model guard: after `*IDN?`, Core requires the detected model to match
 before setup/write SCPI. The selected model never overrides the IDN-selected
 driver.
 
+After that guard, Core enforces exact product support using the detected model,
+effective command, VISA resource transport, and runtime backend. Missing or
+pending scopes fail closed before command-specific I/O. This applies equally to
+direct Core callers and adapter requests; no validation-mode bypass exists.
+
 ## Output Workflow Pulses
 
 Completion pulses use E36312A rear digital pins; rear pins are separate from

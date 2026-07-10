@@ -22,6 +22,7 @@ from keysight_power_core.model_resolution import (
     resolve_no_hardware_runtime,
     validate_live_expected_model,
 )
+from keysight_power_core.live_support import enforce_product_live_support_for_idn
 from keysight_power_core.safety import SafetyConfigError, SafetyLimits, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
 from keysight_power_core.trigger import run_post_action_completion_pulse, trigger_pulse_scpi
@@ -325,6 +326,7 @@ def execute_sequence(
                 _model_from_idn(idn_raw),
                 command=request.command,
             )
+            enforce_product_live_support_for_idn(request, idn_raw)
             power_supply = create_power_supply(instrument, idn_raw)
             _preflight_sequence(request, power_supply, plan, model=_model_from_idn(idn_raw))
             for step in plan["steps"]:

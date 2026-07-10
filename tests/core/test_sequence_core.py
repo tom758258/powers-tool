@@ -244,7 +244,7 @@ def test_e3646a_sequence_execution() -> None:
 
     session = E3646AFakeSession()
     req = SequenceRequest(
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False),
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False),
         parameters={"document": doc},
     )
     data = run_sequence(req, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
@@ -284,7 +284,7 @@ def test_e3646a_sequence_trigger_pulse_rejected() -> None:
     }
 
     req = SequenceRequest(
-        runtime=RuntimeOptions(resource="GPIB0::1::INSTR", dry_run=False, simulate=False),
+        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False),
         parameters={"document": doc},
     )
     res = run_sequence(req, opener=lambda *args, **kwargs: E3646AFakeSession())

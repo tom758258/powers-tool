@@ -31,6 +31,7 @@ from keysight_power_core.model_resolution import (
     resolve_no_hardware_runtime,
     validate_live_expected_model,
 )
+from keysight_power_core.live_support import enforce_product_live_support_for_idn
 from keysight_power_core.parameter_constraints import validate_request_parameters
 from keysight_power_core.safety import (
     SafetyConfigError,
@@ -303,6 +304,7 @@ def _run_output_write_operation(
                 parse_idn(idn).model,
                 command=request.command,
             )
+            enforce_product_live_support_for_idn(request, idn)
             power_supply = create_power_supply(session, idn)
             allowed_types = (
                 OUTPUT_STATE_POWER_SUPPLY_TYPES
@@ -607,7 +609,10 @@ def _execute_output_write(
 
 
 def _validate_real_gate(request: OperationRequest) -> None:
-    return None
+    if request.runtime.dry_run or request.runtime.simulate:
+        return
+    if not request.runtime.resource:
+        raise CoreValidationError("resource is required")
 
 
 def _ensure_operation_supported(request: OperationRequest) -> None:

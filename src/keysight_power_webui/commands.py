@@ -21,6 +21,9 @@ from keysight_power_core.core import (
 from keysight_power_core.discovery import IDN_QUERY, resource_payload
 from keysight_power_core.errors import VisaConnectionError
 from keysight_power_core.factory import select_driver
+from keysight_power_core.live_support import enforce_product_live_support_for_idn
+from keysight_power_core.model_resolution import validate_live_expected_model
+from keysight_power_core.models import parse_idn
 from keysight_power_core.readonly import run_live_panel_read
 from keysight_power_core.testing.simulator import SimulatedResourceManager
 
@@ -283,6 +286,11 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
                 serial_local_on_close=runtime.serial_local_on_close,
             ) as instrument:
                 idn_raw = instrument.query(IDN_QUERY)
+                if not runtime.simulate:
+                    validate_live_expected_model(runtime.model_profile, parse_idn(idn_raw).model, command="capabilities")
+                    enforce_product_live_support_for_idn(
+                        OperationRequest(command="capabilities", runtime=runtime), idn_raw
+                    )
         except VisaConnectionError as exc:
             raise CoreValidationError(f"capabilities failed: {exc}") from exc
 
