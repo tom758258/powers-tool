@@ -2197,6 +2197,117 @@ def test_webui_identify_returns_pending_exact_metadata_without_opening_it(
 
 
 @pytest.mark.parametrize("command", ["identify", "verify"])
+@pytest.mark.parametrize("manufacturer", ["OTHER_VENDOR", "Agilent Technologies"])
+def test_webui_diagnostic_wrong_vendor_known_model_has_no_exact_support(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    manufacturer: str,
+) -> None:
+    session = FakeCoreSession(
+        f"{manufacturer},E36312A,SERIAL0000,1.0",
+        query_responses={
+            "*OPT?": "0",
+            "SYST:VERS?": "1999.0",
+            "SYST:COMM:RLST?": "RWLock",
+        },
+    )
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": command,
+            "runtime": {"resource": "USB0::FAKE::INSTR"},
+            "parameters": {},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "finished", job_data.get("error")
+    result = job_data["result"]
+    detected_idn = result["idn"] if command == "identify" else result["resource"]["idn"]
+    assert detected_idn["manufacturer"] == manufacturer
+    assert detected_idn["model"] == "E36312A"
+    assert result["live_support"]["evaluated"] is False
+    assert result["live_support"]["commands"] == {}
+    assert "manufacturer and model" in result["live_support"]["reason"]
+    assert session.writes == []
+
+
+@pytest.mark.parametrize("command", ["identify", "verify"])
+def test_webui_diagnostic_narrow_e3646a_alias_has_exact_support(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+) -> None:
+    session = FakeCoreSession(
+        "Agilent Technologies,E3646A,SERIAL0000,1.0",
+        query_responses={
+            "*OPT?": "0",
+            "SYST:VERS?": "1999.0",
+            "SYST:COMM:RLST?": "RWLock",
+        },
+    )
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": command,
+            "runtime": {"resource": "ASRL1::INSTR"},
+            "parameters": {},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "finished", job_data.get("error")
+    live_support = job_data["result"]["live_support"]
+    assert live_support["evaluated"] is True
+    assert live_support["model"] == "E3646A"
+    assert live_support["transport_scope"] == "asrl"
+    assert live_support["backend_scope"] == "system_visa"
+    assert live_support["commands"][command]["product_open"] is True
+    assert session.writes == []
+
+
+def test_webui_diagnostic_expected_model_cannot_override_wrong_vendor(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FakeCoreSession(
+        "OTHER_VENDOR,E36312A,SERIAL0000,1.0",
+        query_responses={
+            "*OPT?": "0",
+            "SYST:VERS?": "1999.0",
+            "SYST:COMM:RLST?": "RWLock",
+        },
+    )
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "identify",
+            "runtime": {
+                "resource": "USB0::FAKE::INSTR",
+                "model_profile": "E36312A",
+            },
+            "parameters": {},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "finished", job_data.get("error")
+    assert job_data["result"]["live_support"]["evaluated"] is False
+    assert job_data["result"]["live_support"]["commands"] == {}
+    assert session.writes == []
+
+
+@pytest.mark.parametrize("command", ["identify", "verify"])
 @pytest.mark.parametrize("model", ["UNKNOWN_MODEL", "E36103B"])
 def test_webui_diagnostic_unknown_or_descoped_model_returns_neutral_live_support(
     client: TestClient,
@@ -2240,7 +2351,10 @@ def test_webui_diagnostic_unknown_or_descoped_model_returns_neutral_live_support
         "backend_scope": "system_visa",
         "policy_mode": "product",
         "commands": {},
-        "reason": "No active exact live-support metadata exists for the detected model.",
+        "reason": (
+            "The reported manufacturer and model do not resolve to active "
+            "exact live-support metadata."
+        ),
     }
     serialized = json.dumps(result["live_support"])
     assert "SERIAL0000" not in serialized

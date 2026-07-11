@@ -21,6 +21,7 @@ from powers_tool_core.core import (
 from powers_tool_core.discovery import IDN_QUERY, resource_payload
 from powers_tool_core.errors import VisaConnectionError
 from powers_tool_core.factory import select_driver
+from powers_tool_core.identity import IdentityResolutionError, resolve_physical_model_identity
 from powers_tool_core.live_support import enforce_product_live_support_for_idn
 from powers_tool_core.model_resolution import validate_live_expected_model
 from powers_tool_core.models import parse_idn
@@ -209,25 +210,34 @@ def _with_diagnostic_live_support(
     idn = result.get("idn")
     if not isinstance(idn, dict) and isinstance(resource_data, dict):
         idn = resource_data.get("idn")
+    manufacturer = idn.get("manufacturer") if isinstance(idn, dict) else None
     model = idn.get("model") if isinstance(idn, dict) else None
     if not isinstance(model, str) or not model.strip():
         return result
+    try:
+        identity = resolve_physical_model_identity(manufacturer, model)
+    except IdentityResolutionError:
+        live_support = _unsupported_detected_model_live_support(model, runtime)
+        return {**result, "live_support": live_support}
     if runtime.simulate:
-        live_support = _unevaluated_live_support(model, runtime)
+        live_support = _unevaluated_live_support(identity.canonical_model, runtime)
     else:
         validate_live_expected_model(
             runtime.model_profile,
-            model,
+            identity.canonical_model,
             command=command,
         )
         try:
             live_support = exact_live_support_metadata(
-                model=model,
+                model=identity.canonical_model,
                 resource=runtime.resource,
                 backend=runtime.backend,
             )
         except LiveSupportPolicyError:
-            live_support = _unsupported_detected_model_live_support(model, runtime)
+            live_support = _unsupported_detected_model_live_support(
+                identity.canonical_model,
+                runtime,
+            )
     return {**result, "live_support": live_support}
 
 
@@ -257,7 +267,10 @@ def _unsupported_detected_model_live_support(
         "backend_scope": normalize_backend(runtime.backend),
         "policy_mode": SUPPORT_POLICY_MODE_PRODUCT,
         "commands": {},
-        "reason": "No active exact live-support metadata exists for the detected model.",
+        "reason": (
+            "The reported manufacturer and model do not resolve to active "
+            "exact live-support metadata."
+        ),
     }
 
 
