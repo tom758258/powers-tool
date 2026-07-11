@@ -120,16 +120,19 @@ the CLI adapter. Run the no-hardware gate before live validation:
 ```
 
 Live suite checks and hardware pytest are explicit, opt-in hardware checks.
-`scripts\live-cli-check.ps1` records target/connection/suite/case artifacts
-under `.tmp_tests`. For each active model, `-Suite full` is the complete
-validation gate for all currently project-supported LIVE features of that
-model. With a passing expanded full-suite record for the approved model and
-connection, the model's currently project-supported LIVE features may be
-opened. Disabled, unimplemented, out-of-scope, or factory-only features are
-not implied by the pass. A passing suite validates only the selected model,
-connection, suite, and recorded cases; it does not validate other connection
-types or every factory instrument function. Commands, state-changing behavior,
-and report locations are documented in the [CLI README scripted validation section](../cli/README.md#scripted-validation).
+`scripts\live-cli-check.ps1` is the maintained contributor validation harness
+and records target/connection/suite/case candidate-evidence artifacts under
+`.tmp_tests`; passing artifacts do not automatically promote product support.
+See [Contributing](../CONTRIBUTING.md) for the contributor workflow. For each
+active model, `-Suite full` is the complete validation gate for all currently
+project-supported LIVE features of that model. With a passing expanded
+full-suite record for the approved model and connection, the model's currently
+project-supported LIVE features may be opened. Disabled, unimplemented,
+out-of-scope, or factory-only features are not implied by the pass. A passing
+suite validates only the selected model, connection, suite, and recorded cases;
+it does not validate other connection types or every factory instrument
+function. Commands, state-changing behavior, and report locations are
+documented in the [CLI README scripted validation section](../cli/README.md#scripted-validation).
 
 ## Docs
 

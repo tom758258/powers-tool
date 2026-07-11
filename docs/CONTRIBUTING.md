@@ -1,0 +1,170 @@
+# Contributing to Keysight Powers
+
+Thank you for improving Keysight Powers. Useful contributions include issue
+reports, focused bug fixes, English documentation, tests, simulator and fake
+instrument improvements, model support, command/workflow support, and
+transport/backend evidence.
+
+Keep pull requests focused. Describe any change to a public contract,
+instrument-safety behavior, support metadata, or real-instrument validation
+scope. Do not combine an unrelated refactor with a model or hardware-safety
+change.
+
+## Development setup
+
+Work from the repository root. The root `pyproject.toml` owns the supported
+Python version, dependencies, package version, build metadata, and console
+entry points. `uv.lock` is the committed reproducibility lock file.
+
+```powershell
+uv venv .venv
+uv sync --all-extras --locked --link-mode=copy
+.\.venv\Scripts\python.exe -m pytest tests -q -p no:cacheprovider
+```
+
+The repository is one distribution, `keysight-powers`; do not create a
+component-local distribution. Use focused no-hardware tests while iterating,
+then run relevant Core, CLI, WebUI, and documentation/ownership tests. Explain
+in the pull request if the full no-hardware suite was not run.
+
+## Architecture and ownership
+
+The three import packages have distinct responsibilities:
+
+- `keysight_power_core` owns model logic, exact live-scope authorization,
+  drivers, safety validation, and hardware-facing behavior.
+- `keysight_power_cli` is the command-line adapter.
+- `keysight_power_webui` is the browser and HTTP adapter.
+
+The dependency direction is `CLI -> Core` and `WebUI -> Core`. Core must not
+import either adapter. Frontend enabled/disabled state is UX only; Core is the
+final safety and exact-scope authority.
+
+## Testing expectations
+
+Default tests must not need hardware. Add focused fake-session, simulator, or
+dry-run coverage for the changed behavior. Run relevant Core, CLI, WebUI, and
+documentation/ownership tests, followed by the full no-hardware suite when
+practical.
+
+Real-instrument evidence is required before proposing a new model, command,
+workflow, SCPI behavior, VISA/backend behavior, transport scope, output setup,
+voltage/current limit, OVP/OCP behavior, trigger behavior, snapshot/restore,
+sequence behavior, timeout, cleanup, remote/local behavior, or pending-scope
+promotion. A passing artifact is evidence for review, not a self-service
+support decision.
+
+## Real-instrument validation
+
+The maintained contributor validation harness is
+`scripts\live-cli-check.ps1`. Run `-PlanOnly` first; it performs simulator,
+dry-run, lint, and expected-failure checks without opening VISA.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  .\scripts\live-cli-check.ps1 `
+  -Target "<SUPPORTED_TARGET>" `
+  -Connection "<USB|LAN|ASRL>" `
+  -Resource "<EXPLICIT_VISA_RESOURCE>" `
+  -Suite "<SUITE>" `
+  -PlanOnly
+```
+
+After reviewing the plan, remove `-PlanOnly` only in an interactive session.
+Live validation is explicit opt-in, requires confirmation, never scans or
+guesses a resource, uses bounded low-power cases, and writes reviewable
+artifacts below `.tmp_tests\live_cli_check`. `-Backend "@py"` is an optional
+advanced contributor-validation choice when the exact pending scope is
+registered; it is not normal product support.
+
+## New models, commands, and capabilities
+
+Use this order for a proposed support expansion:
+
+```text
+implement model/profile recognition
+→ implement driver/Core behavior
+→ define channels, ratings, ranges, and hard limits
+→ add request validation
+→ register the exact scope as pending
+→ add simulator/fake/no-hardware tests
+→ run bounded contributor validation
+→ extend the maintained wrapper where appropriate
+→ attach complete artifacts
+→ maintainer review
+→ explicit later promotion
+```
+
+Catalog recognition alone is not active support. A new model must not use
+`GenericScpiPowerSupply` for model-aware output merely because its SCPI looks
+similar to an existing model.
+
+## Hidden validation mode
+
+Contributors may use the intentionally hidden bootstrap option
+`--validation-allow-pending-live-support` only for a registered pending exact
+scope. It is contributor/bootstrap tooling, not a general `--force`, not
+normal product support, and not automatic promotion.
+
+The option never bypasses model/profile recognition, detected `*IDN?`,
+expected-model mismatch, missing metadata, unsupported commands, hard model or
+channel limits, official ratings and setpoint safety, E3646A range
+combinations, confirmation, OVP/OCP, trigger restrictions, sequence
+restrictions, cleanup, or session close. Missing metadata is not pending support.
+
+For a bounded bootstrap case that is not yet represented by the wrapper, use
+the hidden option only after Core recognizes the model, the command is
+implemented, ratings/hard limits and request validation exist, the exact
+pending scope is registered, and simulator or fake coverage exists:
+
+```powershell
+.\.venv\Scripts\python.exe -m keysight_power_cli.cli `
+  <COMMAND> `
+  --validation-allow-pending-live-support `
+  --resource "<EXPLICIT_VISA_RESOURCE>" `
+  --model "<EXPECTED_MODEL>" `
+  <BOUNDED_COMMAND_ARGUMENTS> `
+  --json
+```
+
+Do not use this template to enable an unbounded output-on experiment. Extend
+the maintained wrapper for formal, repeatable pull-request evidence whenever a
+case is reusable.
+
+## Artifact requirements
+
+Attach the generated `report.json`, `summary.md`, and per-command JSON and
+stdout/stderr artifacts when submitting real-instrument evidence. Include the
+commit SHA, package version, pull-request revision, expected model, detected
+manufacturer/model, firmware, redacted serial, transport, backend, exact
+wrapper command, target, suite, selected cases, plan-only/live status, exit
+codes, failures or partial results, output-state result, error queue, and
+cleanup result.
+
+Failed validation is still useful evidence and must not be discarded. Passing
+artifacts are candidate evidence only. They do not automatically promote product support.
+
+## Power-supply safety and privacy
+
+Use no DUT or only a known safe load for state-changing validation. Set an
+explicit low voltage and current limit, verify output OFF before and after the
+run, and account for OVP/OCP, channel selection, E3646A global-output behavior,
+and sequence-step safety. Always provide an explicit resource.
+
+Do not place a private IP address, complete serial number, full VISA resource,
+or personal filesystem path in a pull request, public artifact, issue, or
+documentation. Generated validation artifacts remain ignored and must not be
+committed.
+
+## Pull request checklist
+
+- [ ] Scope is focused and public-contract changes are disclosed.
+- [ ] Relevant no-hardware tests passed; full-suite status is stated.
+- [ ] Instrument-safety, output, limits, confirmation, cleanup, and metadata
+      changes are disclosed.
+- [ ] Any pending exact scope and bounded wrapper case are identified.
+- [ ] Real validation artifacts are complete, redacted, and include failures
+      or partial evidence when applicable.
+- [ ] The pull request does not claim automatic promotion from a passing run.
+- [ ] English documentation is updated when required; localized documentation
+      is deferred unless explicitly requested.

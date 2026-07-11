@@ -21,6 +21,14 @@ Set-StrictMode -Version 3.0
 $ErrorActionPreference = "Stop"
 
 $SupportedTargets = @("E36312A", "EDU36311A", "E3646A")
+$PolicyGatedCommands = @(
+    "measure", "measure-all", "output-state", "read-status", "validate-readonly", "readback",
+    "protection-status", "protection-set", "clear-protection", "snapshot", "restore-from-snapshot",
+    "log", "doctor", "capabilities", "set", "apply", "output-on", "output-off", "safe-off",
+    "cycle-output", "ramp", "ramp-list", "smoke-output", "sequence", "trigger-pulse",
+    "trigger-status", "trigger-step", "trigger-list", "trigger-fire", "trigger-abort"
+)
+$ExemptLiveDiagnosticCommands = @("list-resources", "verify", "identify", "error", "clear")
 $SimResources = @{
     E36312A = "USB0::SIM::E36312A::INSTR"
     EDU36311A = "USB0::SIM::EDU36311A::INSTR"
@@ -124,6 +132,17 @@ function Protect-Argument {
 
     if ($Argument -eq $script:RawResource) {
         return $script:ResourceDisplay
+    }
+    if ([System.IO.Path]::IsPathRooted($Argument)) {
+        $fullArgument = [System.IO.Path]::GetFullPath($Argument)
+        $fullRoot = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar
+        )
+        if ($fullArgument.StartsWith($fullRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return ConvertTo-RepoRelativePath -Path $fullArgument
+        }
+        return "<redacted-path>"
     }
     return $Argument
 }
@@ -242,7 +261,8 @@ function New-CommandCase {
         [bool]$ExpectedSuccess = $true,
         [string]$ExpectedErrorContains,
         [bool]$StateChanging = $false,
-        [bool]$LiveHardwareExpected = $false
+        [bool]$LiveHardwareExpected = $false,
+        [string]$CleanupRole
     )
 
     return [pscustomobject]@{
@@ -254,6 +274,7 @@ function New-CommandCase {
         expected_error_contains = $ExpectedErrorContains
         state_changing = $StateChanging
         live_hardware_expected = $LiveHardwareExpected
+        cleanup_role = $CleanupRole
     }
 }
 
@@ -264,6 +285,100 @@ function Add-BackendArgument {
         return @($Arguments + @("--backend", $script:BackendValue))
     }
     return $Arguments
+}
+
+function Add-ValidationSupportPolicyArgument {
+    param([Parameter(Mandatory = $true)][string[]]$Arguments)
+
+    if ($Arguments.Count -eq 0) {
+        return $Arguments
+    }
+    $command = $Arguments[0].Trim().ToLowerInvariant()
+    if ($command -in $script:ExemptLiveDiagnosticCommands -or $command -notin $script:PolicyGatedCommands) {
+        return $Arguments
+    }
+    if ($Arguments -contains "--validation-allow-pending-live-support") {
+        return $Arguments
+    }
+    return @($Arguments + "--validation-allow-pending-live-support")
+}
+
+function Get-TransportScope {
+    param([Parameter(Mandatory = $true)][string]$Connection)
+
+    switch ($Connection) {
+        "USB" { return "usb" }
+        "LAN" { return "tcpip" }
+        "ASRL" { return "asrl" }
+        default { throw "Unsupported validation connection '$Connection'." }
+    }
+}
+
+function Get-BackendArtifactFields {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return [pscustomobject]@{
+            backend = "system_visa"
+            backend_scope = "system_visa"
+            backend_argument = $null
+        }
+    }
+    if ($Value.Trim().ToLowerInvariant() -eq "@py") {
+        return [pscustomobject]@{
+            backend = $Value
+            backend_scope = "pyvisa_py"
+            backend_argument = $Value
+        }
+    }
+    return [pscustomobject]@{
+        backend = $Value
+        backend_scope = "custom_visa"
+        backend_argument = $Value
+    }
+}
+
+function Get-PropertyValue {
+    param(
+        [AllowNull()]$Object,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+
+    if ($null -eq $Object) {
+        return $null
+    }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) {
+        return $null
+    }
+    return $property.Value
+}
+
+function New-CleanupEvidence {
+    param([Parameter(Mandatory = $true)][string]$ValidationMode)
+
+    $requested = [bool]($script:StateChanging -and $Restore)
+    $status = if ($ValidationMode -eq "planned") {
+        "not_executed_plan_only"
+    }
+    elseif ($requested) {
+        "not_required"
+    }
+    else {
+        "skipped_by_operator"
+    }
+    return [pscustomobject]@{
+        requested = $requested
+        attempted = $false
+        safe_off_command = $null
+        safe_off_exit_code = $null
+        safe_off_ok = $null
+        output_state_checked = $false
+        all_outputs_off = $null
+        error_queue_checked = $false
+        instrument_errors = $null
+        status = $status
+    }
 }
 
 function New-ValidationSequenceFile {
@@ -510,7 +625,8 @@ function Invoke-ValidationCommand {
     $jsonPath = Join-Path $script:OutputDir ($artifactBaseName + ".json")
     $stdoutPath = Join-Path $script:OutputDir ($artifactBaseName + ".stdout.txt")
     $stderrPath = Join-Path $script:OutputDir ($artifactBaseName + ".stderr-scpi.txt")
-    $argsWithBackend = if ($Case.phase -eq "live") { Add-BackendArgument -Arguments $Case.args } else { $Case.args }
+    $argsWithPolicy = Add-ValidationSupportPolicyArgument -Arguments $Case.args
+    $argsWithBackend = if ($Case.phase -eq "live") { Add-BackendArgument -Arguments $argsWithPolicy } else { $argsWithPolicy }
     $hasSaveJson = $false
     foreach ($arg in $argsWithBackend) {
         if ($arg -eq "--save-json") {
@@ -583,6 +699,25 @@ function Invoke-ValidationCommand {
         }
     }
 
+    $identity = $null
+    $outputStates = $null
+    $instrumentErrors = $null
+    if ($null -ne $payload) {
+        $data = Get-PropertyValue -Object $payload -Name "data"
+        if ($null -ne $data) {
+            $resourceData = Get-PropertyValue -Object $data -Name "resource"
+            $identity = Get-PropertyValue -Object $resourceData -Name "idn"
+            if ($null -eq $identity) {
+                $identity = Get-PropertyValue -Object $data -Name "idn"
+            }
+            $outputStates = Get-PropertyValue -Object $data -Name "outputs"
+            if ($null -eq $outputStates) {
+                $outputStates = Get-PropertyValue -Object $data -Name "output"
+            }
+            $instrumentErrors = Get-PropertyValue -Object $data -Name "errors"
+        }
+    }
+
     $casePassed = $true
     $failure = $null
     if ($null -ne $parseError) {
@@ -625,6 +760,7 @@ function Invoke-ValidationCommand {
     $recordArgs = Protect-Arguments -Arguments $allArgs
     $formattedArgs = @("-m", "keysight_power_cli.cli") + $recordArgs
     $commandLine = (Format-CommandArgument -Argument $PythonExe) + " " + (($formattedArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
+    $backendScope = if ($null -eq $script:BackendArtifact) { $null } else { $script:BackendArtifact.backend_scope }
     $record = [pscustomobject]@{
         name = $Case.name
         suite = $Case.suite
@@ -639,6 +775,13 @@ function Invoke-ValidationCommand {
         error_code = $errorCode
         parse_error = $parseError
         expected_success = $Case.expected_success
+        support_policy_mode = if ($argsWithPolicy -contains "--validation-allow-pending-live-support") { "validation" } else { $null }
+        transport_scope = $script:TransportScope
+        backend_scope = $backendScope
+        identity_observed = [bool]($Case.phase -eq "live" -and $null -ne $identity)
+        output_states_observed = $outputStates
+        instrument_errors_observed = $instrumentErrors
+        cleanup_role = $Case.cleanup_role
         result = if ($casePassed) { "passed" } else { "failed" }
         stdout_path = ConvertTo-RepoRelativePath -Path $stdoutPath
         stderr_path = ConvertTo-RepoRelativePath -Path $stderrPath
@@ -649,19 +792,103 @@ function Invoke-ValidationCommand {
     if (-not $casePassed) {
         $script:Failures.Add($failure)
     }
+    if ($casePassed -and $Case.phase -eq "live" -and $null -ne $identity -and ($null -eq $script:InstrumentIdentity -or $script:InstrumentIdentity.availability -ne "observed")) {
+        $serial = Get-PropertyValue -Object $identity -Name "serial"
+        $script:InstrumentIdentity = [pscustomobject]@{
+            availability = "observed"
+            manufacturer = Get-PropertyValue -Object $identity -Name "manufacturer"
+            detected_model = Get-PropertyValue -Object $identity -Name "model"
+            firmware = Get-PropertyValue -Object $identity -Name "firmware"
+            serial = if ([string]::IsNullOrWhiteSpace([string]$serial)) { $null } else { "<redacted>" }
+            serial_redacted = -not [string]::IsNullOrWhiteSpace([string]$serial)
+            source_command = $Case.name
+        }
+    }
     return $record
 }
 
+function Test-AllOutputsOff {
+    param([AllowNull()]$OutputStates)
+
+    if ($null -eq $OutputStates) {
+        return $null
+    }
+    $items = if ($OutputStates -is [System.Collections.IEnumerable] -and $OutputStates -isnot [string]) { @($OutputStates) } else { @($OutputStates) }
+    if ($items.Count -eq 0) {
+        return $null
+    }
+    foreach ($item in $items) {
+        if ($item -is [bool]) {
+            if ($item) { return $false }
+            continue
+        }
+        $enabled = Get-PropertyValue -Object $item -Name "enabled"
+        if ($null -eq $enabled) {
+            $enabled = Get-PropertyValue -Object $item -Name "output"
+        }
+        if ($null -eq $enabled) {
+            return $null
+        }
+        if ([bool]$enabled) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Invoke-SafeOffCleanup {
+    param([ValidateSet("failure", "final")][string]$Role = "failure")
+
     if (-not $Restore) {
+        $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "live"
         return
     }
-    $cleanupCase = New-CommandCase -Name "safe-off-failure-cleanup" -Suite "cleanup" -Phase "live" -Args @("safe-off", "--json", "--resource", $script:RawResource, "--channel", "all", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true
+    $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "live"
+    $script:CleanupEvidence.requested = $true
+    $script:CleanupEvidence.attempted = $true
+    $cleanupName = if ($Role -eq "failure") { "safe-off-failure-cleanup" } else { "safe-off-final-cleanup" }
+    $cleanupCase = New-CommandCase -Name $cleanupName -Suite "cleanup" -Phase "live" -Args @("safe-off", "--json", "--resource", $script:RawResource, "--channel", "all", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true -CleanupRole ($Role + "_safe_off")
     try {
-        Invoke-ValidationCommand -Case $cleanupCase | Out-Null
+        $safeOffRecord = Invoke-ValidationCommand -Case $cleanupCase
+        $script:CleanupEvidence.safe_off_command = $safeOffRecord.command_line
+        $script:CleanupEvidence.safe_off_exit_code = $safeOffRecord.exit_code
+        $script:CleanupEvidence.safe_off_ok = ($safeOffRecord.result -eq "passed")
+        if (-not $script:CleanupEvidence.safe_off_ok) {
+            $script:CleanupEvidence.status = "failed"
+            return
+        }
+
+        $outputStateCase = New-CommandCase -Name "cleanup-output-state" -Suite "cleanup" -Phase "live" -Args @("output-state", "--json", "--resource", $script:RawResource, "--channel", "all", "--log-scpi") -LiveHardwareExpected:$true -CleanupRole "final_output_state"
+        $outputStateRecord = Invoke-ValidationCommand -Case $outputStateCase
+        if ($outputStateRecord.result -eq "passed") {
+            $script:CleanupEvidence.output_state_checked = $true
+            $script:CleanupEvidence.all_outputs_off = Test-AllOutputsOff -OutputStates $outputStateRecord.output_states_observed
+        }
+
+        $errorCase = New-CommandCase -Name "cleanup-error-queue" -Suite "cleanup" -Phase "live" -Args @("error", "--json", "--resource", $script:RawResource, "--max-reads", "20", "--log-scpi") -LiveHardwareExpected:$true -CleanupRole "final_error_queue"
+        $errorRecord = Invoke-ValidationCommand -Case $errorCase
+        if ($errorRecord.result -eq "passed") {
+            $script:CleanupEvidence.error_queue_checked = $true
+            $script:CleanupEvidence.instrument_errors = $errorRecord.instrument_errors_observed
+        }
+
+        if ($script:CleanupEvidence.all_outputs_off -eq $false) {
+            $script:CleanupEvidence.status = "failed"
+            $script:Failures.Add("Cleanup could not confirm that all outputs are off.")
+        }
+        elseif (-not $script:CleanupEvidence.output_state_checked -or -not $script:CleanupEvidence.error_queue_checked -or $null -eq $script:CleanupEvidence.all_outputs_off) {
+            $script:CleanupEvidence.status = "partial"
+        }
+        elseif ($null -ne $script:CleanupEvidence.instrument_errors -and @($script:CleanupEvidence.instrument_errors).Count -gt 0) {
+            $script:CleanupEvidence.status = "partial"
+        }
+        else {
+            $script:CleanupEvidence.status = "passed"
+        }
     }
     catch {
-        $script:Failures.Add("Failure cleanup threw: " + $_.Exception.Message)
+        $script:CleanupEvidence.status = "failed"
+        $script:Failures.Add("$Role cleanup threw: " + $_.Exception.Message)
     }
 }
 
@@ -719,18 +946,43 @@ function Write-ValidationArtifacts {
             result = $_.result
         }
     })
+    if ($null -eq $script:InstrumentIdentity) {
+        $script:InstrumentIdentity = [pscustomobject]@{
+            availability = if ($ValidationMode -eq "planned") { "not_observed_plan_only" } else { "not_observed" }
+            manufacturer = $null
+            detected_model = $null
+            firmware = $null
+            serial = $null
+            serial_redacted = $false
+            source_command = $null
+        }
+    }
+    if ($null -eq $script:CleanupEvidence) {
+        $script:CleanupEvidence = New-CleanupEvidence -ValidationMode $ValidationMode
+    }
     $report = [pscustomobject]@{
-        schema_version = "1.0"
+        schema_version = "1.1"
         kind = "power_cli_live_validation"
         target = $script:NormalizedTarget
+        expected_model = $script:NormalizedTarget
         connection = $script:ConnectionLabel
+        transport_scope = $script:TransportScope
         suite = $Suite
         validation_mode = $ValidationMode
+        support_policy_mode = "validation"
+        pending_live_support_allowed = $true
+        candidate_evidence_only = $true
+        promotes_live_support = $false
         plan_only = [bool]$PlanOnly
         live_executed = ($ValidationMode -eq "live")
         state_changing = $script:StateChanging
+        restore_requested = [bool]$Restore
         resource = $script:ResourceDisplay
-        backend = if ([string]::IsNullOrWhiteSpace($Backend)) { $null } else { $Backend }
+        backend = $script:BackendArtifact.backend
+        backend_scope = $script:BackendArtifact.backend_scope
+        backend_argument = $script:BackendArtifact.backend_argument
+        instrument_identity = $script:InstrumentIdentity
+        cleanup = $script:CleanupEvidence
         git_head = Get-GitHead
         package_version = Get-PackageVersion
         started_at = $StartedAt.ToUniversalTime().ToString("o")
@@ -755,10 +1007,16 @@ function Write-ValidationArtifacts {
     $lines.Add("Result: ``" + $Result + "``")
     $lines.Add("PlanOnly: ``" + [bool]$PlanOnly + "``")
     $lines.Add("Live executed: ``" + ($ValidationMode -eq "live") + "``")
+    $lines.Add("Support policy mode: ``validation``")
+    $lines.Add("Candidate evidence only: ``true``")
+    $lines.Add("Promotes product support: ``false``")
+    $lines.Add("Transport scope: ``" + $script:TransportScope + "``")
+    $lines.Add("Backend scope: ``" + $script:BackendArtifact.backend_scope + "``")
     $lines.Add("Output directory: ``" + (ConvertTo-RepoRelativePath -Path $script:OutputDir) + "``")
     $lines.Add("Resource: ``" + $script:ResourceDisplay + "``")
     $lines.Add("")
     $lines.Add("## Safety Notes")
+    $lines.Add("- This run produces candidate validation evidence only. Passing artifacts do not automatically promote product support.")
     $lines.Add("- This suite validates only the selected model, connection, suite, and command cases.")
     $lines.Add("- It does not validate untested features or other connections.")
     if ($script:StateChanging) {
@@ -772,6 +1030,16 @@ function Write-ValidationArtifacts {
         $lines.Add("- E3646A OUTP ON/OFF is global, not an independent per-channel relay behavior.")
         $lines.Add("- E3646A ramp-list and sequence are software workflows, not native LIST.")
     }
+    $lines.Add("")
+    $lines.Add("## Identity And Cleanup Evidence")
+    $lines.Add("- Expected model target: ``" + $script:NormalizedTarget + "`` (not a detected-driver override).")
+    $lines.Add("- Observed identity availability: ``" + $script:InstrumentIdentity.availability + "``")
+    if ($null -ne $script:InstrumentIdentity.detected_model) {
+        $lines.Add("- Detected model: ``" + $script:InstrumentIdentity.detected_model + "`` from ``" + $script:InstrumentIdentity.source_command + "``.")
+    }
+    $lines.Add("- Cleanup status: ``" + $script:CleanupEvidence.status + "``")
+    $lines.Add("- Cleanup output state checked: ``" + $script:CleanupEvidence.output_state_checked + "``; all outputs off: ``" + $script:CleanupEvidence.all_outputs_off + "``")
+    $lines.Add("- Cleanup error queue checked: ``" + $script:CleanupEvidence.error_queue_checked + "``")
     $lines.Add("")
     $lines.Add("## Physical Checks")
     $lines.Add("- Confirm the expected instrument and explicit VISA resource.")
@@ -802,6 +1070,11 @@ function Write-ValidationArtifacts {
     Write-Utf8NoBomFile -LiteralPath $summaryPath -Value $lines
 }
 
+$script:TransportScope = $null
+$script:BackendArtifact = Get-BackendArtifactFields -Value $null
+$script:InstrumentIdentity = $null
+$script:CleanupEvidence = $null
+
 if ($env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1") {
     return
 }
@@ -820,6 +1093,10 @@ $script:ConnectionLabel = $ConnectionLabel
 $script:RawResource = $Resource
 $script:ResourceDisplay = "$ConnectionLabel`:<redacted-resource>"
 $script:BackendValue = $Backend
+$script:TransportScope = Get-TransportScope -Connection $ConnectionLabel
+$script:BackendArtifact = Get-BackendArtifactFields -Value $Backend
+$script:InstrumentIdentity = $null
+$script:CleanupEvidence = $null
 
 $supportedSuites = Get-SupportedSuites -Model $NormalizedTarget
 if ($Suite -eq "full") {
@@ -834,6 +1111,7 @@ else {
         $script:StateChanging = $false
         $script:CommandRecords = New-Object System.Collections.Generic.List[object]
         $script:Failures = New-Object System.Collections.Generic.List[string]
+        $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "failed"
         $script:Failures.Add("Unsupported suite '$Suite' for target $NormalizedTarget. Supported suites: $($supportedSuites -join ', ').")
         Write-ValidationArtifacts -ValidationMode "failed" -Result "failed" -StartedAt (Get-Date)
         Fail-Validation "Unsupported suite '$Suite' for target $NormalizedTarget. Supported suites: $($supportedSuites -join ', ')."
@@ -848,6 +1126,7 @@ $script:SuitesToRun = @($SuitesToRun)
 $script:StateChanging = @($SuitesToRun | Where-Object { $_ -in @("output", "protection", "trigger-list", "software-sequence") }).Count -gt 0
 $script:CommandRecords = New-Object System.Collections.Generic.List[object]
 $script:Failures = New-Object System.Collections.Generic.List[string]
+$script:CleanupEvidence = New-CleanupEvidence -ValidationMode "planned"
 $startedAt = Get-Date
 
 Write-Host "Running no-hardware preflight for $NormalizedTarget suite '$Suite'..."
@@ -905,9 +1184,13 @@ $liveCases = Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:
 foreach ($case in $liveCases) {
     Invoke-ValidationCommand -Case $case | Out-Null
     if ($script:Failures.Count -gt 0 -and $script:StateChanging) {
-        Invoke-SafeOffCleanup
+        Invoke-SafeOffCleanup -Role "failure"
         break
     }
+}
+
+if ($script:Failures.Count -eq 0 -and $script:StateChanging) {
+    Invoke-SafeOffCleanup -Role "final"
 }
 
 if ($script:Failures.Count -gt 0) {

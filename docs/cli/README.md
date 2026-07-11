@@ -152,11 +152,13 @@ preflight first, then requires interactive Enter confirmation before opening
 VISA. If stdin is redirected, live execution is refused with a
 confirmation-required report.
 
-`live-cli-check.ps1` is a validation tool, not the same thing as declaring a
-connection opened for normal use. A passed validation run is scoped to the
-selected model, connection, suite, and cases; it does not prove every feature,
-every connection type, or every model, and it does not mean USB validation
-covers LAN validation.
+`live-cli-check.ps1` is the maintained contributor validation harness, not the
+same thing as declaring a connection opened for normal use. Its artifacts are
+candidate evidence only: a passed validation run is scoped to the selected
+model, connection, suite, and cases and does not automatically promote product
+support. It does not prove every feature, every connection type, or every
+model, and it does not mean USB validation covers LAN validation. See
+[Contributing](../CONTRIBUTING.md) for the contributor workflow.
 
 Current accepted evidence connections from passing validation artifacts:
 

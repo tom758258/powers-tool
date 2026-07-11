@@ -106,6 +106,39 @@ def test_public_docs_describe_p4_policy_boundary_without_publishing_hidden_switc
     assert "The WebUI is product-only" in docs["docs/webui/USER_GUIDE.md"]
 
 
+def test_contributor_guide_documents_p5_validation_boundary_without_publishing_switch_elsewhere():
+    public_paths = (
+        "README.md",
+        "docs/core/README.md",
+        "docs/core/supported-models.md",
+        "docs/cli/README.md",
+        "docs/cli/USER_GUIDE.md",
+        "docs/contracts/power-worker-contract.md",
+        "docs/webui/README.md",
+        "docs/webui/USER_GUIDE.md",
+    )
+    hidden_switch = "--validation-allow-pending-live-support"
+    guide = Path("docs/CONTRIBUTING.md").read_text(encoding="utf-8")
+
+    assert "[Contributing](docs/CONTRIBUTING.md)" in Path("README.md").read_text(encoding="utf-8")
+    assert hidden_switch in guide
+    assert "not a general `--force`" in guide
+    assert "Missing metadata is not pending support." in guide
+    assert "do not automatically promote product support" in guide
+    assert "explicit resource" in guide
+    for required_phrase in (
+        "output OFF before and after",
+        "low voltage and current limit",
+        "OVP/OCP",
+        "cleanup",
+        "private IP address",
+    ):
+        assert required_phrase in guide
+    assert hidden_switch not in "\n".join(Path(path).read_text(encoding="utf-8") for path in public_paths)
+    combined = "\n".join(Path(path).read_text(encoding="utf-8") for path in (*public_paths, "docs/CONTRIBUTING.md"))
+    assert "Local/docs" not in combined
+
+
 def test_public_dry_run_examples_do_not_use_live_resource_without_model():
     checked_paths = (
         "README.md",

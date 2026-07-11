@@ -316,6 +316,13 @@ Examples:
 .\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite output -PlanOnly
 ```
 
+## Contributing
+
+See [Contributing](docs/CONTRIBUTING.md) for development ownership, no-hardware
+test expectations, and the contributor validation-artifact workflow. Changes
+to live model, command, transport, or backend support require reviewable
+real-instrument evidence when applicable.
+
 ## Documentation
 
 - [Core README](docs/core/README.md)

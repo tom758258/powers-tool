@@ -335,9 +335,91 @@ def test_live_cli_check_readonly_plan_only_succeeds_without_hardware(target, con
     assert "Press Enter" not in result.stdout
     report = json.loads(_report_path(result.stdout, result.stderr).read_text(encoding="utf-8"))
     assert report["validation_mode"] == "planned"
+    assert report["schema_version"] == "1.1"
+    assert report["support_policy_mode"] == "validation"
+    assert report["pending_live_support_allowed"] is True
+    assert report["candidate_evidence_only"] is True
+    assert report["promotes_live_support"] is False
     assert report["plan_only"] is True
     assert report["live_executed"] is False
+    assert report["expected_model"] == target
+    assert report["transport_scope"] == {"USB": "usb", "ASRL": "asrl"}[connection]
+    assert report["backend"] == "system_visa"
+    assert report["backend_scope"] == "system_visa"
+    assert report["backend_argument"] is None
+    assert report["instrument_identity"]["availability"] == "not_observed_plan_only"
+    assert report["instrument_identity"]["detected_model"] is None
+    assert report["cleanup"]["status"] == "not_executed_plan_only"
     assert all(command["hardware_touched"] is False for command in report["commands"])
+
+
+def test_live_cli_check_centrally_adds_validation_flag_only_for_policy_commands():
+    command = r"""
+$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$policy = @(Add-ValidationSupportPolicyArgument -Arguments @("measure", "--json"))
+if (@($policy | Where-Object { $_ -eq "--validation-allow-pending-live-support" }).Count -ne 1) { throw "policy command did not receive exactly one flag" }
+$duplicate = @(Add-ValidationSupportPolicyArgument -Arguments @("measure", "--validation-allow-pending-live-support", "--json"))
+if (@($duplicate | Where-Object { $_ -eq "--validation-allow-pending-live-support" }).Count -ne 1) { throw "duplicate flag inserted" }
+foreach ($diagnostic in @("list-resources", "verify", "identify", "error", "clear")) {
+    $args = @(Add-ValidationSupportPolicyArgument -Arguments @($diagnostic, "--json"))
+    if ($args -contains "--validation-allow-pending-live-support") { throw "$diagnostic should remain exempt" }
+}
+"""
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("value", "backend", "scope", "argument"),
+    [
+        (None, "system_visa", "system_visa", None),
+        ("@py", "@py", "pyvisa_py", "@py"),
+        ("@ivi", "@ivi", "custom_visa", "@ivi"),
+    ],
+)
+def test_live_cli_check_normalizes_backend_for_artifacts(value, backend, scope, argument):
+    literal = "$null" if value is None else f'"{value}"'
+    expected_argument = "$null" if argument is None else f'"{argument}"'
+    command = rf"""
+$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$fields = Get-BackendArtifactFields -Value {literal}
+if ($fields.backend -ne "{backend}") {{ throw "wrong backend: $($fields.backend)" }}
+if ($fields.backend_scope -ne "{scope}") {{ throw "wrong scope: $($fields.backend_scope)" }}
+if ($fields.backend_argument -ne {expected_argument}) {{ throw "wrong backend argument" }}
+"""
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_live_cli_check_plan_artifact_redacts_resource_and_command_paths():
+    resource = "TCPIP0::PLANONLY::E36312A::INSTR"
+    result = _run_live_cli_check(
+        "-Target",
+        "E36312A",
+        "-Connection",
+        "LAN",
+        "-Resource",
+        resource,
+        "-Backend",
+        "@py",
+        "-Suite",
+        "readonly",
+        "-PlanOnly",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = _report_path(result.stdout, result.stderr)
+    report_text = report_path.read_text(encoding="utf-8")
+    report = json.loads(report_text)
+    assert resource not in report_text
+    assert str(Path.cwd()) not in report_text
+    assert report["resource"] == "LAN:<redacted-resource>"
+    assert all("<redacted-resource>" not in command["arguments"] for command in report["commands"])
+    assert "candidate validation evidence only" in report_path.with_name("summary.md").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(
