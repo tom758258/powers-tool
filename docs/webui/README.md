@@ -138,6 +138,11 @@ use `model_profile` or a deterministic SIM resource such as
 scan/job IDN metadata. The browser UI remains live-oriented and does not
 provide general dry-run or simulate controls.
 
+The browser and raw WebUI jobs always use the product support-policy mode.
+Validation-policy runtime fields are rejected, not ignored. Frontend enabled
+state is UX only: Core remains the final IDN-selected exact-scope authority,
+and pending transport/backend scopes are not product-open.
+
 Cancelling an executing job first moves it to non-terminal
 `cancel_requested`. The WebUI keeps `active_job_id` and the hardware lock until
 the current thread I/O and Core stop cleanup finish. Only then does the job

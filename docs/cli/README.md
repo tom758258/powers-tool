@@ -415,6 +415,14 @@ planning. Accepted commands such as `set`, `output-off`, `safe-off`,
 `apply`, `ramp`, and model-appropriate read/protection/trigger commands
 still require an exact accepted model/transport/backend scope.
 
+Normal CLI operation always uses the product live-support policy. Pending
+transport/backend evidence is not normal product support, and no public force
+or validation bypass is available. The Core has a contributor-validation mode
+for controlled evidence work, but its invocation is intentionally outside the
+normal CLI help, examples, and operator workflow documentation. That mode does
+not bypass IDN selection, expected-model checks, request validation, safety
+limits, confirmations, or model feature locks.
+
 `list-resources`, `verify`, `clear`, `error`, `measure`, `identify`,
 `protection-status`, `protection-set`, `clear-protection`, and `snapshot` now
 execute through shared core runners. The CLI still owns argparse handling,

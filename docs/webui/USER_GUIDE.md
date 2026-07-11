@@ -165,6 +165,10 @@ pending scopes fail closed. E3646A product LIVE remains ASRL / RS-232 + system
 VISA only, and its software `ramp-list` and step-limited `sequence` are not
 native LIST.
 
+The WebUI is product-only. It does not offer a validation override, and raw
+job submissions cannot use one to turn pending evidence into normal product
+support.
+
 Some editors support JSON Load/Save, including Sequence, Ramp List, and Trigger
 List workspaces. Use these for repeatable workflows, and keep saved files free
 of private lab resource strings unless they are intentionally local-only.

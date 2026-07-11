@@ -204,6 +204,84 @@ def test_hidden_validation_mode_keeps_no_hardware_feature_locks(monkeypatch, cap
     assert json.loads(capsys.readouterr().out)["error"]["type"] == "validation"
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["measure", "--resource", OUTPUT_RESOURCE, "--channel", "1"],
+        ["read-status", "--resource", OUTPUT_RESOURCE],
+        ["set", "--resource", OUTPUT_RESOURCE, "--channel", "1", "--voltage", "1", "--current", "0.1"],
+        ["protection-status", "--resource", OUTPUT_RESOURCE],
+        ["snapshot", "--resource", OUTPUT_RESOURCE],
+        ["restore-from-snapshot", "--resource", OUTPUT_RESOURCE, "--snapshot", "snapshot.json", "--channel", "1"],
+        ["trigger-abort", "--resource", OUTPUT_RESOURCE, "--channel", "1"],
+        ["ramp-list", "--resource", OUTPUT_RESOURCE, "--segment", "1", "0.1", "0", "0.5", "0.5", "0", "0"],
+        ["sequence", "--resource", OUTPUT_RESOURCE, "--file", "sequence.yaml"],
+        ["doctor", "--resource", OUTPUT_RESOURCE],
+        ["capabilities", "--resource", OUTPUT_RESOURCE],
+    ],
+)
+def test_hidden_validation_argument_is_accepted_and_suppressed_for_each_parser_family(capsys, argv) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args([*argv, "--validation-allow-pending-live-support"])
+    assert args.validation_allow_pending_live_support is True
+
+    with pytest.raises(SystemExit):
+        parser.parse_args([argv[0], "--help"])
+    assert "--validation-allow-pending-live-support" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("argv", "builder"),
+    [
+        (["set", "--resource", OUTPUT_RESOURCE, "--channel", "1", "--voltage", "1", "--current", "0.1"], cli._operation_request_for_args),
+        (["read-status", "--resource", OUTPUT_RESOURCE], cli._target_core_request_for_args),
+        (["trigger-abort", "--resource", OUTPUT_RESOURCE, "--channel", "1"], cli._trigger_request_for_args),
+        (["ramp-list", "--resource", OUTPUT_RESOURCE, "--segment", "1", "0.1", "0", "0.5", "0.5", "0", "0"], cli._ramp_list_request_for_args),
+        (["sequence", "--resource", OUTPUT_RESOURCE, "--file", "sequence.yaml"], cli._sequence_request_for_args),
+    ],
+)
+@pytest.mark.parametrize("hidden", [False, True])
+def test_cli_request_builders_propagate_only_policy_mode(argv, builder, hidden: bool) -> None:
+    parser = cli.build_parser()
+    args = parser.parse_args([*argv, *(["--validation-allow-pending-live-support"] if hidden else [])])
+    request = builder(args)
+
+    assert request.runtime.support_policy_mode == ("validation" if hidden else "product")
+    assert "validation_allow_pending_live_support" not in request.parameters
+
+
+def test_restore_request_propagates_validation_mode_without_public_request_parameter(monkeypatch, capsys) -> None:
+    captured = {}
+
+    def fake_run_restore(request, **kwargs):
+        captured["request"] = request
+        return {"resource": request.runtime.resource, "restored_channels": [1], "plan": {}}
+
+    monkeypatch.setattr(cli.restore_core, "run_restore", fake_run_restore)
+    assert (
+        cli.main(
+            [
+                "restore-from-snapshot",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--snapshot",
+                "snapshot.json",
+                "--channel",
+                "1",
+                "--confirm",
+                "--validation-allow-pending-live-support",
+            ]
+        )
+        == 0
+    )
+    request = captured["request"]
+    assert request.runtime.support_policy_mode == "validation"
+    assert "validation_allow_pending_live_support" not in request.parameters
+    payload = json.loads(capsys.readouterr().out)
+    assert "validation_allow_pending_live_support" not in json.dumps(payload)
+
+
 def expected_idn(raw: str) -> dict[str, object]:
     manufacturer, model, serial, firmware = raw.split(",", maxsplit=3)
     return {

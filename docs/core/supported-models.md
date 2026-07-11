@@ -1,5 +1,15 @@
 # Supported Models
 
+## Product And Contributor-Validation Boundary
+
+Normal product LIVE execution uses the exact product matrix below. The two
+TCPIP + pyvisa-py entries remain registered pending candidates, not
+product-open support: system-VISA evidence does not validate pyvisa-py or a
+custom backend. An internal contributor-validation policy mode can evaluate
+only those already-registered pending exact scopes; it does not promote them,
+add a model or command, or bypass model/profile, safety, confirmation, and
+request validation. E3646A remains ASRL / RS-232 + system VISA only.
+
 This document summarizes the checked-in Core live-support policy. The
 authoritative command/transport/backend decisions are in
 `src/keysight_power_core/support_policy.py`; the CLI contract documents

@@ -1,17 +1,26 @@
 import pytest
 
-from keysight_power_core.core import CoreValidationError, OperationRequest, RuntimeOptions
+from keysight_power_core.core import (
+    ConfirmationRequiredError,
+    CoreValidationError,
+    OperationRequest,
+    RuntimeOptions,
+    TriggerRequest,
+)
 from keysight_power_core.instrument_io import run_instrument_io
 from keysight_power_core.live_support import enforce_live_support
 from keysight_power_core.operations import run_operation
 from keysight_power_core.protection import run_protection
+from keysight_power_core.ramp_list import RAMP_LIST_KIND, run_ramp_list
 from keysight_power_core.readonly import run_readonly
+from keysight_power_core.restore import run_restore
 from keysight_power_core.snapshot import run_snapshot
 from keysight_power_core.support_policy import (
     LiveSupportPolicyError,
     SUPPORT_POLICY_MODE_PRODUCT,
     SUPPORT_POLICY_MODE_VALIDATION,
 )
+from keysight_power_core.trigger import run_trigger
 
 
 class FakeSession:
@@ -262,3 +271,210 @@ def test_exempt_clear_keeps_its_existing_no_idn_behavior() -> None:
     assert data["cleared"] is True
     assert session.queries == []
     assert session.writes == ["*CLS"]
+
+
+def test_trigger_abort_pending_scope_rejects_in_product_and_runs_in_validation_mode() -> None:
+    product_session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    product_request = TriggerRequest(
+        "trigger-abort",
+        RuntimeOptions(resource="TCPIP0::192.0.2.1::INSTR", backend="@py"),
+        {"channel": 1},
+    )
+    with pytest.raises(LiveSupportPolicyError, match="transport_pending"):
+        run_trigger(product_request, opener=lambda *args, **kwargs: product_session)
+    assert product_session.queries == ["*IDN?"]
+    assert product_session.writes == []
+    assert product_session.closed
+
+    validation_session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    validation_request = TriggerRequest(
+        "trigger-abort",
+        RuntimeOptions(
+            resource="TCPIP0::192.0.2.1::INSTR",
+            backend="@py",
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        ),
+        {"channel": 1},
+    )
+    data = run_trigger(validation_request, opener=lambda *args, **kwargs: validation_session)
+    assert data["channels"] == [1]
+    assert validation_session.queries[0] == "*IDN?"
+    assert validation_session.writes == ["ABOR (@1)"]
+    assert validation_session.closed
+
+
+def test_trigger_expected_model_mismatch_precedes_validation_pending_scope() -> None:
+    session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    request = TriggerRequest(
+        "trigger-abort",
+        RuntimeOptions(
+            resource="TCPIP0::192.0.2.1::INSTR",
+            backend="@py",
+            model_profile="EDU36311A",
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        ),
+        {"channel": 1},
+    )
+    with pytest.raises(CoreValidationError, match="Expected model EDU36311A"):
+        run_trigger(request, opener=lambda *args, **kwargs: session)
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed
+
+
+def test_validation_mode_keeps_unsupported_trigger_command_closed() -> None:
+    session = FakeSession("KEYSIGHT,EDU36311A,SN,1.0")
+    request = TriggerRequest(
+        "trigger-step",
+        RuntimeOptions(
+            resource="TCPIP0::192.0.2.1::INSTR",
+            backend="@py",
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        ),
+        {"channel": 1, "source": "bus"},
+    )
+    with pytest.raises(LiveSupportPolicyError, match="not_supported_by_model"):
+        run_trigger(request, opener=lambda *args, **kwargs: session)
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed
+
+
+def _restore_document(
+    *, model: str = "E36312A", serial: str = "SN", voltage: float = 1.0
+) -> dict[str, object]:
+    return {
+        "idn": {"model": model, "serial": serial},
+        "outputs": [{"channel": 1, "enabled": False}],
+        "readback": [{"channel": 1, "setpoints": {"voltage": voltage, "current": 0.1}}],
+        "protection_settings": [],
+    }
+
+
+def test_validation_mode_restore_without_exact_scope_rejects_before_restore_scpi() -> None:
+    session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    request = OperationRequest(
+        "restore-from-snapshot",
+        RuntimeOptions(
+            resource="TCPIP0::192.0.2.1::INSTR",
+            backend="@py",
+            confirm=True,
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        ),
+        {"document": _restore_document()},
+    )
+    with pytest.raises(LiveSupportPolicyError, match="no exact transport/backend scope"):
+        run_restore(request, opener=lambda *args, **kwargs: session)
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed
+
+
+def test_validation_mode_restore_keeps_identity_and_confirmation_guards() -> None:
+    mismatch_session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    mismatch_request = OperationRequest(
+        "restore-from-snapshot",
+        RuntimeOptions(
+            resource="TCPIP0::192.0.2.1::INSTR",
+            backend="@py",
+            confirm=True,
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        ),
+        {"document": _restore_document(serial="OTHER")},
+    )
+    with pytest.raises(CoreValidationError, match="does not match snapshot serial"):
+        run_restore(mismatch_request, opener=lambda *args, **kwargs: mismatch_session)
+    assert mismatch_session.queries == ["*IDN?"]
+    assert mismatch_session.writes == []
+    assert mismatch_session.closed
+
+    opened = False
+
+    def opener(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        return FakeSession("KEYSIGHT,E36312A,SN,1.0")
+
+    with pytest.raises(ConfirmationRequiredError):
+        run_restore(
+            OperationRequest(
+                "restore-from-snapshot",
+                RuntimeOptions(
+                    resource="TCPIP0::192.0.2.1::INSTR",
+                    backend="@py",
+                    support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+                ),
+                {"document": _restore_document()},
+            ),
+            opener=opener,
+        )
+    assert opened is False
+
+    unsafe_session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    unsafe_request = OperationRequest(
+        "restore-from-snapshot",
+        RuntimeOptions(
+            resource="TCPIP0::192.0.2.1::INSTR",
+            backend="@py",
+            confirm=True,
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        ),
+        {"document": _restore_document(voltage=999.0)},
+    )
+    with pytest.raises(LiveSupportPolicyError, match="no exact transport/backend scope"):
+        run_restore(unsafe_request, opener=lambda *args, **kwargs: unsafe_session)
+    assert unsafe_session.queries == ["*IDN?"]
+    assert unsafe_session.writes == []
+    assert unsafe_session.closed
+
+
+def _ramp_list_document(*, channel: int = 1) -> dict[str, object]:
+    return {
+        "kind": RAMP_LIST_KIND,
+        "version": 1,
+        "segments": [
+            {
+                "channel": channel,
+                "current": 0.1,
+                "start_voltage": 0.0,
+                "stop_voltage": 0.5,
+                "step_voltage": 0.5,
+                "delay_ms": 0,
+                "hold_ms": 0,
+            }
+        ],
+    }
+
+
+def test_validation_mode_ramp_list_uses_pending_scope_then_keeps_channel_limit() -> None:
+    accepted_session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    accepted_request = OperationRequest(
+        "ramp-list",
+        RuntimeOptions(
+            resource="TCPIP0::192.0.2.1::INSTR",
+            backend="@py",
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        ),
+        {"document": _ramp_list_document()},
+    )
+    data = run_ramp_list(accepted_request, opener=lambda *args, **kwargs: accepted_session, sleep=lambda _: None)
+    assert data["status"] == "completed"
+    assert accepted_session.queries == ["*IDN?", "SYST:ERR?"]
+    assert accepted_session.writes == ["CURR 0.1,(@1)", "VOLT 0,(@1)", "VOLT 0.5,(@1)"]
+    assert accepted_session.closed
+
+    limit_session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    limit_request = OperationRequest(
+        "ramp-list",
+        RuntimeOptions(
+            resource="TCPIP0::192.0.2.1::INSTR",
+            backend="@py",
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        ),
+        {"document": _ramp_list_document(channel=4)},
+    )
+    with pytest.raises(CoreValidationError, match="channel 4"):
+        run_ramp_list(limit_request, opener=lambda *args, **kwargs: limit_session, sleep=lambda _: None)
+    assert limit_session.queries == ["*IDN?"]
+    assert limit_session.writes == []
+    assert limit_session.closed

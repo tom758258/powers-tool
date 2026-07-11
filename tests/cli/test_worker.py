@@ -38,7 +38,8 @@ def test_worker_rejects_validation_mode_request_arguments(field: str) -> None:
     assert payload["error"]["code"] == "argument_error"
 
 
-def test_worker_rejects_validation_mode_setting() -> None:
+@pytest.mark.parametrize("field", ["support_policy_mode", "validation_allow_pending_live_support"])
+def test_worker_rejects_validation_mode_setting(field: str) -> None:
     config = {
         "id": "test",
         "type": "power",
@@ -48,7 +49,7 @@ def test_worker_rejects_validation_mode_setting() -> None:
         "control_port": 0,
         "artifacts_dir": ".tmp_tests/worker",
         "events_jsonl": None,
-        "settings": {"resource": "USB0::FAKE::E36312A::INSTR", "support_policy_mode": "validation"},
+        "settings": {"resource": "USB0::FAKE::E36312A::INSTR", field: "validation"},
     }
     with pytest.raises(ValueError, match="validation support policy mode"):
         worker_mod._validate_worker_config(config)

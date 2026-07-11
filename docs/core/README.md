@@ -16,6 +16,20 @@ Use the core package when another Python package needs to call the power-supply
 runtime directly. End users should normally use the `keysight-power` console
 script included in the same `keysight-powers` distribution.
 
+## Live Support Policy Modes
+
+`RuntimeOptions.support_policy_mode` defaults to `product`. After Core reads
+`*IDN?` and validates any expected-model guard, product execution requires an
+exact detected-model, command, transport, and backend scope before
+command-specific SCPI. Missing, unsupported, and pending scopes fail closed.
+
+Core also has an internal contributor-validation policy mode for running only
+already-registered pending exact scopes. It does not select or override the
+IDN-detected model, promote support, or bypass command/profile validation,
+safety limits, confirmation, electrical ratings, sequence restrictions, or
+cleanup behavior. Adapters decide whether that internal mode is available;
+normal product integrations remain product mode.
+
 ## Package Contents
 
 - `keysight_power_core.connection`: VISA backend selection, resource listing,

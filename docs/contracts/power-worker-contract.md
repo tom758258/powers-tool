@@ -136,6 +136,11 @@ product scope. Missing and pending scopes fail closed, and Worker provides no
 validation bypass. A command may remain useful in dry-run or simulator mode
 without an accepted real-hardware scope.
 
+Worker always operates in the product support-policy mode. Validation-policy
+request or settings fields are rejected rather than ignored, and
+`arguments.model_profile` remains a no-hardware planning profile or live
+expected-model guard, never a support unlock.
+
 ## Arguments
 
 Common `arguments` keys:

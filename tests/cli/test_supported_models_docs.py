@@ -82,6 +82,30 @@ def test_public_docs_describe_strict_no_hardware_model_profiles():
     assert "Live hardware uses the IDN-detected model" in combined
 
 
+def test_public_docs_describe_p4_policy_boundary_without_publishing_hidden_switch():
+    paths = (
+        "README.md",
+        "docs/core/README.md",
+        "docs/core/supported-models.md",
+        "docs/cli/README.md",
+        "docs/cli/USER_GUIDE.md",
+        "docs/contracts/power-worker-contract.md",
+        "docs/webui/README.md",
+        "docs/webui/USER_GUIDE.md",
+    )
+    docs = {path: Path(path).read_text(encoding="utf-8") for path in paths}
+    hidden_switch = "--validation-allow-pending-live-support"
+
+    assert hidden_switch not in "\n".join(docs.values())
+    assert "RuntimeOptions.support_policy_mode" in docs["docs/core/README.md"]
+    assert "contributor-validation policy mode" in docs["docs/core/README.md"]
+    assert "registered pending candidates, not\nproduct-open support" in docs["docs/core/supported-models.md"]
+    assert "Normal CLI operation always uses the product live-support policy" in docs["docs/cli/README.md"]
+    assert "Worker always operates in the product support-policy mode" in docs["docs/contracts/power-worker-contract.md"]
+    assert "Validation-policy runtime fields are rejected" in docs["docs/webui/README.md"]
+    assert "The WebUI is product-only" in docs["docs/webui/USER_GUIDE.md"]
+
+
 def test_public_dry_run_examples_do_not_use_live_resource_without_model():
     checked_paths = (
         "README.md",

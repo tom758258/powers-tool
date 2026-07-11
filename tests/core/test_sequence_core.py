@@ -1,5 +1,9 @@
 import pytest
 from keysight_power_core.core import SequenceRequest, RuntimeOptions
+from keysight_power_core.support_policy import (
+    LiveSupportPolicyError,
+    SUPPORT_POLICY_MODE_VALIDATION,
+)
 from keysight_power_core.sequence import run_sequence
 
 
@@ -9,17 +13,20 @@ class FakeSession:
     def __init__(self, *, fail_safe_off_channels: tuple[int, ...] = ()) -> None:
         self.writes: list[str] = []
         self.fail_safe_off_channels = fail_safe_off_channels
+        self.queries: list[str] = []
+        self.closed = False
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, traceback):
-        return None
+        self.closed = True
 
     def write(self, command: str) -> None:
         self.writes.append(command)
 
     def query(self, command: str) -> str:
+        self.queries.append(command)
         responses = {
             "*IDN?": "KEYSIGHT,E36312A,SERIAL0000,1.0",
             "MEAS:VOLT? (@1)": "1.0",
@@ -35,9 +42,9 @@ class FakeSession:
         return responses.get(command, '0,"No error"')
 
 
-def request(document, **runtime):
+def request(document, *, resource="USB0::SIM::E36312A::INSTR", **runtime):
     return SequenceRequest(
-        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", **runtime),
+        runtime=RuntimeOptions(resource=resource, **runtime),
         parameters={"document": document},
     )
 
@@ -182,6 +189,49 @@ def test_sequence_cleanup_errors_do_not_replace_original_failure() -> None:
     assert data["failed_step"]["index"] == 1
     assert data["failed_step"]["message"] == "output on failed"
     assert data["cleanup"]["errors"] == [{"channel": 2, "message": "cleanup channel 2 failed"}]
+
+
+def test_validation_mode_pending_sequence_keeps_same_session_cleanup_after_failure() -> None:
+    session = FakeSession()
+    original_write = session.write
+
+    def write(command: str) -> None:
+        if command == "VOLT 1,(@1)":
+            raise ValueError("injected setpoint failure")
+        original_write(command)
+
+    session.write = write  # type: ignore[method-assign]
+    core_request = request(
+        {"version": 1, "steps": [{"action": "set", "channel": 1, "voltage": 1.0, "current": 0.1}]},
+        resource="TCPIP0::192.0.2.1::INSTR",
+        backend="@py",
+        support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+    )
+
+    data = run_sequence(core_request, opener=lambda *args, **kwargs: session, sleep=lambda _: None)
+
+    assert data["status"] == "failed"
+    assert data["failed_step"]["message"] == "injected setpoint failure"
+    assert data["cleanup"]["safe_off_attempted"] is True
+    assert session.queries[0] == "*IDN?"
+    assert session.writes == ["CURR 0.1,(@1)", "OUTP OFF,(@1)", "OUTP OFF,(@2)", "OUTP OFF,(@3)"]
+    assert session.closed
+
+
+def test_validation_mode_sequence_rejects_missing_scope_before_steps() -> None:
+    session = FakeSession()
+    core_request = request(
+        {"version": 1, "steps": [{"action": "measure", "channel": 1}]},
+        resource="GPIB0::1::INSTR",
+        support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+    )
+
+    with pytest.raises(LiveSupportPolicyError, match="no exact transport/backend scope"):
+        run_sequence(core_request, opener=lambda *args, **kwargs: session, sleep=lambda _: None)
+
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed
 
 
 def test_sequence_trigger_pulse_dry_run_and_execution(monkeypatch) -> None:
