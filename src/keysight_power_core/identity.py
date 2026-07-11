@@ -53,6 +53,7 @@ class PhysicalModelInfo:
     model_id: str
     vendor_id: str
     canonical_model: str
+    display_name: str
     model_aliases: tuple[str, ...] = ()
     manufacturer_aliases: tuple[str, ...] = ()
 
@@ -192,6 +193,7 @@ def build_identity_indexes(
             validate_model_id(model.model_id)
             validate_vendor_id(model.vendor_id)
             canonical_model = normalize_model_name(model.canonical_model)
+            display_name = _required_text(model.display_name, "physical model display_name")
         except IdentityError as exc:
             raise IdentityMetadataError(str(exc)) from exc
         if model.model_id == GENERIC_SCPI_PLANNING_PROFILE_ID:
@@ -200,8 +202,15 @@ def build_identity_indexes(
             raise IdentityMetadataError(
                 f"physical model {model.model_id!r} references unknown vendor {model.vendor_id!r}"
             )
+        _validate_model_id_vendor_consistency(
+            model.model_id,
+            model.vendor_id,
+            vendors_by_id,
+        )
         if not canonical_model:
             raise IdentityMetadataError(f"physical model {model.model_id!r} has an empty canonical model")
+        if not display_name:
+            raise IdentityMetadataError(f"physical model {model.model_id!r} has an empty display_name")
         if model.model_id in models_by_id:
             raise IdentityMetadataError(f"duplicate model_id {model.model_id!r}")
         models_by_id[model.model_id] = model
@@ -401,6 +410,30 @@ def validate_builtin_identity_inventory() -> None:
         raise IdentityMetadataError(
             "V2 physical identity inventory does not match REGISTERED_MODELS plus DE_SCOPED_MODELS"
         )
+    validate_identity_inventory_mapping(
+        PHYSICAL_MODELS,
+        EXPECTED_MODEL_ID_BY_CANONICAL_MODEL,
+    )
+
+
+def validate_identity_inventory_mapping(
+    models: Sequence[PhysicalModelInfo],
+    expected_model_id_by_canonical_model: Mapping[str, str],
+) -> None:
+    """Validate an exact canonical-model-to-model-ID inventory mapping."""
+
+    observed: dict[str, str] = {}
+    for model in models:
+        if model.canonical_model in observed:
+            raise IdentityMetadataError(
+                f"duplicate canonical model {model.canonical_model!r} in identity inventory"
+            )
+        observed[model.canonical_model] = model.model_id
+    expected = dict(expected_model_id_by_canonical_model)
+    if observed != expected:
+        raise IdentityMetadataError(
+            "physical identity inventory does not match the expected canonical-model-to-model-ID mapping"
+        )
 
 
 def _normalize_spacing(value: str, *, field: str) -> str:
@@ -423,6 +456,31 @@ def _required_text(value: str, field: str) -> str:
         return _normalize_spacing(value, field=field)
     except IdentityError as exc:
         raise IdentityMetadataError(str(exc)) from exc
+
+
+def _validate_model_id_vendor_consistency(
+    model_id: str,
+    vendor_id: str,
+    registered_vendors: Mapping[str, VendorInfo],
+) -> None:
+    expected_prefix = f"{vendor_id}-"
+    if not model_id.startswith(expected_prefix):
+        raise IdentityMetadataError(
+            f"physical model {model_id!r} is inconsistent with vendor_id {vendor_id!r}; "
+            f"expected prefix {expected_prefix!r}"
+        )
+
+    matching_vendors = tuple(
+        candidate
+        for candidate in registered_vendors
+        if model_id.startswith(f"{candidate}-")
+    )
+    owner = max(matching_vendors, key=len)
+    if owner != vendor_id:
+        raise IdentityMetadataError(
+            f"physical model {model_id!r} is owned by registered vendor prefix {owner!r}, "
+            f"not vendor_id {vendor_id!r}"
+        )
 
 
 def _normalized_unique(values: Sequence[str], normalize, label: str) -> tuple[str, ...]:
@@ -485,16 +543,36 @@ VENDORS = (
     ),
 )
 
+EXPECTED_MODEL_ID_BY_CANONICAL_MODEL = MappingProxyType(
+    {
+        "E36312A": "keysight-e36312a",
+        "EDU36311A": "keysight-edu36311a",
+        "E3646A": "keysight-e3646a",
+        "E36313A": "keysight-e36313a",
+        "E36233A": "keysight-e36233a",
+        "E36441A": "keysight-e36441a",
+        "E36155A": "keysight-e36155a",
+        "E36103B": "keysight-e36103b",
+        "E36232A": "keysight-e36232a",
+    }
+)
+
 PHYSICAL_MODELS = (
-    PhysicalModelInfo("keysight-e36312a", "keysight", "E36312A"),
-    PhysicalModelInfo("keysight-edu36311a", "keysight", "EDU36311A"),
-    PhysicalModelInfo("keysight-e3646a", "keysight", "E3646A", manufacturer_aliases=("Agilent Technologies",)),
-    PhysicalModelInfo("keysight-e36313a", "keysight", "E36313A"),
-    PhysicalModelInfo("keysight-e36233a", "keysight", "E36233A"),
-    PhysicalModelInfo("keysight-e36441a", "keysight", "E36441A"),
-    PhysicalModelInfo("keysight-e36155a", "keysight", "E36155A"),
-    PhysicalModelInfo("keysight-e36103b", "keysight", "E36103B"),
-    PhysicalModelInfo("keysight-e36232a", "keysight", "E36232A"),
+    PhysicalModelInfo("keysight-e36312a", "keysight", "E36312A", "Keysight E36312A"),
+    PhysicalModelInfo("keysight-edu36311a", "keysight", "EDU36311A", "Keysight EDU36311A"),
+    PhysicalModelInfo(
+        "keysight-e3646a",
+        "keysight",
+        "E3646A",
+        "Keysight E3646A",
+        manufacturer_aliases=("Agilent Technologies",),
+    ),
+    PhysicalModelInfo("keysight-e36313a", "keysight", "E36313A", "Keysight E36313A"),
+    PhysicalModelInfo("keysight-e36233a", "keysight", "E36233A", "Keysight E36233A"),
+    PhysicalModelInfo("keysight-e36441a", "keysight", "E36441A", "Keysight E36441A"),
+    PhysicalModelInfo("keysight-e36155a", "keysight", "E36155A", "Keysight E36155A"),
+    PhysicalModelInfo("keysight-e36103b", "keysight", "E36103B", "Keysight E36103B"),
+    PhysicalModelInfo("keysight-e36232a", "keysight", "E36232A", "Keysight E36232A"),
 )
 
 IDENTITY_INDEXES = build_identity_indexes(VENDORS, PHYSICAL_MODELS)

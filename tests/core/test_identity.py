@@ -1,4 +1,4 @@
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, fields, replace
 
 import pytest
 
@@ -23,6 +23,7 @@ from keysight_power_core.identity import (
     resolve_physical_model_identity,
     resolve_planning_model_id,
     validate_builtin_identity_inventory,
+    validate_identity_inventory_mapping,
     validate_model_id,
     validate_profile_id,
     validate_vendor_id,
@@ -60,6 +61,30 @@ FROZEN_REPORTED_MODELS = {
     "E36155A",
     "E36103B",
     "E36232A",
+}
+
+EXPECTED_MODEL_ID_BY_CANONICAL_MODEL = {
+    "E36312A": "keysight-e36312a",
+    "EDU36311A": "keysight-edu36311a",
+    "E3646A": "keysight-e3646a",
+    "E36313A": "keysight-e36313a",
+    "E36233A": "keysight-e36233a",
+    "E36441A": "keysight-e36441a",
+    "E36155A": "keysight-e36155a",
+    "E36103B": "keysight-e36103b",
+    "E36232A": "keysight-e36232a",
+}
+
+EXPECTED_DISPLAY_NAME_BY_MODEL_ID = {
+    "keysight-e36312a": "Keysight E36312A",
+    "keysight-edu36311a": "Keysight EDU36311A",
+    "keysight-e3646a": "Keysight E3646A",
+    "keysight-e36313a": "Keysight E36313A",
+    "keysight-e36233a": "Keysight E36233A",
+    "keysight-e36441a": "Keysight E36441A",
+    "keysight-e36155a": "Keysight E36155A",
+    "keysight-e36103b": "Keysight E36103B",
+    "keysight-e36232a": "Keysight E36232A",
 }
 
 
@@ -156,9 +181,13 @@ def test_builtin_records_are_frozen_and_fields_are_independent() -> None:
         vendor.vendor_id = "changed"  # type: ignore[misc]
     with pytest.raises(FrozenInstanceError):
         model.model_id = "changed"  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        model.display_name = "changed"  # type: ignore[misc]
+    assert "display_name" in {field.name for field in fields(PhysicalModelInfo)}
     assert model.model_id == "keysight-e36312a"
     assert model.vendor_id == "keysight"
     assert model.canonical_model == "E36312A"
+    assert model.display_name == "Keysight E36312A"
 
 
 def test_builtin_identity_inventory_exactly_covers_legacy_inventory() -> None:
@@ -168,6 +197,27 @@ def test_builtin_identity_inventory_exactly_covers_legacy_inventory() -> None:
     assert {model.canonical_model for model in PHYSICAL_MODELS} == set(REGISTERED_MODELS) | set(DE_SCOPED_MODELS)
     assert all(model.vendor_id in IDENTITY_INDEXES.vendors_by_id for model in PHYSICAL_MODELS)
     assert GENERIC_SCPI_PLANNING_PROFILE_ID not in IDENTITY_INDEXES.models_by_id
+
+
+def test_builtin_identity_inventory_has_exact_frozen_mappings_and_display_names() -> None:
+    assert {
+        model.canonical_model: model.model_id for model in PHYSICAL_MODELS
+    } == EXPECTED_MODEL_ID_BY_CANONICAL_MODEL
+    assert {
+        model.model_id: model.display_name for model in PHYSICAL_MODELS
+    } == EXPECTED_DISPLAY_NAME_BY_MODEL_ID
+
+
+def test_exact_inventory_mapping_rejects_swapped_same_vendor_model_ids() -> None:
+    swapped = list(PHYSICAL_MODELS)
+    swapped[0] = replace(swapped[0], model_id="keysight-e3646a")
+    swapped[2] = replace(swapped[2], model_id="keysight-e36312a")
+
+    assert {model.model_id for model in swapped} == FROZEN_MODEL_IDS
+    assert {model.canonical_model for model in swapped} == FROZEN_REPORTED_MODELS
+    with pytest.raises(IdentityMetadataError) as excinfo:
+        validate_identity_inventory_mapping(swapped, EXPECTED_MODEL_ID_BY_CANONICAL_MODEL)
+    assert excinfo.value.reason == "invalid_identity_metadata"
 
 
 def test_legacy_lifecycle_sets_remain_unchanged() -> None:
@@ -246,9 +296,9 @@ def _synthetic_metadata():
         VendorInfo("other", "Other", "OTHER"),
     )
     models = (
-        PhysicalModelInfo("acme-one", "acme", "ONE", ("ONE-A",)),
-        PhysicalModelInfo("other-one", "other", "ONE"),
-        PhysicalModelInfo("other-two", "other", "TWO"),
+        PhysicalModelInfo("acme-one", "acme", "ONE", "Acme One", ("ONE-A",)),
+        PhysicalModelInfo("other-one", "other", "ONE", "Other One"),
+        PhysicalModelInfo("other-two", "other", "TWO", "Other Two"),
     )
     return vendors, models
 
@@ -272,6 +322,111 @@ def test_explicit_model_alias_resolves_only_for_its_vendor() -> None:
     assert excinfo.value.reason == "manufacturer_model_mismatch"
 
 
+@pytest.mark.parametrize("display_name", ["", "   ", None, 123, "\u200b"])
+def test_model_display_name_must_be_nonempty_safe_text(display_name) -> None:
+    vendors = (VendorInfo("acme", "Acme", "ACME"),)
+    models = (
+        PhysicalModelInfo(
+            "acme-one",
+            "acme",
+            "ONE",
+            display_name,  # type: ignore[arg-type]
+        ),
+    )
+    with pytest.raises(IdentityMetadataError) as excinfo:
+        build_identity_indexes(vendors, models)
+    assert excinfo.value.reason == "invalid_identity_metadata"
+
+
+def test_display_name_is_independent_presentation_metadata_only() -> None:
+    vendors = (VendorInfo("acme", "Acme", "ACME"),)
+    display_name = "  Ａｃｍｅ   One  "
+    model = PhysicalModelInfo("acme-one", "acme", "ONE", display_name)
+    indexes = build_identity_indexes(vendors, (model,))
+
+    assert indexes.models_by_id["acme-one"].display_name == display_name
+    assert resolve_physical_model_identity("ACME", "ONE", indexes=indexes).model_id == "acme-one"
+
+
+@pytest.mark.parametrize(
+    ("vendors", "model"),
+    [
+        (
+            (VendorInfo("acme", "Acme", "ACME"),),
+            PhysicalModelInfo("other-one", "acme", "ONE", "Acme One"),
+        ),
+        (
+            (VendorInfo("acme", "Acme", "ACME"),),
+            PhysicalModelInfo("keysight-e36312a", "acme", "ONE", "Acme One"),
+        ),
+        (
+            (VendorInfo("acme-labs", "Acme Labs", "ACME LABS"),),
+            PhysicalModelInfo("acme-one", "acme-labs", "ONE", "Acme Labs One"),
+        ),
+        (
+            (
+                VendorInfo("acme", "Acme", "ACME"),
+                VendorInfo("acme-labs", "Acme Labs", "ACME LABS"),
+            ),
+            PhysicalModelInfo("acme-labs-one", "acme", "ONE", "Acme One"),
+        ),
+        (
+            (VendorInfo("acme", "Acme", "ACME"),),
+            PhysicalModelInfo("unknown-vendor-one", "acme", "ONE", "Acme One"),
+        ),
+        (
+            (VendorInfo("acme", "Acme", "ACME"),),
+            PhysicalModelInfo("generic-scpi", "acme", "ONE", "Generic SCPI"),
+        ),
+    ],
+)
+def test_model_id_must_belong_to_its_independently_stored_vendor(vendors, model) -> None:
+    with pytest.raises(IdentityMetadataError) as excinfo:
+        build_identity_indexes(vendors, (model,))
+    assert excinfo.value.reason == "invalid_identity_metadata"
+
+
+@pytest.mark.parametrize(
+    ("vendors", "model"),
+    [
+        (
+            (VendorInfo("acme", "Acme", "ACME"),),
+            PhysicalModelInfo("acme-one", "acme", "ONE", "Acme One"),
+        ),
+        (
+            (VendorInfo("acme-labs", "Acme Labs", "ACME LABS"),),
+            PhysicalModelInfo("acme-labs-one", "acme-labs", "ONE", "Acme Labs One"),
+        ),
+        (
+            (
+                VendorInfo("acme", "Acme", "ACME"),
+                VendorInfo("acme-labs", "Acme Labs", "ACME LABS"),
+            ),
+            PhysicalModelInfo("acme-labs-one", "acme-labs", "ONE", "Acme Labs One"),
+        ),
+    ],
+)
+def test_model_id_accepts_exact_registered_vendor_ownership(vendors, model) -> None:
+    indexes = build_identity_indexes(vendors, (model,))
+    assert indexes.models_by_id[model.model_id] is model
+
+
+@pytest.mark.parametrize(
+    "models",
+    [
+        PHYSICAL_MODELS[:-1],
+        PHYSICAL_MODELS
+        + (PhysicalModelInfo("keysight-extra", "keysight", "EXTRA", "Keysight Extra"),),
+        PHYSICAL_MODELS + (PHYSICAL_MODELS[0],),
+        (replace(PHYSICAL_MODELS[0], model_id="keysight-wrong"),) + PHYSICAL_MODELS[1:],
+    ],
+)
+def test_exact_inventory_mapping_rejects_missing_extra_duplicate_and_wrong_models(models) -> None:
+    with pytest.raises(IdentityMetadataError) as excinfo:
+        validate_identity_inventory_mapping(models, EXPECTED_MODEL_ID_BY_CANONICAL_MODEL)
+    assert excinfo.value.reason == "invalid_identity_metadata"
+
+
 @pytest.mark.parametrize(
     ("vendors", "models"),
     [
@@ -284,24 +439,38 @@ def test_explicit_model_alias_resolves_only_for_its_vendor() -> None:
             (VendorInfo("acme", "Acme", "ACME", ("SHARED",)), VendorInfo("other", "Other", "OTHER", ("shared",))),
             (),
         ),
-        ((VendorInfo("acme", "Acme", "ACME"),), (PhysicalModelInfo("ONE", "acme", "ONE"),)),
-        ((VendorInfo("acme", "Acme", "ACME"),), (PhysicalModelInfo("generic-scpi", "acme", "ONE"),)),
-        ((VendorInfo("acme", "Acme", "ACME"),), (PhysicalModelInfo("acme-one", "missing", "ONE"),)),
+        ((VendorInfo("acme", "Acme", "ACME"),), (PhysicalModelInfo("ONE", "acme", "ONE", "Acme One"),)),
+        ((VendorInfo("acme", "Acme", "ACME"),), (PhysicalModelInfo("generic-scpi", "acme", "ONE", "Acme One"),)),
+        ((VendorInfo("acme", "Acme", "ACME"),), (PhysicalModelInfo("acme-one", "missing", "ONE", "Acme One"),)),
         (
             (VendorInfo("acme", "Acme", "ACME"),),
-            (PhysicalModelInfo("acme-one", "acme", "ONE"), PhysicalModelInfo("acme-one", "acme", "TWO")),
+            (
+                PhysicalModelInfo("acme-one", "acme", "ONE", "Acme One"),
+                PhysicalModelInfo("acme-one", "acme", "TWO", "Acme Two"),
+            ),
         ),
         (
             (VendorInfo("acme", "Acme", "ACME"),),
-            (PhysicalModelInfo("acme-one", "acme", "ONE", (" one-a ", "ONE-A")),),
+            (PhysicalModelInfo("acme-one", "acme", "ONE", "Acme One", (" one-a ", "ONE-A")),),
         ),
         (
             (VendorInfo("acme", "Acme", "ACME"),),
-            (PhysicalModelInfo("acme-one", "acme", "ONE", ("TWO",)), PhysicalModelInfo("acme-two", "acme", "TWO")),
+            (
+                PhysicalModelInfo("acme-one", "acme", "ONE", "Acme One", ("TWO",)),
+                PhysicalModelInfo("acme-two", "acme", "TWO", "Acme Two"),
+            ),
         ),
         (
             (VendorInfo("acme", "Acme", "ACME"), VendorInfo("other", "Other", "OTHER", ("OTHER CORP",))),
-            (PhysicalModelInfo("acme-one", "acme", "ONE", manufacturer_aliases=("OTHER CORP",)),),
+            (
+                PhysicalModelInfo(
+                    "acme-one",
+                    "acme",
+                    "ONE",
+                    "Acme One",
+                    manufacturer_aliases=("OTHER CORP",),
+                ),
+            ),
         ),
     ],
 )
@@ -313,7 +482,15 @@ def test_metadata_validation_rejects_malformed_duplicates_and_collisions(vendors
 
 def test_same_vendor_level_and_model_specific_manufacturer_alias_may_coexist() -> None:
     vendors = (VendorInfo("acme", "Acme", "ACME", ("ACME CORP",)),)
-    models = (PhysicalModelInfo("acme-one", "acme", "ONE", manufacturer_aliases=("acme corp",)),)
+    models = (
+        PhysicalModelInfo(
+            "acme-one",
+            "acme",
+            "ONE",
+            "Acme One",
+            manufacturer_aliases=("acme corp",),
+        ),
+    )
     indexes = build_identity_indexes(vendors, models)
     assert resolve_physical_model_identity("ACME CORP", "ONE", indexes=indexes).model_id == "acme-one"
 
