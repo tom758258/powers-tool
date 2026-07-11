@@ -171,15 +171,37 @@ function Add-SensitiveValue {
     }
 }
 
+function Get-FreeFormIdnPattern {
+    return '(?i)\b(?:keysight(?: technologies)?|agilent(?: technologies)?)\s*,\s*(?:E\d{4,5}[A-Z]?|EDU\d+[A-Z0-9-]*)\s*,\s*([^,\s]+)\s*,\s*([A-Za-z0-9][A-Za-z0-9._-]*)'
+}
+
+function Test-DistinctiveSensitiveToken {
+    param([AllowNull()][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $false
+    }
+    $trimmed = $Value.Trim()
+    return $trimmed.Length -ge 4 -and $trimmed -notmatch '^0+$'
+}
+
+function Add-SerialSensitiveValue {
+    param([AllowNull()][string]$Value)
+
+    if (Test-DistinctiveSensitiveToken -Value $Value) {
+        Add-SensitiveValue -Value $Value.Trim()
+    }
+}
+
 function Add-SensitiveValuesFromText {
     param([AllowNull()][string]$Text)
 
     if ([string]::IsNullOrWhiteSpace($Text)) {
         return
     }
-    $idnPattern = '(?i)\b(?:keysight|agilent(?: technologies)?)\s*,\s*(?:E\d{4,5}[A-Z]?|EDU\d+[A-Z0-9-]*)\s*,\s*([^,\r\n]+)\s*,\s*([^,\r\n]+)'
+    $idnPattern = Get-FreeFormIdnPattern
     foreach ($match in [regex]::Matches($Text, $idnPattern)) {
-        Add-SensitiveValue -Value $match.Groups[1].Value.Trim()
+        Add-SerialSensitiveValue -Value $match.Groups[1].Value
     }
 }
 
@@ -194,7 +216,7 @@ function Protect-ShareableText {
     if (-not [string]::IsNullOrWhiteSpace($script:RawResource)) {
         $redacted = $redacted -replace [regex]::Escape($script:RawResource), $script:ResourceDisplay
     }
-    $idnPattern = '(?i)\b(?:keysight|agilent(?: technologies)?)\s*,\s*(?:E\d{4,5}[A-Z]?|EDU\d+[A-Z0-9-]*)\s*,\s*([^,\r\n]+)\s*,\s*([^,\r\n]+)'
+    $idnPattern = Get-FreeFormIdnPattern
     $redacted = [regex]::Replace($redacted, $idnPattern, { param($match) "<redacted-idn>" })
     foreach ($value in @($script:SensitiveValues)) {
         if (-not [string]::IsNullOrWhiteSpace($value)) {
@@ -916,7 +938,7 @@ function Invoke-ValidationCommand {
     }
     if ($null -ne $identity) {
         Add-SensitiveValue -Value ([string](Get-PropertyValue -Object $identity -Name "raw"))
-        Add-SensitiveValue -Value ([string](Get-PropertyValue -Object $identity -Name "serial"))
+        Add-SerialSensitiveValue -Value ([string](Get-PropertyValue -Object $identity -Name "serial"))
     }
     Write-ShareableJsonArtifact -PrivatePath $actualJsonPath -ShareablePath $shareableJsonPath -Payload $payload -ParseStatus $parseStatus
     Write-ShareableTextArtifact -PrivatePath $stdoutPath -ShareablePath $shareableStdoutPath

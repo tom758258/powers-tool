@@ -147,14 +147,19 @@ import json
 import sys
 
 resource = "TCPIP0::192.168.50.77::5025::SOCKET"
-idn = "KEYSIGHT,E36312A,MY12345678,2.10"
+command = sys.argv[1]
+if command.startswith("keysight-tech"):
+    idn = "Keysight Technologies,E36312A,MY12345678,2.10"
+elif command == "agilent-zero":
+    idn = "Agilent Technologies,E3646A,0,1.0"
+else:
+    idn = "KEYSIGHT,E36312A,MY12345678,2.10"
 external_path = r"C:\Users\Example User\private\sequence.yaml"
 save_path = sys.argv[sys.argv.index("--save-json") + 1]
-command = sys.argv[1]
-print(f"{resource} {idn} {external_path} D:\\Lab Data\\private artifact.txt /home/example user/private/sequence.yaml")
-print(f"{resource} {idn} {external_path}", file=sys.stderr)
+print(f"{resource} {idn} serial again: {idn.split(',')[2]} {external_path} D:\\Lab Data\\private artifact.txt /home/example user/private/sequence.yaml")
+print(f"{resource} {idn} serial again: {idn.split(',')[2]} {external_path}", file=sys.stderr)
 
-if command == "malformed":
+if command in {"malformed", "keysight-tech-malformed"}:
     with open(save_path, "w", encoding="utf-8") as handle:
         handle.write(f'{{"resource":"{resource}","idn":"{idn}","path":"{external_path}"')
     sys.exit(2)
@@ -166,6 +171,24 @@ payload = {
     "error": {"code": "fixture_error", "message": f"failed after {idn} at {external_path}"},
     "execution": {"mode": "real", "dry_run": False, "hardware_touched": False},
 }
+if command == "agilent-zero":
+    payload["data"] = {
+        "idn": {
+            "raw": idn,
+            "manufacturer": "Agilent Technologies",
+            "model": "E3646A",
+            "serial": "0",
+            "firmware": "1.0",
+            "parse_ok": True,
+        },
+        "evidence": {
+            "firmware": "1.0",
+            "exit_code": 0,
+            "voltage": 1.0,
+            "current": 0.05,
+            "error_count": 0,
+        },
+    }
 with open(save_path, "w", encoding="utf-8") as handle:
     json.dump(payload, handle)
 sys.exit(2)
@@ -250,7 +273,10 @@ def test_live_cli_check_main_flow_marks_confirmation_required_cleanup_status(tmp
     assert report["cleanup"]["attempted"] is False
 
 
-def _artifact_privacy_command(output_dir: Path) -> str:
+def _artifact_privacy_command(
+    output_dir: Path, names: tuple[str, ...] = ("malformed", "missing", "error-only")
+) -> str:
+    case_names = ", ".join(f'"{name}"' for name in names)
     return rf'''
 $env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
@@ -271,7 +297,7 @@ $script:Suite = "readonly"
 $script:StateChanging = $false
 $script:Restore = $true
 $script:PlanOnly = $false
-foreach ($name in @("malformed", "missing", "error-only")) {{
+foreach ($name in @({case_names})) {{
     $case = New-CommandCase -Name $name -Suite "readonly" -Phase "live" -Args @($name, "--json", "--resource", $script:RawResource) -ExpectedSuccess:$false
     Invoke-ValidationCommand -Case $case | Out-Null
 }}
@@ -336,6 +362,114 @@ def test_live_cli_check_malformed_missing_and_error_only_artifacts_fail_closed(t
     assert "fixture_error" in shareable_text
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert all("\\shareable\\" in command["json_path"] for command in report["commands"])
+
+
+def _shareable_text(directory: Path) -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in directory.rglob("*")
+        if path.is_file()
+    )
+
+
+def test_live_cli_check_redacts_keysight_technologies_error_only_idn_and_serial(tmp_path):
+    fixture_path = _artifact_privacy_fixture_cli_path(tmp_path)
+    result = _run_powershell_command(
+        _artifact_privacy_command(tmp_path / "out", ("keysight-tech-error-only",)),
+        env={"PYTHONPATH": str(fixture_path)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    shareable_dir = Path(result.stdout.strip()).parent
+    shareable_text = _shareable_text(shareable_dir)
+    assert "Keysight Technologies,E36312A,MY12345678,2.10" not in shareable_text
+    assert "MY12345678" not in shareable_text
+    assert "<redacted-idn>" in shareable_text
+    for expected in ("fixture_error", "keysight-tech-error-only", "exit_code", "transport_scope", "backend_scope"):
+        assert expected in shareable_text
+
+
+def test_live_cli_check_keeps_keysight_technologies_malformed_json_private(tmp_path):
+    fixture_path = _artifact_privacy_fixture_cli_path(tmp_path)
+    result = _run_powershell_command(
+        _artifact_privacy_command(tmp_path / "out", ("keysight-tech-malformed",)),
+        env={"PYTHONPATH": str(fixture_path)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = Path(result.stdout.strip())
+    shareable_dir = report_path.parent
+    private_dir = shareable_dir.parent / "private"
+    raw_idn = "Keysight Technologies,E36312A,MY12345678,2.10"
+    assert raw_idn in (private_dir / "live-keysight-tech-malformed.json").read_text(encoding="utf-8")
+    assert json.loads((shareable_dir / "live-keysight-tech-malformed.json").read_text(encoding="utf-8"))["parse_status"] == "failed"
+    shareable_text = _shareable_text(shareable_dir)
+    assert raw_idn not in shareable_text
+    assert "MY12345678" not in shareable_text
+    assert "<redacted-idn>" in shareable_text
+
+
+def test_live_cli_check_redacts_zero_serial_without_corrupting_numeric_evidence(tmp_path):
+    fixture_path = _artifact_privacy_fixture_cli_path(tmp_path)
+    result = _run_powershell_command(
+        _artifact_privacy_command(tmp_path / "out", ("agilent-zero",)),
+        env={"PYTHONPATH": str(fixture_path)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    shareable_dir = Path(result.stdout.strip()).parent
+    shareable_text = _shareable_text(shareable_dir)
+    assert "Agilent Technologies,E3646A,0,1.0" not in shareable_text
+    assert "<redacted-idn>" in shareable_text
+    assert "1.<redacted>" not in shareable_text
+    assert "<redacted>.05" not in shareable_text
+    assert "exit_code = <redacted>" not in shareable_text
+    payload = json.loads((shareable_dir / "live-agilent-zero.json").read_text(encoding="utf-8"))
+    assert payload["data"]["idn"]["serial"] == "<redacted>"
+    assert payload["data"]["evidence"] == {
+        "firmware": "1.0",
+        "exit_code": 0,
+        "voltage": 1.0,
+        "current": 0.05,
+        "error_count": 0,
+    }
+    assert '"firmware":  "1.0"' in shareable_text
+
+
+@pytest.mark.parametrize(
+    ("idn", "serial", "distinctive"),
+    [
+        ("KEYSIGHT,E36312A,MY12345678,2.10", "MY12345678", True),
+        ("Keysight Technologies,E36312A,MY12345678,2.10", "MY12345678", True),
+        ("Agilent,E3646A,MY00000001,A.01.00", "MY00000001", True),
+        ("Agilent Technologies,E3646A,MY00000001,A.01.00", "MY00000001", True),
+        ("Agilent Technologies,E3646A,0,1.0", "0", False),
+    ],
+)
+def test_live_cli_check_free_form_idn_redactor_handles_manufacturer_variants(
+    idn, serial, distinctive
+):
+    command = rf'''
+$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:RawResource = $null
+$script:ResourceDisplay = "<redacted-resource>"
+$result = Protect-ShareableText -Text "identity: {idn}; standalone serial: {serial}; firmware 1.0; exit code 0; voltage 1.0; current 0.05"
+[pscustomobject]@{{ text = $result; sensitive = @($script:SensitiveValues) }} | ConvertTo-Json -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    redaction = json.loads(result.stdout)
+    assert idn not in redaction["text"]
+    assert "<redacted-idn>" in redaction["text"]
+    if distinctive:
+        assert serial not in redaction["text"]
+        assert serial in redaction["sensitive"]
+    else:
+        assert redaction["text"].endswith("firmware 1.0; exit code 0; voltage 1.0; current 0.05")
+        assert "0" not in redaction["sensitive"]
 
 
 def test_live_cli_check_report_normalizes_stale_cleanup_lifecycle_states(tmp_path):
