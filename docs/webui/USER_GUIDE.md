@@ -108,13 +108,16 @@ rejected by the WebUI backend and Core. Auto-detect may still use detected
 live model metadata when available, but frontend state never overrides the
 Core IDN-selected live driver.
 
-After a successful `Get capabilities` run for the selected real resource, the
-Device / Resource summary also shows the detected transport/backend scope and
-compact Product live-support counts. Changing the resource clears that exact
-context until capabilities are read again. Changing `Expected model` updates
-planning guidance only; it does not rewrite the detected model or connection
-scope. The WebUI uses the normal Product policy and does not provide a backend
-selector or validation mode.
+After a successful `Get capabilities` run on a Product-open scope, or a
+successful `Read device information` diagnostic for the selected real
+resource, the Device / Resource summary also shows the detected
+transport/backend scope and compact Product live-support counts. The identity
+diagnostic can show that commands are pending, but it does not enable them.
+Changing the resource clears that exact context until capabilities or identity
+are read again. Changing `Expected model` updates planning guidance only; it
+does not rewrite the detected model or connection scope. The WebUI uses the
+normal Product policy and does not provide a backend selector or validation
+mode.
 
 If no live resource appears, check instrument power, cabling, VISA driver
 visibility, and whether another program is holding the instrument.
@@ -180,6 +183,9 @@ disabled; pending means the instrument profile recognizes the command but the
 exact connection/backend evidence is not Product-open. These browser states
 are guidance only. Core repeats the exact policy check for every submitted
 live job, including direct or stale API requests.
+
+Offline-only utilities are not identity/status diagnostics and are not shown
+as Product-open live commands.
 
 The WebUI is product-only. It does not offer a validation override, and raw
 job submissions cannot use one to turn pending evidence into normal product

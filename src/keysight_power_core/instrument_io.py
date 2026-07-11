@@ -149,6 +149,12 @@ def _run_identify(
     with instrument:
         session = instrument.session
         idn_info = parse_idn(idn)
+        if not request.runtime.simulate:
+            validate_live_expected_model(
+                request.runtime.model_profile,
+                idn_info.model,
+                command=request.command,
+            )
         data = {
             "resource": resource,
             "idn": idn_info.to_dict(),

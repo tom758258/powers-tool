@@ -186,6 +186,8 @@ def execute_job_command(job: Job) -> dict[str, Any]:
     if "cleanup_reporter" in inspect.signature(run_core_command).parameters:
         kwargs["cleanup_reporter"] = report_cleanup
     result = run_core_command(request, **kwargs)
+    if command in {"identify", "verify"}:
+        result = _with_diagnostic_live_support(command, runtime, result)
     if command == "ramp-list" and result.get("status") == "stopped":
         failed = result.get("failed_segment") or {}
         raise CommandCancelled(f"ramp-list stopped at segment {failed.get('index')}")
@@ -193,6 +195,51 @@ def execute_job_command(job: Job) -> dict[str, Any]:
         failed = result.get("failed_segment") or {}
         raise CoreExecutionError(f"ramp-list segment {failed.get('index')} failed: {failed.get('message', 'segment failed')}")
     return result
+
+
+def _with_diagnostic_live_support(
+    command: str,
+    runtime: RuntimeOptions,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Attach safe exact-scope metadata after an exempt diagnostic reads IDN."""
+
+    resource_data = result.get("resource")
+    idn = result.get("idn")
+    if not isinstance(idn, dict) and isinstance(resource_data, dict):
+        idn = resource_data.get("idn")
+    model = idn.get("model") if isinstance(idn, dict) else None
+    if not isinstance(model, str) or not model.strip():
+        return result
+    if runtime.simulate:
+        live_support = _unevaluated_live_support(model, runtime)
+    else:
+        validate_live_expected_model(
+            runtime.model_profile,
+            model,
+            command=command,
+        )
+        live_support = exact_live_support_metadata(
+            model=model,
+            resource=runtime.resource,
+            backend=runtime.backend,
+        )
+    return {**result, "live_support": live_support}
+
+
+def _unevaluated_live_support(
+    model: str,
+    runtime: RuntimeOptions,
+) -> dict[str, Any]:
+    return {
+        "evaluated": False,
+        "model": model,
+        "transport_scope": normalize_transport(runtime.resource),
+        "backend_scope": normalize_backend(runtime.backend),
+        "policy_mode": SUPPORT_POLICY_MODE_PRODUCT,
+        "commands": {},
+        "reason": "Live exact-scope policy applies to real hardware only.",
+    }
 
 
 def execute_live_readonly(command: str, runtime: RuntimeOptions, parameters: dict[str, Any]) -> dict[str, Any]:
@@ -315,15 +362,7 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
         selection = select_driver(idn_raw)
         caps = selection.capabilities
         live_support = (
-            {
-                "evaluated": False,
-                "model": selection.idn.model,
-                "transport_scope": normalize_transport(runtime.resource),
-                "backend_scope": normalize_backend(runtime.backend),
-                "policy_mode": SUPPORT_POLICY_MODE_PRODUCT,
-                "commands": {},
-                "reason": "Live exact-scope policy applies to real hardware only.",
-            }
+            _unevaluated_live_support(selection.idn.model, runtime)
             if runtime.simulate
             else exact_live_support_metadata(
                 model=selection.idn.model,

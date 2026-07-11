@@ -667,7 +667,7 @@ def test_validator_rejects_missing_and_unexpected_command_inventory_entries() ->
 
 def test_public_model_projection_is_json_safe_and_omits_private_evidence() -> None:
     metadata = live_support_policy_metadata(
-        "E36312A", {"set", "clear", "future-command"}
+        "E36312A", {"set", "clear", "snapshot-diff", "future-command"}
     )
 
     assert metadata["model"] == "E36312A"
@@ -685,7 +685,13 @@ def test_public_model_projection_is_json_safe_and_omits_private_evidence() -> No
         (TRANSPORT_TCPIP, BACKEND_PYVISA_PY, VALIDATION_STATUS_TRANSPORT_PENDING),
     }
     assert metadata["commands"]["clear"]["policy_exempt"] is True
+    assert metadata["commands"]["clear"]["offline_only"] is False
     assert metadata["commands"]["clear"]["scopes"] == []
+    offline = metadata["commands"]["snapshot-diff"]
+    assert offline["policy_exempt"] is False
+    assert offline["offline_only"] is True
+    assert offline["scopes"] == []
+    assert "Offline utility" in offline["support_reason"]
     assert metadata["commands"]["future-command"]["metadata_available"] is False
     assert metadata["commands"]["future-command"]["profile_supported"] is False
 
@@ -697,7 +703,7 @@ def test_public_model_projection_is_json_safe_and_omits_private_evidence() -> No
 
 
 def test_public_exact_projection_distinguishes_open_pending_and_missing_scopes() -> None:
-    commands = {"set", "output-on", "clear"}
+    commands = {"set", "output-on", "clear", "snapshot-diff"}
     usb = exact_live_support_metadata(
         model="E36312A",
         resource="USB0::FAKE::INSTR",
@@ -725,6 +731,7 @@ def test_public_exact_projection_distinguishes_open_pending_and_missing_scopes()
         "profile_supported": True,
         "metadata_available": True,
         "policy_exempt": False,
+        "offline_only": False,
         "disabled_reason": "Pending live validation: TCPIP / pyvisa-py.",
         "support_reason": "Pending live validation: TCPIP / pyvisa-py.",
         "exact_scope_validation_status": VALIDATION_STATUS_TRANSPORT_PENDING,
@@ -734,8 +741,15 @@ def test_public_exact_projection_distinguishes_open_pending_and_missing_scopes()
     assert pending["commands"]["output-on"]["product_open"] is False
     assert "No product-open live scope" in pending["commands"]["output-on"]["disabled_reason"]
     assert pending["commands"]["clear"]["policy_exempt"] is True
+    assert pending["commands"]["clear"]["offline_only"] is False
     assert pending["commands"]["clear"]["product_open"] is True
     assert pending["commands"]["clear"]["exact_scope_validation_status"] is None
+    offline = pending["commands"]["snapshot-diff"]
+    assert offline["policy_exempt"] is False
+    assert offline["offline_only"] is True
+    assert offline["product_open"] is False
+    assert offline["exact_scope_validation_status"] is None
+    assert offline["support_reason"] == "Offline utility; live exact scope is not applicable."
 
 
 def test_public_projection_preserves_model_and_generic_boundaries() -> None:

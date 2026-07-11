@@ -252,7 +252,17 @@ def exact_live_support_metadata(
     for command, model_entry in model_metadata["commands"].items():
         entry = dict(model_entry)
         scopes = entry.pop("scopes", [])
-        if entry["policy_exempt"]:
+        if entry["offline_only"]:
+            reason = "Offline utility; live exact scope is not applicable."
+            entry.update(
+                {
+                    "exact_scope_validation_status": None,
+                    "product_open": False,
+                    "disabled_reason": reason,
+                    "support_reason": reason,
+                }
+            )
+        elif entry["policy_exempt"]:
             entry.update(
                 {
                     "exact_scope_validation_status": None,
@@ -687,12 +697,25 @@ def _public_command_policy(
     command: str,
     policy: CommandSupportPolicy | None,
 ) -> dict[str, object]:
-    if is_live_support_policy_exempt(command):
+    if command in PURE_OFFLINE_COMMANDS:
+        reason = "Offline utility; live exact scope is not applicable."
+        return {
+            "profile_validation_status": None,
+            "profile_supported": True,
+            "metadata_available": True,
+            "policy_exempt": False,
+            "offline_only": True,
+            "disabled_reason": reason,
+            "support_reason": reason,
+            "scopes": [],
+        }
+    if command in EXEMPT_LIVE_DIAGNOSTIC_COMMANDS:
         return {
             "profile_validation_status": None,
             "profile_supported": True,
             "metadata_available": True,
             "policy_exempt": True,
+            "offline_only": False,
             "disabled_reason": None,
             "support_reason": (
                 "Identity/status diagnostic; exact model feature scope is not required."
@@ -706,6 +729,7 @@ def _public_command_policy(
             "profile_supported": False,
             "metadata_available": False,
             "policy_exempt": False,
+            "offline_only": False,
             "disabled_reason": reason,
             "support_reason": reason,
             "scopes": [],
@@ -717,6 +741,7 @@ def _public_command_policy(
         "profile_supported": profile_supported,
         "metadata_available": True,
         "policy_exempt": False,
+        "offline_only": False,
         "disabled_reason": reason,
         "support_reason": reason,
         "scopes": [
@@ -742,7 +767,7 @@ def _public_command_policy(
 
 
 def _generic_public_command(command: str) -> dict[str, object]:
-    if is_live_support_policy_exempt(command):
+    if command in PURE_OFFLINE_COMMANDS or command in EXEMPT_LIVE_DIAGNOSTIC_COMMANDS:
         return _public_command_policy(model="GENERIC", command=command, policy=None)
     capability = command_support(None).get(command, {})
     profile_supported = bool(capability.get("simulate") or capability.get("dry_run"))
@@ -752,6 +777,7 @@ def _generic_public_command(command: str) -> dict[str, object]:
         "profile_supported": profile_supported,
         "metadata_available": False,
         "policy_exempt": False,
+        "offline_only": False,
         "disabled_reason": reason,
         "support_reason": reason,
         "scopes": [],

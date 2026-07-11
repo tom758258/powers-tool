@@ -2720,7 +2720,9 @@ function workspaceResultKey(command, resource) {
 function captureWorkspaceResult(job) {
   if (!job || job.status !== "finished" || !job.command || !job.result) return false;
   const resource = job.runtime?.resource || job.result?.resource?.name || "";
-  if (job.command === "capabilities") captureResourceLiveSupport(job, resource);
+  if (["capabilities", "identify", "verify"].includes(job.command)) {
+    captureResourceLiveSupport(job, resource);
+  }
   state.workspaceResults[workspaceResultKey(job.command, resource)] = job;
   renderWorkspaceSummary();
   return true;
@@ -3060,6 +3062,9 @@ function commandMeta(name) {
 }
 
 function exactCommandSupportText(commandSupport, liveSupport) {
+  if (commandSupport.offline_only) {
+    return "Offline utility; live exact scope is not applicable.";
+  }
   if (commandSupport.policy_exempt) {
     return "Identity/status diagnostic; exact model feature scope is not required.";
   }
@@ -3113,7 +3118,7 @@ function liveSupportSummary(liveSupport) {
   const commands = Object.values(liveSupport.commands || {});
   const validated = commands.filter((entry) => entry.product_open === true && !entry.policy_exempt).length;
   const pending = commands.filter((entry) => ["transport_pending", "feature_pending"].includes(entry.exact_scope_validation_status)).length;
-  const unavailable = commands.filter((entry) => !entry.policy_exempt && entry.product_open !== true && !["transport_pending", "feature_pending"].includes(entry.exact_scope_validation_status)).length;
+  const unavailable = commands.filter((entry) => !entry.policy_exempt && !entry.offline_only && entry.product_open !== true && !["transport_pending", "feature_pending"].includes(entry.exact_scope_validation_status)).length;
   const scope = `${transportScopeLabel(liveSupport.transport_scope)} / ${backendScopeLabel(liveSupport.backend_scope)}`;
   return `${scope}: ${validated} validated, ${pending} pending, ${unavailable} unavailable`;
 }

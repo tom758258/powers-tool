@@ -38,6 +38,12 @@ registered scopes. The exact projection evaluates one detected model,
 resource transport, and backend in Product mode for adapter UX; it does not
 replace the enforcing runtime gate.
 
+Identity/status diagnostics and pure offline utilities are separate in this
+projection. Exempt diagnostics may report exact Product-policy metadata after
+a real IDN read without acquiring a model feature scope. Offline-only
+utilities are marked `offline_only`; they are not diagnostics and are never
+reported as Product-open exact live commands.
+
 ## Package Contents
 
 - `keysight_power_core.connection`: VISA backend selection, resource listing,

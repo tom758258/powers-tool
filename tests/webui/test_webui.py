@@ -944,15 +944,20 @@ def test_static_frontend_consumes_exact_live_support_without_exposing_validation
     load_commands = extract_js_function(app_js, "loadCommands")
     command_meta = extract_js_function(app_js, "commandMeta")
     capture_support = extract_js_function(app_js, "captureResourceLiveSupport")
+    capture_workspace = extract_js_function(app_js, "captureWorkspaceResult")
     clear_stale = extract_js_function(app_js, "clearStaleResourceLiveSupport")
     update_model = extract_js_function(app_js, "updateResourceModel")
     model_changed = extract_js_function(app_js, "handleModelProfileChanged")
     runtime_payload = extract_js_function(app_js, "runtimePayload")
+    render_basic = extract_js_function(app_js, "renderBasicChannelActionState")
+    render_basic_output = extract_js_function(app_js, "renderBasicOutputControlState")
 
     assert "liveSupportByModel: {}" in app_js
     assert "resourceLiveSupport: null" in app_js
     assert "resourceLiveSupportContext: null" in app_js
     assert "state.liveSupportByModel = payload.live_support_by_model || {};" in load_commands
+    assert '["capabilities", "identify", "verify"].includes(job.command)' in capture_workspace
+    assert "captureResourceLiveSupport(job, resource);" in capture_workspace
     assert "liveSupport.evaluated !== true" in capture_support
     assert "model: liveSupport.model || null" in capture_support
     assert "transport_scope: liveSupport.transport_scope" in capture_support
@@ -963,11 +968,17 @@ def test_static_frontend_consumes_exact_live_support_without_exposing_validation
     assert "state.resourceLiveSupport = null;" in update_model
     assert "exactCommand.product_open !== true" in command_meta
     assert "exactCommand.policy_exempt" in command_meta
+    assert "commandSupport.offline_only" in app_js
+    assert "Offline utility; live exact scope is not applicable." in app_js
     assert "Connection scope not evaluated" in command_meta
     assert "Pending live validation:" in app_js
     assert "No product-open live scope is registered" in app_js
     assert "Identity/status diagnostic; exact model feature scope is not required." in app_js
     assert "state.resourceLiveSupport" not in model_changed
+    assert 'const setMeta = commandMeta("set");' in render_basic
+    assert "setButton.disabled = Boolean(unsupported || setMeta.disabled);" in render_basic
+    assert 'commandMeta(enabled ? "output-off" : "output-on")' in render_basic_output
+    assert "commandMetaForState.disabled" in render_basic_output
     assert "support_policy_mode" not in runtime_payload
     assert "validation" not in runtime_payload
     assert "backend-selector" not in index_html
@@ -2092,6 +2103,144 @@ def test_webui_resource_capabilities_rejects_pending_backend_after_idn(
     assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed is True
+
+
+def test_webui_identify_returns_pending_exact_metadata_without_opening_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from keysight_power_webui import commands
+    from keysight_power_webui.jobs import Job
+
+    session = FakeCoreSession(
+        "KEYSIGHT,E36312A,SERIAL0000,1.0",
+        query_responses={
+            "*OPT?": "0",
+            "SYST:VERS?": "1999.0",
+            "SYST:COMM:RLST?": "RWLock",
+        },
+    )
+    patch_core_opener(monkeypatch, session)
+
+    result = commands.execute_job_command(
+        Job(
+            "identify-pending",
+            "identify",
+            {
+                "resource": "TCPIP0::192.0.2.1::INSTR",
+                "backend": "@py",
+                "model_profile": "E36312A",
+                "simulate": False,
+                "dry_run": False,
+            },
+            {},
+        )
+    )
+
+    live_support = result["live_support"]
+    assert live_support["evaluated"] is True
+    assert live_support["model"] == "E36312A"
+    assert live_support["transport_scope"] == "tcpip"
+    assert live_support["backend_scope"] == "pyvisa_py"
+    assert live_support["policy_mode"] == "product"
+    assert live_support["commands"]["set"]["exact_scope_validation_status"] == "transport_pending"
+    assert live_support["commands"]["set"]["product_open"] is False
+    assert live_support["commands"]["identify"]["policy_exempt"] is True
+    assert live_support["commands"]["identify"]["product_open"] is True
+    assert live_support["commands"]["snapshot-diff"]["offline_only"] is True
+    assert live_support["commands"]["snapshot-diff"]["product_open"] is False
+    serialized = json.dumps(live_support)
+    assert ".tmp_tests" not in serialized
+    assert "SERIAL0000" not in serialized
+    assert "192.0.2.1" not in serialized
+    assert '"artifact"' not in serialized
+    assert '"evidence"' not in serialized
+    assert session.queries == ["*IDN?", "*OPT?", "SYST:VERS?", "SYST:COMM:RLST?"]
+    assert session.writes == []
+    assert session.closed is True
+
+
+def test_webui_pending_command_remains_product_rejected_after_identify_metadata(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FakeCoreSession("KEYSIGHT,E36312A,SERIAL0000,1.0")
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "set",
+            "runtime": {
+                "resource": "TCPIP0::192.0.2.1::INSTR",
+                "backend": "@py",
+                "model_profile": "E36312A",
+                "confirm": True,
+            },
+            "parameters": {"channel": 1, "voltage": 1.0, "current": 0.05},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "failed"
+    assert "transport_pending" in job_data["error"]
+    assert "policy_mode=product" in job_data["error"]
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed is True
+
+
+def test_webui_identify_expected_model_mismatch_precedes_extended_identity_queries(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FakeCoreSession("Agilent Technologies,E3646A,0,1.0")
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "identify",
+            "runtime": {
+                "resource": "TCPIP0::192.0.2.1::INSTR",
+                "backend": "@py",
+                "model_profile": "E36312A",
+            },
+            "parameters": {},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "failed"
+    assert "Expected model E36312A" in job_data["error"]
+    assert "reported E3646A" in job_data["error"]
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed is True
+
+
+def test_webui_simulated_identify_does_not_claim_evaluated_live_support(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "identify",
+            "runtime": {
+                "resource": "USB0::SIM::E36312A::INSTR",
+                "simulate": True,
+            },
+            "parameters": {},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "finished", job_data.get("error")
+    assert job_data["result"]["live_support"]["evaluated"] is False
+    assert job_data["result"]["live_support"]["commands"] == {}
+    assert "real hardware only" in job_data["result"]["live_support"]["reason"]
 
 
 @pytest.mark.parametrize(

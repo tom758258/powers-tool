@@ -71,6 +71,25 @@ def test_runtime_options_defaults_to_product_support_policy_mode() -> None:
     assert RuntimeOptions().support_policy_mode == SUPPORT_POLICY_MODE_PRODUCT
 
 
+def test_identify_expected_model_mismatch_stops_after_idn() -> None:
+    session = FakeSession("Agilent Technologies,E3646A,0,1.0")
+
+    with pytest.raises(CoreValidationError, match="Expected model E36312A"):
+        run_instrument_io(
+            _request(
+                "identify",
+                "TCPIP0::192.0.2.1::INSTR",
+                backend="@py",
+                model="E36312A",
+            ),
+            opener=lambda *args, **kwargs: session,
+        )
+
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed is True
+
+
 @pytest.mark.parametrize(
     ("idn", "resource"),
     [

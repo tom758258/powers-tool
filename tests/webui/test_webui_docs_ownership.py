@@ -60,5 +60,9 @@ def test_webui_docs_describe_exact_support_as_product_only_ux():
     assert "no validation mode or VISA-backend selector" in normalized_readme
     assert "Core post-IDN exact-scope gate remains authoritative" in readme
     assert "Pending commands remain visible but disabled" in normalized_guide
+    assert "successful real `identify` diagnostic" in readme
+    assert "does not open pending feature commands" in normalized_readme
+    assert "Offline-only utilities are not identity/status diagnostics" in guide
+    assert "not shown as Product-open live commands" in normalized_guide
     assert "--validation-allow-pending-live-support" not in text
     assert "Local/" not in text

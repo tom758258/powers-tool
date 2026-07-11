@@ -188,18 +188,25 @@ browser controls.
 The browser distinguishes profile support from exact Product-mode live
 availability. Before a real resource has returned capabilities, commands keep
 their model-planning behavior and show that the connection scope has not been
-evaluated. A successful resource-backed `capabilities` result adds the
+evaluated. A successful resource-backed `capabilities` result on an already
+Product-open scope, or a successful real `identify` diagnostic, adds the
 IDN-detected model, normalized transport/backend scope, and per-command exact
-status. Validated commands remain available; pending or missing exact scopes
-are shown disabled with distinct reasons, while identity/status diagnostics
-remain explicitly policy-exempt. Changing the resource clears this exact
-context until capabilities are read for the new resource.
+status. The diagnostic path reads identity under the expected-model guard but
+does not open pending feature commands. Validated commands remain available;
+pending or missing exact scopes are shown disabled with distinct reasons,
+while identity/status diagnostics remain explicitly policy-exempt. Changing
+the resource clears this exact context until capabilities or identity are read
+for the new resource.
 
 The Device / Resource summary shows the detected model, expected-model guard,
 transport/backend scope, and compact validated/pending/unavailable counts when
 that exact context is known. WebUI remains Product-only and has no validation
 mode or VISA-backend selector. These displays and disabled controls are UX;
 the Core post-IDN exact-scope gate remains authoritative.
+
+Pure offline utilities are classified separately from identity/status
+diagnostics. They do not represent Product-open live commands and are not
+described as policy-exempt hardware diagnostics.
 
 The `set` command accepts Voltage, Current, or both in Basic command and
 Commands. Blank setpoint fields are omitted from the job payload and left
