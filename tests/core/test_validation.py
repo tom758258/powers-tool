@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-import keysight_power_core.validation as validation
-from keysight_power_core.safety import SafetyLimits, SafetyValidationError
+import powers_tool_core.validation as validation
+from powers_tool_core.safety import SafetyLimits, SafetyValidationError
 
 
 def test_positive_and_nonnegative_helpers() -> None:

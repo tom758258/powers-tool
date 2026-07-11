@@ -1,8 +1,8 @@
 import pytest
 
-from keysight_power_core.command_runner import run_core_command
-from keysight_power_core.core import CoreExecutionError, CoreValidationError, RuntimeOptions, TriggerRequest, TriggerWaitTimeout
-from keysight_power_core.trigger import (
+from powers_tool_core.command_runner import run_core_command
+from powers_tool_core.core import CoreExecutionError, CoreValidationError, RuntimeOptions, TriggerRequest, TriggerWaitTimeout
+from powers_tool_core.trigger import (
     _raise_on_instrument_errors,
     trigger_list_scpi,
     trigger_plan,

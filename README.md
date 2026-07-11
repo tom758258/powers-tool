@@ -4,7 +4,7 @@
 
 Keysight Powers is a Python control toolkit for Keysight DC power supplies.
 It provides one installable distribution, `keysight-powers` `<version>`, while
-preserving three import packages: `keysight_power_core`,
+preserving three import packages: `powers_tool_core`,
 `keysight_power_cli`, and `keysight_power_webui`.
 
 The project supports USB, LAN, and explicit RS-232/ASRL communication through VISA, command-line
@@ -109,7 +109,7 @@ The repository has one distribution and one version number. In examples,
 `<version>` means `[project].version` from the root `pyproject.toml`:
 
 - Distribution: `keysight-powers` `<version>`
-- Core import: `keysight_power_core`
+- Core import: `powers_tool_core`
 - CLI import: `keysight_power_cli`
 - WebUI import: `keysight_power_webui`
 
@@ -118,7 +118,7 @@ namespace package.
 
 ```text
 src/
-  keysight_power_core/
+  powers_tool_core/
   keysight_power_cli/
   keysight_power_webui/
 tests/

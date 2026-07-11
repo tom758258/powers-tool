@@ -2,8 +2,8 @@ import math
 
 import pytest
 
-from keysight_power_core.errors import KeysightPowerError
-from keysight_power_core.safety import (
+from powers_tool_core.errors import KeysightPowerError
+from powers_tool_core.safety import (
     SafetyConfigError,
     SafetyLimits,
     SafetyValidationError,

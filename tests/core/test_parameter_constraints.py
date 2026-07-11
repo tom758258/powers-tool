@@ -1,8 +1,8 @@
 import pytest
 
-from keysight_power_core.command_runner import run_core_command
-from keysight_power_core.core import CoreValidationError, OperationRequest, RuntimeOptions, TriggerRequest
-from keysight_power_core.parameter_constraints import parameter_constraints_metadata
+from powers_tool_core.command_runner import run_core_command
+from powers_tool_core.core import CoreValidationError, OperationRequest, RuntimeOptions, TriggerRequest
+from powers_tool_core.parameter_constraints import parameter_constraints_metadata
 
 
 @pytest.mark.parametrize(

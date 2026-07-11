@@ -43,7 +43,7 @@ keysight-power-webui-launcher = "keysight_power_webui.launcher:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = [
-  "keysight_power_core*",
+  "powers_tool_core*",
   "keysight_power_cli*",
   "keysight_power_webui*",
 ]

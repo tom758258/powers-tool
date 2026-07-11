@@ -32,7 +32,7 @@ def test_core_docs_are_root_local():
 def test_core_integration_documents_package_boundary():
     text = read_core_doc("integration.md")
 
-    assert "keysight_power_core" in text
+    assert "powers_tool_core" in text
     assert "keysight_power_cli" in text
     assert "keysight_power_webui" in text
     assert "SCPI" in text

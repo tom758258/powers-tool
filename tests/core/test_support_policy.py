@@ -3,9 +3,9 @@ from dataclasses import replace
 
 import pytest
 
-from keysight_power_core.support_features import supported_sequence_actions
+from powers_tool_core.support_features import supported_sequence_actions
 
-from keysight_power_core.support_policy import (
+from powers_tool_core.support_policy import (
     ACTIVE_LIVE_POLICY_MODELS,
     BACKEND_CUSTOM_VISA,
     BACKEND_PYVISA_PY,

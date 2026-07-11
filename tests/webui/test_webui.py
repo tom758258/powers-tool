@@ -1364,7 +1364,7 @@ def wait_for_job(client: TestClient, job_id: str) -> dict[str, Any]:
 
 
 def patch_core_opener(monkeypatch: pytest.MonkeyPatch, session: FakeCoreSession) -> None:
-    from keysight_power_core.command_runner import run_core_command as real_run_core_command
+    from powers_tool_core.command_runner import run_core_command as real_run_core_command
     from keysight_power_webui import commands
 
     def fake_opener(*args: Any, **kwargs: Any) -> FakeCoreSession:
@@ -2010,7 +2010,7 @@ def test_post_job_simulate_apply_preserves_all_channel(client: TestClient, monke
 
 
 def test_adapter_normalizes_channel_for_core_requests(monkeypatch: pytest.MonkeyPatch):
-    from keysight_power_core.core import RuntimeOptions
+    from powers_tool_core.core import RuntimeOptions
     from keysight_power_webui import commands
     from keysight_power_webui.jobs import Job
 

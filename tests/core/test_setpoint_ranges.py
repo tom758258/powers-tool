@@ -1,11 +1,11 @@
-from keysight_power_core.setpoint_ranges import (
+from powers_tool_core.setpoint_ranges import (
     setpoint_ranges_by_model_metadata,
-    setpoint_ranges_for_model,
+    setpoint_ranges_for_model_id,
 )
 
 
 def only_range(model: str, channel: int) -> dict[str, object]:
-    ranges = setpoint_ranges_for_model(model)
+    ranges = setpoint_ranges_for_model_id(model)
     assert ranges is not None
     channel_ranges = ranges.channel(channel)
     assert channel_ranges is not None
@@ -14,7 +14,7 @@ def only_range(model: str, channel: int) -> dict[str, object]:
 
 
 def output_identifier(model: str, channel: int) -> str:
-    ranges = setpoint_ranges_for_model(model)
+    ranges = setpoint_ranges_for_model_id(model)
     assert ranges is not None
     channel_ranges = ranges.channel(channel)
     assert channel_ranges is not None
@@ -22,7 +22,7 @@ def output_identifier(model: str, channel: int) -> str:
 
 
 def test_e36312a_programming_ranges() -> None:
-    assert only_range("E36312A", 1) == {
+    assert only_range("keysight-e36312a", 1) == {
         "name": "fixed",
         "aliases": [],
         "rated_range_label": None,
@@ -36,27 +36,27 @@ def test_e36312a_programming_ranges() -> None:
         "current_reset": 5.0,
         "current_min_keyword_value": 0.001,
     }
-    assert output_identifier("E36312A", 2) == "P25V"
-    assert only_range("E36312A", 2)["voltage_max"] == 25.75
-    assert only_range("E36312A", 2)["current_max"] == 1.03
-    assert output_identifier("E36312A", 3) == "N25V"
-    assert only_range("E36312A", 3)["voltage_max"] == 25.75
-    assert only_range("E36312A", 3)["current_min_keyword_value"] == 0.001
+    assert output_identifier("keysight-e36312a", 2) == "P25V"
+    assert only_range("keysight-e36312a", 2)["voltage_max"] == 25.75
+    assert only_range("keysight-e36312a", 2)["current_max"] == 1.03
+    assert output_identifier("keysight-e36312a", 3) == "N25V"
+    assert only_range("keysight-e36312a", 3)["voltage_max"] == 25.75
+    assert only_range("keysight-e36312a", 3)["current_min_keyword_value"] == 0.001
 
 
 def test_edu36311a_programming_ranges_include_current_min_keyword_values() -> None:
-    assert only_range("EDU36311A", 1)["voltage_max"] == 6.18
-    assert only_range("EDU36311A", 1)["current_max"] == 5.15
-    assert only_range("EDU36311A", 1)["current_min"] == 0.0
-    assert only_range("EDU36311A", 1)["current_min_keyword_value"] == 0.002
-    assert only_range("EDU36311A", 2)["voltage_max"] == 30.9
-    assert only_range("EDU36311A", 2)["current_min_keyword_value"] == 0.001
-    assert only_range("EDU36311A", 3)["voltage_max"] == 30.9
-    assert only_range("EDU36311A", 3)["current_min_keyword_value"] == 0.001
+    assert only_range("keysight-edu36311a", 1)["voltage_max"] == 6.18
+    assert only_range("keysight-edu36311a", 1)["current_max"] == 5.15
+    assert only_range("keysight-edu36311a", 1)["current_min"] == 0.0
+    assert only_range("keysight-edu36311a", 1)["current_min_keyword_value"] == 0.002
+    assert only_range("keysight-edu36311a", 2)["voltage_max"] == 30.9
+    assert only_range("keysight-edu36311a", 2)["current_min_keyword_value"] == 0.001
+    assert only_range("keysight-edu36311a", 3)["voltage_max"] == 30.9
+    assert only_range("keysight-edu36311a", 3)["current_min_keyword_value"] == 0.001
 
 
 def test_e3646a_programming_ranges_are_range_aware() -> None:
-    ranges = setpoint_ranges_for_model("E3646A")
+    ranges = setpoint_ranges_for_model_id("keysight-e3646a")
     assert ranges is not None
     assert ranges.channel(1) is not None
     channel_ranges = ranges.channel(1).ranges
@@ -86,5 +86,5 @@ def test_setpoint_ranges_metadata_lists_active_models_only() -> None:
         "printed page 84",
         "printed page 91",
     ]
-    assert setpoint_ranges_for_model("E36103B") is None
-    assert setpoint_ranges_for_model("E36232A") is None
+    assert setpoint_ranges_for_model_id("keysight-e36103b") is None
+    assert setpoint_ranges_for_model_id("keysight-e36232a") is None

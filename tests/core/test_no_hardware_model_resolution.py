@@ -1,14 +1,14 @@
 import pytest
 
-from keysight_power_core.command_runner import run_core_command
-from keysight_power_core.connection import InstrumentSession
-from keysight_power_core.core import CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, TriggerRequest
-from keysight_power_core.model_resolution import canonical_live_expected_model, validate_live_expected_model
-from keysight_power_core.operations import output_plan, run_operation
-from keysight_power_core.protection import run_protection
-from keysight_power_core.ramp_list import RAMP_LIST_KIND, run_ramp_list
-from keysight_power_core.sequence import run_sequence
-from keysight_power_core.testing.simulator import SimulatedResourceManager
+from powers_tool_core.command_runner import run_core_command
+from powers_tool_core.connection import InstrumentSession
+from powers_tool_core.core import CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, TriggerRequest
+from powers_tool_core.model_resolution import canonical_live_expected_model, validate_live_expected_model
+from powers_tool_core.operations import output_plan, run_operation
+from powers_tool_core.protection import run_protection
+from powers_tool_core.ramp_list import RAMP_LIST_KIND, run_ramp_list
+from powers_tool_core.sequence import run_sequence
+from powers_tool_core.testing.simulator import SimulatedResourceManager
 
 
 def test_runtime_options_model_profile_defaults_to_none() -> None:

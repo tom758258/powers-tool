@@ -2,10 +2,10 @@ from dataclasses import FrozenInstanceError, fields, replace
 
 import pytest
 
-from keysight_power_core.drivers.e36312a import E36312APowerSupply
-from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
-from keysight_power_core.factory import select_driver
-from keysight_power_core.identity import (
+from powers_tool_core.drivers.e36312a import E36312APowerSupply
+from powers_tool_core.drivers.generic_scpi import GenericScpiPowerSupply
+from powers_tool_core.factory import select_driver
+from powers_tool_core.identity import (
     GENERIC_SCPI_PLANNING_PROFILE_ID,
     IDENTITY_INDEXES,
     PHYSICAL_MODELS,
@@ -28,12 +28,12 @@ from keysight_power_core.identity import (
     validate_profile_id,
     validate_vendor_id,
 )
-from keysight_power_core.model_resolution import model_profile_from_sim_resource
-from keysight_power_core.models import (
-    CANDIDATE_MODELS,
-    CATALOG_ONLY_MODELS,
-    DE_SCOPED_MODELS,
-    PRODUCT_ACTIVE_MODELS,
+from powers_tool_core.model_resolution import model_profile_from_sim_resource
+from powers_tool_core.models import (
+    CANDIDATE_MODEL_IDS,
+    CATALOG_ONLY_MODEL_IDS,
+    DE_SCOPED_MODEL_IDS,
+    PRODUCT_ACTIVE_MODEL_IDS,
     REGISTERED_MODELS,
     IdnInfo,
 )
@@ -194,7 +194,7 @@ def test_builtin_identity_inventory_exactly_covers_legacy_inventory() -> None:
     validate_builtin_identity_inventory()
     assert set(IDENTITY_INDEXES.models_by_id) == FROZEN_MODEL_IDS
     assert {model.canonical_model for model in PHYSICAL_MODELS} == FROZEN_REPORTED_MODELS
-    assert {model.canonical_model for model in PHYSICAL_MODELS} == set(REGISTERED_MODELS) | set(DE_SCOPED_MODELS)
+    assert {model.model_id for model in PHYSICAL_MODELS} == set(REGISTERED_MODELS) | set(DE_SCOPED_MODEL_IDS)
     assert all(model.vendor_id in IDENTITY_INDEXES.vendors_by_id for model in PHYSICAL_MODELS)
     assert GENERIC_SCPI_PLANNING_PROFILE_ID not in IDENTITY_INDEXES.models_by_id
 
@@ -220,11 +220,13 @@ def test_exact_inventory_mapping_rejects_swapped_same_vendor_model_ids() -> None
     assert excinfo.value.reason == "invalid_identity_metadata"
 
 
-def test_legacy_lifecycle_sets_remain_unchanged() -> None:
-    assert PRODUCT_ACTIVE_MODELS == {"E36312A", "EDU36311A", "E3646A"}
-    assert CANDIDATE_MODELS == frozenset()
-    assert CATALOG_ONLY_MODELS == {"E36313A", "E36233A", "E36441A", "E36155A"}
-    assert DE_SCOPED_MODELS == {"E36103B", "E36232A"}
+def test_canonical_lifecycle_sets_preserve_assignments() -> None:
+    assert PRODUCT_ACTIVE_MODEL_IDS == {"keysight-e36312a", "keysight-edu36311a", "keysight-e3646a"}
+    assert CANDIDATE_MODEL_IDS == frozenset()
+    assert CATALOG_ONLY_MODEL_IDS == {
+        "keysight-e36313a", "keysight-e36233a", "keysight-e36441a", "keysight-e36155a"
+    }
+    assert DE_SCOPED_MODEL_IDS == {"keysight-e36103b", "keysight-e36232a"}
 
 
 @pytest.mark.parametrize(

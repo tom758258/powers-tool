@@ -19,18 +19,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import keysight_power_core.capabilities as capabilities
-import keysight_power_core.discovery as discovery_core
-import keysight_power_core.instrument_io as instrument_io_core
-import keysight_power_core.operations as operations
-import keysight_power_core.protection as protection_core
-import keysight_power_core.ramp_list as ramp_list_core
-import keysight_power_core.readonly as readonly_core
-import keysight_power_core.restore as restore_core
-import keysight_power_core.sequence as sequence
-import keysight_power_core.snapshot as snapshot_core
-import keysight_power_core.trigger as trigger_core
-import keysight_power_core.validation as validation
+import powers_tool_core.capabilities as capabilities
+import powers_tool_core.discovery as discovery_core
+import powers_tool_core.instrument_io as instrument_io_core
+import powers_tool_core.operations as operations
+import powers_tool_core.protection as protection_core
+import powers_tool_core.ramp_list as ramp_list_core
+import powers_tool_core.readonly as readonly_core
+import powers_tool_core.restore as restore_core
+import powers_tool_core.sequence as sequence
+import powers_tool_core.snapshot as snapshot_core
+import powers_tool_core.trigger as trigger_core
+import powers_tool_core.validation as validation
 from keysight_power_cli.cli_io import (
     JsonSaveError,
     emit_json_error,
@@ -38,8 +38,8 @@ from keysight_power_cli.cli_io import (
     set_json_save_path,
     set_json_start_time,
 )
-from keysight_power_core.connection import DEFAULT_TIMEOUT_MS, SerialOptions, list_resources, normalize_serial_termination, open_resource
-from keysight_power_core.core import (
+from powers_tool_core.connection import DEFAULT_TIMEOUT_MS, SerialOptions, list_resources, normalize_serial_termination, open_resource
+from powers_tool_core.core import (
     ConfirmationRequiredError,
     CoreExecutionError,
     CoreIoError,
@@ -54,21 +54,21 @@ from keysight_power_core.core import (
     UnsupportedChannelError,
     UnsupportedModelError,
 )
-from keysight_power_core.drivers.e36312a import E36312APowerSupply
-from keysight_power_core.drivers.e3646a import E3646APowerSupply
-from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
-from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
-from keysight_power_core.errors import VisaConnectionError
-from keysight_power_core.factory import create_power_supply, select_driver
-from keysight_power_core.live_support import enforce_live_support_for_idn
-from keysight_power_core.support_policy import (
+from powers_tool_core.drivers.e36312a import E36312APowerSupply
+from powers_tool_core.drivers.e3646a import E3646APowerSupply
+from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
+from powers_tool_core.drivers.generic_scpi import GenericScpiPowerSupply
+from powers_tool_core.errors import VisaConnectionError
+from powers_tool_core.factory import create_power_supply, select_driver
+from powers_tool_core.live_support import enforce_live_support_for_idn
+from powers_tool_core.support_policy import (
     LiveSupportPolicyError,
     SUPPORT_POLICY_MODE_PRODUCT,
     SUPPORT_POLICY_MODE_VALIDATION,
 )
-from keysight_power_core.model_resolution import validate_live_expected_model
-from keysight_power_core.models import parse_idn, resource_interface
-from keysight_power_core.safety import (
+from powers_tool_core.model_resolution import validate_live_expected_model
+from powers_tool_core.models import parse_idn, resource_interface
+from powers_tool_core.safety import (
     SafetyConfigError,
     SafetyLimits,
     SafetyValidationError,
@@ -77,8 +77,8 @@ from keysight_power_core.safety import (
     validate_channel,
     validate_setpoint,
 )
-from keysight_power_core.testing.simulator import SimulatedResourceManager
-from keysight_power_core.transport import dry_run_plan
+from powers_tool_core.testing.simulator import SimulatedResourceManager
+from powers_tool_core.transport import dry_run_plan
 
 IDN_QUERY = "*IDN?"
 CLEAR_STATUS_COMMAND = "*CLS"
@@ -3038,7 +3038,9 @@ def _run_validate_readonly(args: argparse.Namespace) -> int:
                 "real": list(selection.capabilities.real_measure_channels),
             },
         },
-        "hardware_validation": capabilities.hardware_validation_status(selection.idn.model),
+        "hardware_validation": capabilities.hardware_validation_status(
+            selection.physical_identity.model_id if selection.physical_identity else None
+        ),
         "errors": errors,
         "read_count": read_count,
         "outputs": outputs,
@@ -4184,8 +4186,12 @@ def _run_capabilities(args: argparse.Namespace) -> int:
             "real": list(caps.real_measure_channels),
         },
         **static_groups,
-        "hardware_validation": capabilities.hardware_validation_status(selection.idn.model),
-        "command_support": capabilities.command_support(selection.idn.model),
+        "hardware_validation": capabilities.hardware_validation_status(
+            selection.physical_identity.model_id if selection.physical_identity else None
+        ),
+        "command_support": capabilities.command_support(
+            selection.physical_identity.model_id if selection.physical_identity else None
+        ),
         "electrical_ratings": caps.electrical_ratings.to_dict() if caps.electrical_ratings else None,
     }
     if selected_command:
@@ -4232,10 +4238,10 @@ def _run_safety_inspect(args: argparse.Namespace) -> int:
         "sources": resolution.sources or {},
         "output_affecting_allowed": _output_affecting_allowed(args.channel, limits),
     }
-    from keysight_power_core.electrical_ratings import ratings_for_model
-    from keysight_power_core.setpoint_limits import effective_setpoint_limits
+    from powers_tool_core.electrical_ratings import ratings_for_model_profile
+    from powers_tool_core.setpoint_limits import effective_setpoint_limits
 
-    ratings = ratings_for_model(args.model)
+    ratings = ratings_for_model_profile(args.model)
     official = ratings.channel(args.channel) if ratings is not None and isinstance(args.channel, int) else None
     effective = (
         effective_setpoint_limits(

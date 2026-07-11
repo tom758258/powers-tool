@@ -1,8 +1,8 @@
 import pytest
 
-from keysight_power_core.core import CommandCancelled, ConfirmationRequiredError, CoreValidationError, OperationRequest, RuntimeOptions
-from keysight_power_core.operations import output_plan, run_operation
-from keysight_power_core.support_policy import LiveSupportPolicyError
+from powers_tool_core.core import CommandCancelled, ConfirmationRequiredError, CoreValidationError, OperationRequest, RuntimeOptions
+from powers_tool_core.operations import output_plan, run_operation
+from powers_tool_core.support_policy import LiveSupportPolicyError
 
 
 class FakeSession:
@@ -355,7 +355,7 @@ def test_cycle_output_completion_pulse_runs_after_all_outputs_are_off(monkeypatc
         writes_at_pulse.extend(session.writes)
         return {"completed": True}
 
-    monkeypatch.setattr("keysight_power_core.operations.run_post_action_completion_pulse", pulse)
+    monkeypatch.setattr("powers_tool_core.operations.run_post_action_completion_pulse", pulse)
     core_request = OperationRequest(
         command="cycle-output",
         runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
@@ -425,7 +425,7 @@ def test_ramp_step_completion_pulses_after_every_write_including_last(monkeypatc
         pulse_write_snapshots.append(list(session.writes))
         return {"completed": True}
 
-    monkeypatch.setattr("keysight_power_core.operations.run_post_action_completion_pulse", pulse)
+    monkeypatch.setattr("powers_tool_core.operations.run_post_action_completion_pulse", pulse)
     params = request(
         "ramp",
         start_voltage=0.0,

@@ -12,12 +12,12 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from keysight_power_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, StopCleanupError, TriggerRequest
-from keysight_power_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
-from keysight_power_core.parameter_constraints import parameter_constraints_metadata, validate_request_parameters
-from keysight_power_core.sequence import load_sequence_document, sequence_plan
-from keysight_power_core.trigger import validate_trigger_request
-from keysight_power_core.workflow_validation import validate_general_workflow_parameters
+from powers_tool_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, StopCleanupError, TriggerRequest
+from powers_tool_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
+from powers_tool_core.parameter_constraints import parameter_constraints_metadata, validate_request_parameters
+from powers_tool_core.sequence import load_sequence_document, sequence_plan
+from powers_tool_core.trigger import validate_trigger_request
+from powers_tool_core.workflow_validation import validate_general_workflow_parameters
 
 from . import __version__ as WEBUI_VERSION
 from .jobs import job_manager, JobStatus
@@ -152,8 +152,8 @@ async def get_commands():
         for name, metadata in COMMAND_METADATA.items()
         if name not in WEBUI_UNSUPPORTED_COMMANDS and name not in WEBUI_HIDDEN_COMMANDS
     }
-    from keysight_power_core.electrical_ratings import electrical_ratings_by_model_metadata
-    from keysight_power_core.setpoint_ranges import setpoint_ranges_by_model_metadata
+    from powers_tool_core.electrical_ratings import electrical_ratings_by_model_metadata
+    from powers_tool_core.setpoint_ranges import setpoint_ranges_by_model_metadata
 
     return {
         "commands": commands,

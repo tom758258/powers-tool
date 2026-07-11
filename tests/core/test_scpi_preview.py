@@ -1,6 +1,6 @@
 import pytest
 
-from keysight_power_core._scpi_preview import preview_measure_scpi
+from powers_tool_core._scpi_preview import preview_measure_scpi
 
 
 @pytest.mark.parametrize(

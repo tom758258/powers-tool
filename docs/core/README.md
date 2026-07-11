@@ -3,7 +3,7 @@
 Core library and driver layer for controlling Keysight DC power supplies safely.
 
 Core ships inside the single `keysight-powers` distribution while preserving
-the `keysight_power_core` import boundary. It owns hardware-facing behavior
+the `powers_tool_core` import boundary. It owns hardware-facing behavior
 and is shared by the CLI and WebUI adapters.
 
 ## Purpose
@@ -15,6 +15,19 @@ sequence runtime. It must stay independent from the CLI and WebUI packages.
 Use the core package when another Python package needs to call the power-supply
 runtime directly. End users should normally use the `keysight-power` console
 script included in the same `keysight-powers` distribution.
+
+## Physical Identity And Registry Boundary
+
+Core resolves a physical instrument from its reported manufacturer and model
+before selecting a model-specific driver. Its physical catalog, lifecycle,
+driver, channel, simulator, capability, electrical-range, and safety-coverage
+registries use canonical vendor-qualified IDs such as
+`keysight-e36312a`. Vendor-specific driver class names remain unchanged.
+
+The existing CLI and adapter `model_profile` contract remains unchanged in
+this phase. Generic no-hardware planning metadata is kept separately;
+`generic-scpi` is a planning profile, not a physical model or live expected
+model, and it is not present in physical registries.
 
 ## Live Support Policy Modes
 
@@ -43,7 +56,7 @@ features: validated siblings remain Product-open, while each pending feature
 remains Validation-only. A transport-pending parent cannot contain a validated
 feature.
 
-`keysight_power_core.support_policy.live_support_policy_metadata()` and
+`powers_tool_core.support_policy.live_support_policy_metadata()` and
 `exact_live_support_metadata()` provide JSON-ready display projections without
 exposing validation artifacts or mutable registry records. The model-level
 projection distinguishes profile support, explicit diagnostic exemptions, and
@@ -62,47 +75,47 @@ are never reported as Product-open exact live commands.
 
 ## Package Contents
 
-- `keysight_power_core.connection`: VISA backend selection, resource listing,
+- `powers_tool_core.connection`: VISA backend selection, resource listing,
   identity query, and connection helpers.
-- `keysight_power_core.factory`: IDN-based driver selection for generic SCPI,
+- `powers_tool_core.factory`: IDN-based driver selection for generic SCPI,
   E36312A, EDU36311A, and E3646A instruments.
-- `keysight_power_core.drivers`: model-specific driver implementations and
+- `powers_tool_core.drivers`: model-specific driver implementations and
   shared SCPI channel strategies.
-- `keysight_power_core.operations`: output and setpoint operations such as
+- `powers_tool_core.operations`: output and setpoint operations such as
   `set`, `apply`, `output-on`, `output-off`, `safe-off`, `ramp`, `ramp-list`, and
   readback/snapshot helpers.
-- `keysight_power_core.readonly`: read-only `status`, `readback`,
+- `powers_tool_core.readonly`: read-only `status`, `readback`,
   `measure-all`, log, and validation flows, including dry-run plans that do
   not open VISA.
-- `keysight_power_core.trigger`: E36312A trigger, STEP, native LIST, fire, and
+- `powers_tool_core.trigger`: E36312A trigger, STEP, native LIST, fire, and
   abort support.
-- `keysight_power_core.sequence`: parser-neutral sequence document loading,
+- `powers_tool_core.sequence`: parser-neutral sequence document loading,
   linting, dry-run planning, and execution.
-- `keysight_power_core.ramp_list`: versioned JSON Ramp List loading, full
+- `powers_tool_core.ramp_list`: versioned JSON Ramp List loading, full
   prevalidation, planning, and ordered software-setpoint execution.
-- `keysight_power_core.discovery`, `instrument_io`, `protection`, and
+- `powers_tool_core.discovery`, `instrument_io`, `protection`, and
   `snapshot`: adapter-neutral runners for discovery, safe instrument I/O,
   protection, and snapshot commands shared by CLI and WebUI.
-- `keysight_power_core.command_runner`: shared router used by adapters that
+- `powers_tool_core.command_runner`: shared router used by adapters that
   submit parser-neutral core requests.
-- `keysight_power_core.cancellation` and `stop_cleanup`: cooperative
+- `powers_tool_core.cancellation` and `stop_cleanup`: cooperative
   cancellation, interruptible waits, GPIB-only local release, and structured
   stop cleanup results shared by Worker and WebUI.
-- `keysight_power_core.safety`: explicit local safety-config loading and plan
+- `powers_tool_core.safety`: explicit local safety-config loading and plan
   validation.
-- `keysight_power_core.electrical_ratings` and `setpoint_limits`: verified
+- `powers_tool_core.electrical_ratings` and `setpoint_limits`: verified
   independent-channel DC output ratings and effective safety limits.
-- `keysight_power_core.setpoint_ranges`: official output voltage setpoint and
+- `powers_tool_core.setpoint_ranges`: official output voltage setpoint and
   output current limit programming-range metadata from model programming
   manuals.
-- `keysight_power_core.capabilities`: command and model capability reporting.
-- `keysight_power_core.support_policy`: exact live-support enforcement metadata
+- `powers_tool_core.capabilities`: command and model capability reporting.
+- `powers_tool_core.support_policy`: exact live-support enforcement metadata
   and safe public display projections.
-- `keysight_power_core.model_resolution`: strict no-hardware model profile
+- `powers_tool_core.model_resolution`: strict no-hardware model profile
   resolution for dry-run/simulator planning and live expected-model guards.
-- `keysight_power_core.model_enablement`: injectable consistency validation for
+- `powers_tool_core.model_enablement`: injectable consistency validation for
   Product-active, candidate, catalog-only, and de-scoped model inventories.
-- `keysight_power_core.testing`: no-hardware simulator used by tests and CLI
+- `powers_tool_core.testing`: no-hardware simulator used by tests and CLI
   simulation mode.
 
 ## Install

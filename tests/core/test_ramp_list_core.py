@@ -1,7 +1,7 @@
 import pytest
 
-from keysight_power_core.core import CoreValidationError, OperationRequest, RuntimeOptions
-from keysight_power_core.ramp_list import RAMP_LIST_KIND, run_ramp_list
+from powers_tool_core.core import CoreValidationError, OperationRequest, RuntimeOptions
+from powers_tool_core.ramp_list import RAMP_LIST_KIND, run_ramp_list
 
 
 class FakeSession:
@@ -247,7 +247,7 @@ def test_ramp_list_segment_pulse_uses_each_segment_channel(monkeypatch) -> None:
         calls.append(channel)
         return {"channel": channel, "completed": True}
 
-    monkeypatch.setattr("keysight_power_core.ramp_list.run_post_action_completion_pulse", pulse)
+    monkeypatch.setattr("powers_tool_core.ramp_list.run_post_action_completion_pulse", pulse)
     doc = document(segment(channel=1), segment(channel=2))
     doc["completion_pulse"] = {"timing": "segment", "pins": [1], "polarity": "positive"}
 

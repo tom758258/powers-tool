@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from keysight_power_core.core import OperationRequest, RuntimeOptions
-from keysight_power_core.protection import run_protection
+from powers_tool_core.core import OperationRequest, RuntimeOptions
+from powers_tool_core.protection import run_protection
 
 
 class FakeSession:

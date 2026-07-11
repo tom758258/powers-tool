@@ -50,7 +50,7 @@ Keep edits surgical. Do not touch unrelated files.
 Do not change Core, CLI, package metadata, or WebUI backend behavior for a
 visual UI task:
 
-- `src/keysight_power_core/**`
+- `src/powers_tool_core/**`
 - `src/keysight_power_cli/**`
 - `pyproject.toml`
 - Backend behavior in `src/keysight_power_webui/app.py`,

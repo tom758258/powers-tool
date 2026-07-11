@@ -6,7 +6,7 @@ import argparse
 from collections.abc import Sequence
 from typing import Any
 
-from keysight_power_core.core import RuntimeOptions, SequenceRequest
+from powers_tool_core.core import RuntimeOptions, SequenceRequest
 
 
 REQUEST_FIELDS = (

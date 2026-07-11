@@ -1,4 +1,4 @@
-from keysight_power_core.transport import dry_run_plan
+from powers_tool_core.transport import dry_run_plan
 
 
 def test_dry_run_plan_is_data_only() -> None:

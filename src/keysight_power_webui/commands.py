@@ -5,10 +5,10 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from keysight_power_core import capabilities as core_capabilities
-from keysight_power_core.command_runner import run_core_command
-from keysight_power_core.connection import SerialOptions, normalize_serial_termination, open_resource
-from keysight_power_core.core import (
+from powers_tool_core import capabilities as core_capabilities
+from powers_tool_core.command_runner import run_core_command
+from powers_tool_core.connection import SerialOptions, normalize_serial_termination, open_resource
+from powers_tool_core.core import (
     CommandCancelled,
     ConfirmationRequiredError,
     CoreExecutionError,
@@ -18,14 +18,14 @@ from keysight_power_core.core import (
     SequenceRequest,
     TriggerRequest,
 )
-from keysight_power_core.discovery import IDN_QUERY, resource_payload
-from keysight_power_core.errors import VisaConnectionError
-from keysight_power_core.factory import select_driver
-from keysight_power_core.live_support import enforce_product_live_support_for_idn
-from keysight_power_core.model_resolution import validate_live_expected_model
-from keysight_power_core.models import parse_idn
-from keysight_power_core.readonly import run_live_panel_read
-from keysight_power_core.support_policy import (
+from powers_tool_core.discovery import IDN_QUERY, resource_payload
+from powers_tool_core.errors import VisaConnectionError
+from powers_tool_core.factory import select_driver
+from powers_tool_core.live_support import enforce_product_live_support_for_idn
+from powers_tool_core.model_resolution import validate_live_expected_model
+from powers_tool_core.models import parse_idn
+from powers_tool_core.readonly import run_live_panel_read
+from powers_tool_core.support_policy import (
     LiveSupportPolicyError,
     SUPPORT_POLICY_MODE_PRODUCT,
     exact_live_support_metadata,
@@ -33,7 +33,7 @@ from keysight_power_core.support_policy import (
     normalize_backend,
     normalize_transport,
 )
-from keysight_power_core.testing.simulator import SimulatedResourceManager
+from powers_tool_core.testing.simulator import SimulatedResourceManager
 
 from .jobs import Job
 
@@ -106,10 +106,10 @@ MODEL_INDEPENDENT_DIAGNOSTICS = {"verify", "clear", "error"}
 def channel_capabilities_by_model() -> dict[str, dict[str, Any]]:
     """Return WebUI model-to-channel metadata from driver capabilities."""
 
-    from keysight_power_core.drivers.e36312a import E36312APowerSupply
-    from keysight_power_core.drivers.e3646a import E3646APowerSupply
-    from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
-    from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
+    from powers_tool_core.drivers.e36312a import E36312APowerSupply
+    from powers_tool_core.drivers.e3646a import E3646APowerSupply
+    from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
+    from powers_tool_core.drivers.generic_scpi import GenericScpiPowerSupply
 
     return {
         "E36312A": {
@@ -352,10 +352,13 @@ def _requires_real_confirmation(command: str, runtime: RuntimeOptions) -> bool:
 
 
 def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
-    from keysight_power_core.drivers.e36312a import E36312APowerSupply
-    from keysight_power_core.drivers.e3646a import E3646APowerSupply
-    from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
-    from keysight_power_core.setpoint_ranges import setpoint_ranges_for_model
+    from powers_tool_core.drivers.e36312a import E36312APowerSupply
+    from powers_tool_core.drivers.e3646a import E3646APowerSupply
+    from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
+    from powers_tool_core.setpoint_ranges import (
+        setpoint_ranges_for_model_id,
+        setpoint_ranges_for_model_profile,
+    )
 
     if runtime.resource:
         manager = SimulatedResourceManager() if runtime.simulate else None
@@ -405,13 +408,18 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
                 "simulate": list(caps.simulated_measure_channels),
                 "real": list(caps.real_measure_channels),
             },
-            "hardware_validation": core_capabilities.hardware_validation_status(selection.idn.model),
-            "command_support": core_capabilities.command_support(selection.idn.model),
+            "hardware_validation": core_capabilities.hardware_validation_status(
+                selection.physical_identity.model_id if selection.physical_identity else None
+            ),
+            "command_support": core_capabilities.command_support(
+                selection.physical_identity.model_id if selection.physical_identity else None
+            ),
             "live_support": live_support,
             "electrical_ratings": caps.electrical_ratings.to_dict() if caps.electrical_ratings else None,
             "setpoint_ranges": (
-                setpoint_ranges_for_model(selection.idn.model).to_dict()
-                if setpoint_ranges_for_model(selection.idn.model)
+                setpoint_ranges_for_model_id(selection.physical_identity.model_id).to_dict()
+                if selection.physical_identity
+                and setpoint_ranges_for_model_id(selection.physical_identity.model_id)
                 else None
             ),
         }
@@ -421,24 +429,24 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
             "E36312A": {
                 "channels": list(E36312APowerSupply.capabilities.channels),
                 "electrical_ratings": E36312APowerSupply.capabilities.electrical_ratings.to_dict(),
-                "setpoint_ranges": setpoint_ranges_for_model("E36312A").to_dict(),
+                "setpoint_ranges": setpoint_ranges_for_model_profile("E36312A").to_dict(),
             },
             "EDU36311A": {
                 "channels": list(EDU36311APowerSupply.capabilities.channels),
                 "electrical_ratings": EDU36311APowerSupply.capabilities.electrical_ratings.to_dict(),
-                "setpoint_ranges": setpoint_ranges_for_model("EDU36311A").to_dict(),
+                "setpoint_ranges": setpoint_ranges_for_model_profile("EDU36311A").to_dict(),
             },
             "E3646A": {
                 "channels": list(E3646APowerSupply.capabilities.channels),
                 "electrical_ratings": None,
-                "setpoint_ranges": setpoint_ranges_for_model("E3646A").to_dict(),
+                "setpoint_ranges": setpoint_ranges_for_model_profile("E3646A").to_dict(),
             },
         }
     }
 
 
 def _filtered_command_support(model: str | None, command_names: set[str]) -> dict[str, dict[str, Any]]:
-    support = core_capabilities.command_support(model)
+    support = core_capabilities.planning_profile_command_support(model)
     filtered = {
         command: dict(support[command])
         for command in sorted(command_names)
@@ -464,7 +472,7 @@ def _filtered_command_support(model: str | None, command_names: set[str]) -> dic
 def _safety_inspect(runtime: RuntimeOptions) -> dict[str, Any]:
     if runtime.safety_config is None:
         return {"safety_config_loaded": False}
-    from keysight_power_core.safety import resolve_safety_config
+    from powers_tool_core.safety import resolve_safety_config
 
     config = resolve_safety_config(
         runtime.safety_config,

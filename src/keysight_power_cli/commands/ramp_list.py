@@ -6,8 +6,8 @@ import argparse
 from collections.abc import Sequence
 from typing import Any
 
-from keysight_power_core.core import OperationRequest, RuntimeOptions
-from keysight_power_core.ramp_list import RAMP_LIST_KIND
+from powers_tool_core.core import OperationRequest, RuntimeOptions
+from powers_tool_core.ramp_list import RAMP_LIST_KIND
 
 
 def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any) -> None:

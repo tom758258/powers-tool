@@ -31,7 +31,7 @@ in the pull request if the full no-hardware suite was not run.
 
 The three import packages have distinct responsibilities:
 
-- `keysight_power_core` owns model logic, exact live-scope authorization,
+- `powers_tool_core` owns model logic, exact live-scope authorization,
   drivers, safety validation, and hardware-facing behavior.
 - `keysight_power_cli` is the command-line adapter.
 - `keysight_power_webui` is the browser and HTTP adapter.

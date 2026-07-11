@@ -2,7 +2,7 @@
 
 ```text
 src/
-  keysight_power_core/
+  powers_tool_core/
   keysight_power_cli/
   keysight_power_webui/
 tests/
@@ -26,7 +26,7 @@ version is owned by `[project].version` in the root `pyproject.toml`; use
 
 | Area | Distribution | Import | Version | Console command |
 | --- | --- | --- | --- | --- |
-| Core | `keysight-powers` | `keysight_power_core` | distribution version | None |
+| Core | `keysight-powers` | `powers_tool_core` | distribution version | None |
 | CLI | `keysight-powers` | `keysight_power_cli` | distribution version | `keysight-power` |
 | WebUI | `keysight-powers` | `keysight_power_webui` | distribution version | `keysight-power-webui`, `keysight-power-webui-launcher` |
 

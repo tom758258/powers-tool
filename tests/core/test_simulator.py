@@ -1,8 +1,11 @@
 import pytest
 
-from keysight_power_core.errors import VisaConnectionError
-from keysight_power_core.models import parse_idn
-from keysight_power_core.testing.simulator import (
+from powers_tool_core.errors import VisaConnectionError
+from powers_tool_core.factory import select_driver
+from powers_tool_core.identity import IDENTITY_INDEXES, planning_model_id_from_sim_resource
+from powers_tool_core.model_resolution import MODEL_CHANNELS_BY_ID, SIMULATED_RESOURCE_FOR_MODEL_ID
+from powers_tool_core.models import parse_idn
+from powers_tool_core.testing.simulator import (
     SIMULATED_IDN,
     SIMULATED_RESOURCES,
     SimulatedResourceManager,
@@ -27,6 +30,20 @@ def test_simulator_idn_responses_are_parseable_keysight_idns(resource) -> None:
     assert idn.parse_ok is True
     assert idn.manufacturer == "KEYSIGHT"
     assert idn.raw == SIMULATED_IDN[resource]
+
+
+def test_deterministic_simulator_registry_uses_matching_canonical_identity() -> None:
+    assert set(SIMULATED_RESOURCE_FOR_MODEL_ID) == {
+        "keysight-e36312a",
+        "keysight-edu36311a",
+        "keysight-e3646a",
+    }
+    for model_id, resource in SIMULATED_RESOURCE_FOR_MODEL_ID.items():
+        assert resource in SIMULATED_IDN
+        assert planning_model_id_from_sim_resource(resource) == model_id
+        assert IDENTITY_INDEXES.models_by_id[model_id].vendor_id == "keysight"
+        session = SimulatedResourceManager().open_resource(resource)
+        assert select_driver(session.query("*IDN?")).capabilities.channels == MODEL_CHANNELS_BY_ID[model_id]
 
 
 @pytest.mark.parametrize(

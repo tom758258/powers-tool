@@ -4,25 +4,25 @@ from pathlib import Path
 
 import pytest
 
-from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
-from keysight_power_core.model_enablement import (
+from powers_tool_core.drivers.generic_scpi import GenericScpiPowerSupply
+from powers_tool_core.model_enablement import (
     ModelEnablementInventory,
     current_model_enablement_inventory,
     validate_model_enablement,
 )
-from keysight_power_core.model_resolution import (
+from powers_tool_core.model_resolution import (
     CANDIDATE_MODEL_PROFILES,
     CANONICAL_MODEL_PROFILES,
     LIVE_EXPECTED_MODEL_PROFILES,
     PRODUCT_MODEL_PROFILES,
 )
-from keysight_power_core.models import (
-    CANDIDATE_MODELS,
-    CATALOG_ONLY_MODELS,
-    DE_SCOPED_MODELS,
-    PRODUCT_ACTIVE_MODELS,
+from powers_tool_core.models import (
+    CANDIDATE_MODEL_IDS,
+    CATALOG_ONLY_MODEL_IDS,
+    DE_SCOPED_MODEL_IDS,
+    PRODUCT_ACTIVE_MODEL_IDS,
 )
-from keysight_power_core.support_policy import (
+from powers_tool_core.support_policy import (
     BACKEND_SYSTEM_VISA,
     TRANSPORT_USB,
     VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
@@ -34,17 +34,19 @@ from keysight_power_core.support_policy import (
     CommandSupportPolicy,
     ModelSupportPolicy,
 )
-from keysight_power_core.support_features import (
+from powers_tool_core.support_features import (
     FEATURE_KIND_SEQUENCE_ACTION,
     FEATURE_KIND_TRIGGER_SOURCE,
 )
 
+SYNTHETIC_CANDIDATE_MODEL_ID = "keysight-e36313a"
+
 
 def _synthetic_candidate() -> ModelEnablementInventory:
     current = current_model_enablement_inventory()
-    model = "SYNTH1"
+    model = SYNTHETIC_CANDIDATE_MODEL_ID
     policy = ModelSupportPolicy(
-        model=model,
+        model="E36313A",
         commands=(
             CommandSupportPolicy(
                 command="measure",
@@ -63,12 +65,10 @@ def _synthetic_candidate() -> ModelEnablementInventory:
     return replace(
         current,
         model_stages={**current.model_stages, model: "candidate"},
-        candidate_profiles=current.candidate_profiles | {model},
-        canonical_profiles=current.canonical_profiles | {model},
-        live_expected_profiles=current.live_expected_profiles | {model},
+        candidate_model_ids=current.candidate_model_ids | {model},
         channels={**current.channels, model: (1,)},
-        simulator_resources={**current.simulator_resources, model: "USB0::SIM::SYNTH1::INSTR"},
-        simulator_idns={**current.simulator_idns, model: "KEYSIGHT,SYNTH1,SIM000001,1.0"},
+        simulator_resources={**current.simulator_resources, model: "USB0::SIM::E36313A::INSTR"},
+        simulator_idns={**current.simulator_idns, model: "KEYSIGHT,E36313A,SIM000001,1.0"},
         drivers={**current.drivers, model: type("SynthPowerSupply", (), {})},
         command_capabilities={
             **current.command_capabilities,
@@ -84,7 +84,7 @@ def _candidate_with_output_metadata(
     *, ratings: bool, ranges: bool
 ) -> ModelEnablementInventory:
     candidate = _synthetic_candidate()
-    model = "SYNTH1"
+    model = SYNTHETIC_CANDIDATE_MODEL_ID
     capabilities = {
         **candidate.command_capabilities[model],
         "set": {"real": True, "simulate": True, "dry_run": True},
@@ -117,7 +117,7 @@ def _candidate_with_feature_command(
     feature_scopes: tuple[CommandFeatureSupportScope, ...],
 ) -> ModelEnablementInventory:
     candidate = _synthetic_candidate()
-    model = "SYNTH1"
+    model = SYNTHETIC_CANDIDATE_MODEL_ID
     measure_policy = candidate.live_policies[model].commands[0]
     feature_policy = CommandSupportPolicy(
         command=command,
@@ -156,24 +156,58 @@ def _candidate_with_feature_command(
 
 
 def test_current_model_enablement_stage_sets_are_exact_and_disjoint() -> None:
-    assert PRODUCT_ACTIVE_MODELS == {"E36312A", "EDU36311A", "E3646A"}
-    assert CANDIDATE_MODELS == frozenset()
-    assert CATALOG_ONLY_MODELS == {"E36313A", "E36233A", "E36441A", "E36155A"}
-    assert DE_SCOPED_MODELS == {"E36103B", "E36232A"}
-    stage_sets = [PRODUCT_ACTIVE_MODELS, CANDIDATE_MODELS, CATALOG_ONLY_MODELS, DE_SCOPED_MODELS]
+    assert PRODUCT_ACTIVE_MODEL_IDS == {"keysight-e36312a", "keysight-edu36311a", "keysight-e3646a"}
+    assert CANDIDATE_MODEL_IDS == frozenset()
+    assert CATALOG_ONLY_MODEL_IDS == {
+        "keysight-e36313a", "keysight-e36233a", "keysight-e36441a", "keysight-e36155a"
+    }
+    assert DE_SCOPED_MODEL_IDS == {"keysight-e36103b", "keysight-e36232a"}
+    stage_sets = [PRODUCT_ACTIVE_MODEL_IDS, CANDIDATE_MODEL_IDS, CATALOG_ONLY_MODEL_IDS, DE_SCOPED_MODEL_IDS]
     assert all(not left & right for index, left in enumerate(stage_sets) for right in stage_sets[index + 1 :])
-    assert PRODUCT_MODEL_PROFILES == PRODUCT_ACTIVE_MODELS
+    assert PRODUCT_MODEL_PROFILES == {"E36312A", "EDU36311A", "E3646A"}
     assert CANDIDATE_MODEL_PROFILES == frozenset()
-    assert CANONICAL_MODEL_PROFILES == PRODUCT_ACTIVE_MODELS | {"GENERIC"}
-    assert LIVE_EXPECTED_MODEL_PROFILES == PRODUCT_ACTIVE_MODELS
+    assert CANONICAL_MODEL_PROFILES == PRODUCT_MODEL_PROFILES | {"GENERIC"}
+    assert LIVE_EXPECTED_MODEL_PROFILES == PRODUCT_MODEL_PROFILES
 
 
 def test_current_model_enablement_inventory_is_consistent() -> None:
     inventory = current_model_enablement_inventory()
-    assert "E3646A" not in inventory.electrical_rating_models
-    assert "E3646A" in inventory.setpoint_range_models
-    assert inventory.product_rating_compatibility_models == {"E3646A"}
+    assert "keysight-e3646a" not in inventory.electrical_rating_models
+    assert "keysight-e3646a" in inventory.setpoint_range_models
+    assert inventory.product_rating_compatibility_models == {"keysight-e3646a"}
+    assert inventory.planning_profiles == {"GENERIC"}
     validate_model_enablement(inventory)
+
+
+def test_all_physical_enablement_registries_use_canonical_model_ids() -> None:
+    inventory = current_model_enablement_inventory()
+    registries = (
+        inventory.model_stages,
+        inventory.channels,
+        inventory.simulator_resources,
+        inventory.drivers,
+        inventory.command_capabilities,
+        inventory.live_policies,
+        inventory.feature_inventories,
+    )
+    model_sets = (
+        inventory.product_model_ids,
+        inventory.candidate_model_ids,
+        inventory.electrical_rating_models,
+        inventory.setpoint_range_models,
+        inventory.product_rating_compatibility_models,
+        inventory.safety_validated_models,
+        inventory.no_hardware_covered_models,
+    )
+
+    for values in registries:
+        assert all(model_id.startswith("keysight-") for model_id in values)
+        assert "GENERIC" not in values
+        assert "generic-scpi" not in values
+    for values in model_sets:
+        assert all(model_id.startswith("keysight-") for model_id in values)
+        assert "GENERIC" not in values
+        assert "generic-scpi" not in values
 
 
 def test_complete_synthetic_candidate_inventory_passes() -> None:
@@ -199,9 +233,9 @@ def test_candidate_missing_one_prerequisite_fails_precisely(
     candidate = _synthetic_candidate()
     current_value = getattr(candidate, field)
     if isinstance(current_value, dict):
-        replacement = {key: item for key, item in current_value.items() if key != "SYNTH1"}
+        replacement = {key: item for key, item in current_value.items() if key != SYNTHETIC_CANDIDATE_MODEL_ID}
     else:
-        replacement = current_value - {"SYNTH1"}
+        replacement = current_value - {SYNTHETIC_CANDIDATE_MODEL_ID}
     with pytest.raises(ValueError, match=match):
         validate_model_enablement(replace(candidate, **{field: replacement}))
 
@@ -210,13 +244,13 @@ def test_candidate_cannot_use_generic_driver_fallback() -> None:
     candidate = _synthetic_candidate()
     with pytest.raises(ValueError, match="Generic driver fallback"):
         validate_model_enablement(
-            replace(candidate, drivers={**candidate.drivers, "SYNTH1": GenericScpiPowerSupply})
+            replace(candidate, drivers={**candidate.drivers, SYNTHETIC_CANDIDATE_MODEL_ID: GenericScpiPowerSupply})
         )
 
 
 def test_candidate_cannot_have_product_open_scope() -> None:
     candidate = _synthetic_candidate()
-    policy = candidate.live_policies["SYNTH1"]
+    policy = candidate.live_policies[SYNTHETIC_CANDIDATE_MODEL_ID]
     command = policy.commands[0]
     validated_scope = replace(
         command.scopes[0],
@@ -227,7 +261,7 @@ def test_candidate_cannot_have_product_open_scope() -> None:
     changed = replace(policy, commands=(replace(command, scopes=(validated_scope,)),))
     with pytest.raises(ValueError, match="not exclusively pending|accidental Product-open"):
         validate_model_enablement(
-            replace(candidate, live_policies={**candidate.live_policies, "SYNTH1": changed})
+            replace(candidate, live_policies={**candidate.live_policies, SYNTHETIC_CANDIDATE_MODEL_ID: changed})
         )
 
 
@@ -258,7 +292,7 @@ def test_candidate_cannot_use_product_rating_compatibility_exception() -> None:
     candidate = replace(
         candidate,
         product_rating_compatibility_models=(
-            candidate.product_rating_compatibility_models | {"SYNTH1"}
+            candidate.product_rating_compatibility_models | {SYNTHETIC_CANDIDATE_MODEL_ID}
         ),
     )
     with pytest.raises(ValueError, match="missing electrical ratings"):
@@ -372,9 +406,7 @@ def test_candidate_rejects_invalid_feature_metadata(
 
 def test_catalog_and_descoped_models_do_not_leak_into_active_registries() -> None:
     inventory = current_model_enablement_inventory()
-    forbidden = CATALOG_ONLY_MODELS | DE_SCOPED_MODELS
-    assert forbidden.isdisjoint(inventory.canonical_profiles)
-    assert forbidden.isdisjoint(inventory.live_expected_profiles)
+    forbidden = CATALOG_ONLY_MODEL_IDS | DE_SCOPED_MODEL_IDS
     assert forbidden.isdisjoint(inventory.drivers)
     assert forbidden.isdisjoint(inventory.simulator_resources)
     assert forbidden.isdisjoint(inventory.live_policies)
@@ -385,9 +417,9 @@ def test_product_ui_and_wrapper_targets_match_product_active_models() -> None:
     webui_models = frozenset(
         re.findall(r'<option value="([A-Z0-9]+)">Require ', index_html)
     )
-    assert webui_models == PRODUCT_ACTIVE_MODELS
+    assert webui_models == PRODUCT_MODEL_PROFILES
     wrapper = Path("scripts/live-cli-check.ps1").read_text(encoding="utf-8")
     target_line = next(
         line for line in wrapper.splitlines() if line.startswith("$SupportedTargets = @(")
     )
-    assert frozenset(re.findall(r'"([A-Z0-9]+)"', target_line)) == PRODUCT_ACTIVE_MODELS
+    assert frozenset(re.findall(r'"([A-Z0-9]+)"', target_line)) == PRODUCT_MODEL_PROFILES

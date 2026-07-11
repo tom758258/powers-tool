@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-import keysight_power_core.capabilities as capabilities
+import powers_tool_core.capabilities as capabilities
 
 
 def test_hardware_validation_status_e36312a_shape() -> None:
-    assert capabilities.hardware_validation_status("E36312A") == {
+    assert capabilities.hardware_validation_status("keysight-e36312a") == {
         "read_only": "validated",
         "output": "validated",
         "protection": "validated",
@@ -15,7 +15,7 @@ def test_hardware_validation_status_e36312a_shape() -> None:
 
 
 def test_hardware_validation_status_edu36311a_trigger_boundary() -> None:
-    assert capabilities.hardware_validation_status("EDU36311A") == {
+    assert capabilities.hardware_validation_status("keysight-edu36311a") == {
         "read_only": "validated",
         "output": "validated",
         "protection": {
@@ -29,7 +29,7 @@ def test_hardware_validation_status_edu36311a_trigger_boundary() -> None:
 
 
 def test_command_support_e36312a_output_protection_and_trigger_real() -> None:
-    support = capabilities.command_support("E36312A")
+    support = capabilities.command_support("keysight-e36312a")
 
     assert support["output-on"]["real"] is True
     assert support["output-on"]["hardware_validation"] == "validated_confirm_threshold_conditional"
@@ -49,7 +49,7 @@ def test_command_support_e36312a_output_protection_and_trigger_real() -> None:
 
 
 def test_command_support_edu36311a_output_protection_and_trigger_boundary() -> None:
-    support = capabilities.command_support("EDU36311A")
+    support = capabilities.command_support("keysight-edu36311a")
 
     assert support["output-on"]["real"] is True
     assert support["protection-set"] == {
@@ -75,7 +75,7 @@ def test_command_support_edu36311a_output_protection_and_trigger_boundary() -> N
 
 @pytest.mark.parametrize("command", ["trigger-step", "trigger-list"])
 def test_command_support_e36312a_native_trigger_policy(command: str) -> None:
-    support = capabilities.command_support("E36312A")
+    support = capabilities.command_support("keysight-e36312a")
 
     assert support[command]["real"] is True
     assert support[command]["simulate"] is True
@@ -85,7 +85,7 @@ def test_command_support_e36312a_native_trigger_policy(command: str) -> None:
 
 @pytest.mark.parametrize("command", ["snapshot", "restore-from-snapshot"])
 def test_command_support_edu36311a_snapshot_restore_disabled(command: str) -> None:
-    support = capabilities.command_support("EDU36311A")
+    support = capabilities.command_support("keysight-edu36311a")
 
     assert support[command]["real"] is False
     assert support[command]["simulate"] is False
@@ -121,14 +121,14 @@ def test_command_support_non_e36312a_models_disable_trigger_no_hardware(model: s
 
 
 def test_command_support_e3646a_rs232_read_only_boundary() -> None:
-    assert capabilities.hardware_validation_status("E3646A") == {
+    assert capabilities.hardware_validation_status("keysight-e3646a") == {
         "read_only": "rs232_read_only",
         "output": "validated",
         "protection": "not_enabled",
         "trigger": "not_enabled",
     }
 
-    support = capabilities.command_support("E3646A")
+    support = capabilities.command_support("keysight-e3646a")
 
     assert "verify" not in support
     for command in ("identify", "measure", "readback", "read-status", "output-state", "capabilities"):
@@ -189,7 +189,7 @@ def test_command_support_e3646a_rs232_read_only_boundary() -> None:
     ],
 )
 def test_command_support_e3646a_unsupported_mutating_and_native_workflows_disabled(command: str) -> None:
-    support = capabilities.command_support("E3646A")
+    support = capabilities.command_support("keysight-e3646a")
 
     assert support[command]["real"] is False
     assert support[command]["simulate"] is False
@@ -199,7 +199,7 @@ def test_command_support_e3646a_unsupported_mutating_and_native_workflows_disabl
 
 @pytest.mark.parametrize("command", ["ramp-list", "sequence"])
 def test_command_support_e3646a_software_workflows_remain_allowed(command: str) -> None:
-    support = capabilities.command_support("E3646A")
+    support = capabilities.command_support("keysight-e3646a")
 
     assert support[command]["real"] is True
     assert support[command]["simulate"] is True

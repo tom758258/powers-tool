@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from keysight_power_core.core import RuntimeOptions, OperationRequest, CoreValidationError, UnsupportedModelError, UnsupportedChannelError
-from keysight_power_core.readonly import run_live_panel_read, run_readonly
-from keysight_power_core.connection import open_resource
-from keysight_power_core.testing.simulator import SimulatedResourceManager
+from powers_tool_core.core import RuntimeOptions, OperationRequest, CoreValidationError, UnsupportedModelError, UnsupportedChannelError
+from powers_tool_core.readonly import run_live_panel_read, run_readonly
+from powers_tool_core.connection import open_resource
+from powers_tool_core.testing.simulator import SimulatedResourceManager
 
 sim_mgr = SimulatedResourceManager()
 
@@ -214,7 +214,7 @@ def test_live_panel_read_returns_only_panel_fields():
 
 
 def test_live_panel_read_reports_protection_by_channel():
-    from keysight_power_core.testing import simulator
+    from powers_tool_core.testing import simulator
 
     resource = "USB0::SIM::E36312A::INSTR"
     runtime = RuntimeOptions(resource=resource, simulate=True)

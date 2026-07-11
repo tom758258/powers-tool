@@ -1,11 +1,11 @@
 import pytest
-from keysight_power_core.core import SequenceRequest, RuntimeOptions
-from keysight_power_core.support_policy import (
+from powers_tool_core.core import SequenceRequest, RuntimeOptions
+from powers_tool_core.support_policy import (
     LiveSupportPolicyError,
     SUPPORT_POLICY_MODE_VALIDATION,
 )
-from keysight_power_core.sequence import run_sequence
-from keysight_power_core.support_features import sequence_feature_requirements
+from powers_tool_core.sequence import run_sequence
+from powers_tool_core.support_features import sequence_feature_requirements
 
 
 class FakeSession:
@@ -265,7 +265,7 @@ def test_sequence_trigger_pulse_dry_run_and_execution(monkeypatch) -> None:
         calls.append(kwargs)
         return {"completed": True, **kwargs}
 
-    monkeypatch.setattr("keysight_power_core.sequence.run_post_action_completion_pulse", pulse)
+    monkeypatch.setattr("powers_tool_core.sequence.run_post_action_completion_pulse", pulse)
     data = run_sequence(request(doc), opener=lambda *args, **kwargs: FakeSession())
 
     assert data["status"] == "completed"

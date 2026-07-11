@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from keysight_power_core.command_runner import run_core_command
-from keysight_power_core.core import CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, TriggerRequest
+from powers_tool_core.command_runner import run_core_command
+from powers_tool_core.core import CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, TriggerRequest
 
 
 def _snapshot_document(model: str) -> dict[str, object]:

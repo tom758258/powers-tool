@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from keysight_power_core.core import StopCleanupError
-from keysight_power_core.stop_cleanup import StopCleanupResult, stop_aware_opener
+from powers_tool_core.core import StopCleanupError
+from powers_tool_core.stop_cleanup import StopCleanupResult, stop_aware_opener
 
 
 class FakeSession:

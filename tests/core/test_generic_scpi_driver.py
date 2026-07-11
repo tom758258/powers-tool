@@ -2,12 +2,12 @@ import math
 
 import pytest
 
-from keysight_power_core.drivers.generic_scpi import (
+from powers_tool_core.drivers.generic_scpi import (
     ChannelListStrategy,
     GenericScpiPowerSupply,
     PreselectChannelStrategy,
 )
-from keysight_power_core.safety import SafetyLimits, SafetyValidationError
+from powers_tool_core.safety import SafetyLimits, SafetyValidationError
 
 
 class FakeSession:

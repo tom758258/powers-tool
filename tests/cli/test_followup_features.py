@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import keysight_power_cli.cli as cli
-from keysight_power_core.errors import VisaConnectionError
+from powers_tool_core.errors import VisaConnectionError
 
 
 class FakeSession:

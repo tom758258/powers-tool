@@ -12,7 +12,7 @@ request validation. E3646A remains ASRL / RS-232 + system VISA only.
 
 This document summarizes the checked-in Core live-support policy. The
 authoritative command/transport/backend decisions are in
-`src/keysight_power_core/support_policy.py`; the CLI contract documents
+`src/powers_tool_core/support_policy.py`; the CLI contract documents
 request and response shapes, not live-support promotion.
 
 ## Product LIVE Exact-Scope Matrix

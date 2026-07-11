@@ -1,26 +1,26 @@
 import pytest
 
-from keysight_power_core.core import (
+from powers_tool_core.core import (
     ConfirmationRequiredError,
     CoreValidationError,
     OperationRequest,
     RuntimeOptions,
     TriggerRequest,
 )
-from keysight_power_core.instrument_io import run_instrument_io
-from keysight_power_core.live_support import enforce_live_support
-from keysight_power_core.operations import run_operation
-from keysight_power_core.protection import run_protection
-from keysight_power_core.ramp_list import RAMP_LIST_KIND, run_ramp_list
-from keysight_power_core.readonly import run_readonly
-from keysight_power_core.restore import run_restore
-from keysight_power_core.snapshot import run_snapshot
-from keysight_power_core.support_policy import (
+from powers_tool_core.instrument_io import run_instrument_io
+from powers_tool_core.live_support import enforce_live_support
+from powers_tool_core.operations import run_operation
+from powers_tool_core.protection import run_protection
+from powers_tool_core.ramp_list import RAMP_LIST_KIND, run_ramp_list
+from powers_tool_core.readonly import run_readonly
+from powers_tool_core.restore import run_restore
+from powers_tool_core.snapshot import run_snapshot
+from powers_tool_core.support_policy import (
     LiveSupportPolicyError,
     SUPPORT_POLICY_MODE_PRODUCT,
     SUPPORT_POLICY_MODE_VALIDATION,
 )
-from keysight_power_core.trigger import run_trigger
+from powers_tool_core.trigger import run_trigger
 
 
 class FakeSession:
@@ -359,7 +359,7 @@ def test_trigger_source_feature_pending_rejects_product_before_setup_and_runs_in
         calls.append(kwargs)
         return {"source": kwargs["source"], "armed": True}
 
-    monkeypatch.setattr("keysight_power_core.trigger._native_step", native_step)
+    monkeypatch.setattr("powers_tool_core.trigger._native_step", native_step)
     result = run_trigger(
         validation_request,
         opener=lambda *args, **kwargs: validation_session,

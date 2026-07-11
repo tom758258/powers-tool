@@ -125,10 +125,10 @@ uv run python -m pytest tests\integration -q -m hardware --resource "USB0::..."
 This repository is organized as a single-distribution project under the root
 `src/` directory:
 
-- `src/keysight_power_core`: Core instrument driver, transport, and runtime layer.
+- `src/powers_tool_core`: Core instrument driver, transport, and runtime layer.
 - `src/keysight_power_cli`: Command line interface adapter.
 - `src/keysight_power_webui`: Web interface adapter and static dashboard.
 
-- Never let `keysight_power_core` import from `keysight_power_cli` or
+- Never let `powers_tool_core` import from `keysight_power_cli` or
   `keysight_power_webui`.
 - CLI commands are invoked via `keysight-power` or `python -m keysight_power_cli.cli`. The old `python -m keysight_power.cli` entry is no longer supported.

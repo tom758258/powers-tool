@@ -1,7 +1,7 @@
 import pytest
 from pyvisa.constants import RENLineOperation
 
-from keysight_power_core.connection import (
+from powers_tool_core.connection import (
     DEFAULT_READ_TERMINATION,
     DEFAULT_TIMEOUT_MS,
     DEFAULT_WRITE_TERMINATION,
@@ -11,7 +11,7 @@ from keysight_power_core.connection import (
     normalize_serial_termination,
     open_resource,
 )
-from keysight_power_core.errors import VisaConnectionError
+from powers_tool_core.errors import VisaConnectionError
 
 
 class FakeResourceManager:

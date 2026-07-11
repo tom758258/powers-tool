@@ -5,7 +5,7 @@ CLI adapter for controlling Keysight DC power supplies.
 The CLI ships inside the single `keysight-powers` distribution while
 preserving the `keysight_power_cli` import boundary. It exposes the
 `keysight-power` console command and adapts operator commands to the shared
-`keysight_power_core` runtime.
+`powers_tool_core` runtime.
 
 ## Documentation Set
 
@@ -26,7 +26,7 @@ preserving the `keysight_power_cli` import boundary. It exposes the
 
 This package provides the `keysight-power` console script, command argument
 parsing, JSON envelope handling, SCPI logging, command adapters over
-`keysight_power_core`, and the local Power Worker daemon used by
+`powers_tool_core`, and the local Power Worker daemon used by
 orchestrators/agents.
 
 Hardware-affecting commands remain explicit and opt-in; the default package

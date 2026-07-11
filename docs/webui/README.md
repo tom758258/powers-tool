@@ -12,7 +12,7 @@ runtime.
 
 The WebUI ships inside the single `keysight-powers` distribution while
 preserving the `keysight_power_webui` import boundary. It depends on the
-shared `keysight_power_core` runtime and the distribution's `webui` extra.
+shared `powers_tool_core` runtime and the distribution's `webui` extra.
 Its frontend is static `index.html`, `styles.css`, and `app.js`; no Node
 toolchain is required.
 
@@ -25,7 +25,7 @@ launcher.
 ## Purpose
 
 The WebUI adapter provides a local FastAPI and browser interface around the
-shared Core runtime in `keysight_power_core`.
+shared Core runtime in `powers_tool_core`.
 
 The WebUI owns:
 
@@ -97,7 +97,7 @@ or cancel the command in the browser first and wait for cleanup.
 
 The WebUI does not import `keysight_power_cli` and does not perform direct
 VISA or SCPI operations. It maps HTTP payloads to core `RuntimeOptions` and
-request objects, then calls `keysight_power_core.command_runner`.
+request objects, then calls `powers_tool_core.command_runner`.
 
 Real hardware jobs are serialized by a single hardware lock. Simulate,
 dry-run, offline metadata commands, and live-data jobs do not occupy that lock.

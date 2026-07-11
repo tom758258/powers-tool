@@ -1,14 +1,14 @@
 import pytest
 
-from keysight_power_core.drivers.base import DriverCapabilities
-from keysight_power_core.drivers.e36312a import E36312APowerSupply
-from keysight_power_core.drivers.e3646a import E3646APowerSupply
-from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
-from keysight_power_core.drivers.generic_scpi import GenericScpiPowerSupply
-from keysight_power_core.electrical_ratings import E36312A_ELECTRICAL_RATINGS, EDU36311A_ELECTRICAL_RATINGS
-from keysight_power_core.factory import create_power_supply, select_driver
-from keysight_power_core.core import UnsupportedModelError
-from keysight_power_core.models import parse_idn
+from powers_tool_core.drivers.base import DriverCapabilities
+from powers_tool_core.drivers.e36312a import E36312APowerSupply
+from powers_tool_core.drivers.e3646a import E3646APowerSupply
+from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
+from powers_tool_core.drivers.generic_scpi import GenericScpiPowerSupply
+from powers_tool_core.electrical_ratings import E36312A_ELECTRICAL_RATINGS, EDU36311A_ELECTRICAL_RATINGS
+from powers_tool_core.factory import create_power_supply, select_driver
+from powers_tool_core.core import UnsupportedModelError
+from powers_tool_core.models import parse_idn
 
 
 class FakeSession:
@@ -33,6 +33,8 @@ def test_first_target_models_are_recognized() -> None:
 
     assert e36312a.model_info is not None
     assert e36312a.model_info.first_hardware_target is True
+    assert e36312a.physical_identity is not None
+    assert e36312a.physical_identity.model_id == "keysight-e36312a"
     assert e36312a.driver_class is E36312APowerSupply
     assert e36312a.reason == "model_specific_driver"
     assert edu36311a.model_info is not None
@@ -44,6 +46,28 @@ def test_first_target_models_are_recognized() -> None:
     assert e3646a.model_info is not None
     assert e3646a.driver_class is E3646APowerSupply
     assert e3646a.reason == "model_specific_driver"
+
+
+def test_driver_selection_requires_resolved_manufacturer_plus_model_identity() -> None:
+    wrong_vendor = select_driver("OTHER_VENDOR,E36312A,SERIAL0000,1.0")
+    unknown_model = select_driver("KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
+
+    for selection in (wrong_vendor, unknown_model):
+        assert selection.physical_identity is None
+        assert selection.model_info is None
+        assert selection.driver_class is GenericScpiPowerSupply
+        assert selection.reason == "unknown_model_generic_fallback"
+
+
+def test_narrow_p1_manufacturer_alias_selects_only_its_registered_model() -> None:
+    e3646a = select_driver("Agilent Technologies,E3646A,SERIAL0000,1.0")
+    e36312a = select_driver("Agilent Technologies,E36312A,SERIAL0000,1.0")
+
+    assert e3646a.physical_identity is not None
+    assert e3646a.physical_identity.model_id == "keysight-e3646a"
+    assert e3646a.driver_class is E3646APowerSupply
+    assert e36312a.physical_identity is None
+    assert e36312a.driver_class is GenericScpiPowerSupply
 
 
 def test_first_target_drivers_expose_conservative_capabilities() -> None:

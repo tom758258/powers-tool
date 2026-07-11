@@ -1,10 +1,10 @@
 import pytest
 
-from keysight_power_core.drivers.e36312a import E36312APowerSupply, TriggerSnapshot
-from keysight_power_core.drivers.e3646a import E3646APowerSupply
-from keysight_power_core.drivers.edu36311a import EDU36311APowerSupply
-from keysight_power_core.drivers.generic_scpi import NoChannelStrategy
-from keysight_power_core.safety import SafetyLimits, SafetyValidationError
+from powers_tool_core.drivers.e36312a import E36312APowerSupply, TriggerSnapshot
+from powers_tool_core.drivers.e3646a import E3646APowerSupply
+from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
+from powers_tool_core.drivers.generic_scpi import NoChannelStrategy
+from powers_tool_core.safety import SafetyLimits, SafetyValidationError
 
 
 class FakeSession:
