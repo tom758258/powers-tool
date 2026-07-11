@@ -25,6 +25,13 @@ from keysight_power_core.live_support import enforce_product_live_support_for_id
 from keysight_power_core.model_resolution import validate_live_expected_model
 from keysight_power_core.models import parse_idn
 from keysight_power_core.readonly import run_live_panel_read
+from keysight_power_core.support_policy import (
+    SUPPORT_POLICY_MODE_PRODUCT,
+    exact_live_support_metadata,
+    live_support_policy_metadata,
+    normalize_backend,
+    normalize_transport,
+)
 from keysight_power_core.testing.simulator import SimulatedResourceManager
 
 from .jobs import Job
@@ -120,6 +127,15 @@ def channel_capabilities_by_model() -> dict[str, dict[str, Any]]:
             "channels": list(GenericScpiPowerSupply.capabilities.channels),
             "output_control_scope": "unknown",
         },
+    }
+
+
+def live_support_by_model(command_names: set[str]) -> dict[str, dict[str, Any]]:
+    """Return safe Core-owned live-support projections for WebUI commands."""
+
+    return {
+        model: live_support_policy_metadata(model, command_names)
+        for model in ("E36312A", "EDU36311A", "E3646A", "GENERIC")
     }
 
 
@@ -298,6 +314,23 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
 
         selection = select_driver(idn_raw)
         caps = selection.capabilities
+        live_support = (
+            {
+                "evaluated": False,
+                "model": selection.idn.model,
+                "transport_scope": normalize_transport(runtime.resource),
+                "backend_scope": normalize_backend(runtime.backend),
+                "policy_mode": SUPPORT_POLICY_MODE_PRODUCT,
+                "commands": {},
+                "reason": "Live exact-scope policy applies to real hardware only.",
+            }
+            if runtime.simulate
+            else exact_live_support_metadata(
+                model=selection.idn.model,
+                resource=runtime.resource,
+                backend=runtime.backend,
+            )
+        )
         return {
             "resource": resource_payload(
                 runtime.resource,
@@ -316,6 +349,7 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
             },
             "hardware_validation": core_capabilities.hardware_validation_status(selection.idn.model),
             "command_support": core_capabilities.command_support(selection.idn.model),
+            "live_support": live_support,
             "electrical_ratings": caps.electrical_ratings.to_dict() if caps.electrical_ratings else None,
             "setpoint_ranges": (
                 setpoint_ranges_for_model(selection.idn.model).to_dict()

@@ -30,6 +30,14 @@ safety limits, confirmation, electrical ratings, sequence restrictions, or
 cleanup behavior. Adapters decide whether that internal mode is available;
 normal product integrations remain product mode.
 
+`keysight_power_core.support_policy.live_support_policy_metadata()` and
+`exact_live_support_metadata()` provide JSON-ready display projections without
+exposing validation artifacts or mutable registry records. The model-level
+projection distinguishes profile support, explicit diagnostic exemptions, and
+registered scopes. The exact projection evaluates one detected model,
+resource transport, and backend in Product mode for adapter UX; it does not
+replace the enforcing runtime gate.
+
 ## Package Contents
 
 - `keysight_power_core.connection`: VISA backend selection, resource listing,
@@ -66,6 +74,8 @@ normal product integrations remain product mode.
   output current limit programming-range metadata from model programming
   manuals.
 - `keysight_power_core.capabilities`: command and model capability reporting.
+- `keysight_power_core.support_policy`: exact live-support enforcement metadata
+  and safe public display projections.
 - `keysight_power_core.model_resolution`: strict no-hardware model profile
   resolution for dry-run/simulator planning and live expected-model guards.
 - `keysight_power_core.testing`: no-hardware simulator used by tests and CLI

@@ -78,8 +78,8 @@ or cancel the command in the browser first and wait for cleanup.
 ## API
 
 - `GET /api/health`: server and hardware-lock state.
-- `GET /api/commands`: command metadata, confirmation flags, and disabled
-  WebUI-only limitations.
+- `GET /api/commands`: command metadata, confirmation flags, WebUI-only
+  limitations, and Core-derived model-level exact live-support summaries.
 - `POST /api/jobs`: submit a command job with `command`, `runtime`,
   `parameters`, and optional `artifacts`.
 - `GET /api/jobs/{job_id}`: read current job state.
@@ -184,6 +184,22 @@ operator clarity, but this is UX only. Direct `/api/jobs` submissions still
 pass through WebUI backend validation and Core support gates, so unsupported
 model/command/mode combinations are rejected even when a caller bypasses the
 browser controls.
+
+The browser distinguishes profile support from exact Product-mode live
+availability. Before a real resource has returned capabilities, commands keep
+their model-planning behavior and show that the connection scope has not been
+evaluated. A successful resource-backed `capabilities` result adds the
+IDN-detected model, normalized transport/backend scope, and per-command exact
+status. Validated commands remain available; pending or missing exact scopes
+are shown disabled with distinct reasons, while identity/status diagnostics
+remain explicitly policy-exempt. Changing the resource clears this exact
+context until capabilities are read for the new resource.
+
+The Device / Resource summary shows the detected model, expected-model guard,
+transport/backend scope, and compact validated/pending/unavailable counts when
+that exact context is known. WebUI remains Product-only and has no validation
+mode or VISA-backend selector. These displays and disabled controls are UX;
+the Core post-IDN exact-scope gate remains authoritative.
 
 The `set` command accepts Voltage, Current, or both in Basic command and
 Commands. Blank setpoint fields are omitted from the job payload and left
@@ -292,11 +308,13 @@ snapshot/restore jobs, E3646A protection/trigger/native LIST/snapshot/restore
 and completion-pulse jobs, and unsupported E3646A sequence step types are
 rejected by the backend/Core boundary.
 
-Live validation status is recorded by CLI suite artifacts, not by the browser
-selector. Suite names are evidence groupings and do not open every command in
-a feature family. Core requires an exact detected-model, command, transport,
-and backend scope; missing and pending scopes fail closed. The authoritative
-current command list is the
+Live validation evidence is recorded by CLI suite artifacts, not created by
+the browser selector. The WebUI only displays a safe Core projection of the
+current policy; it does not expose evidence paths or promote status. Suite
+names are evidence groupings and do not open every command in a feature
+family. Core requires an exact detected-model, command, transport, and backend
+scope; missing and pending scopes fail closed. The authoritative current
+command list is the
 [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix).
 WebUI hiding or disabling remains UX only; backend/Core rejection is still the
 safety boundary for unsupported direct submissions.

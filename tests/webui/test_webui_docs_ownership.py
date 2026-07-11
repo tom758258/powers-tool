@@ -44,3 +44,21 @@ def test_webui_docs_point_to_current_import_and_static_paths():
     assert "keysight_power_webui" in text
     assert "keysight_power_core" in text
     assert "src/keysight_power_webui/static" in text
+
+
+def test_webui_docs_describe_exact_support_as_product_only_ux():
+    readme = read_webui_doc("README.md")
+    guide = read_webui_doc("USER_GUIDE.md")
+    text = f"{readme}\n{guide}"
+    normalized_readme = " ".join(readme.split())
+    normalized_guide = " ".join(guide.split())
+
+    assert "Core-derived model-level exact live-support summaries" in readme
+    assert "Connection scope not evaluated" in guide
+    assert "Pending live validation" in guide
+    assert "Product-only" in readme
+    assert "no validation mode or VISA-backend selector" in normalized_readme
+    assert "Core post-IDN exact-scope gate remains authoritative" in readme
+    assert "Pending commands remain visible but disabled" in normalized_guide
+    assert "--validation-allow-pending-live-support" not in text
+    assert "Local/" not in text

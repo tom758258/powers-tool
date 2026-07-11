@@ -65,6 +65,9 @@ _ALLOW_VALIDATION = _ALLOW_PRODUCT | {
     VALIDATION_STATUS_TRANSPORT_PENDING,
     VALIDATION_STATUS_FEATURE_PENDING,
 }
+_PENDING_STATUSES = frozenset(
+    {VALIDATION_STATUS_TRANSPORT_PENDING, VALIDATION_STATUS_FEATURE_PENDING}
+)
 
 
 class LiveSupportPolicyError(CoreValidationError):
@@ -191,6 +194,132 @@ def find_live_support_scope(
         ):
             return scope
     return None
+
+
+def live_support_policy_metadata(
+    model: str,
+    commands: Iterable[str] | None = None,
+) -> dict[str, object]:
+    """Return a safe JSON-ready model-level live-support projection."""
+
+    normalized_model = _public_projection_model(model)
+    command_names = _public_projection_commands(commands)
+    if normalized_model == "GENERIC":
+        return {
+            "model": normalized_model,
+            "live_capable": False,
+            "fallback_only": True,
+            "commands": {
+                command: _generic_public_command(command)
+                for command in command_names
+            },
+        }
+
+    matrix = command_live_support_matrix(normalized_model)
+    return {
+        "model": normalized_model,
+        "live_capable": True,
+        "fallback_only": False,
+        "commands": {
+            command: _public_command_policy(
+                model=normalized_model,
+                command=command,
+                policy=matrix.get(command),
+            )
+            for command in command_names
+        },
+    }
+
+
+def exact_live_support_metadata(
+    *,
+    model: str,
+    resource: str | None,
+    backend: str | None,
+    commands: Iterable[str] | None = None,
+) -> dict[str, object]:
+    """Return a safe JSON-ready Product-mode projection for one exact scope."""
+
+    model_metadata = live_support_policy_metadata(model, commands)
+    normalized_model = str(model_metadata["model"])
+    if normalized_model == "GENERIC":
+        raise LiveSupportPolicyError(
+            "model 'GENERIC' has no active live support-policy metadata"
+        )
+    transport_scope = normalize_transport(resource)
+    backend_scope = normalize_backend(backend)
+    exact_commands: dict[str, dict[str, object]] = {}
+    for command, model_entry in model_metadata["commands"].items():
+        entry = dict(model_entry)
+        scopes = entry.pop("scopes", [])
+        if entry["policy_exempt"]:
+            entry.update(
+                {
+                    "exact_scope_validation_status": None,
+                    "product_open": True,
+                    "disabled_reason": None,
+                    "support_reason": (
+                        "Identity/status diagnostic; exact model feature scope is not required."
+                    ),
+                }
+            )
+        elif not entry["profile_supported"]:
+            entry.update(
+                {
+                    "exact_scope_validation_status": None,
+                    "product_open": False,
+                    "disabled_reason": entry["disabled_reason"],
+                    "support_reason": entry["disabled_reason"],
+                }
+            )
+        else:
+            matching_scope = next(
+                (
+                    scope
+                    for scope in scopes
+                    if scope["transport_scope"] == transport_scope
+                    and scope["backend_scope"] == backend_scope
+                ),
+                None,
+            )
+            if matching_scope is None:
+                reason = (
+                    "No product-open live scope is registered for "
+                    f"{_transport_display(transport_scope)} / {_backend_display(backend_scope)}."
+                )
+                entry.update(
+                    {
+                        "exact_scope_validation_status": None,
+                        "product_open": False,
+                        "disabled_reason": reason,
+                        "support_reason": reason,
+                    }
+                )
+            else:
+                exact_status = matching_scope["validation_status"]
+                product_open = exact_status in _ALLOW_PRODUCT
+                reason = _scope_support_reason(
+                    status=exact_status,
+                    transport=transport_scope,
+                    backend=backend_scope,
+                )
+                entry.update(
+                    {
+                        "exact_scope_validation_status": exact_status,
+                        "product_open": product_open,
+                        "disabled_reason": None if product_open else reason,
+                        "support_reason": reason,
+                    }
+                )
+        exact_commands[command] = entry
+    return {
+        "evaluated": True,
+        "model": normalized_model,
+        "transport_scope": transport_scope,
+        "backend_scope": backend_scope,
+        "policy_mode": SUPPORT_POLICY_MODE_PRODUCT,
+        "commands": exact_commands,
+    }
 
 
 def ensure_live_scope_supported(
@@ -515,6 +644,145 @@ def _model_policy(
 
 def _canonical_command(command: str) -> str:
     return (command or "").strip().lower()
+
+
+def _public_projection_model(model: str) -> str:
+    try:
+        normalized = canonical_model_profile(model)
+    except CoreValidationError as exc:
+        raise LiveSupportPolicyError(
+            f"unknown live support-policy model {model!r}"
+        ) from exc
+    if normalized == "GENERIC":
+        return normalized
+    if normalized not in ACTIVE_LIVE_POLICY_MODELS:
+        raise LiveSupportPolicyError(
+            f"model {normalized!r} has no active live support-policy metadata"
+        )
+    return normalized
+
+
+def _public_projection_commands(commands: Iterable[str] | None) -> tuple[str, ...]:
+    source = (
+        known_capability_commands()
+        | EXEMPT_LIVE_DIAGNOSTIC_COMMANDS
+        | PURE_OFFLINE_COMMANDS
+        if commands is None
+        else commands
+    )
+    return tuple(
+        sorted(
+            {
+                _canonical_command(command)
+                for command in source
+                if _canonical_command(command)
+            }
+        )
+    )
+
+
+def _public_command_policy(
+    *,
+    model: str,
+    command: str,
+    policy: CommandSupportPolicy | None,
+) -> dict[str, object]:
+    if is_live_support_policy_exempt(command):
+        return {
+            "profile_validation_status": None,
+            "profile_supported": True,
+            "metadata_available": True,
+            "policy_exempt": True,
+            "disabled_reason": None,
+            "support_reason": (
+                "Identity/status diagnostic; exact model feature scope is not required."
+            ),
+            "scopes": [],
+        }
+    if policy is None:
+        reason = "Live support metadata is missing for this command."
+        return {
+            "profile_validation_status": None,
+            "profile_supported": False,
+            "metadata_available": False,
+            "policy_exempt": False,
+            "disabled_reason": reason,
+            "support_reason": reason,
+            "scopes": [],
+        }
+    profile_supported = policy.validation_status == VALIDATION_STATUS_PROFILE_VALIDATED
+    reason = None if profile_supported else f"Not supported by {model}."
+    return {
+        "profile_validation_status": policy.validation_status,
+        "profile_supported": profile_supported,
+        "metadata_available": True,
+        "policy_exempt": False,
+        "disabled_reason": reason,
+        "support_reason": reason,
+        "scopes": [
+            {
+                "transport_scope": scope.transport_scope,
+                "backend_scope": scope.backend_scope,
+                "validation_status": scope.validation_status,
+                "product_open": scope.validation_status in _ALLOW_PRODUCT,
+                "pending": scope.validation_status in _PENDING_STATUSES,
+                "disabled_reason": (
+                    None
+                    if scope.validation_status in _ALLOW_PRODUCT
+                    else _scope_support_reason(
+                        status=scope.validation_status,
+                        transport=scope.transport_scope,
+                        backend=scope.backend_scope,
+                    )
+                ),
+            }
+            for scope in policy.scopes
+        ],
+    }
+
+
+def _generic_public_command(command: str) -> dict[str, object]:
+    if is_live_support_policy_exempt(command):
+        return _public_command_policy(model="GENERIC", command=command, policy=None)
+    capability = command_support(None).get(command, {})
+    profile_supported = bool(capability.get("simulate") or capability.get("dry_run"))
+    reason = "GENERIC is no-hardware/fallback-only; live exact scopes are unavailable."
+    return {
+        "profile_validation_status": None,
+        "profile_supported": profile_supported,
+        "metadata_available": False,
+        "policy_exempt": False,
+        "disabled_reason": reason,
+        "support_reason": reason,
+        "scopes": [],
+    }
+
+
+def _scope_support_reason(*, status: str, transport: str, backend: str) -> str:
+    scope_label = f"{_transport_display(transport)} / {_backend_display(backend)}"
+    if status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE:
+        return f"Live validated: {scope_label}."
+    if status in _PENDING_STATUSES:
+        return f"Pending live validation: {scope_label}."
+    return f"Live support status is unavailable for {scope_label}."
+
+
+def _transport_display(transport: str) -> str:
+    return {
+        TRANSPORT_USB: "USB",
+        TRANSPORT_TCPIP: "TCPIP",
+        TRANSPORT_ASRL: "ASRL",
+        TRANSPORT_GPIB: "GPIB",
+        TRANSPORT_UNKNOWN: "unknown transport",
+    }.get(transport, transport)
+
+
+def _backend_display(backend: str) -> str:
+    return {
+        BACKEND_SYSTEM_VISA: "system VISA",
+        BACKEND_PYVISA_PY: "pyvisa-py",
+        BACKEND_CUSTOM_VISA: "custom VISA",
+    }.get(backend, backend)
 
 
 def _rejection_message(

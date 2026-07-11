@@ -272,12 +272,13 @@ def test_static_device_resource_summary_uses_model_wording():
     assert "Manual" not in summary
     assert "const liveText = liveResourceSummary(resource, select);" in summary
     assert "const expectedText = expectedModelSummary();" in summary
-    assert "`${resourceText} / ${liveText} / ${expectedText}`" in summary
+    assert '[resourceText, liveText, expectedText, supportText].filter(Boolean).join(" / ")' in summary
+    assert "exactSupportContextSummary(resource)" in summary
     assert "detectedResourceModel(resource)" in live_summary
     assert "return `live ${detected}`;" in live_summary
     assert 'return expected ? `Require ${expected}` : "Auto-detect";' in expected_summary
     assert "resourceDisplayModels: {}" in app_js
-    assert "state.resourceDisplayModels[resource] = String(model).trim().toUpperCase();" in app_js
+    assert "state.resourceDisplayModels[resource] = detectedModel;" in app_js
 
 
 def test_static_model_profile_change_refreshes_effective_ui_model():
@@ -602,7 +603,7 @@ def test_static_basic_output_buttons_lock_until_matching_readback():
     assert 'if (basicOutputLockAction("all")) return;' in run_all
     assert 'awaitingReadback: true' in update_basic
     assert 'setBasicActionState(action.actionKey, "pending"' in update_basic
-    assert 'button.disabled = Boolean(unsupported || lockAction);' in render_control
+    assert 'button.disabled = Boolean(unsupported || lockAction || commandMetaForState.disabled);' in render_control
     assert 'button.classList.toggle("basic-action-pending", Boolean(lockAction));' in render_control
     assert 'DEFAULT_CHANNELS.forEach((channel) => renderBasicOutputControlState(channel));' in render_states
     assert 'renderBasicOutputControlState("all");' in render_states
@@ -797,7 +798,7 @@ def test_static_frontend_uses_command_support_to_disable_unsupported_model_comma
     selected_command = extract_js_function(app_js, "selectedCommandModel")
 
     assert "const support = selectedCommandSupport(name);" in command_meta
-    assert "support.real !== false" in command_meta
+    assert "support?.real === false" in command_meta
     assert "disabled: true" in command_meta
     assert "commandDisabledReason(support, selectedCommandModel())" in command_meta
     assert "runButton.disabled = Boolean(meta.disabled" in update_selected
@@ -815,7 +816,7 @@ def test_static_frontend_policy_for_edu_and_e3646a_disabled_controls():
     assert '"restore-from-snapshot"' in app_js
     assert '"protection-set"' in app_js
     assert '"trigger-pulse"' in app_js
-    assert "support.real !== false" in command_meta
+    assert "support?.real === false" in command_meta
     assert "disabled: true" in command_meta
     assert "runButton.disabled = Boolean(meta.disabled" in update_selected
 
@@ -932,10 +933,46 @@ def test_static_commands_disable_by_selected_resource_model():
     assert "const model = selectedCommandModel();" in extract_js_function(app_js, "selectedCommandSupport")
     assert 'if (!resource || typeof model !== "string" || !model.trim()) return false;' in app_js
     assert "!next.stale && updateResourceModel(next.resource, next.model)" in app_js
-    assert "support.real !== false" in app_js
+    assert "support?.real === false" in app_js
     assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
     assert "runButton.disabled = Boolean(meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard);" in app_js
     assert 'error: "Command unavailable"' in app_js
+
+
+def test_static_frontend_consumes_exact_live_support_without_exposing_validation_controls():
+    index_html, app_js, _styles_css = read_static_texts()
+    load_commands = extract_js_function(app_js, "loadCommands")
+    command_meta = extract_js_function(app_js, "commandMeta")
+    capture_support = extract_js_function(app_js, "captureResourceLiveSupport")
+    clear_stale = extract_js_function(app_js, "clearStaleResourceLiveSupport")
+    update_model = extract_js_function(app_js, "updateResourceModel")
+    model_changed = extract_js_function(app_js, "handleModelProfileChanged")
+    runtime_payload = extract_js_function(app_js, "runtimePayload")
+
+    assert "liveSupportByModel: {}" in app_js
+    assert "resourceLiveSupport: null" in app_js
+    assert "resourceLiveSupportContext: null" in app_js
+    assert "state.liveSupportByModel = payload.live_support_by_model || {};" in load_commands
+    assert "liveSupport.evaluated !== true" in capture_support
+    assert "model: liveSupport.model || null" in capture_support
+    assert "transport_scope: liveSupport.transport_scope" in capture_support
+    assert "backend_scope: liveSupport.backend_scope" in capture_support
+    assert "state.resourceLiveSupportContext.resource === resource" in clear_stale
+    assert "state.resourceLiveSupport = null;" in clear_stale
+    assert "state.resourceLiveSupportContext.model !== detectedModel" in update_model
+    assert "state.resourceLiveSupport = null;" in update_model
+    assert "exactCommand.product_open !== true" in command_meta
+    assert "exactCommand.policy_exempt" in command_meta
+    assert "Connection scope not evaluated" in command_meta
+    assert "Pending live validation:" in app_js
+    assert "No product-open live scope is registered" in app_js
+    assert "Identity/status diagnostic; exact model feature scope is not required." in app_js
+    assert "state.resourceLiveSupport" not in model_changed
+    assert "support_policy_mode" not in runtime_payload
+    assert "validation" not in runtime_payload
+    assert "backend-selector" not in index_html
+    assert "validation-allow-pending-live-support" not in index_html
+    assert "validation-allow-pending-live-support" not in app_js
 
 
 def test_static_channel_capability_guards_use_metadata():
@@ -985,7 +1022,7 @@ def test_static_basic_and_live_disable_unsupported_channels():
     assert "Unsupported" in render_live
     assert 'card.classList.toggle("unsupported", Boolean(unsupported));' in render_basic
     assert 'card.setAttribute("aria-disabled", String(Boolean(unsupported)));' in render_basic
-    assert "setButton.disabled = Boolean(unsupported);" in render_basic
+    assert "setButton.disabled = Boolean(unsupported || setMeta.disabled);" in render_basic
     assert "supportedChannelsForCurrentModel().every" in all_on
     assert "supportedChannelsForCurrentModel().every" in clear_errors
 
@@ -1393,6 +1430,7 @@ def test_commands_metadata(client: TestClient):
     data = response.json()
     assert "commands" in data
     assert "command_support_by_model" in data
+    assert "live_support_by_model" in data
     channel_capabilities = data["channel_capabilities_by_model"]
     assert channel_capabilities["E36312A"]["channels"] == [1, 2, 3]
     assert channel_capabilities["E36312A"]["output_control_scope"] == "per_channel"
@@ -1585,6 +1623,54 @@ def test_commands_metadata_includes_model_aware_support(client: TestClient):
         assert "verify" not in support[model]
         assert "readback" not in support[model]
         assert "safety inspect" not in support[model]
+
+
+def test_commands_metadata_includes_safe_exact_live_support_projection(
+    client: TestClient,
+) -> None:
+    response = client.get("/api/commands")
+    assert response.status_code == 200
+    data = response.json()
+
+    assert {
+        "commands",
+        "command_support_by_model",
+        "live_support_by_model",
+        "channel_capabilities_by_model",
+        "electrical_ratings_by_model",
+        "setpoint_ranges_by_model",
+        "parameter_constraints",
+        "output_affecting_commands",
+    } <= set(data)
+    live_support = data["live_support_by_model"]
+    assert set(live_support) == {"E36312A", "EDU36311A", "E3646A", "GENERIC"}
+
+    e36312a_set = live_support["E36312A"]["commands"]["set"]
+    assert {
+        (scope["transport_scope"], scope["backend_scope"], scope["validation_status"])
+        for scope in e36312a_set["scopes"]
+    } == {
+        ("usb", "system_visa", "live_validated_full_suite"),
+        ("tcpip", "system_visa", "live_validated_full_suite"),
+        ("tcpip", "pyvisa_py", "transport_pending"),
+    }
+    assert live_support["EDU36311A"]["commands"]["trigger-list"]["profile_supported"] is False
+    assert live_support["EDU36311A"]["commands"]["trigger-list"]["scopes"] == []
+    e3646a_set = live_support["E3646A"]["commands"]["set"]
+    assert [(scope["transport_scope"], scope["backend_scope"]) for scope in e3646a_set["scopes"]] == [
+        ("asrl", "system_visa")
+    ]
+    assert live_support["E3646A"]["commands"]["trigger-list"]["profile_supported"] is False
+    assert live_support["GENERIC"]["live_capable"] is False
+    assert live_support["GENERIC"]["commands"]["set"]["scopes"] == []
+    assert live_support["E36312A"]["commands"]["clear"]["policy_exempt"] is True
+    assert live_support["E36312A"]["commands"]["clear"]["scopes"] == []
+
+    serialized = json.dumps(live_support)
+    assert ".tmp_tests" not in serialized
+    assert '"artifact"' not in serialized
+    assert '"evidence"' not in serialized
+    assert '"serial"' not in serialized
 
 
 def test_command_coverage(client: TestClient):
@@ -1963,6 +2049,13 @@ def test_webui_resource_capabilities_enforces_exact_scope(
     )
 
     assert result["driver"]["class"] == "E36312APowerSupply"
+    assert result["live_support"]["evaluated"] is True
+    assert result["live_support"]["model"] == "E36312A"
+    assert result["live_support"]["transport_scope"] == "usb"
+    assert result["live_support"]["backend_scope"] == "system_visa"
+    assert result["live_support"]["policy_mode"] == "product"
+    assert result["live_support"]["commands"]["set"]["product_open"] is True
+    assert result["live_support"]["commands"]["output-on"]["product_open"] is False
     assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed is True
@@ -3226,6 +3319,7 @@ def test_webui_capabilities_uses_selected_resource_model(client: TestClient):
         "runtime": {
             "simulate": True,
             "resource": "USB0::SIM::EDU36311A::INSTR",
+            "model_profile": "E36312A",
         },
         "parameters": {},
     }
@@ -3246,6 +3340,15 @@ def test_webui_capabilities_uses_selected_resource_model(client: TestClient):
     assert result["driver"]["class"] == "EDU36311APowerSupply"
     assert result["command_support"]["trigger-list"]["real"] is False
     assert result["command_support"]["protection-set"]["real"] is True
+    assert result["live_support"] == {
+        "evaluated": False,
+        "model": "EDU36311A",
+        "transport_scope": "usb",
+        "backend_scope": "system_visa",
+        "policy_mode": "product",
+        "commands": {},
+        "reason": "Live exact-scope policy applies to real hardware only.",
+    }
 
 
 def test_readonly_commands_simulate_with_resource(client: TestClient):

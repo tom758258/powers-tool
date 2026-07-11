@@ -21,7 +21,14 @@ from keysight_power_core.workflow_validation import validate_general_workflow_pa
 
 from . import __version__ as WEBUI_VERSION
 from .jobs import job_manager, JobStatus
-from .commands import channel_capabilities_by_model, execute_job_command, MUTATING_COMMANDS, WEBUI_UNSUPPORTED_COMMANDS, webui_command_support
+from .commands import (
+    MUTATING_COMMANDS,
+    WEBUI_UNSUPPORTED_COMMANDS,
+    channel_capabilities_by_model,
+    execute_job_command,
+    live_support_by_model,
+    webui_command_support,
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 CACHE_CONTROL_NO_STORE = "no-store"
@@ -151,6 +158,7 @@ async def get_commands():
     return {
         "commands": commands,
         "command_support_by_model": webui_command_support(set(commands)),
+        "live_support_by_model": live_support_by_model(set(commands)),
         "channel_capabilities_by_model": channel_capabilities_by_model(),
         "electrical_ratings_by_model": electrical_ratings_by_model_metadata(),
         "setpoint_ranges_by_model": setpoint_ranges_by_model_metadata(),

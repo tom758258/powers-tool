@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 
 import pytest
@@ -29,8 +30,10 @@ from keysight_power_core.support_policy import (
     command_live_support,
     command_live_support_matrix,
     ensure_live_scope_supported,
+    exact_live_support_metadata,
     find_live_support_scope,
     is_live_support_policy_exempt,
+    live_support_policy_metadata,
     normalize_backend,
     normalize_transport,
     validate_live_support_metadata,
@@ -660,3 +663,113 @@ def test_validator_rejects_missing_and_unexpected_command_inventory_entries() ->
         validate_live_support_metadata(command_inventory=inventory | {"future-command"})
     with pytest.raises(ValueError, match="outside current inventory"):
         validate_live_support_metadata(command_inventory=inventory - {"measure"})
+
+
+def test_public_model_projection_is_json_safe_and_omits_private_evidence() -> None:
+    metadata = live_support_policy_metadata(
+        "E36312A", {"set", "clear", "future-command"}
+    )
+
+    assert metadata["model"] == "E36312A"
+    assert metadata["live_capable"] is True
+    set_support = metadata["commands"]["set"]
+    assert set_support["profile_validation_status"] == VALIDATION_STATUS_PROFILE_VALIDATED
+    assert set_support["profile_supported"] is True
+    assert set_support["policy_exempt"] is False
+    assert {
+        (scope["transport_scope"], scope["backend_scope"], scope["validation_status"])
+        for scope in set_support["scopes"]
+    } == {
+        (TRANSPORT_USB, BACKEND_SYSTEM_VISA, VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE),
+        (TRANSPORT_TCPIP, BACKEND_SYSTEM_VISA, VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE),
+        (TRANSPORT_TCPIP, BACKEND_PYVISA_PY, VALIDATION_STATUS_TRANSPORT_PENDING),
+    }
+    assert metadata["commands"]["clear"]["policy_exempt"] is True
+    assert metadata["commands"]["clear"]["scopes"] == []
+    assert metadata["commands"]["future-command"]["metadata_available"] is False
+    assert metadata["commands"]["future-command"]["profile_supported"] is False
+
+    serialized = json.dumps(metadata)
+    assert ".tmp_tests" not in serialized
+    assert "artifact" not in serialized
+    assert "evidence" not in serialized
+    assert "serial" not in serialized
+
+
+def test_public_exact_projection_distinguishes_open_pending_and_missing_scopes() -> None:
+    commands = {"set", "output-on", "clear"}
+    usb = exact_live_support_metadata(
+        model="E36312A",
+        resource="USB0::FAKE::INSTR",
+        backend=None,
+        commands=commands,
+    )
+    system_tcpip = exact_live_support_metadata(
+        model="E36312A",
+        resource="TCPIP0::192.0.2.1::INSTR",
+        backend=None,
+        commands=commands,
+    )
+    pending = exact_live_support_metadata(
+        model="E36312A",
+        resource="TCPIP0::192.0.2.1::INSTR",
+        backend="@py",
+        commands=commands,
+    )
+
+    assert usb["policy_mode"] == SUPPORT_POLICY_MODE_PRODUCT
+    assert usb["commands"]["set"]["product_open"] is True
+    assert system_tcpip["commands"]["set"]["product_open"] is True
+    assert pending["commands"]["set"] == {
+        "profile_validation_status": VALIDATION_STATUS_PROFILE_VALIDATED,
+        "profile_supported": True,
+        "metadata_available": True,
+        "policy_exempt": False,
+        "disabled_reason": "Pending live validation: TCPIP / pyvisa-py.",
+        "support_reason": "Pending live validation: TCPIP / pyvisa-py.",
+        "exact_scope_validation_status": VALIDATION_STATUS_TRANSPORT_PENDING,
+        "product_open": False,
+    }
+    assert pending["commands"]["output-on"]["exact_scope_validation_status"] is None
+    assert pending["commands"]["output-on"]["product_open"] is False
+    assert "No product-open live scope" in pending["commands"]["output-on"]["disabled_reason"]
+    assert pending["commands"]["clear"]["policy_exempt"] is True
+    assert pending["commands"]["clear"]["product_open"] is True
+    assert pending["commands"]["clear"]["exact_scope_validation_status"] is None
+
+
+def test_public_projection_preserves_model_and_generic_boundaries() -> None:
+    edu = live_support_policy_metadata("EDU36311A", {"trigger-list"})
+    e3646a_asrl = exact_live_support_metadata(
+        model="E3646A",
+        resource="ASRL7::INSTR",
+        backend=None,
+        commands={"set"},
+    )
+    e3646a_usb = exact_live_support_metadata(
+        model="E3646A",
+        resource="USB0::FAKE::INSTR",
+        backend=None,
+        commands={"set"},
+    )
+    generic = live_support_policy_metadata("GENERIC", {"set", "identify"})
+
+    assert edu["commands"]["trigger-list"]["profile_validation_status"] == VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL
+    assert edu["commands"]["trigger-list"]["profile_supported"] is False
+    assert edu["commands"]["trigger-list"]["scopes"] == []
+    assert e3646a_asrl["commands"]["set"]["product_open"] is True
+    assert e3646a_usb["commands"]["set"]["product_open"] is False
+    assert e3646a_usb["commands"]["set"]["exact_scope_validation_status"] is None
+    assert generic["live_capable"] is False
+    assert generic["fallback_only"] is True
+    assert generic["commands"]["set"]["scopes"] == []
+    assert generic["commands"]["identify"]["policy_exempt"] is True
+
+    with pytest.raises(LiveSupportPolicyError):
+        exact_live_support_metadata(
+            model="GENERIC", resource="USB0::FAKE::INSTR", backend=None
+        )
+    with pytest.raises(LiveSupportPolicyError):
+        live_support_policy_metadata("E36103B", {"set"})
+    with pytest.raises(LiveSupportPolicyError):
+        live_support_policy_metadata("UNKNOWN", {"set"})

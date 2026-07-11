@@ -108,6 +108,14 @@ rejected by the WebUI backend and Core. Auto-detect may still use detected
 live model metadata when available, but frontend state never overrides the
 Core IDN-selected live driver.
 
+After a successful `Get capabilities` run for the selected real resource, the
+Device / Resource summary also shows the detected transport/backend scope and
+compact Product live-support counts. Changing the resource clears that exact
+context until capabilities are read again. Changing `Expected model` updates
+planning guidance only; it does not rewrite the detected model or connection
+scope. The WebUI uses the normal Product policy and does not provide a backend
+selector or validation mode.
+
 If no live resource appears, check instrument power, cabling, VISA driver
 visibility, and whether another program is holding the instrument.
 
@@ -164,6 +172,14 @@ family does not mean every command in that family is product-open; missing and
 pending scopes fail closed. E3646A product LIVE remains ASRL / RS-232 + system
 VISA only, and its software `ramp-list` and step-limited `sequence` are not
 native LIST.
+
+The command rail distinguishes `Live validated`, `Pending live validation`,
+model-unsupported, missing exact scope, policy-exempt diagnostic, and
+`Connection scope not evaluated` states. Pending commands remain visible but
+disabled; pending means the instrument profile recognizes the command but the
+exact connection/backend evidence is not Product-open. These browser states
+are guidance only. Core repeats the exact policy check for every submitted
+live job, including direct or stale API requests.
 
 The WebUI is product-only. It does not offer a validation override, and raw
 job submissions cannot use one to turn pending evidence into normal product

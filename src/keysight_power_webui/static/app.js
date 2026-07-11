@@ -1,6 +1,9 @@
 const state = {
   commands: {},
   commandSupportByModel: {},
+  liveSupportByModel: {},
+  resourceLiveSupport: null,
+  resourceLiveSupportContext: null,
   channelCapabilitiesByModel: {},
   parameterConstraints: {},
   electricalRatingsByModel: {},
@@ -325,16 +328,23 @@ function setDeviceResourceExpanded(expanded) {
 function updateDeviceResourceSummary() {
   const summary = document.getElementById("device-resource-summary");
   const resource = document.getElementById("resource").value.trim();
+  const clearedExactSupport = clearStaleResourceLiveSupport(resource);
   const select = document.getElementById("resource-select");
   const resourceText = resource || "No resource";
   const liveText = liveResourceSummary(resource, select);
   const expectedText = expectedModelSummary();
-  summary.textContent = `${resourceText} / ${liveText} / ${expectedText}`;
+  const supportText = exactSupportContextSummary(resource);
+  summary.textContent = [resourceText, liveText, expectedText, supportText].filter(Boolean).join(" / ");
   summary.title = summary.textContent;
   const detected = detectedResourceModel(resource);
   const expected = selectedExpectedModel();
   if (detected && expected && detected !== expected) {
     summary.title = "Selected expected model does not match the last scanned model. Live commands will fail before setup/write SCPI.";
+  }
+  if (clearedExactSupport) {
+    syncBasicFromLivePanel(state.livePanel);
+    if (state.selected) selectCommand(state.selected);
+    else renderCommands();
   }
 }
 
@@ -474,6 +484,7 @@ async function loadCommands() {
   const payload = await fetchJson("/api/commands");
   state.commands = payload.commands || {};
   state.commandSupportByModel = payload.command_support_by_model || {};
+  state.liveSupportByModel = payload.live_support_by_model || {};
   state.channelCapabilitiesByModel = payload.channel_capabilities_by_model || {};
   state.parameterConstraints = payload.parameter_constraints || {};
   state.electricalRatingsByModel = payload.electrical_ratings_by_model || {};
@@ -510,7 +521,7 @@ function renderCommands() {
       const button = document.createElement("button");
       button.className = `command-button${state.selected === name ? " active" : ""}`;
       button.disabled = Boolean(effectiveMeta.disabled);
-      button.innerHTML = `<span>${commandDisplayName(name)}</span><small>${effectiveMeta.disabled_reason || ""}</small>`;
+      button.innerHTML = `<span>${commandDisplayName(name)}</span><small>${effectiveMeta.disabled_reason || effectiveMeta.live_support_status || ""}</small>`;
       button.addEventListener("click", () => selectCommand(name));
       list.appendChild(button);
     });
@@ -2709,6 +2720,7 @@ function workspaceResultKey(command, resource) {
 function captureWorkspaceResult(job) {
   if (!job || job.status !== "finished" || !job.command || !job.result) return false;
   const resource = job.runtime?.resource || job.result?.resource?.name || "";
+  if (job.command === "capabilities") captureResourceLiveSupport(job, resource);
   state.workspaceResults[workspaceResultKey(job.command, resource)] = job;
   renderWorkspaceSummary();
   return true;
@@ -2770,9 +2782,13 @@ function renderCapabilitiesWorkspaceSummary(container, result) {
   const model = resource.idn?.model || result.driver?.model;
   if (resource.name || model) {
     const support = result.command_support || {};
+    const liveSupport = result.live_support || {};
     appendWorkspaceFields(container, [
       ["Model", model || "--"],
       ["Resource", resource.name || "--"],
+      ["Transport", transportScopeLabel(liveSupport.transport_scope)],
+      ["Backend", backendScopeLabel(liveSupport.backend_scope)],
+      ["Product live support", liveSupportSummary(liveSupport)],
       ["Output channels", channelList(result.channels)],
       ["Measurement channels", channelList(result.measure_channels?.real)],
       ["Output", featureAvailability(support, ["set", "apply", "output-on", "output-off"])],
@@ -2952,22 +2968,112 @@ function updateResourceModel(resource, model) {
   if (!resource || typeof model !== "string" || !model.trim()) return false;
   const next = supportedModelKey(model);
   const nextChannelModel = channelModelKey(model);
-  state.resourceDisplayModels[resource] = String(model).trim().toUpperCase();
+  const detectedModel = String(model).trim().toUpperCase();
+  state.resourceDisplayModels[resource] = detectedModel;
+  if (state.resourceLiveSupportContext?.resource === resource
+    && state.resourceLiveSupportContext.model !== detectedModel) {
+    state.resourceLiveSupport = null;
+    state.resourceLiveSupportContext = null;
+  }
   if (state.resourceModels[resource] === next && state.resourceChannelModels[resource] === nextChannelModel) return false;
   state.resourceModels[resource] = next;
   state.resourceChannelModels[resource] = nextChannelModel;
   return true;
 }
 
+function captureResourceLiveSupport(job, resource) {
+  const liveSupport = job?.result?.live_support;
+  if (!resource || !liveSupport || liveSupport.evaluated !== true) {
+    if (state.resourceLiveSupportContext?.resource === resource) {
+      state.resourceLiveSupport = null;
+      state.resourceLiveSupportContext = null;
+    }
+    return false;
+  }
+  state.resourceLiveSupport = liveSupport;
+  state.resourceLiveSupportContext = {
+    resource,
+    model: liveSupport.model || null,
+    transport_scope: liveSupport.transport_scope || "unknown",
+    backend_scope: liveSupport.backend_scope || "system_visa"
+  };
+  updateDeviceResourceSummary();
+  syncBasicFromLivePanel(state.livePanel);
+  if (state.selected) selectCommand(state.selected);
+  else renderCommands();
+  return true;
+}
+
+function clearStaleResourceLiveSupport(resource) {
+  if (!state.resourceLiveSupportContext || state.resourceLiveSupportContext.resource === resource) return false;
+  state.resourceLiveSupport = null;
+  state.resourceLiveSupportContext = null;
+  return true;
+}
+
+function currentExactLiveSupport() {
+  const resource = valueOrNull("resource");
+  if (!resource || state.resourceLiveSupportContext?.resource !== resource) return null;
+  return state.resourceLiveSupport?.evaluated === true ? state.resourceLiveSupport : null;
+}
+
+function selectedModelLiveSupport(name) {
+  const model = selectedCommandModel();
+  if (!model) return null;
+  return state.liveSupportByModel?.[model]?.commands?.[name] || null;
+}
+
 function commandMeta(name) {
   const meta = state.commands[name] || {};
   const support = selectedCommandSupport(name);
-  if (!support || support.real !== false) return meta;
-  return {
-    ...meta,
-    disabled: true,
-    disabled_reason: meta.disabled_reason || commandDisabledReason(support, selectedCommandModel())
-  };
+  const modelSupport = selectedModelLiveSupport(name);
+  let effective = { ...meta };
+  if (support?.real === false || (modelSupport && !modelSupport.profile_supported && !modelSupport.policy_exempt)) {
+    effective = {
+      ...effective,
+      disabled: true,
+      disabled_reason: modelSupport?.disabled_reason || meta.disabled_reason || commandDisabledReason(support, selectedCommandModel())
+    };
+  }
+  const exactSupport = currentExactLiveSupport();
+  if (!exactSupport) {
+    effective.live_support_status = modelSupport?.policy_exempt
+      ? modelSupport.support_reason
+      : "Connection scope not evaluated";
+    return effective;
+  }
+  const exactCommand = exactSupport.commands?.[name];
+  if (!exactCommand) {
+    return {
+      ...effective,
+      disabled: true,
+      disabled_reason: "Live support metadata is missing for this command.",
+      live_support_status: "Live support metadata is missing for this command."
+    };
+  }
+  effective.live_support_status = exactCommandSupportText(exactCommand, exactSupport);
+  if (!exactCommand.policy_exempt && exactCommand.product_open !== true) {
+    effective.disabled = true;
+    effective.disabled_reason = exactCommand.disabled_reason || effective.live_support_status;
+  }
+  return effective;
+}
+
+function exactCommandSupportText(commandSupport, liveSupport) {
+  if (commandSupport.policy_exempt) {
+    return "Identity/status diagnostic; exact model feature scope is not required.";
+  }
+  const scope = `${transportScopeLabel(liveSupport.transport_scope)} / ${backendScopeLabel(liveSupport.backend_scope)}`;
+  if (commandSupport.exact_scope_validation_status === "live_validated_full_suite") {
+    return `Live validated: ${scope}`;
+  }
+  if (["transport_pending", "feature_pending"].includes(commandSupport.exact_scope_validation_status)) {
+    return `Pending live validation: ${scope}`;
+  }
+  if (commandSupport.profile_validation_status === "not_supported_by_model") {
+    return `Not supported by ${liveSupport.model}`;
+  }
+  return commandSupport.disabled_reason || `No product-open live scope is registered for ${scope}`;
 }
 
 function selectedCommandSupport(name) {
@@ -2993,6 +3099,31 @@ function commandDisabledReason(support, model) {
   if (validation === "planning_only") return `Planning only on ${model}`;
   if (validation === "not_supported_by_model") return `Not supported on ${model}`;
   return `Unavailable on ${model}`;
+}
+
+function exactSupportContextSummary(resource) {
+  if (!resource) return "Connection scope not evaluated";
+  const liveSupport = currentExactLiveSupport();
+  if (!liveSupport) return "Connection scope not evaluated";
+  return liveSupportSummary(liveSupport);
+}
+
+function liveSupportSummary(liveSupport) {
+  if (!liveSupport || liveSupport.evaluated !== true) return "Connection scope not evaluated";
+  const commands = Object.values(liveSupport.commands || {});
+  const validated = commands.filter((entry) => entry.product_open === true && !entry.policy_exempt).length;
+  const pending = commands.filter((entry) => ["transport_pending", "feature_pending"].includes(entry.exact_scope_validation_status)).length;
+  const unavailable = commands.filter((entry) => !entry.policy_exempt && entry.product_open !== true && !["transport_pending", "feature_pending"].includes(entry.exact_scope_validation_status)).length;
+  const scope = `${transportScopeLabel(liveSupport.transport_scope)} / ${backendScopeLabel(liveSupport.backend_scope)}`;
+  return `${scope}: ${validated} validated, ${pending} pending, ${unavailable} unavailable`;
+}
+
+function transportScopeLabel(scope) {
+  return ({ usb: "USB", tcpip: "TCPIP", asrl: "ASRL", gpib: "GPIB", unknown: "Unknown transport" })[scope] || "--";
+}
+
+function backendScopeLabel(scope) {
+  return ({ system_visa: "system VISA", pyvisa_py: "pyvisa-py", custom_visa: "custom VISA" })[scope] || "--";
 }
 
 function supportedChannelsForCurrentModel() {
@@ -3329,8 +3460,9 @@ function renderBasicChannelActionState(channel) {
   card.title = unsupported || "";
   const setButton = card.querySelector("[data-basic-set]");
   if (setButton) {
-    setButton.disabled = Boolean(unsupported);
-    if (unsupported) setButton.title = unsupported;
+    const setMeta = commandMeta("set");
+    setButton.disabled = Boolean(unsupported || setMeta.disabled);
+    setButton.title = unsupported || setMeta.disabled_reason || setMeta.live_support_status || "";
   }
   card.classList.toggle("basic-action-error", setState === "error" || outputState === "error" || allOutputState === "error");
   card.classList.toggle("basic-action-pending", setState === "pending" || outputState === "pending" || allOutputState === "pending");
@@ -3427,7 +3559,11 @@ function renderBasicOutputControlState(target) {
   const actionKey = basicActionKey("output", target);
   const ownAction = state.basicActionStates[actionKey];
   const lockAction = basicOutputLockAction(target);
-  button.disabled = Boolean(unsupported || lockAction);
+  const enabled = target === "all"
+    ? basicAllOutputsOn()
+    : basicLiveChannel(Number(target))?.output_enabled === true;
+  const commandMetaForState = commandMeta(enabled ? "output-off" : "output-on");
+  button.disabled = Boolean(unsupported || lockAction || commandMetaForState.disabled);
   button.classList.toggle("basic-action-pending", Boolean(lockAction));
   button.classList.toggle("basic-action-success", !lockAction && ownAction?.status === "success");
   button.classList.toggle("basic-action-error", !lockAction && ownAction?.status === "error");
@@ -3435,8 +3571,12 @@ function renderBasicOutputControlState(target) {
     button.title = unsupported;
   } else if (lockAction) {
     button.title = lockAction.message || "Waiting for Live Data readback.";
+  } else if (commandMetaForState.disabled) {
+    button.title = commandMetaForState.disabled_reason || "This output action is unavailable for the exact live scope.";
   } else if (ownAction?.message) {
     button.title = ownAction.message;
+  } else {
+    button.title = commandMetaForState.live_support_status || button.title;
   }
 }
 
@@ -3743,7 +3883,7 @@ function updateSelectedCommandState() {
   const tripWarning = tripContextWarning(state.selected);
   const runButton = document.getElementById("run");
   const commandDescription = document.getElementById("command-description");
-  const descriptionText = [meta.description, channelGuard, ratingGuard, setGuard, tripGuard || tripWarning].filter(Boolean).join(" ");
+  const descriptionText = [meta.description, meta.live_support_status, channelGuard, ratingGuard, setGuard, tripGuard || tripWarning].filter(Boolean).join(" ");
   commandDescription.textContent = descriptionText;
   commandDescription.title = descriptionText;
   renderCommandGuidance(state.selected, parameters);
