@@ -105,7 +105,7 @@ function ConvertTo-RepoRelativePath {
     if ($fullPath.StartsWith($fullRoot + [System.IO.Path]::DirectorySeparatorChar, $comparison)) {
         return $fullPath.Substring($fullRoot.Length + 1)
     }
-    return $fullPath
+    return "<redacted-path>"
 }
 
 function Write-Utf8NoBomFile {
@@ -135,6 +135,15 @@ function Protect-Argument {
     }
     if ([System.IO.Path]::IsPathRooted($Argument)) {
         $fullArgument = [System.IO.Path]::GetFullPath($Argument)
+        if (-not [string]::IsNullOrWhiteSpace($script:PrivateArtifactDir)) {
+            $privateRoot = [System.IO.Path]::GetFullPath($script:PrivateArtifactDir).TrimEnd(
+                [System.IO.Path]::DirectorySeparatorChar,
+                [System.IO.Path]::AltDirectorySeparatorChar
+            )
+            if ($fullArgument.StartsWith($privateRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+                return "<private-local-path>"
+            }
+        }
         $fullRoot = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd(
             [System.IO.Path]::DirectorySeparatorChar,
             [System.IO.Path]::AltDirectorySeparatorChar
@@ -145,6 +154,151 @@ function Protect-Argument {
         return "<redacted-path>"
     }
     return $Argument
+}
+
+function Get-ShareablePythonCommand {
+    if ($PythonExe -eq "python") {
+        return "python"
+    }
+    return ".venv\\Scripts\\python.exe"
+}
+
+function Add-SensitiveValue {
+    param([AllowNull()][string]$Value)
+
+    if (-not [string]::IsNullOrWhiteSpace($Value) -and -not ($script:SensitiveValues -contains $Value)) {
+        $script:SensitiveValues.Add($Value)
+    }
+}
+
+function Protect-ShareableText {
+    param([AllowNull()][string]$Text)
+
+    if ($null -eq $Text) {
+        return $null
+    }
+    $redacted = [string]$Text
+    if (-not [string]::IsNullOrWhiteSpace($script:RawResource)) {
+        $redacted = $redacted -replace [regex]::Escape($script:RawResource), $script:ResourceDisplay
+    }
+    foreach ($value in @($script:SensitiveValues)) {
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            $redacted = $redacted -replace [regex]::Escape($value), "<redacted>"
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RepoRoot)) {
+        $redacted = $redacted -replace [regex]::Escape($RepoRoot), "<repository-root>"
+    }
+    if ($PythonExe -ne "python") {
+        $redacted = $redacted -replace [regex]::Escape($PythonExe), (Get-ShareablePythonCommand)
+    }
+    $redacted = $redacted -replace '(?i)\b(?:10(?:\.\d{1,3}){3}|127(?:\.\d{1,3}){3}|169\.254(?:\.\d{1,3}){2}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})\b', "<redacted-ip>"
+    $redacted = $redacted -replace '(?i)[a-z]:\\Users\\[^\s"'']+', "<redacted-path>"
+    return $redacted
+}
+
+function Test-ShareableSensitiveField {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [AllowNull()][string]$ParentName
+    )
+
+    $normalized = $Name.Trim().ToLowerInvariant() -replace '-', '_'
+    if ($normalized -in @("json_path", "stdout_path", "stderr_path", "stderr_scpi_path", "output_dir", "shareable_artifact_dir", "preflight_report")) {
+        return $false
+    }
+    if ($normalized -in @("resource", "resource_alias", "visa_resource", "resource_name", "serial", "serial_number")) {
+        return $true
+    }
+    if ($normalized -match '(?:^|_)(?:path|file|filename)$') {
+        return $true
+    }
+    return ($normalized -eq "raw" -and $ParentName -eq "idn")
+}
+
+function ConvertTo-ShareableJsonValue {
+    param(
+        [AllowNull()]$Value,
+        [AllowNull()][string]$FieldName,
+        [AllowNull()][string]$ParentName
+    )
+
+    if ($null -eq $Value) {
+        return $null
+    }
+    if ($Value -is [string]) {
+        if (Test-ShareableSensitiveField -Name ([string]$FieldName) -ParentName $ParentName) {
+            $normalized = ([string]$FieldName).Trim().ToLowerInvariant() -replace '-', '_'
+            if ($normalized -in @("resource", "resource_alias", "visa_resource", "resource_name")) {
+                return $script:ResourceDisplay
+            }
+            if ($normalized -eq "raw" -and $ParentName -eq "idn") {
+                return "<redacted-idn>"
+            }
+            if ($normalized -match '(?:^|_)(?:path|file|filename)$') {
+                return "<redacted-path>"
+            }
+            return "<redacted>"
+        }
+        return Protect-ShareableText -Text $Value
+    }
+    if ($Value -is [System.Collections.IDictionary]) {
+        $result = [ordered]@{}
+        foreach ($key in $Value.Keys) {
+            $result[[string]$key] = ConvertTo-ShareableJsonValue -Value $Value[$key] -FieldName ([string]$key) -ParentName $FieldName
+        }
+        return [pscustomobject]$result
+    }
+    if ($Value -is [System.Collections.IEnumerable]) {
+        $items = New-Object System.Collections.Generic.List[object]
+        foreach ($item in $Value) {
+            $items.Add((ConvertTo-ShareableJsonValue -Value $item -FieldName $FieldName -ParentName $ParentName))
+        }
+        return ,($items.ToArray())
+    }
+    if ($Value -is [psobject] -and @($Value.PSObject.Properties).Count -gt 0) {
+        $result = [ordered]@{}
+        foreach ($property in $Value.PSObject.Properties) {
+            $result[$property.Name] = ConvertTo-ShareableJsonValue -Value $property.Value -FieldName $property.Name -ParentName $FieldName
+        }
+        return [pscustomobject]$result
+    }
+    return $Value
+}
+
+function Ensure-ArtifactDirectories {
+    if ([string]::IsNullOrWhiteSpace($script:OutputDir)) {
+        throw "Output directory is not configured."
+    }
+    $script:PrivateArtifactDir = Join-Path $script:OutputDir "private"
+    $script:ShareableArtifactDir = Join-Path $script:OutputDir "shareable"
+    New-Item -ItemType Directory -Path $script:PrivateArtifactDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $script:ShareableArtifactDir -Force | Out-Null
+}
+
+function Write-ShareableTextArtifact {
+    param(
+        [Parameter(Mandatory = $true)][string]$PrivatePath,
+        [Parameter(Mandatory = $true)][string]$ShareablePath
+    )
+
+    $text = if (Test-Path -LiteralPath $PrivatePath) { Get-Content -LiteralPath $PrivatePath -Raw } else { "" }
+    Write-Utf8NoBomFile -LiteralPath $ShareablePath -Value @((Protect-ShareableText -Text $text))
+}
+
+function Write-ShareableJsonArtifact {
+    param(
+        [Parameter(Mandatory = $true)][string]$PrivatePath,
+        [Parameter(Mandatory = $true)][string]$ShareablePath,
+        [AllowNull()]$Payload
+    )
+
+    if ($null -ne $Payload) {
+        $shareablePayload = ConvertTo-ShareableJsonValue -Value $Payload -FieldName $null -ParentName $null
+        Write-Utf8NoBomFile -LiteralPath $ShareablePath -Value @($shareablePayload | ConvertTo-Json -Depth 30)
+        return
+    }
+    Write-ShareableTextArtifact -PrivatePath $PrivatePath -ShareablePath $ShareablePath
 }
 
 function Protect-Arguments {
@@ -357,12 +511,22 @@ function Get-PropertyValue {
 function New-CleanupEvidence {
     param([Parameter(Mandatory = $true)][string]$ValidationMode)
 
-    $requested = [bool]($script:StateChanging -and $Restore)
+    $stateChanging = [bool]$script:StateChanging
+    $requested = [bool]($stateChanging -and $Restore)
     $status = if ($ValidationMode -eq "planned") {
         "not_executed_plan_only"
     }
-    elseif ($requested) {
+    elseif ($ValidationMode -eq "preflight_failed") {
+        "not_executed_preflight_failed"
+    }
+    elseif ($ValidationMode -eq "confirmation_required") {
+        "not_executed_confirmation_required"
+    }
+    elseif (-not $stateChanging) {
         "not_required"
+    }
+    elseif ($requested) {
+        "pending"
     }
     else {
         "skipped_by_operator"
@@ -387,13 +551,15 @@ function New-ValidationSequenceFile {
         [Parameter(Mandatory = $true)][string[]]$Lines
     )
 
-    $path = Join-Path $script:OutputDir ($Name + ".yaml")
+    Ensure-ArtifactDirectories
+    $path = Join-Path $script:PrivateArtifactDir ($Name + ".yaml")
     Write-Utf8NoBomFile -LiteralPath $path -Value $Lines
     return $path
 }
 
 function New-ValidationSnapshotFile {
-    $path = Join-Path $script:OutputDir "generated-e36312a-snapshot.json"
+    Ensure-ArtifactDirectories
+    $path = Join-Path $script:PrivateArtifactDir "generated-e36312a-snapshot.json"
     $snapshot = [pscustomobject]@{
         ok = $true
         data = [pscustomobject]@{
@@ -621,10 +787,14 @@ function Get-SuiteCases {
 function Invoke-ValidationCommand {
     param([Parameter(Mandatory = $true)]$Case)
 
+    Ensure-ArtifactDirectories
     $artifactBaseName = Get-CaseArtifactBaseName -Case $Case
-    $jsonPath = Join-Path $script:OutputDir ($artifactBaseName + ".json")
-    $stdoutPath = Join-Path $script:OutputDir ($artifactBaseName + ".stdout.txt")
-    $stderrPath = Join-Path $script:OutputDir ($artifactBaseName + ".stderr-scpi.txt")
+    $jsonPath = Join-Path $script:PrivateArtifactDir ($artifactBaseName + ".json")
+    $stdoutPath = Join-Path $script:PrivateArtifactDir ($artifactBaseName + ".stdout.txt")
+    $stderrPath = Join-Path $script:PrivateArtifactDir ($artifactBaseName + ".stderr-scpi.txt")
+    $shareableJsonPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".json")
+    $shareableStdoutPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".stdout.txt")
+    $shareableStderrPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".stderr-scpi.txt")
     $argsWithPolicy = Add-ValidationSupportPolicyArgument -Arguments $Case.args
     $argsWithBackend = if ($Case.phase -eq "live") { Add-BackendArgument -Arguments $argsWithPolicy } else { $argsWithPolicy }
     $hasSaveJson = $false
@@ -717,6 +887,13 @@ function Invoke-ValidationCommand {
             $instrumentErrors = Get-PropertyValue -Object $data -Name "errors"
         }
     }
+    if ($null -ne $identity) {
+        Add-SensitiveValue -Value ([string](Get-PropertyValue -Object $identity -Name "raw"))
+        Add-SensitiveValue -Value ([string](Get-PropertyValue -Object $identity -Name "serial"))
+    }
+    Write-ShareableJsonArtifact -PrivatePath $actualJsonPath -ShareablePath $shareableJsonPath -Payload $payload
+    Write-ShareableTextArtifact -PrivatePath $stdoutPath -ShareablePath $shareableStdoutPath
+    Write-ShareableTextArtifact -PrivatePath $stderrPath -ShareablePath $shareableStderrPath
 
     $casePassed = $true
     $failure = $null
@@ -759,7 +936,7 @@ function Invoke-ValidationCommand {
 
     $recordArgs = Protect-Arguments -Arguments $allArgs
     $formattedArgs = @("-m", "keysight_power_cli.cli") + $recordArgs
-    $commandLine = (Format-CommandArgument -Argument $PythonExe) + " " + (($formattedArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
+    $commandLine = (Format-CommandArgument -Argument (Get-ShareablePythonCommand)) + " " + (($formattedArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
     $backendScope = if ($null -eq $script:BackendArtifact) { $null } else { $script:BackendArtifact.backend_scope }
     $record = [pscustomobject]@{
         name = $Case.name
@@ -783,10 +960,10 @@ function Invoke-ValidationCommand {
         instrument_errors_observed = $instrumentErrors
         cleanup_role = $Case.cleanup_role
         result = if ($casePassed) { "passed" } else { "failed" }
-        stdout_path = ConvertTo-RepoRelativePath -Path $stdoutPath
-        stderr_path = ConvertTo-RepoRelativePath -Path $stderrPath
-        stderr_scpi_path = ConvertTo-RepoRelativePath -Path $stderrPath
-        json_path = ConvertTo-RepoRelativePath -Path $actualJsonPath
+        stdout_path = ConvertTo-RepoRelativePath -Path $shareableStdoutPath
+        stderr_path = ConvertTo-RepoRelativePath -Path $shareableStderrPath
+        stderr_scpi_path = ConvertTo-RepoRelativePath -Path $shareableStderrPath
+        json_path = ConvertTo-RepoRelativePath -Path $shareableJsonPath
     }
     $script:CommandRecords.Add($record)
     if (-not $casePassed) {
@@ -813,7 +990,7 @@ function Test-AllOutputsOff {
     if ($null -eq $OutputStates) {
         return $null
     }
-    $items = if ($OutputStates -is [System.Collections.IEnumerable] -and $OutputStates -isnot [string]) { @($OutputStates) } else { @($OutputStates) }
+    $items = @($OutputStates)
     if ($items.Count -eq 0) {
         return $null
     }
@@ -855,6 +1032,7 @@ function Invoke-SafeOffCleanup {
         $script:CleanupEvidence.safe_off_ok = ($safeOffRecord.result -eq "passed")
         if (-not $script:CleanupEvidence.safe_off_ok) {
             $script:CleanupEvidence.status = "failed"
+            $script:Failures.Add("Cleanup safe-off command failed.")
             return
         }
 
@@ -864,12 +1042,18 @@ function Invoke-SafeOffCleanup {
             $script:CleanupEvidence.output_state_checked = $true
             $script:CleanupEvidence.all_outputs_off = Test-AllOutputsOff -OutputStates $outputStateRecord.output_states_observed
         }
+        else {
+            $script:Failures.Add("Cleanup did not produce verifiable output-state evidence.")
+        }
 
         $errorCase = New-CommandCase -Name "cleanup-error-queue" -Suite "cleanup" -Phase "live" -Args @("error", "--json", "--resource", $script:RawResource, "--max-reads", "20", "--log-scpi") -LiveHardwareExpected:$true -CleanupRole "final_error_queue"
         $errorRecord = Invoke-ValidationCommand -Case $errorCase
         if ($errorRecord.result -eq "passed") {
             $script:CleanupEvidence.error_queue_checked = $true
             $script:CleanupEvidence.instrument_errors = $errorRecord.instrument_errors_observed
+        }
+        else {
+            $script:Failures.Add("Cleanup could not verify the instrument error queue.")
         }
 
         if ($script:CleanupEvidence.all_outputs_off -eq $false) {
@@ -878,9 +1062,16 @@ function Invoke-SafeOffCleanup {
         }
         elseif (-not $script:CleanupEvidence.output_state_checked -or -not $script:CleanupEvidence.error_queue_checked -or $null -eq $script:CleanupEvidence.all_outputs_off) {
             $script:CleanupEvidence.status = "partial"
+            if (-not $script:CleanupEvidence.output_state_checked -or $null -eq $script:CleanupEvidence.all_outputs_off) {
+                $script:Failures.Add("Cleanup did not produce verifiable output-state evidence.")
+            }
+            if (-not $script:CleanupEvidence.error_queue_checked) {
+                $script:Failures.Add("Cleanup could not verify the instrument error queue.")
+            }
         }
         elseif ($null -ne $script:CleanupEvidence.instrument_errors -and @($script:CleanupEvidence.instrument_errors).Count -gt 0) {
             $script:CleanupEvidence.status = "partial"
+            $script:Failures.Add("Cleanup finished with instrument errors.")
         }
         else {
             $script:CleanupEvidence.status = "passed"
@@ -934,9 +1125,10 @@ function Write-ValidationArtifacts {
         [Parameter(Mandatory = $true)][datetime]$StartedAt
     )
 
+    Ensure-ArtifactDirectories
     $completedAt = Get-Date
-    $reportPath = Join-Path $script:OutputDir "report.json"
-    $summaryPath = Join-Path $script:OutputDir "summary.md"
+    $reportPath = Join-Path $script:ShareableArtifactDir "report.json"
+    $summaryPath = Join-Path $script:ShareableArtifactDir "summary.md"
     $caseRecords = @($script:CommandRecords | ForEach-Object {
         [pscustomobject]@{
             name = $_.name
@@ -988,14 +1180,16 @@ function Write-ValidationArtifacts {
         started_at = $StartedAt.ToUniversalTime().ToString("o")
         completed_at = $completedAt.ToUniversalTime().ToString("o")
         result = $Result
-        output_dir = ConvertTo-RepoRelativePath -Path $script:OutputDir
+        output_dir = ConvertTo-RepoRelativePath -Path $script:ShareableArtifactDir
+        shareable_artifact_dir = ConvertTo-RepoRelativePath -Path $script:ShareableArtifactDir
         preflight_report = ConvertTo-RepoRelativePath -Path $reportPath
         suites = $script:SuitesToRun
         cases = $caseRecords
         commands = $script:CommandRecords.ToArray()
-        failures = $script:Failures.ToArray()
+        failures = @($script:Failures | ForEach-Object { Protect-ShareableText -Text $_ })
     }
-    Write-Utf8NoBomFile -LiteralPath $reportPath -Value @($report | ConvertTo-Json -Depth 30)
+    $shareableReport = ConvertTo-ShareableJsonValue -Value $report -FieldName $null -ParentName $null
+    Write-Utf8NoBomFile -LiteralPath $reportPath -Value @($shareableReport | ConvertTo-Json -Depth 30)
 
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("# Power CLI Live Validation")
@@ -1012,7 +1206,7 @@ function Write-ValidationArtifacts {
     $lines.Add("Promotes product support: ``false``")
     $lines.Add("Transport scope: ``" + $script:TransportScope + "``")
     $lines.Add("Backend scope: ``" + $script:BackendArtifact.backend_scope + "``")
-    $lines.Add("Output directory: ``" + (ConvertTo-RepoRelativePath -Path $script:OutputDir) + "``")
+    $lines.Add("Shareable artifact directory: ``" + (ConvertTo-RepoRelativePath -Path $script:ShareableArtifactDir) + "``")
     $lines.Add("Resource: ``" + $script:ResourceDisplay + "``")
     $lines.Add("")
     $lines.Add("## Safety Notes")
@@ -1064,7 +1258,7 @@ function Write-ValidationArtifacts {
         $lines.Add("")
         $lines.Add("## Failures")
         foreach ($failure in $script:Failures) {
-            $lines.Add("- " + $failure)
+            $lines.Add("- " + (Protect-ShareableText -Text $failure))
         }
     }
     Write-Utf8NoBomFile -LiteralPath $summaryPath -Value $lines
@@ -1074,6 +1268,9 @@ $script:TransportScope = $null
 $script:BackendArtifact = Get-BackendArtifactFields -Value $null
 $script:InstrumentIdentity = $null
 $script:CleanupEvidence = $null
+$script:PrivateArtifactDir = $null
+$script:ShareableArtifactDir = $null
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
 
 if ($env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1") {
     return
@@ -1097,6 +1294,7 @@ $script:TransportScope = Get-TransportScope -Connection $ConnectionLabel
 $script:BackendArtifact = Get-BackendArtifactFields -Value $Backend
 $script:InstrumentIdentity = $null
 $script:CleanupEvidence = $null
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
 
 $supportedSuites = Get-SupportedSuites -Model $NormalizedTarget
 if ($Suite -eq "full") {
@@ -1137,15 +1335,15 @@ foreach ($case in $preflightCases) {
 
 if ($script:Failures.Count -gt 0) {
     Write-ValidationArtifacts -ValidationMode "preflight_failed" -Result "preflight_failed" -StartedAt $startedAt
-    Write-Error "Preflight failed. See $(ConvertTo-RepoRelativePath -Path (Join-Path $script:OutputDir 'report.json'))."
+    Write-Error "Preflight failed. See $(ConvertTo-RepoRelativePath -Path (Join-Path $script:ShareableArtifactDir 'report.json'))."
     exit 1
 }
 
 if ($PlanOnly) {
     Write-ValidationArtifacts -ValidationMode "planned" -Result "planned" -StartedAt $startedAt
     Write-Host "Plan-only validation passed."
-    Write-Host "Report: $(ConvertTo-RepoRelativePath -Path (Join-Path $script:OutputDir 'report.json'))"
-    Write-Host "Summary: $(ConvertTo-RepoRelativePath -Path (Join-Path $script:OutputDir 'summary.md'))"
+    Write-Host "Report: $(ConvertTo-RepoRelativePath -Path (Join-Path $script:ShareableArtifactDir 'report.json'))"
+    Write-Host "Summary: $(ConvertTo-RepoRelativePath -Path (Join-Path $script:ShareableArtifactDir 'summary.md'))"
     exit 0
 }
 
@@ -1195,11 +1393,17 @@ if ($script:Failures.Count -eq 0 -and $script:StateChanging) {
 
 if ($script:Failures.Count -gt 0) {
     Write-ValidationArtifacts -ValidationMode "live" -Result "failed" -StartedAt $startedAt
-    Write-Error "Live validation failed. See $(ConvertTo-RepoRelativePath -Path (Join-Path $script:OutputDir 'report.json'))."
+    Write-Error "Live validation failed. See $(ConvertTo-RepoRelativePath -Path (Join-Path $script:ShareableArtifactDir 'report.json'))."
     exit 1
 }
 
-Write-ValidationArtifacts -ValidationMode "live" -Result "passed" -StartedAt $startedAt
-Write-Host "Live validation passed."
-Write-Host "Report: $(ConvertTo-RepoRelativePath -Path (Join-Path $script:OutputDir 'report.json'))"
-Write-Host "Summary: $(ConvertTo-RepoRelativePath -Path (Join-Path $script:OutputDir 'summary.md'))"
+$liveResult = if ($script:StateChanging -and -not $Restore) { "passed_without_cleanup_verification" } else { "passed" }
+Write-ValidationArtifacts -ValidationMode "live" -Result $liveResult -StartedAt $startedAt
+if ($liveResult -eq "passed") {
+    Write-Host "Live validation passed."
+}
+else {
+    Write-Host "Live validation completed without cleanup verification because -Restore:`$false was selected."
+}
+Write-Host "Report: $(ConvertTo-RepoRelativePath -Path (Join-Path $script:ShareableArtifactDir 'report.json'))"
+Write-Host "Summary: $(ConvertTo-RepoRelativePath -Path (Join-Path $script:ShareableArtifactDir 'summary.md'))"

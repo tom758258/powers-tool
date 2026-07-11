@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -248,8 +249,10 @@ if ($liveRecord.json_path -notmatch "live-trigger-step-bus\.json$") {{ throw "ba
     result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert (output_dir / "preflight-trigger-step-bus.json").exists()
-    assert (output_dir / "live-trigger-step-bus.json").exists()
+    assert (output_dir / "private" / "preflight-trigger-step-bus.json").exists()
+    assert (output_dir / "private" / "live-trigger-step-bus.json").exists()
+    assert (output_dir / "shareable" / "preflight-trigger-step-bus.json").exists()
+    assert (output_dir / "shareable" / "live-trigger-step-bus.json").exists()
 
 
 def test_live_cli_check_failed_live_command_does_not_reuse_stale_preflight_json(tmp_path):
@@ -279,9 +282,9 @@ if (Test-Path -LiteralPath (Join-Path $script:OutputDir "live-trigger-step-bus.j
     result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
 
     assert result.returncode == 0, result.stdout + result.stderr
-    preflight_payload = json.loads((output_dir / "preflight-trigger-step-bus.json").read_text(encoding="utf-8"))
+    preflight_payload = json.loads((output_dir / "private" / "preflight-trigger-step-bus.json").read_text(encoding="utf-8"))
     assert preflight_payload["execution"]["hardware_touched"] is False
-    assert not (output_dir / "live-trigger-step-bus.json").exists()
+    assert not (output_dir / "private" / "live-trigger-step-bus.json").exists()
 
 
 def test_live_cli_check_preflight_still_rejects_hardware_touched_fixture(tmp_path):
@@ -640,6 +643,267 @@ def test_live_cli_check_software_sequence_expected_failures_are_reported_as_pass
     for name in expected_failures:
         assert cases_by_name[name]["expected_success"] is False
         assert cases_by_name[name]["result"] == "passed"
+
+
+def _cleanup_fixture_cli_path(
+    tmp_path: Path,
+    *,
+    safe_off_ok: bool = True,
+    output_state_ok: bool = True,
+    error_queue_ok: bool = True,
+    output_states: object = None,
+    instrument_errors: list[str] | None = None,
+) -> Path:
+    fixture_cli = tmp_path / "keysight_power_cli"
+    fixture_cli.mkdir()
+    (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
+    config = json.dumps(
+        {
+            "safe_off_ok": safe_off_ok,
+            "output_state_ok": output_state_ok,
+            "error_queue_ok": error_queue_ok,
+            "output_states": [{"channel": 1, "enabled": False}] if output_states is None else output_states,
+            "instrument_errors": [] if instrument_errors is None else instrument_errors,
+        }
+    )
+    (fixture_cli / "cli.py").write_text(
+        rf"""
+import json
+import sys
+
+config = json.loads({config!r})
+command = sys.argv[1]
+payload = {{
+    "ok": True,
+    "error": None,
+    "execution": {{"mode": "real", "dry_run": False, "hardware_touched": True}},
+    "data": {{
+        "resource": {{
+            "resource": "TCPIP0::192.168.50.77::5025::SOCKET",
+            "idn": {{
+                "raw": "KEYSIGHT,E36312A,MY12345678,2.10",
+                "manufacturer": "KEYSIGHT",
+                "model": "E36312A",
+                "serial": "MY12345678",
+                "firmware": "2.10",
+                "parse_ok": True,
+            }},
+        }},
+        "external_path": r"C:\\Users\\Example User\\private\\sequence.yaml",
+    }},
+}}
+if command == "safe-off" and not config["safe_off_ok"]:
+    payload["ok"] = False
+    payload["error"] = {{"code": "safe_off_failed", "message": "safe-off failed"}}
+elif command == "output-state":
+    payload["data"] = {{"outputs": config["output_states"]}}
+    if not config["output_state_ok"]:
+        payload["ok"] = False
+        payload["error"] = {{"code": "output_state_failed", "message": "output-state failed"}}
+elif command == "error":
+    payload["data"] = {{"errors": config["instrument_errors"]}}
+    if not config["error_queue_ok"]:
+        payload["ok"] = False
+        payload["error"] = {{"code": "error_queue_failed", "message": "error queue failed"}}
+
+print(r"TCPIP0::192.168.50.77::5025::SOCKET KEYSIGHT,E36312A,MY12345678,2.10 C:\Users\Example User\private\sequence.yaml")
+print(r"TCPIP0::192.168.50.77::5025::SOCKET MY12345678", file=sys.stderr)
+save_path = sys.argv[sys.argv.index("--save-json") + 1]
+with open(save_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+sys.exit(0 if payload["ok"] else 2)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def _run_state_changing_fixture(
+    output_dir: Path,
+    *,
+    restore: bool = True,
+    expect_result: str = "passed",
+    env: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    command = rf"""
+$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:OutputDir = "{output_dir}"
+New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
+$script:RawResource = "TCPIP0::192.168.50.77::5025::SOCKET"
+$script:ResourceDisplay = "LAN:<redacted-resource>"
+$script:NormalizedTarget = "E36312A"
+$script:ConnectionLabel = "LAN"
+$script:TransportScope = "tcpip"
+$script:BackendArtifact = Get-BackendArtifactFields -Value "@py"
+$script:BackendValue = "@py"
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:SuitesToRun = @("output")
+$script:Suite = "output"
+$script:StateChanging = $true
+$script:Restore = ${str(restore).lower()}
+$script:PlanOnly = $false
+$case = New-CommandCase -Name "fixture-set" -Suite "output" -Phase "live" -Args @("set", "--json", "--resource", $script:RawResource, "--channel", "1", "--voltage", "1", "--current", "0.05", "--confirm") -StateChanging:$true -LiveHardwareExpected:$true
+Invoke-ValidationCommand -Case $case | Out-Null
+Invoke-SafeOffCleanup -Role "final"
+$result = if ($script:Failures.Count -eq 0) {{ "passed" }} else {{ "failed" }}
+if (-not $script:Restore -and $result -eq "passed") {{ $result = "passed_without_cleanup_verification" }}
+Write-ValidationArtifacts -ValidationMode "live" -Result $result -StartedAt (Get-Date)
+if ($result -ne "{expect_result}") {{ throw "expected {expect_result}, got $result" }}
+Write-Output (Join-Path $script:ShareableArtifactDir "report.json")
+"""
+    return _run_powershell_command(command, env=env)
+
+
+def test_live_cli_check_shareable_artifacts_recursively_redact_private_live_fixture(tmp_path):
+    fixture_path = _cleanup_fixture_cli_path(tmp_path)
+    result = _run_state_changing_fixture(
+        tmp_path / "out",
+        env={"PYTHONPATH": str(fixture_path)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = Path(result.stdout.strip())
+    shareable_dir = report_path.parent
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert shareable_dir.name == "shareable"
+    assert report["shareable_artifact_dir"].endswith("\\shareable")
+    assert report["instrument_identity"] == {
+        "availability": "observed",
+        "manufacturer": "KEYSIGHT",
+        "detected_model": "E36312A",
+        "firmware": "2.10",
+        "serial": "<redacted>",
+        "serial_redacted": True,
+        "source_command": "fixture-set",
+    }
+    assert all("\\shareable\\" in value for command in report["commands"] for value in (command["json_path"], command["stdout_path"], command["stderr_path"]))
+    assert all("\\private\\" not in " ".join(command["arguments"]) for command in report["commands"])
+    forbidden = (
+        "TCPIP0::192.168.50.77::5025::SOCKET",
+        "192.168.50.77",
+        "MY12345678",
+        "KEYSIGHT,E36312A,MY12345678,2.10",
+        r"C:\Users\Example User",
+        str(Path.cwd()),
+        str(Path(sys.executable)),
+    )
+    shareable_text = "\n".join(path.read_text(encoding="utf-8") for path in shareable_dir.rglob("*") if path.is_file())
+    assert all(value not in shareable_text for value in forbidden)
+    for expected in ("KEYSIGHT", "E36312A", "2.10", "fixture-set", "transport_scope", "backend_scope"):
+        assert expected in shareable_text
+    shareable_payload = json.loads((shareable_dir / "live-fixture-set.json").read_text(encoding="utf-8"))
+    assert shareable_payload["data"]["resource"]["idn"]["raw"] == "<redacted-idn>"
+    assert shareable_payload["data"]["resource"]["idn"]["serial"] == "<redacted>"
+    assert (shareable_dir.parent / "private").is_dir()
+
+
+@pytest.mark.parametrize(
+    ("safe_off_ok", "output_states", "instrument_errors", "cleanup_status", "failure_fragment"),
+    [
+        (False, [{"channel": 1, "enabled": False}], [], "failed", "Cleanup safe-off command failed."),
+        (True, [{"channel": 1, "enabled": True}], [], "failed", "Cleanup could not confirm that all outputs are off."),
+        (True, [{"channel": 1, "enabled": None}], [], "partial", "Cleanup did not produce verifiable output-state evidence."),
+        (True, [{"channel": 1, "enabled": False}], ["-200,Instrument error"], "partial", "Cleanup finished with instrument errors."),
+    ],
+)
+def test_live_cli_check_required_state_cleanup_incomplete_forces_failed_result(
+    tmp_path,
+    safe_off_ok,
+    output_states,
+    instrument_errors,
+    cleanup_status,
+    failure_fragment,
+):
+    fixture_path = _cleanup_fixture_cli_path(
+        tmp_path,
+        safe_off_ok=safe_off_ok,
+        output_states=output_states,
+        instrument_errors=instrument_errors,
+    )
+    result = _run_state_changing_fixture(
+        tmp_path / "out",
+        expect_result="failed",
+        env={"PYTHONPATH": str(fixture_path)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(Path(result.stdout.strip()).read_text(encoding="utf-8"))
+    assert report["result"] == "failed"
+    assert report["cleanup"]["status"] == cleanup_status
+    assert failure_fragment in report["failures"]
+
+
+@pytest.mark.parametrize(
+    ("fixture_kwargs", "failure_fragment"),
+    [
+        ({"output_state_ok": False}, "Cleanup did not produce verifiable output-state evidence."),
+        ({"error_queue_ok": False}, "Cleanup could not verify the instrument error queue."),
+    ],
+)
+def test_live_cli_check_required_state_cleanup_command_failures_are_not_passed(
+    tmp_path,
+    fixture_kwargs,
+    failure_fragment,
+):
+    fixture_path = _cleanup_fixture_cli_path(tmp_path, **fixture_kwargs)
+    result = _run_state_changing_fixture(
+        tmp_path / "out",
+        expect_result="failed",
+        env={"PYTHONPATH": str(fixture_path)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(Path(result.stdout.strip()).read_text(encoding="utf-8"))
+    assert report["cleanup"]["status"] == "partial"
+    assert failure_fragment in report["failures"]
+
+
+def test_live_cli_check_restore_false_is_truthfully_not_cleanup_verified(tmp_path):
+    fixture_path = _cleanup_fixture_cli_path(tmp_path)
+    result = _run_state_changing_fixture(
+        tmp_path / "out",
+        restore=False,
+        expect_result="passed_without_cleanup_verification",
+        env={"PYTHONPATH": str(fixture_path)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(Path(result.stdout.strip()).read_text(encoding="utf-8"))
+    assert report["cleanup"]["requested"] is False
+    assert report["cleanup"]["attempted"] is False
+    assert report["cleanup"]["status"] == "skipped_by_operator"
+    assert report["result"] == "passed_without_cleanup_verification"
+
+
+def test_live_cli_check_cleanup_lifecycle_statuses_are_distinct():
+    command = r"""
+$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:StateChanging = $true
+$script:Restore = $true
+$planned = New-CleanupEvidence -ValidationMode "planned"
+$preflight = New-CleanupEvidence -ValidationMode "preflight_failed"
+$confirmation = New-CleanupEvidence -ValidationMode "confirmation_required"
+$script:StateChanging = $false
+$readonly = New-CleanupEvidence -ValidationMode "live"
+$script:StateChanging = $true
+$script:Restore = $false
+$skipped = New-CleanupEvidence -ValidationMode "live"
+@{ planned = $planned.status; preflight = $preflight.status; confirmation = $confirmation.status; readonly = $readonly.status; skipped = $skipped.status } | ConvertTo-Json -Compress
+"""
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == {
+        "planned": "not_executed_plan_only",
+        "preflight": "not_executed_preflight_failed",
+        "confirmation": "not_executed_confirmation_required",
+        "readonly": "not_required",
+        "skipped": "skipped_by_operator",
+    }
 
 
 @pytest.mark.parametrize("target", ["E36103B", "E36232A", "GENERIC"])

@@ -133,8 +133,10 @@ case is reusable.
 
 ## Artifact requirements
 
-Attach the generated `report.json`, `summary.md`, and per-command JSON and
-stdout/stderr artifacts when submitting real-instrument evidence. Include the
+The wrapper keeps local raw execution files in `private/` and creates a
+redacted `shareable/` artifact set. Attach only the files from `shareable/`:
+its `report.json`, `summary.md`, and redacted per-command JSON/stdout/stderr
+evidence. Do not upload the raw local files. The shareable set records the
 commit SHA, package version, pull-request revision, expected model, detected
 manufacturer/model, firmware, redacted serial, transport, backend, exact
 wrapper command, target, suite, selected cases, plan-only/live status, exit
@@ -143,6 +145,9 @@ cleanup result.
 
 Failed validation is still useful evidence and must not be discarded. Passing
 artifacts are candidate evidence only. They do not automatically promote product support.
+Skipped or incomplete cleanup is not cleanup-verified evidence. Required
+state-changing evidence cannot pass unless safe-off succeeds, outputs are
+confirmed OFF, and the final error queue is clean.
 
 ## Power-supply safety and privacy
 
@@ -151,10 +156,10 @@ explicit low voltage and current limit, verify output OFF before and after the
 run, and account for OVP/OCP, channel selection, E3646A global-output behavior,
 and sequence-step safety. Always provide an explicit resource.
 
-Do not place a private IP address, complete serial number, full VISA resource,
-or personal filesystem path in a pull request, public artifact, issue, or
-documentation. Generated validation artifacts remain ignored and must not be
-committed.
+Do not upload a raw resource, private IP address, complete serial number, raw
+IDN string, or personal filesystem path in a pull request, public artifact,
+issue, or documentation. Generated validation artifacts remain ignored and
+must not be committed.
 
 ## Pull request checklist
 
