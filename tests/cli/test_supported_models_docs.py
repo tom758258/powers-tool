@@ -122,6 +122,10 @@ def test_public_docs_describe_feature_policy_and_model_enablement_lifecycle():
     assert "catalog-only model" in contributor
     assert "candidate is not Product-open" in contributor
     assert "complete exact pending command/feature policy" in contributor
+    assert "Ratings and ranges are" in contributor
+    assert "independent prerequisites" in contributor
+    assert "validated connection may mix validated and pending features" in contributor
+    assert "complete pending feature\ninventory" in supported
     assert "enables no new model" in webui
     assert "Product model selector contains Product-active models only" in webui
 

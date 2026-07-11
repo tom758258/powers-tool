@@ -38,6 +38,10 @@ their effective BUS or Immediate source before trigger setup. A validated
 command scope does not open an unregistered future action/source. Missing,
 unknown, unsupported, and Product-mode pending feature entries fail closed;
 Validation mode accepts only explicitly registered `feature_pending` entries.
+A validated transport/backend parent may mix validated and pending command
+features: validated siblings remain Product-open, while each pending feature
+remains Validation-only. A transport-pending parent cannot contain a validated
+feature.
 
 `keysight_power_core.support_policy.live_support_policy_metadata()` and
 `exact_live_support_metadata()` provide JSON-ready display projections without

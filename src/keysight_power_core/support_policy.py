@@ -18,9 +18,9 @@ from keysight_power_core.models import (
 from keysight_power_core.support_features import (
     FEATURE_KIND_SEQUENCE_ACTION,
     FEATURE_KIND_TRIGGER_SOURCE,
-    REAL_TRIGGER_SOURCES,
     normalize_real_trigger_source,
     normalize_sequence_action,
+    supported_real_trigger_sources,
     supported_sequence_actions,
 )
 
@@ -264,6 +264,8 @@ def find_feature_support(
 def live_support_policy_metadata(
     model: str,
     commands: Iterable[str] | None = None,
+    *,
+    registry: tuple[ModelSupportPolicy, ...] | None = None,
 ) -> dict[str, object]:
     """Return a safe JSON-ready model-level live-support projection."""
 
@@ -280,7 +282,7 @@ def live_support_policy_metadata(
             },
         }
 
-    matrix = command_live_support_matrix(normalized_model)
+    matrix = command_live_support_matrix(normalized_model, registry=registry)
     return {
         "model": normalized_model,
         "live_capable": True,
@@ -302,10 +304,11 @@ def exact_live_support_metadata(
     resource: str | None,
     backend: str | None,
     commands: Iterable[str] | None = None,
+    registry: tuple[ModelSupportPolicy, ...] | None = None,
 ) -> dict[str, object]:
     """Return a safe JSON-ready Product-mode projection for one exact scope."""
 
-    model_metadata = live_support_policy_metadata(model, commands)
+    model_metadata = live_support_policy_metadata(model, commands, registry=registry)
     normalized_model = str(model_metadata["model"])
     if normalized_model == "GENERIC":
         raise LiveSupportPolicyError(
@@ -628,73 +631,12 @@ def validate_live_support_metadata(
                     VALIDATION_STATUS_TRANSPORT_PENDING,
                 } and not scope.note:
                     raise ValueError(f"pending scope lacks note: {model}/{command}/{scope_key}")
-                expected_features = _expected_feature_inventory(model, command)
-                seen_features: set[tuple[str, str]] = set()
-                for feature in scope.feature_scopes:
-                    normalized_kind = feature.feature_kind.strip().lower()
-                    if feature.feature_kind != normalized_kind:
-                        raise ValueError(
-                            f"noncanonical feature kind: {model}/{command}/{scope_key}/{feature.feature_kind!r}"
-                        )
-                    if normalized_kind not in {
-                        FEATURE_KIND_SEQUENCE_ACTION,
-                        FEATURE_KIND_TRIGGER_SOURCE,
-                    }:
-                        raise ValueError(f"unsupported feature kind: {normalized_kind}")
-                    try:
-                        normalized_value = normalize_support_feature_value(
-                            normalized_kind, feature.feature_value
-                        )
-                    except LiveSupportPolicyError as exc:
-                        raise ValueError(str(exc)) from exc
-                    if feature.feature_value != normalized_value:
-                        raise ValueError(
-                            "noncanonical feature value: "
-                            f"{model}/{command}/{scope_key}/{feature.feature_value!r}"
-                        )
-                    feature_key = (normalized_kind, normalized_value)
-                    if feature_key in seen_features:
-                        raise ValueError(
-                            f"duplicate feature scope: {model}/{command}/{scope_key}/{feature_key}"
-                        )
-                    seen_features.add(feature_key)
-                    if feature_key not in expected_features:
-                        raise ValueError(
-                            f"unexpected feature scope: {model}/{command}/{scope_key}/{feature_key}"
-                        )
-                    if feature.validation_status not in _FEATURE_STATUSES:
-                        raise ValueError(
-                            f"unknown feature validation status: {feature.validation_status}"
-                        )
-                    if (
-                        feature.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
-                        and not (feature.evidence or feature.note)
-                    ):
-                        raise ValueError(
-                            f"validated feature lacks evidence or migration note: {model}/{command}/{scope_key}/{feature_key}"
-                        )
-                    if (
-                        feature.validation_status == VALIDATION_STATUS_FEATURE_PENDING
-                        and not feature.note
-                    ):
-                        raise ValueError(
-                            f"pending feature lacks note: {model}/{command}/{scope_key}/{feature_key}"
-                        )
-                    required_status = (
-                        VALIDATION_STATUS_FEATURE_PENDING
-                        if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
-                        else VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
-                    )
-                    if feature.validation_status != required_status:
-                        raise ValueError(
-                            "feature status does not match exact parent scope: "
-                            f"{model}/{command}/{scope_key}/{feature_key}"
-                        )
-                missing_features = expected_features - seen_features
-                if missing_features:
-                    raise ValueError(
-                        f"exact-scope feature inventory drift: {model}/{command}/{scope_key}/missing={sorted(missing_features)}"
-                    )
+                validate_live_feature_scope_metadata(
+                    model=model,
+                    command=command,
+                    scope=scope,
+                    expected_features=expected_live_feature_inventory(model, command),
+                )
         missing = expected_commands - seen_commands
         unexpected = seen_commands - expected_commands
         if missing:
@@ -709,18 +651,110 @@ def validate_live_support_metadata(
         raise ValueError(f"unexpected active models in live metadata: {sorted(unexpected_models)}")
 
 
-def _expected_feature_inventory(model: str, command: str) -> set[tuple[str, str]]:
+def expected_live_feature_inventory(
+    model: str, command: str
+) -> frozenset[tuple[str, str]]:
+    """Return the canonical request-layer feature inventory for one command."""
+
     if command == "sequence":
-        return {
+        return frozenset(
             (FEATURE_KIND_SEQUENCE_ACTION, action)
             for action in supported_sequence_actions(model)
-        }
+        )
     if command in {"trigger-step", "trigger-list"}:
-        return {
+        return frozenset(
             (FEATURE_KIND_TRIGGER_SOURCE, source)
-            for source in REAL_TRIGGER_SOURCES
+            for source in supported_real_trigger_sources(model)
+        )
+    return frozenset()
+
+
+def validate_live_feature_scope_metadata(
+    *,
+    model: str,
+    command: str,
+    scope: CommandLiveSupportScope,
+    expected_features: Iterable[tuple[str, str]],
+) -> None:
+    """Validate one exact scope against a canonical feature inventory."""
+
+    scope_key = (scope.transport_scope, scope.backend_scope)
+    expected = frozenset(expected_features)
+    seen_features: set[tuple[str, str]] = set()
+    allowed_statuses = (
+        {
+            VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
+            VALIDATION_STATUS_FEATURE_PENDING,
+            VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL,
         }
-    return set()
+        if scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+        else {
+            VALIDATION_STATUS_FEATURE_PENDING,
+            VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL,
+        }
+    )
+    for feature in scope.feature_scopes:
+        normalized_kind = feature.feature_kind.strip().lower()
+        if feature.feature_kind != normalized_kind:
+            raise ValueError(
+                f"noncanonical feature kind: {model}/{command}/{scope_key}/{feature.feature_kind!r}"
+            )
+        if normalized_kind not in {
+            FEATURE_KIND_SEQUENCE_ACTION,
+            FEATURE_KIND_TRIGGER_SOURCE,
+        }:
+            raise ValueError(f"unsupported feature kind: {normalized_kind}")
+        try:
+            normalized_value = normalize_support_feature_value(
+                normalized_kind, feature.feature_value
+            )
+        except LiveSupportPolicyError as exc:
+            raise ValueError(str(exc)) from exc
+        if feature.feature_value != normalized_value:
+            raise ValueError(
+                "noncanonical feature value: "
+                f"{model}/{command}/{scope_key}/{feature.feature_value!r}"
+            )
+        feature_key = (normalized_kind, normalized_value)
+        if feature_key in seen_features:
+            raise ValueError(
+                f"duplicate feature scope: {model}/{command}/{scope_key}/{feature_key}"
+            )
+        seen_features.add(feature_key)
+        if feature_key not in expected:
+            raise ValueError(
+                f"unexpected feature scope: {model}/{command}/{scope_key}/{feature_key}"
+            )
+        if feature.validation_status not in _FEATURE_STATUSES:
+            raise ValueError(
+                f"unknown feature validation status: {feature.validation_status}"
+            )
+        if (
+            feature.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+            and not (feature.evidence or feature.note)
+        ):
+            raise ValueError(
+                f"validated feature lacks evidence or migration note: {model}/{command}/{scope_key}/{feature_key}"
+            )
+        if (
+            feature.validation_status == VALIDATION_STATUS_FEATURE_PENDING
+            and not feature.note
+        ):
+            raise ValueError(
+                f"pending feature lacks note: {model}/{command}/{scope_key}/{feature_key}"
+            )
+        if feature.validation_status not in allowed_statuses:
+            raise ValueError(
+                "feature status is invalid for exact parent scope: "
+                f"{model}/{command}/{scope_key}/{feature_key}/"
+                f"parent={scope.validation_status}/feature={feature.validation_status}"
+            )
+    missing_features = expected - seen_features
+    if missing_features:
+        raise ValueError(
+            f"exact-scope feature inventory drift: {model}/{command}/{scope_key}/"
+            f"missing={sorted(missing_features)}"
+        )
 
 
 _LEGACY_BACKEND_NOTE = (
@@ -861,7 +895,7 @@ def _feature_scopes_for(
         values = supported_sequence_actions(model)
         kind = FEATURE_KIND_SEQUENCE_ACTION
     elif command in {"trigger-step", "trigger-list"}:
-        values = REAL_TRIGGER_SOURCES
+        values = supported_real_trigger_sources(model)
         kind = FEATURE_KIND_TRIGGER_SOURCE
     else:
         return ()

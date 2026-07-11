@@ -391,6 +391,186 @@ def test_transport_pending_parent_requires_and_allows_pending_feature_only_in_va
     assert feature.validation_status == VALIDATION_STATUS_FEATURE_PENDING
 
 
+def test_validated_parent_allows_mixed_validated_and_pending_features() -> None:
+    base = command_live_support("E36312A", "sequence")
+    scope = base.scopes[0]
+    changed_features = tuple(
+        replace(
+            feature,
+            validation_status=VALIDATION_STATUS_FEATURE_PENDING,
+            note="Synthetic future feature validation remains pending.",
+        )
+        if feature.feature_value == "set"
+        else feature
+        for feature in scope.feature_scopes
+    )
+    changed_scope = replace(scope, feature_scopes=changed_features)
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "sequence",
+        replace(base, scopes=(changed_scope,) + base.scopes[1:]),
+    )
+
+    validate_live_support_metadata(registry)
+    for mode in (SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION):
+        ensure_live_scope_supported(
+            model="E36312A",
+            command="sequence",
+            transport=scope.transport_scope,
+            backend=scope.backend_scope,
+            support_policy_mode=mode,
+            feature_requirements=(("sequence_action", "apply"),),
+            registry=registry,
+        )
+    with pytest.raises(LiveSupportPolicyError, match="feature_pending"):
+        ensure_live_scope_supported(
+            model="E36312A",
+            command="sequence",
+            transport=scope.transport_scope,
+            backend=scope.backend_scope,
+            support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
+            feature_requirements=(("sequence_action", "set"),),
+            registry=registry,
+        )
+    ensure_live_scope_supported(
+        model="E36312A",
+        command="sequence",
+        transport=scope.transport_scope,
+        backend=scope.backend_scope,
+        support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        feature_requirements=(("sequence_action", "set"),),
+        registry=registry,
+    )
+    projected_scope = live_support_policy_metadata(
+        "E36312A", {"sequence"}, registry=registry
+    )["commands"]["sequence"]["scopes"][0]
+    projected_features = {
+        feature["feature_value"]: feature
+        for feature in projected_scope["features"]
+    }
+    assert projected_features["apply"]["product_open"] is True
+    assert projected_features["apply"]["pending"] is False
+    assert projected_features["set"]["product_open"] is False
+    assert projected_features["set"]["pending"] is True
+
+
+@pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
+def test_validated_parent_allows_explicit_unsupported_feature_metadata(mode: str) -> None:
+    base = command_live_support("E36312A", "sequence")
+    scope = base.scopes[0]
+    changed_scope = replace(
+        scope,
+        feature_scopes=tuple(
+            replace(
+                feature,
+                validation_status=VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL,
+                note="Synthetic explicit unsupported feature.",
+            )
+            if feature.feature_value == "set"
+            else feature
+            for feature in scope.feature_scopes
+        ),
+    )
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "sequence",
+        replace(base, scopes=(changed_scope,) + base.scopes[1:]),
+    )
+
+    validate_live_support_metadata(registry)
+    with pytest.raises(LiveSupportPolicyError, match="not_supported_by_model"):
+        ensure_live_scope_supported(
+            model="E36312A",
+            command="sequence",
+            transport=scope.transport_scope,
+            backend=scope.backend_scope,
+            support_policy_mode=mode,
+            feature_requirements=(("sequence_action", "set"),),
+            registry=registry,
+        )
+
+
+def test_transport_pending_parent_rejects_validated_feature_metadata() -> None:
+    base = command_live_support("E36312A", "sequence")
+    pending_scope = next(
+        scope
+        for scope in base.scopes
+        if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
+    )
+    changed_scope = replace(
+        pending_scope,
+        feature_scopes=(
+            replace(
+                pending_scope.feature_scopes[0],
+                validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
+                note="Synthetic invalid validated feature.",
+            ),
+        )
+        + pending_scope.feature_scopes[1:],
+    )
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "sequence",
+        replace(
+            base,
+            scopes=tuple(
+                changed_scope if scope is pending_scope else scope for scope in base.scopes
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="feature status is invalid for exact parent scope"):
+        validate_live_support_metadata(registry)
+
+
+def test_transport_pending_parent_allows_explicit_unsupported_feature_metadata() -> None:
+    base = command_live_support("E36312A", "sequence")
+    pending_scope = next(
+        scope
+        for scope in base.scopes
+        if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
+    )
+    changed_scope = replace(
+        pending_scope,
+        feature_scopes=tuple(
+            replace(
+                feature,
+                validation_status=VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL,
+                note="Synthetic explicit unsupported feature.",
+            )
+            if feature.feature_value == "set"
+            else feature
+            for feature in pending_scope.feature_scopes
+        ),
+    )
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "sequence",
+        replace(
+            base,
+            scopes=tuple(
+                changed_scope if scope is pending_scope else scope for scope in base.scopes
+            ),
+        ),
+    )
+
+    validate_live_support_metadata(registry)
+    with pytest.raises(LiveSupportPolicyError, match="not_supported_by_model"):
+        ensure_live_scope_supported(
+            model="E36312A",
+            command="sequence",
+            transport=pending_scope.transport_scope,
+            backend=pending_scope.backend_scope,
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            feature_requirements=(("sequence_action", "set"),),
+            registry=registry,
+        )
+
+
 @pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
 def test_missing_feature_metadata_fails_closed(mode: str) -> None:
     base = command_live_support("E36312A", "sequence")

@@ -58,6 +58,10 @@ TCPIP/pyvisa-py pending parent scopes, implemented features remain
 `feature_pending`. Product mode rejects those parent/feature scopes;
 contributor Validation mode may use only the exact registered pending entries.
 Missing feature metadata is not pending and fails closed in both modes.
+A validated connection may contain both `live_validated_full_suite` and
+`feature_pending` command features; Product mode opens only the validated
+feature entries. A transport-pending connection cannot contain a validated
+feature.
 
 ## Model Enablement Lifecycle
 
@@ -70,9 +74,11 @@ Missing feature metadata is not pending and fails closed in both modes.
 
 `GENERIC` remains no-hardware/fallback-only and is not a physical model stage.
 Adding the candidate lifecycle does not enable a new model. A candidate must
-have complete driver, channel, simulator, capability, safety/rating/range,
-test, and exact pending policy metadata before entering that set; candidate
-status and validation artifacts do not make it Product-open.
+have complete driver, channel, simulator, capability, safety, electrical
+rating, setpoint range/limit, test, and exact pending policy metadata before
+entering that set. Feature-aware commands require a complete pending feature
+inventory in every applicable exact scope; candidate status and validation
+artifacts do not make it Product-open.
 
 ## Live Suite Validation Matrix
 

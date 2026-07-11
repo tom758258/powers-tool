@@ -4,6 +4,7 @@ from __future__ import annotations
 
 FEATURE_KIND_SEQUENCE_ACTION = "sequence_action"
 FEATURE_KIND_TRIGGER_SOURCE = "trigger_source"
+FEATURE_AWARE_LIVE_COMMANDS = frozenset({"sequence", "trigger-step", "trigger-list"})
 
 SEQUENCE_ACTIONS = frozenset(
     {
@@ -55,6 +56,13 @@ def supported_sequence_actions(model_profile: str | None) -> frozenset[str]:
     if normalized in {"EDU36311A", "E3646A"}:
         return INSTRUMENT_SEQUENCE_ACTIONS - {"trigger-pulse"}
     return frozenset()
+
+
+def supported_real_trigger_sources(model_profile: str | None) -> frozenset[str]:
+    """Return current profile-supported real trigger sources."""
+
+    normalized = (model_profile or "").strip().upper()
+    return REAL_TRIGGER_SOURCES if normalized == "E36312A" else frozenset()
 
 
 def sequence_feature_requirements(plan: dict[str, object]) -> tuple[tuple[str, str], ...]:

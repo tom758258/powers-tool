@@ -26,11 +26,17 @@ from keysight_power_core.support_policy import (
     BACKEND_SYSTEM_VISA,
     TRANSPORT_USB,
     VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
+    VALIDATION_STATUS_FEATURE_PENDING,
     VALIDATION_STATUS_PROFILE_VALIDATED,
     VALIDATION_STATUS_TRANSPORT_PENDING,
     CommandLiveSupportScope,
+    CommandFeatureSupportScope,
     CommandSupportPolicy,
     ModelSupportPolicy,
+)
+from keysight_power_core.support_features import (
+    FEATURE_KIND_SEQUENCE_ACTION,
+    FEATURE_KIND_TRIGGER_SOURCE,
 )
 
 
@@ -74,6 +80,81 @@ def _synthetic_candidate() -> ModelEnablementInventory:
     )
 
 
+def _candidate_with_output_metadata(
+    *, ratings: bool, ranges: bool
+) -> ModelEnablementInventory:
+    candidate = _synthetic_candidate()
+    model = "SYNTH1"
+    capabilities = {
+        **candidate.command_capabilities[model],
+        "set": {"real": True, "simulate": True, "dry_run": True},
+    }
+    measure_policy = candidate.live_policies[model].commands[0]
+    policy = replace(
+        candidate.live_policies[model],
+        commands=(measure_policy, replace(measure_policy, command="set")),
+    )
+    return replace(
+        candidate,
+        command_capabilities={**candidate.command_capabilities, model: capabilities},
+        live_policies={**candidate.live_policies, model: policy},
+        electrical_rating_models=(
+            candidate.electrical_rating_models | {model}
+            if ratings
+            else candidate.electrical_rating_models - {model}
+        ),
+        setpoint_range_models=(
+            candidate.setpoint_range_models | {model}
+            if ranges
+            else candidate.setpoint_range_models - {model}
+        ),
+    )
+
+
+def _candidate_with_feature_command(
+    command: str,
+    expected_features: frozenset[tuple[str, str]],
+    feature_scopes: tuple[CommandFeatureSupportScope, ...],
+) -> ModelEnablementInventory:
+    candidate = _synthetic_candidate()
+    model = "SYNTH1"
+    measure_policy = candidate.live_policies[model].commands[0]
+    feature_policy = CommandSupportPolicy(
+        command=command,
+        validation_status=VALIDATION_STATUS_PROFILE_VALIDATED,
+        scopes=(
+            CommandLiveSupportScope(
+                validation_status=VALIDATION_STATUS_TRANSPORT_PENDING,
+                transport_scope=TRANSPORT_USB,
+                backend_scope=BACKEND_SYSTEM_VISA,
+                note="Synthetic candidate pending validation.",
+                feature_scopes=feature_scopes,
+            ),
+        ),
+    )
+    capabilities = {
+        **candidate.command_capabilities[model],
+        command: {"real": True, "simulate": True, "dry_run": True},
+    }
+    return replace(
+        candidate,
+        command_capabilities={**candidate.command_capabilities, model: capabilities},
+        live_policies={
+            **candidate.live_policies,
+            model: replace(
+                candidate.live_policies[model],
+                commands=(measure_policy, feature_policy),
+            ),
+        },
+        feature_inventories={
+            **candidate.feature_inventories,
+            model: {command: expected_features},
+        },
+        electrical_rating_models=candidate.electrical_rating_models | {model},
+        setpoint_range_models=candidate.setpoint_range_models | {model},
+    )
+
+
 def test_current_model_enablement_stage_sets_are_exact_and_disjoint() -> None:
     assert PRODUCT_ACTIVE_MODELS == {"E36312A", "EDU36311A", "E3646A"}
     assert CANDIDATE_MODELS == frozenset()
@@ -88,7 +169,11 @@ def test_current_model_enablement_stage_sets_are_exact_and_disjoint() -> None:
 
 
 def test_current_model_enablement_inventory_is_consistent() -> None:
-    validate_model_enablement()
+    inventory = current_model_enablement_inventory()
+    assert "E3646A" not in inventory.electrical_rating_models
+    assert "E3646A" in inventory.setpoint_range_models
+    assert inventory.product_rating_compatibility_models == {"E3646A"}
+    validate_model_enablement(inventory)
 
 
 def test_complete_synthetic_candidate_inventory_passes() -> None:
@@ -146,25 +231,143 @@ def test_candidate_cannot_have_product_open_scope() -> None:
         )
 
 
-def test_output_candidate_requires_limits_ranges_and_safety_metadata() -> None:
-    candidate = _synthetic_candidate()
-    capabilities = {
-        **candidate.command_capabilities["SYNTH1"],
-        "set": {"real": True, "simulate": True, "dry_run": True},
-    }
-    measure_policy = candidate.live_policies["SYNTH1"].commands[0]
-    set_policy = replace(measure_policy, command="set")
-    policy = replace(
-        candidate.live_policies["SYNTH1"],
-        commands=(measure_policy, set_policy),
+@pytest.mark.parametrize(
+    ("ratings", "ranges", "match"),
+    [
+        (False, True, "missing electrical ratings"),
+        (True, False, "missing setpoint range/limit metadata"),
+    ],
+)
+def test_output_candidate_requires_ratings_and_ranges_independently(
+    ratings: bool, ranges: bool, match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        validate_model_enablement(
+            _candidate_with_output_metadata(ratings=ratings, ranges=ranges)
+        )
+
+
+def test_output_candidate_with_ratings_and_ranges_passes() -> None:
+    validate_model_enablement(
+        _candidate_with_output_metadata(ratings=True, ranges=True)
     )
+
+
+def test_candidate_cannot_use_product_rating_compatibility_exception() -> None:
+    candidate = _candidate_with_output_metadata(ratings=False, ranges=True)
     candidate = replace(
         candidate,
-        command_capabilities={**candidate.command_capabilities, "SYNTH1": capabilities},
-        live_policies={**candidate.live_policies, "SYNTH1": policy},
+        product_rating_compatibility_models=(
+            candidate.product_rating_compatibility_models | {"SYNTH1"}
+        ),
     )
-    with pytest.raises(ValueError, match="electrical rating or range-dependent output limits"):
+    with pytest.raises(ValueError, match="missing electrical ratings"):
         validate_model_enablement(candidate)
+
+
+def _pending_feature(kind: str, value: str) -> CommandFeatureSupportScope:
+    return CommandFeatureSupportScope(
+        feature_kind=kind,
+        feature_value=value,
+        validation_status=VALIDATION_STATUS_FEATURE_PENDING,
+        note="Synthetic candidate feature pending validation.",
+    )
+
+
+def test_candidate_sequence_requires_complete_pending_feature_inventory() -> None:
+    expected = frozenset(
+        {
+            (FEATURE_KIND_SEQUENCE_ACTION, "set"),
+            (FEATURE_KIND_SEQUENCE_ACTION, "safe-off"),
+        }
+    )
+    complete = (
+        _pending_feature(FEATURE_KIND_SEQUENCE_ACTION, "set"),
+        _pending_feature(FEATURE_KIND_SEQUENCE_ACTION, "safe-off"),
+    )
+    validate_model_enablement(
+        _candidate_with_feature_command("sequence", expected, complete)
+    )
+
+    with pytest.raises(ValueError, match="lacks canonical feature inventory"):
+        validate_model_enablement(
+            replace(
+                _candidate_with_feature_command("sequence", expected, complete),
+                feature_inventories={},
+            )
+        )
+    with pytest.raises(ValueError, match="feature inventory drift"):
+        validate_model_enablement(
+            _candidate_with_feature_command("sequence", expected, complete[:1])
+        )
+
+
+def test_candidate_sequence_features_must_all_remain_pending() -> None:
+    expected = frozenset({(FEATURE_KIND_SEQUENCE_ACTION, "set")})
+    validated = replace(
+        _pending_feature(FEATURE_KIND_SEQUENCE_ACTION, "set"),
+        validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
+    )
+    with pytest.raises(ValueError, match="invalid for exact parent scope"):
+        validate_model_enablement(
+            _candidate_with_feature_command("sequence", expected, (validated,))
+        )
+
+
+def test_candidate_trigger_requires_complete_model_derived_source_inventory() -> None:
+    expected = frozenset(
+        {
+            (FEATURE_KIND_TRIGGER_SOURCE, "bus"),
+            (FEATURE_KIND_TRIGGER_SOURCE, "immediate"),
+        }
+    )
+    with pytest.raises(ValueError, match="feature inventory drift"):
+        validate_model_enablement(
+            _candidate_with_feature_command(
+                "trigger-step",
+                expected,
+                (_pending_feature(FEATURE_KIND_TRIGGER_SOURCE, "bus"),),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("features", "match"),
+    [
+        (
+            (
+                _pending_feature(FEATURE_KIND_SEQUENCE_ACTION, "set"),
+                _pending_feature(FEATURE_KIND_SEQUENCE_ACTION, "set"),
+            ),
+            "duplicate feature scope",
+        ),
+        (
+            (_pending_feature("future_kind", "set"),),
+            "unsupported feature kind",
+        ),
+        (
+            (
+                replace(
+                    _pending_feature(FEATURE_KIND_SEQUENCE_ACTION, "set"),
+                    validation_status="future",
+                ),
+            ),
+            "unknown feature validation status",
+        ),
+        (
+            (_pending_feature(FEATURE_KIND_SEQUENCE_ACTION, " SET "),),
+            "noncanonical feature value",
+        ),
+    ],
+)
+def test_candidate_rejects_invalid_feature_metadata(
+    features: tuple[CommandFeatureSupportScope, ...], match: str
+) -> None:
+    expected = frozenset({(FEATURE_KIND_SEQUENCE_ACTION, "set")})
+    with pytest.raises(ValueError, match=match):
+        validate_model_enablement(
+            _candidate_with_feature_command("sequence", expected, features)
+        )
 
 
 def test_catalog_and_descoped_models_do_not_leak_into_active_registries() -> None:

@@ -83,8 +83,10 @@ Physical model enablement follows four explicit stages: `catalog_only`,
 `candidate`, `product_active`, and `de_scoped`. Catalog recognition is useful
 identity metadata, but it is not a runtime profile. A candidate is accepted
 only after its model metadata, model-specific driver, channels, deterministic
-simulator identity, capabilities, ratings/ranges, hard limits, safety checks,
-tests, and complete exact pending command/feature policy all exist.
+simulator identity, capabilities, electrical ratings, setpoint range/limit
+metadata, hard limits, safety checks, and tests all exist, together with a
+complete exact pending command/feature policy. Ratings and ranges are
+independent prerequisites; one does not substitute for the other.
 
 Use this order for a proposed model support expansion:
 
@@ -116,7 +118,10 @@ normalized sequence actions and real trigger sources. Adding a new sequence
 action or trigger source requires profile/request validation and an exact
 feature entry for every applicable transport/backend scope. Missing feature
 metadata fails closed; `feature_pending` remains contributor Validation-mode
-only.
+only. A validated connection may mix validated and pending features without
+opening the pending feature in Product mode. Every applicable pending scope of
+a feature-aware candidate command must list the complete profile-supported
+feature inventory as `feature_pending`.
 
 ## Hidden validation mode
 
