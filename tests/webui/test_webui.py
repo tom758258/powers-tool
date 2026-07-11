@@ -959,6 +959,11 @@ def test_static_frontend_consumes_exact_live_support_without_exposing_validation
     assert '["capabilities", "identify", "verify"].includes(job.command)' in capture_workspace
     assert "captureResourceLiveSupport(job, resource);" in capture_workspace
     assert "liveSupport.evaluated !== true" in capture_support
+    unevaluated_branch = capture_support[:capture_support.index("state.resourceLiveSupport = liveSupport;")]
+    assert "state.resourceLiveSupportContext?.resource === resource" in unevaluated_branch
+    assert "state.resourceLiveSupport = null;" in unevaluated_branch
+    assert "state.resourceLiveSupportContext = null;" in unevaluated_branch
+    assert unevaluated_branch.index("state.resourceLiveSupport = null;") < unevaluated_branch.rindex("return false;")
     assert "model: liveSupport.model || null" in capture_support
     assert "transport_scope: liveSupport.transport_scope" in capture_support
     assert "backend_scope: liveSupport.backend_scope" in capture_support
@@ -2155,6 +2160,123 @@ def test_webui_identify_returns_pending_exact_metadata_without_opening_it(
     assert '"artifact"' not in serialized
     assert '"evidence"' not in serialized
     assert session.queries == ["*IDN?", "*OPT?", "SYST:VERS?", "SYST:COMM:RLST?"]
+    assert session.writes == []
+    assert session.closed is True
+
+
+@pytest.mark.parametrize("command", ["identify", "verify"])
+@pytest.mark.parametrize("model", ["UNKNOWN_MODEL", "E36103B"])
+def test_webui_diagnostic_unknown_or_descoped_model_returns_neutral_live_support(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    model: str,
+) -> None:
+    session = FakeCoreSession(
+        f"KEYSIGHT,{model},SERIAL0000,1.0",
+        query_responses={
+            "*OPT?": "0",
+            "SYST:VERS?": "1999.0",
+            "SYST:COMM:RLST?": "RWLock",
+        },
+    )
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": command,
+            "runtime": {
+                "resource": "USB0::FAKE::INSTR",
+                "simulate": False,
+                "dry_run": False,
+            },
+            "parameters": {},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "finished", job_data.get("error")
+    result = job_data["result"]
+    detected_idn = result["idn"] if command == "identify" else result["resource"]["idn"]
+    assert detected_idn["model"] == model
+    assert result["live_support"] == {
+        "evaluated": False,
+        "model": model,
+        "transport_scope": "usb",
+        "backend_scope": "system_visa",
+        "policy_mode": "product",
+        "commands": {},
+        "reason": "No active exact live-support metadata exists for the detected model.",
+    }
+    serialized = json.dumps(result["live_support"])
+    assert "SERIAL0000" not in serialized
+    assert "USB0::FAKE::INSTR" not in serialized
+    assert '"evidence"' not in serialized
+    assert '"artifact"' not in serialized
+    expected_queries = (
+        ["*IDN?", "*OPT?", "SYST:VERS?", "SYST:COMM:RLST?"]
+        if command == "identify"
+        else ["*IDN?"]
+    )
+    assert session.queries == expected_queries
+    assert session.writes == []
+    assert session.closed is True
+
+
+@pytest.mark.parametrize("command", ["identify", "verify"])
+def test_webui_diagnostic_expected_model_mismatch_remains_a_failure(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+) -> None:
+    session = FakeCoreSession("Agilent Technologies,E3646A,0,1.0")
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": command,
+            "runtime": {
+                "resource": "USB0::FAKE::INSTR",
+                "model_profile": "E36312A",
+            },
+            "parameters": {},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "failed"
+    assert "Expected model E36312A" in job_data["error"]
+    assert "reported E3646A" in job_data["error"]
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed is True
+
+
+def test_webui_unknown_model_normal_live_command_remains_rejected(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = FakeCoreSession("KEYSIGHT,UNKNOWN_MODEL,SERIAL0000,1.0")
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "read-status",
+            "runtime": {"resource": "USB0::FAKE::INSTR"},
+            "parameters": {"channel": 1},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "failed"
+    assert "unknown live support-policy model 'UNKNOWN_MODEL'" in job_data["error"]
+    assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed is True
 

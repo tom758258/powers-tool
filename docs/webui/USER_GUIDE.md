@@ -116,8 +116,15 @@ diagnostic can show that commands are pending, but it does not enable them.
 Changing the resource clears that exact context until capabilities or identity
 are read again. Changing `Expected model` updates planning guidance only; it
 does not rewrite the detected model or connection scope. The WebUI uses the
-normal Product policy and does not provide a backend selector or validation
-mode.
+normal Product policy and the default system-VISA backend; it does not provide
+a backend selector or validation mode. Pending metadata is shown only when the
+actual runtime transport/backend matches a registered pending scope.
+
+If device information identifies an unknown or de-scoped model, the diagnostic
+can still succeed, but live-support status remains unevaluated and no command
+is opened. The neutral result clears any older exact context for that resource.
+Normal model-aware live commands remain fail closed, and an `Expected model`
+mismatch still fails the diagnostic.
 
 If no live resource appears, check instrument power, cabling, VISA driver
 visibility, and whether another program is holding the instrument.

@@ -62,6 +62,12 @@ def test_webui_docs_describe_exact_support_as_product_only_ux():
     assert "Pending commands remain visible but disabled" in normalized_guide
     assert "successful real `identify` diagnostic" in readme
     assert "does not open pending feature commands" in normalized_readme
+    assert "unknown or de-scoped model" in normalized_readme
+    assert "support projection is unevaluated" in normalized_readme
+    assert "does not enable Generic fallback" in normalized_readme
+    assert "expected-model mismatch still fails" in normalized_readme.lower()
+    assert "default system-VISA backend" in normalized_guide
+    assert "actual runtime transport/backend matches a registered pending scope" in normalized_guide
     assert "Offline-only utilities are not identity/status diagnostics" in guide
     assert "not shown as Product-open live commands" in normalized_guide
     assert "--validation-allow-pending-live-support" not in text

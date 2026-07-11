@@ -198,11 +198,20 @@ while identity/status diagnostics remain explicitly policy-exempt. Changing
 the resource clears this exact context until capabilities or identity are read
 for the new resource.
 
+If a successful `identify` or `verify` diagnostic detects an unknown or
+de-scoped model, the diagnostic result remains available but its support
+projection is unevaluated and contains no command availability. That neutral
+result clears stale exact context and does not enable Generic fallback; normal
+model-aware live commands still fail closed. An expected-model mismatch still
+fails the diagnostic before optional support metadata is attached.
+
 The Device / Resource summary shows the detected model, expected-model guard,
 transport/backend scope, and compact validated/pending/unavailable counts when
-that exact context is known. WebUI remains Product-only and has no validation
-mode or VISA-backend selector. These displays and disabled controls are UX;
-the Core post-IDN exact-scope gate remains authoritative.
+that exact context is known. Pending metadata appears only when the actual
+runtime transport/backend matches a registered pending scope. WebUI remains
+Product-only and the standard browser uses the default system-VISA backend; it
+has no validation mode or VISA-backend selector. These displays and disabled
+controls are UX; the Core post-IDN exact-scope gate remains authoritative.
 
 Pure offline utilities are classified separately from identity/status
 diagnostics. They do not represent Product-open live commands and are not

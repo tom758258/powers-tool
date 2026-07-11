@@ -26,6 +26,7 @@ from keysight_power_core.model_resolution import validate_live_expected_model
 from keysight_power_core.models import parse_idn
 from keysight_power_core.readonly import run_live_panel_read
 from keysight_power_core.support_policy import (
+    LiveSupportPolicyError,
     SUPPORT_POLICY_MODE_PRODUCT,
     exact_live_support_metadata,
     live_support_policy_metadata,
@@ -219,11 +220,14 @@ def _with_diagnostic_live_support(
             model,
             command=command,
         )
-        live_support = exact_live_support_metadata(
-            model=model,
-            resource=runtime.resource,
-            backend=runtime.backend,
-        )
+        try:
+            live_support = exact_live_support_metadata(
+                model=model,
+                resource=runtime.resource,
+                backend=runtime.backend,
+            )
+        except LiveSupportPolicyError:
+            live_support = _unsupported_detected_model_live_support(model, runtime)
     return {**result, "live_support": live_support}
 
 
@@ -239,6 +243,21 @@ def _unevaluated_live_support(
         "policy_mode": SUPPORT_POLICY_MODE_PRODUCT,
         "commands": {},
         "reason": "Live exact-scope policy applies to real hardware only.",
+    }
+
+
+def _unsupported_detected_model_live_support(
+    model: str,
+    runtime: RuntimeOptions,
+) -> dict[str, Any]:
+    return {
+        "evaluated": False,
+        "model": model,
+        "transport_scope": normalize_transport(runtime.resource),
+        "backend_scope": normalize_backend(runtime.backend),
+        "policy_mode": SUPPORT_POLICY_MODE_PRODUCT,
+        "commands": {},
+        "reason": "No active exact live-support metadata exists for the detected model.",
     }
 
 

@@ -40,9 +40,12 @@ replace the enforcing runtime gate.
 
 Identity/status diagnostics and pure offline utilities are separate in this
 projection. Exempt diagnostics may report exact Product-policy metadata after
-a real IDN read without acquiring a model feature scope. Offline-only
-utilities are marked `offline_only`; they are not diagnostics and are never
-reported as Product-open exact live commands.
+a real IDN read without acquiring a model feature scope. If the detected model
+has no active exact policy, the diagnostic may still succeed with an
+unevaluated, empty support projection; this does not open live commands or
+enable Generic fallback. Expected-model mismatches remain validation errors.
+Offline-only utilities are marked `offline_only`; they are not diagnostics and
+are never reported as Product-open exact live commands.
 
 ## Package Contents
 
