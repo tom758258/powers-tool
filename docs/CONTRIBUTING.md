@@ -136,7 +136,9 @@ case is reusable.
 The wrapper keeps local raw execution files in `private/` and creates a
 redacted `shareable/` artifact set. Attach only the files from `shareable/`:
 its `report.json`, `summary.md`, and redacted per-command JSON/stdout/stderr
-evidence. Do not upload the raw local files. The shareable set records the
+evidence. Never upload or manually copy files from `private/`. Failed or
+malformed raw command output remains private; the shareable set records a safe
+placeholder when that output cannot be parsed. The shareable set records the
 commit SHA, package version, pull-request revision, expected model, detected
 manufacturer/model, firmware, redacted serial, transport, backend, exact
 wrapper command, target, suite, selected cases, plan-only/live status, exit
@@ -157,9 +159,9 @@ run, and account for OVP/OCP, channel selection, E3646A global-output behavior,
 and sequence-step safety. Always provide an explicit resource.
 
 Do not upload a raw resource, private IP address, complete serial number, raw
-IDN string, or personal filesystem path in a pull request, public artifact,
-issue, or documentation. Generated validation artifacts remain ignored and
-must not be committed.
+IDN string, personal filesystem path, or any file from `private/` in a pull
+request, public artifact, issue, or documentation. Generated validation
+artifacts remain ignored and must not be committed.
 
 ## Pull request checklist
 

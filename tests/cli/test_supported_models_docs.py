@@ -127,8 +127,9 @@ def test_contributor_guide_documents_p5_validation_boundary_without_publishing_s
     assert "do not automatically promote product support" in guide
     assert "Attach only the files from `shareable/`" in guide
     assert "local raw execution files in `private/`" in guide
-    assert "Do not upload the raw local files." in guide
-    assert "raw resource, private IP address, complete serial number, raw\nIDN string, or personal filesystem path" in guide
+    assert "Never upload or manually copy files from `private/`." in guide
+    assert "Failed or\nmalformed raw command output remains private" in guide
+    assert "raw resource, private IP address, complete serial number, raw\nIDN string, personal filesystem path, or any file from `private/`" in guide
     assert "Skipped or incomplete cleanup is not cleanup-verified evidence." in guide
     assert "outputs are\nconfirmed OFF, and the final error queue is clean" in guide
     assert "explicit resource" in guide

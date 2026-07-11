@@ -18,7 +18,12 @@ def _powershell() -> str:
     return executable
 
 
-def _run_live_cli_check(*args: str) -> subprocess.CompletedProcess[str]:
+def _run_live_cli_check(
+    *args: str, env: dict[str, str] | None = None, stdin_text: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    process_env = os.environ.copy()
+    if env:
+        process_env.update(env)
     return subprocess.run(
         [
             _powershell(),
@@ -31,9 +36,11 @@ def _run_live_cli_check(*args: str) -> subprocess.CompletedProcess[str]:
         ],
         check=False,
         cwd=Path.cwd(),
+        env=process_env,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        input=stdin_text,
         timeout=180,
     )
 
@@ -62,6 +69,13 @@ def _report_path(stdout: str, stderr: str) -> Path:
         if "See " in line and line.strip().endswith("report.json."):
             return Path(line.rsplit("See ", 1)[1].rstrip("."))
     raise AssertionError(f"report path not found in output:\n{combined}")
+
+
+def _new_live_check_report(before: set[Path]) -> Path:
+    reports = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
+    created = reports - before
+    assert len(created) == 1, created
+    return created.pop()
 
 
 def _fixture_cli_path(tmp_path: Path, *, mode: str, hardware_touched: bool) -> Path:
@@ -121,6 +135,248 @@ with open(save_path, "w", encoding="utf-8") as handle:
         encoding="utf-8",
     )
     return tmp_path
+
+
+def _artifact_privacy_fixture_cli_path(tmp_path: Path) -> Path:
+    fixture_cli = tmp_path / "keysight_power_cli"
+    fixture_cli.mkdir()
+    (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
+    (fixture_cli / "cli.py").write_text(
+        r'''
+import json
+import sys
+
+resource = "TCPIP0::192.168.50.77::5025::SOCKET"
+idn = "KEYSIGHT,E36312A,MY12345678,2.10"
+external_path = r"C:\Users\Example User\private\sequence.yaml"
+save_path = sys.argv[sys.argv.index("--save-json") + 1]
+command = sys.argv[1]
+print(f"{resource} {idn} {external_path} D:\\Lab Data\\private artifact.txt /home/example user/private/sequence.yaml")
+print(f"{resource} {idn} {external_path}", file=sys.stderr)
+
+if command == "malformed":
+    with open(save_path, "w", encoding="utf-8") as handle:
+        handle.write(f'{{"resource":"{resource}","idn":"{idn}","path":"{external_path}"')
+    sys.exit(2)
+if command == "missing":
+    sys.exit(2)
+
+payload = {
+    "ok": False,
+    "error": {"code": "fixture_error", "message": f"failed after {idn} at {external_path}"},
+    "execution": {"mode": "real", "dry_run": False, "hardware_touched": False},
+}
+with open(save_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+sys.exit(2)
+'''.lstrip(),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def _main_flow_fixture_cli_path(tmp_path: Path) -> Path:
+    fixture_cli = tmp_path / "keysight_power_cli"
+    fixture_cli.mkdir()
+    (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
+    (fixture_cli / "cli.py").write_text(
+        r'''
+import json
+import os
+import sys
+
+failed = os.environ.get("P5_FIXTURE_PREFLIGHT_FAIL") == "1"
+payload = {
+    "ok": not failed,
+    "error": None if not failed else {"code": "fixture_preflight_failed", "message": "fixture preflight failed"},
+    "execution": {"mode": "simulate", "dry_run": False, "hardware_touched": False},
+}
+save_path = sys.argv[sys.argv.index("--save-json") + 1]
+with open(save_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+sys.exit(0 if payload["ok"] else 2)
+'''.lstrip(),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_live_cli_check_main_flow_marks_preflight_failure_cleanup_status(tmp_path):
+    fixture_path = _main_flow_fixture_cli_path(tmp_path)
+    before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
+    result = _run_live_cli_check(
+        "-Target",
+        "E36312A",
+        "-Connection",
+        "USB",
+        "-Resource",
+        "USB0::FIXTURE::INSTR",
+        "-Suite",
+        "readonly",
+        env={"PYTHONPATH": str(fixture_path), "P5_FIXTURE_PREFLIGHT_FAIL": "1"},
+    )
+
+    assert result.returncode != 0, result.stdout + result.stderr
+    report = json.loads(_new_live_check_report(before).read_text(encoding="utf-8"))
+    assert report["validation_mode"] == "preflight_failed"
+    assert report["result"] == "preflight_failed"
+    assert report["live_executed"] is False
+    assert report["cleanup"]["status"] == "not_executed_preflight_failed"
+    assert report["cleanup"]["attempted"] is False
+
+
+def test_live_cli_check_main_flow_marks_confirmation_required_cleanup_status(tmp_path):
+    fixture_path = _main_flow_fixture_cli_path(tmp_path)
+    before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
+    result = _run_live_cli_check(
+        "-Target",
+        "E36312A",
+        "-Connection",
+        "USB",
+        "-Resource",
+        "USB0::FIXTURE::INSTR",
+        "-Suite",
+        "readonly",
+        env={"PYTHONPATH": str(fixture_path)},
+        stdin_text="",
+    )
+
+    assert result.returncode != 0, result.stdout + result.stderr
+    report = json.loads(_new_live_check_report(before).read_text(encoding="utf-8"))
+    assert report["validation_mode"] == "confirmation_required"
+    assert report["result"] == "confirmation_required"
+    assert report["live_executed"] is False
+    assert report["cleanup"]["status"] == "not_executed_confirmation_required"
+    assert report["cleanup"]["attempted"] is False
+
+
+def _artifact_privacy_command(output_dir: Path) -> str:
+    return rf'''
+$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:OutputDir = "{output_dir}"
+New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
+$script:RawResource = "TCPIP0::192.168.50.77::5025::SOCKET"
+$script:ResourceDisplay = "LAN:<redacted-resource>"
+$script:NormalizedTarget = "E36312A"
+$script:ConnectionLabel = "LAN"
+$script:TransportScope = "tcpip"
+$script:BackendArtifact = Get-BackendArtifactFields -Value "@py"
+$script:BackendValue = "@py"
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:SuitesToRun = @("readonly")
+$script:Suite = "readonly"
+$script:StateChanging = $false
+$script:Restore = $true
+$script:PlanOnly = $false
+foreach ($name in @("malformed", "missing", "error-only")) {{
+    $case = New-CommandCase -Name $name -Suite "readonly" -Phase "live" -Args @($name, "--json", "--resource", $script:RawResource) -ExpectedSuccess:$false
+    Invoke-ValidationCommand -Case $case | Out-Null
+}}
+Write-ValidationArtifacts -ValidationMode "live" -Result "failed" -StartedAt (Get-Date)
+Write-Output (Join-Path $script:ShareableArtifactDir "report.json")
+'''
+
+
+def test_live_cli_check_malformed_missing_and_error_only_artifacts_fail_closed(tmp_path):
+    fixture_path = _artifact_privacy_fixture_cli_path(tmp_path)
+    result = _run_powershell_command(
+        _artifact_privacy_command(tmp_path / "out"),
+        env={"PYTHONPATH": str(fixture_path)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = Path(result.stdout.strip())
+    shareable_dir = report_path.parent
+    private_dir = shareable_dir.parent / "private"
+    malformed_placeholder = json.loads(
+        (shareable_dir / "live-malformed.json").read_text(encoding="utf-8")
+    )
+    missing_placeholder = json.loads(
+        (shareable_dir / "live-missing.json").read_text(encoding="utf-8")
+    )
+    assert malformed_placeholder == {
+        "artifact_available": False,
+        "artifact_kind": "command_json",
+        "parse_status": "failed",
+        "parse_error": "Could not parse command JSON.",
+        "private_raw_artifact_retained": True,
+    }
+    assert missing_placeholder["artifact_available"] is False
+    assert missing_placeholder["parse_status"] == "missing"
+    assert missing_placeholder["private_raw_artifact_retained"] is False
+    assert "TCPIP0::192.168.50.77::5025::SOCKET" in (
+        private_dir / "live-malformed.json"
+    ).read_text(encoding="utf-8")
+
+    shareable_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in shareable_dir.rglob("*")
+        if path.is_file()
+    )
+    forbidden = (
+        "TCPIP0::192.168.50.77::5025::SOCKET",
+        "192.168.50.77",
+        "MY12345678",
+        "KEYSIGHT,E36312A,MY12345678,2.10",
+        r"C:\Users\Example User\private\sequence.yaml",
+        r"Users\Example User\private\sequence.yaml",
+        r"D:\Lab Data\private artifact.txt",
+        r"Lab Data\private artifact.txt",
+        "/home/example user/private/sequence.yaml",
+        "example user/private/sequence.yaml",
+        str(Path.cwd()),
+        str(Path(sys.executable)),
+    )
+    assert all(value not in shareable_text for value in forbidden)
+    assert "<redacted-idn>" in shareable_text
+    assert "<redacted-resource>" in shareable_text
+    assert "fixture_error" in shareable_text
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert all("\\shareable\\" in command["json_path"] for command in report["commands"])
+
+
+def test_live_cli_check_report_normalizes_stale_cleanup_lifecycle_states(tmp_path):
+    fixture_path = _dynamic_fixture_cli_path(tmp_path)
+    output_dir = tmp_path / "out"
+    command = rf'''
+$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:OutputDir = "{output_dir}"
+New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
+$script:RawResource = "USB0::FIXTURE::INSTR"
+$script:ResourceDisplay = "USB:<redacted-resource>"
+$script:NormalizedTarget = "E36312A"
+$script:ConnectionLabel = "USB"
+$script:TransportScope = "usb"
+$script:BackendArtifact = Get-BackendArtifactFields -Value $null
+$script:BackendValue = $null
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:SuitesToRun = @("readonly")
+$script:Suite = "readonly"
+$script:StateChanging = $false
+$script:Restore = $true
+$script:PlanOnly = $false
+$script:CleanupEvidence = New-CleanupEvidence -ValidationMode "planned"
+$case = New-CommandCase -Name "live-readonly" -Suite "readonly" -Phase "live" -Args @("real", "--json") -LiveHardwareExpected:$true
+Invoke-ValidationCommand -Case $case | Out-Null
+Write-ValidationArtifacts -ValidationMode "live" -Result "passed" -StartedAt (Get-Date)
+Write-Output (Join-Path $script:ShareableArtifactDir "report.json")
+'''
+    result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(Path(result.stdout.strip()).read_text(encoding="utf-8"))
+    assert report["validation_mode"] == "live"
+    assert report["result"] == "passed"
+    assert report["state_changing"] is False
+    assert report["cleanup"]["status"] == "not_required"
+    assert report["cleanup"]["requested"] is False
+    assert report["cleanup"]["attempted"] is False
 
 
 def _live_fixture_validation_command(output_dir: Path, *, expect_passed: bool) -> str:

@@ -131,7 +131,7 @@ function Protect-Argument {
     param([Parameter(Mandatory = $true)][string]$Argument)
 
     if ($Argument -eq $script:RawResource) {
-        return $script:ResourceDisplay
+        return "<redacted>"
     }
     if ([System.IO.Path]::IsPathRooted($Argument)) {
         $fullArgument = [System.IO.Path]::GetFullPath($Argument)
@@ -171,6 +171,18 @@ function Add-SensitiveValue {
     }
 }
 
+function Add-SensitiveValuesFromText {
+    param([AllowNull()][string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return
+    }
+    $idnPattern = '(?i)\b(?:keysight|agilent(?: technologies)?)\s*,\s*(?:E\d{4,5}[A-Z]?|EDU\d+[A-Z0-9-]*)\s*,\s*([^,\r\n]+)\s*,\s*([^,\r\n]+)'
+    foreach ($match in [regex]::Matches($Text, $idnPattern)) {
+        Add-SensitiveValue -Value $match.Groups[1].Value.Trim()
+    }
+}
+
 function Protect-ShareableText {
     param([AllowNull()][string]$Text)
 
@@ -178,9 +190,12 @@ function Protect-ShareableText {
         return $null
     }
     $redacted = [string]$Text
+    Add-SensitiveValuesFromText -Text $redacted
     if (-not [string]::IsNullOrWhiteSpace($script:RawResource)) {
         $redacted = $redacted -replace [regex]::Escape($script:RawResource), $script:ResourceDisplay
     }
+    $idnPattern = '(?i)\b(?:keysight|agilent(?: technologies)?)\s*,\s*(?:E\d{4,5}[A-Z]?|EDU\d+[A-Z0-9-]*)\s*,\s*([^,\r\n]+)\s*,\s*([^,\r\n]+)'
+    $redacted = [regex]::Replace($redacted, $idnPattern, { param($match) "<redacted-idn>" })
     foreach ($value in @($script:SensitiveValues)) {
         if (-not [string]::IsNullOrWhiteSpace($value)) {
             $redacted = $redacted -replace [regex]::Escape($value), "<redacted>"
@@ -193,7 +208,8 @@ function Protect-ShareableText {
         $redacted = $redacted -replace [regex]::Escape($PythonExe), (Get-ShareablePythonCommand)
     }
     $redacted = $redacted -replace '(?i)\b(?:10(?:\.\d{1,3}){3}|127(?:\.\d{1,3}){3}|169\.254(?:\.\d{1,3}){2}|192\.168(?:\.\d{1,3}){2}|172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})\b', "<redacted-ip>"
-    $redacted = $redacted -replace '(?i)[a-z]:\\Users\\[^\s"'']+', "<redacted-path>"
+    $redacted = $redacted -replace '(?i)[a-z]:(?:\\\\|\\)[^\r\n"''<>|?*]+', "<redacted-path>"
+    $redacted = $redacted -replace '(?<![A-Za-z0-9_])/(?:home|users|mnt|tmp)/[^\r\n"''<>|]+', "<redacted-path>"
     return $redacted
 }
 
@@ -290,7 +306,8 @@ function Write-ShareableJsonArtifact {
     param(
         [Parameter(Mandatory = $true)][string]$PrivatePath,
         [Parameter(Mandatory = $true)][string]$ShareablePath,
-        [AllowNull()]$Payload
+        [AllowNull()]$Payload,
+        [Parameter(Mandatory = $true)][ValidateSet("parsed", "missing", "failed")][string]$ParseStatus
     )
 
     if ($null -ne $Payload) {
@@ -298,7 +315,14 @@ function Write-ShareableJsonArtifact {
         Write-Utf8NoBomFile -LiteralPath $ShareablePath -Value @($shareablePayload | ConvertTo-Json -Depth 30)
         return
     }
-    Write-ShareableTextArtifact -PrivatePath $PrivatePath -ShareablePath $ShareablePath
+    $placeholder = [pscustomobject]@{
+        artifact_available = $false
+        artifact_kind = "command_json"
+        parse_status = $ParseStatus
+        parse_error = if ($ParseStatus -eq "missing") { "JSON output file was not created." } else { "Could not parse command JSON." }
+        private_raw_artifact_retained = (Test-Path -LiteralPath $PrivatePath)
+    }
+    Write-Utf8NoBomFile -LiteralPath $ShareablePath -Value @($placeholder | ConvertTo-Json -Depth 10)
 }
 
 function Protect-Arguments {
@@ -840,15 +864,18 @@ function Invoke-ValidationCommand {
 
     $payload = $null
     $parseError = $null
+    $parseStatus = "parsed"
     if (Test-Path -LiteralPath $actualJsonPath) {
         try {
             $payload = Get-Content -LiteralPath $actualJsonPath -Raw | ConvertFrom-Json
         }
         catch {
-            $parseError = "Could not parse JSON output: " + $_.Exception.Message
+            $parseStatus = "failed"
+            $parseError = "Could not parse command JSON."
         }
     }
     else {
+        $parseStatus = "missing"
         $parseError = "JSON output file was not created."
     }
 
@@ -891,7 +918,7 @@ function Invoke-ValidationCommand {
         Add-SensitiveValue -Value ([string](Get-PropertyValue -Object $identity -Name "raw"))
         Add-SensitiveValue -Value ([string](Get-PropertyValue -Object $identity -Name "serial"))
     }
-    Write-ShareableJsonArtifact -PrivatePath $actualJsonPath -ShareablePath $shareableJsonPath -Payload $payload
+    Write-ShareableJsonArtifact -PrivatePath $actualJsonPath -ShareablePath $shareableJsonPath -Payload $payload -ParseStatus $parseStatus
     Write-ShareableTextArtifact -PrivatePath $stdoutPath -ShareablePath $shareableStdoutPath
     Write-ShareableTextArtifact -PrivatePath $stderrPath -ShareablePath $shareableStderrPath
 
@@ -1118,6 +1145,34 @@ function Write-LiveConfirmationWarnings {
     }
 }
 
+function Normalize-CleanupEvidenceForReport {
+    param([Parameter(Mandatory = $true)][string]$ValidationMode)
+
+    $completedStatuses = @("passed", "partial", "failed", "skipped_by_operator")
+    if ($null -eq $script:CleanupEvidence) {
+        $script:CleanupEvidence = New-CleanupEvidence -ValidationMode $ValidationMode
+        return
+    }
+    if ($script:CleanupEvidence.status -in $completedStatuses) {
+        return
+    }
+    if ($ValidationMode -eq "planned") {
+        $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "planned"
+        return
+    }
+    if ($ValidationMode -eq "preflight_failed") {
+        $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "preflight_failed"
+        return
+    }
+    if ($ValidationMode -eq "confirmation_required") {
+        $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "confirmation_required"
+        return
+    }
+    if ($ValidationMode -eq "live") {
+        $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "live"
+    }
+}
+
 function Write-ValidationArtifacts {
     param(
         [Parameter(Mandatory = $true)][string]$ValidationMode,
@@ -1149,8 +1204,12 @@ function Write-ValidationArtifacts {
             source_command = $null
         }
     }
-    if ($null -eq $script:CleanupEvidence) {
-        $script:CleanupEvidence = New-CleanupEvidence -ValidationMode $ValidationMode
+    Normalize-CleanupEvidenceForReport -ValidationMode $ValidationMode
+    if ($ValidationMode -eq "live" -and $script:StateChanging -and $Restore -and $Result -eq "passed" -and $script:CleanupEvidence.status -ne "passed") {
+        if ($script:Failures -notcontains "Required cleanup did not complete successfully.") {
+            $script:Failures.Add("Required cleanup did not complete successfully.")
+        }
+        $Result = "failed"
     }
     $report = [pscustomobject]@{
         schema_version = "1.1"
