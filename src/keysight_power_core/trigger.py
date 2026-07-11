@@ -26,6 +26,10 @@ from keysight_power_core.models import parse_idn
 from keysight_power_core.live_support import enforce_live_support_for_idn
 from keysight_power_core.transport import dry_run_plan
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
+from keysight_power_core.support_features import (
+    normalize_real_trigger_source,
+    trigger_feature_requirements,
+)
 
 IDN_QUERY = "*IDN?"
 
@@ -535,7 +539,9 @@ def validate_trigger_list_limits(
 def validate_real_trigger_source(request: TriggerRequest, source: str) -> None:
     if request.runtime.simulate or request.runtime.dry_run:
         return
-    if source not in {"bus", "immediate"}:
+    try:
+        normalize_real_trigger_source(source)
+    except ValueError:
         raise CoreValidationError("real PIN/EXT trigger input is not enabled yet; use --dry-run or --simulate")
 
 
@@ -747,7 +753,13 @@ def _run_trigger_step(
     stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
     p = request.parameters
-    validate_real_trigger_source(request, str(p.get("source", "bus")))
+    raw_source = str(p.get("source", "bus"))
+    validate_real_trigger_source(request, raw_source)
+    source = (
+        raw_source
+        if request.runtime.simulate or request.runtime.dry_run
+        else normalize_real_trigger_source(raw_source)
+    )
     opened = False
     try:
         with opener(request.runtime.resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
@@ -762,7 +774,7 @@ def _run_trigger_step(
                     request,
                     power_supply,
                     channel=int(p["channel"]),
-                    source=str(p.get("source", "bus")),
+                    source=source,
                     voltage=p.get("voltage"),
                     current=p.get("current"),
                     pins=tuple(p.get("completion_pulse_pins") or ()),
@@ -792,7 +804,10 @@ def _run_trigger_list(
 ) -> dict[str, Any]:
     p = request.parameters
     config = trigger_list_config(p)
-    validate_real_trigger_source(request, str(config["source"]))
+    raw_source = str(config["source"])
+    validate_real_trigger_source(request, raw_source)
+    if not request.runtime.simulate and not request.runtime.dry_run:
+        config = {**config, "source": normalize_real_trigger_source(raw_source)}
     opened = False
     try:
         with opener(request.runtime.resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
@@ -1095,9 +1110,16 @@ def _trigger_power_supply(
     validate_live_expected_model(
         request.runtime.model_profile, parse_idn(idn).model, command=request.command
     )
-    if not request.runtime.simulate:
-        enforce_live_support_for_idn(request, idn)
     power_supply = create_power_supply(instrument, idn)
+    if not request.runtime.simulate:
+        enforce_live_support_for_idn(
+            request,
+            idn,
+            feature_requirements=trigger_feature_requirements(
+                request.command,
+                str(request.parameters.get("source", "bus")),
+            ),
+        )
     setattr(power_supply, "_core_idn_raw", idn)
     return power_supply
 

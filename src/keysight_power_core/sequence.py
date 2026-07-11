@@ -25,24 +25,15 @@ from keysight_power_core.model_resolution import (
 from keysight_power_core.live_support import enforce_live_support_for_idn
 from keysight_power_core.safety import SafetyConfigError, SafetyLimits, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
 from keysight_power_core.setpoint_limits import validate_effective_setpoint
+from keysight_power_core.support_features import (
+    SEQUENCE_ACTIONS,
+    sequence_feature_requirements,
+    supported_sequence_actions,
+)
 from keysight_power_core.trigger import run_post_action_completion_pulse, trigger_pulse_scpi
 
 IDN_QUERY = "*IDN?"
 OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)
-SEQUENCE_ACTIONS = {
-    "measure",
-    "readback",
-    "output-state",
-    "log",
-    "wait",
-    "safe-off",
-    "set",
-    "output-on",
-    "output-off",
-    "cycle-output",
-    "apply",
-    "trigger-pulse",
-}
 SEQUENCE_OUTPUT_ACTIONS = {"safe-off", "set", "output-on", "output-off", "cycle-output", "apply", "trigger-pulse"}
 
 
@@ -249,7 +240,7 @@ def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> No
     if (
         (request.runtime.dry_run or request.runtime.simulate)
         and action == "trigger-pulse"
-        and request.runtime.model_profile != "E36312A"
+        and action not in supported_sequence_actions(request.runtime.model_profile)
     ):
         model = request.runtime.model_profile or "GENERIC"
         raise CoreValidationError(f"unsupported sequence trigger-pulse for {model}; E36312A supports this step")
@@ -326,8 +317,12 @@ def execute_sequence(
                 _model_from_idn(idn_raw),
                 command=request.command,
             )
-            enforce_live_support_for_idn(request, idn_raw)
             power_supply = create_power_supply(instrument, idn_raw)
+            enforce_live_support_for_idn(
+                request,
+                idn_raw,
+                feature_requirements=sequence_feature_requirements(plan),
+            )
             _preflight_sequence(request, power_supply, plan, model=_model_from_idn(idn_raw))
             for step in plan["steps"]:
                 try:

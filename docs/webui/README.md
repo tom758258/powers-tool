@@ -213,6 +213,20 @@ Product-only and the standard browser uses the default system-VISA backend; it
 has no validation mode or VISA-backend selector. These displays and disabled
 controls are UX; the Core post-IDN exact-scope gate remains authoritative.
 
+The safe Core projection can also include additive `sequence_action` and
+`trigger_source` inventories for an exact scope. These entries expose status
+and Product availability only; they do not expose evidence or internal notes.
+Because documents and trigger requests select features at run time, the
+command rail remains command-level and does not globally disable a command
+merely because another future feature is pending. Core validates the actual
+normalized request features after IDN and before feature-specific SCPI.
+
+The Product model selector contains Product-active models only. Candidate,
+catalog-only, and de-scoped models are not browser runtime choices; there are
+currently no candidates and this framework enables no new model. WebUI remains
+Product-only and provides neither a candidate bootstrap control nor a backend
+or validation selector.
+
 Pure offline utilities are classified separately from identity/status
 diagnostics. They do not represent Product-open live commands and are not
 described as policy-exempt hardware diagnostics.

@@ -1681,12 +1681,39 @@ def test_commands_metadata_includes_safe_exact_live_support_projection(
     assert live_support["GENERIC"]["commands"]["set"]["scopes"] == []
     assert live_support["E36312A"]["commands"]["clear"]["policy_exempt"] is True
     assert live_support["E36312A"]["commands"]["clear"]["scopes"] == []
+    sequence_scope = next(
+        scope
+        for scope in live_support["E36312A"]["commands"]["sequence"]["scopes"]
+        if scope["transport_scope"] == "usb"
+    )
+    assert {feature["feature_kind"] for feature in sequence_scope["features"]} == {
+        "sequence_action"
+    }
+    assert all(feature["product_open"] for feature in sequence_scope["features"])
+    pending_sequence_scope = next(
+        scope
+        for scope in live_support["E36312A"]["commands"]["sequence"]["scopes"]
+        if scope["backend_scope"] == "pyvisa_py"
+    )
+    assert all(
+        feature["validation_status"] == "feature_pending"
+        and feature["product_open"] is False
+        for feature in pending_sequence_scope["features"]
+    )
 
     serialized = json.dumps(live_support)
     assert ".tmp_tests" not in serialized
     assert '"artifact"' not in serialized
     assert '"evidence"' not in serialized
     assert '"serial"' not in serialized
+
+
+def test_product_model_selector_excludes_catalog_candidate_and_descoped_models() -> None:
+    index_html, _app_js, _styles_css = read_static_texts()
+    for model in ("E36312A", "EDU36311A", "E3646A"):
+        assert f'<option value="{model}">' in index_html
+    for model in ("E36313A", "E36233A", "E36441A", "E36155A", "E36103B", "E36232A"):
+        assert f'<option value="{model}">' not in index_html
 
 
 def test_command_coverage(client: TestClient):
@@ -2072,6 +2099,11 @@ def test_webui_resource_capabilities_enforces_exact_scope(
     assert result["live_support"]["policy_mode"] == "product"
     assert result["live_support"]["commands"]["set"]["product_open"] is True
     assert result["live_support"]["commands"]["output-on"]["product_open"] is False
+    sequence_features = result["live_support"]["commands"]["sequence"]["features"]
+    assert {feature["feature_kind"] for feature in sequence_features} == {
+        "sequence_action"
+    }
+    assert all(feature["product_open"] for feature in sequence_features)
     assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed is True

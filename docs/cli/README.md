@@ -171,6 +171,12 @@ Current accepted evidence connections from passing validation artifacts:
 Only exact commands in the Core product matrix are opened for normal LIVE use
 on those connections. E3646A live validation remains restricted to ASRL /
 RS-232; E3646A USB and LAN remain outside the current scope.
+Sequence actions and Trigger Step/List sources are also exact feature-policy
+requirements. Missing or pending feature entries remain closed in normal CLI
+Product mode; a Product-open command does not imply that a future action or
+source is open. The CLI model list remains limited to Product-active models;
+there are currently no candidate models and no new model is enabled by this
+framework.
 
 ```powershell
 .\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full

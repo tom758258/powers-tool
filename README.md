@@ -49,6 +49,13 @@ diagnostics do not imply command support, and no validation bypass exists.
 Unsupported model, command, and mode failures are intentional feature-lock
 behavior; selecting a model is not a feature unlock.
 
+Sequence and native trigger commands also enforce request-specific feature
+metadata for sequence actions and trigger sources. A Product-open command does
+not automatically open a future action or source; missing and pending feature
+metadata fails closed. Physical models have explicit Product-active,
+candidate, catalog-only, or de-scoped lifecycle boundaries. This release adds
+the lifecycle framework without enabling a new model.
+
 Valid no-hardware examples:
 
 ```powershell

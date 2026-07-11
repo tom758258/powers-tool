@@ -3,6 +3,8 @@ from dataclasses import replace
 
 import pytest
 
+from keysight_power_core.support_features import supported_sequence_actions
+
 from keysight_power_core.support_policy import (
     ACTIVE_LIVE_POLICY_MODELS,
     BACKEND_CUSTOM_VISA,
@@ -24,6 +26,7 @@ from keysight_power_core.support_policy import (
     VALIDATION_STATUS_PROFILE_VALIDATED,
     VALIDATION_STATUS_TRANSPORT_PENDING,
     CommandLiveSupportScope,
+    CommandFeatureSupportScope,
     CommandSupportPolicy,
     LiveSupportPolicyError,
     ModelSupportPolicy,
@@ -32,9 +35,11 @@ from keysight_power_core.support_policy import (
     ensure_live_scope_supported,
     exact_live_support_metadata,
     find_live_support_scope,
+    find_feature_support,
     is_live_support_policy_exempt,
     live_support_policy_metadata,
     normalize_backend,
+    normalize_support_feature_value,
     normalize_transport,
     validate_live_support_metadata,
 )
@@ -300,22 +305,26 @@ def test_product_rejects_and_validation_allows_transport_pending() -> None:
 
 
 def test_feature_pending_is_validation_only_with_synthetic_metadata() -> None:
-    base = command_live_support("E36312A", "measure")
-    feature_scope = replace(
-        base.scopes[0],
-        validation_status=VALIDATION_STATUS_FEATURE_PENDING,
-        note="Synthetic feature candidate.",
-    )
+    base = command_live_support("E36312A", "sequence")
+    feature_scope = replace(base.scopes[0], feature_scopes=(
+        CommandFeatureSupportScope(
+            feature_kind="sequence_action",
+            feature_value="set",
+            validation_status=VALIDATION_STATUS_FEATURE_PENDING,
+            note="Synthetic feature candidate.",
+        ),
+    ))
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
         "E36312A",
-        "measure",
+        "sequence",
         replace(base, scopes=(feature_scope,)),
     )
     with pytest.raises(LiveSupportPolicyError, match="feature_pending"):
         ensure_live_scope_supported(
             model="E36312A",
-            command="measure",
+            command="sequence",
+            feature_requirements=(("sequence_action", "set"),),
             transport=feature_scope.transport_scope,
             backend=feature_scope.backend_scope,
             support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
@@ -324,14 +333,117 @@ def test_feature_pending_is_validation_only_with_synthetic_metadata() -> None:
     assert (
         ensure_live_scope_supported(
             model="E36312A",
-            command="measure",
+            command="sequence",
             transport=feature_scope.transport_scope,
             backend=feature_scope.backend_scope,
             support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            feature_requirements=(("sequence_action", "set"),),
             registry=registry,
         ).validation_status
-        == VALIDATION_STATUS_FEATURE_PENDING
+        == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
     )
+
+
+@pytest.mark.parametrize(
+    ("kind", "value", "expected"),
+    [
+        ("sequence_action", " SET ", "set"),
+        ("trigger_source", "BUS", "bus"),
+        ("trigger_source", "imm", "immediate"),
+    ],
+)
+def test_feature_value_normalization(kind: str, value: str, expected: str) -> None:
+    assert normalize_support_feature_value(kind, value) == expected
+
+
+def test_feature_lookup_is_exact_and_rejects_duplicates() -> None:
+    scope = command_live_support("E36312A", "trigger-step").scopes[0]
+    assert find_feature_support(scope, "trigger_source", "IMM").feature_value == "immediate"
+    without_immediate = replace(
+        scope,
+        feature_scopes=tuple(
+            feature for feature in scope.feature_scopes if feature.feature_value != "immediate"
+        ),
+    )
+    assert find_feature_support(without_immediate, "trigger_source", "immediate") is None
+    duplicated = replace(scope, feature_scopes=scope.feature_scopes + (scope.feature_scopes[0],))
+    with pytest.raises(LiveSupportPolicyError, match="duplicate live support feature metadata"):
+        find_feature_support(duplicated, "trigger_source", scope.feature_scopes[0].feature_value)
+
+
+def test_transport_pending_parent_requires_and_allows_pending_feature_only_in_validation() -> None:
+    arguments = {
+        "model": "E36312A",
+        "command": "sequence",
+        "transport": TRANSPORT_TCPIP,
+        "backend": BACKEND_PYVISA_PY,
+        "feature_requirements": (("sequence_action", "set"),),
+    }
+    with pytest.raises(LiveSupportPolicyError, match="transport_pending"):
+        ensure_live_scope_supported(
+            **arguments, support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT
+        )
+    scope = ensure_live_scope_supported(
+        **arguments, support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION
+    )
+    feature = find_feature_support(scope, "sequence_action", "set")
+    assert feature is not None
+    assert feature.validation_status == VALIDATION_STATUS_FEATURE_PENDING
+
+
+@pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
+def test_missing_feature_metadata_fails_closed(mode: str) -> None:
+    base = command_live_support("E36312A", "sequence")
+    scope = replace(
+        base.scopes[0],
+        feature_scopes=tuple(
+            feature for feature in base.scopes[0].feature_scopes if feature.feature_value != "set"
+        ),
+    )
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "sequence",
+        replace(base, scopes=(scope,)),
+    )
+    with pytest.raises(LiveSupportPolicyError, match="missing_feature_metadata") as raised:
+        ensure_live_scope_supported(
+            model="E36312A",
+            command="sequence",
+            transport=scope.transport_scope,
+            backend=scope.backend_scope,
+            support_policy_mode=mode,
+            feature_requirements=(("sequence_action", "set"),),
+            registry=registry,
+        )
+    assert "feature_kind=sequence_action" in str(raised.value)
+    assert "feature_value=set" in str(raised.value)
+
+
+def test_unknown_feature_status_fails_closed() -> None:
+    base = command_live_support("E36312A", "trigger-step")
+    source = base.scopes[0].feature_scopes[0]
+    scope = replace(
+        base.scopes[0],
+        feature_scopes=(replace(source, validation_status="future"),)
+        + base.scopes[0].feature_scopes[1:],
+    )
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "trigger-step",
+        replace(base, scopes=(scope,)),
+    )
+    with pytest.raises(LiveSupportPolicyError, match="unknown validation status"):
+        ensure_live_scope_supported(
+            model="E36312A",
+            command="trigger-step",
+            transport=scope.transport_scope,
+            backend=scope.backend_scope,
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            feature_requirements=(("trigger_source", source.feature_value),),
+            registry=registry,
+        )
 
 
 @pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
@@ -521,6 +633,128 @@ def test_diagnostic_and_offline_boundaries_are_explicit() -> None:
 
 def test_checked_in_registry_passes_validation() -> None:
     validate_live_support_metadata()
+
+
+def test_checked_in_feature_inventory_matches_current_profiles() -> None:
+    for model in ACTIVE_LIVE_POLICY_MODELS:
+        for scope in command_live_support(model, "sequence").scopes:
+            assert {
+                feature.feature_value for feature in scope.feature_scopes
+            } == supported_sequence_actions(model)
+            expected_status = (
+                VALIDATION_STATUS_FEATURE_PENDING
+                if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
+                else VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+            )
+            assert {feature.validation_status for feature in scope.feature_scopes} == {
+                expected_status
+            }
+    assert "trigger-pulse" in supported_sequence_actions("E36312A")
+    assert "trigger-pulse" not in supported_sequence_actions("EDU36311A")
+    assert "trigger-pulse" not in supported_sequence_actions("E3646A")
+    for command in ("trigger-step", "trigger-list"):
+        for scope in command_live_support("E36312A", command).scopes:
+            assert {feature.feature_value for feature in scope.feature_scopes} == {
+                "bus", "immediate"
+            }
+
+
+def test_public_feature_projection_is_additive_and_redacted() -> None:
+    metadata = live_support_policy_metadata("E36312A", {"sequence"})
+    scope = metadata["commands"]["sequence"]["scopes"][0]
+    assert scope["features"]
+    assert {feature["feature_kind"] for feature in scope["features"]} == {
+        "sequence_action"
+    }
+    serialized = json.dumps(metadata)
+    assert "evidence" not in serialized
+    assert "artifact" not in serialized
+    assert ".tmp_tests" not in serialized
+    assert "pre-P7" not in serialized
+
+
+def test_validator_rejects_feature_inventory_drift() -> None:
+    base = command_live_support("E36312A", "sequence")
+    scope = replace(base.scopes[0], feature_scopes=base.scopes[0].feature_scopes[:-1])
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "sequence",
+        replace(base, scopes=(scope,) + base.scopes[1:]),
+    )
+    with pytest.raises(ValueError, match="feature inventory drift"):
+        validate_live_support_metadata(registry)
+
+
+@pytest.mark.parametrize(
+    ("feature", "match"),
+    [
+        (
+            CommandFeatureSupportScope("future_kind", "set", VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE, note="migration"),
+            "unsupported feature kind",
+        ),
+        (
+            CommandFeatureSupportScope("Sequence_Action", "set", VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE, note="migration"),
+            "noncanonical feature kind",
+        ),
+        (
+            CommandFeatureSupportScope("sequence_action", " SET ", VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE, note="migration"),
+            "noncanonical feature value",
+        ),
+        (
+            CommandFeatureSupportScope("sequence_action", "set", "future", note="migration"),
+            "unknown feature validation status",
+        ),
+        (
+            CommandFeatureSupportScope("sequence_action", "set", VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE),
+            "validated feature lacks evidence or migration note",
+        ),
+    ],
+)
+def test_validator_rejects_invalid_feature_metadata(
+    feature: CommandFeatureSupportScope, match: str
+) -> None:
+    base = command_live_support("E36312A", "sequence")
+    scope = replace(base.scopes[0], feature_scopes=(feature,) + base.scopes[0].feature_scopes[1:])
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "sequence",
+        replace(base, scopes=(scope,) + base.scopes[1:]),
+    )
+    with pytest.raises(ValueError, match=match):
+        validate_live_support_metadata(registry)
+
+
+def test_validator_rejects_duplicate_feature_scope_and_wrong_command_kind() -> None:
+    sequence = command_live_support("E36312A", "sequence")
+    duplicate_scope = replace(
+        sequence.scopes[0],
+        feature_scopes=sequence.scopes[0].feature_scopes
+        + (sequence.scopes[0].feature_scopes[0],),
+    )
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "sequence",
+        replace(sequence, scopes=(duplicate_scope,) + sequence.scopes[1:]),
+    )
+    with pytest.raises(ValueError, match="duplicate feature scope"):
+        validate_live_support_metadata(registry)
+
+    measure = command_live_support("E36312A", "measure")
+    wrong_scope = replace(
+        measure.scopes[0],
+        feature_scopes=(sequence.scopes[0].feature_scopes[0],),
+    )
+    registry = _replace_command(
+        LIVE_SUPPORT_POLICY_REGISTRY,
+        "E36312A",
+        "measure",
+        replace(measure, scopes=(wrong_scope,) + measure.scopes[1:]),
+    )
+    with pytest.raises(ValueError, match="unexpected feature scope"):
+        validate_live_support_metadata(registry)
 
 
 def test_validator_rejects_duplicate_exact_scope() -> None:

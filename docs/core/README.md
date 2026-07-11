@@ -30,6 +30,15 @@ safety limits, confirmation, electrical ratings, sequence restrictions, or
 cleanup behavior. Adapters decide whether that internal mode is available;
 normal product integrations remain product mode.
 
+Exact policy evaluation is feature-aware for `sequence_action` and
+`trigger_source`. Sequence validates every distinct instrument-relevant
+normalized action before its first step; host-only `wait` and `log` actions do
+not require live feature entries. `trigger-step` and `trigger-list` validate
+their effective BUS or Immediate source before trigger setup. A validated
+command scope does not open an unregistered future action/source. Missing,
+unknown, unsupported, and Product-mode pending feature entries fail closed;
+Validation mode accepts only explicitly registered `feature_pending` entries.
+
 `keysight_power_core.support_policy.live_support_policy_metadata()` and
 `exact_live_support_metadata()` provide JSON-ready display projections without
 exposing validation artifacts or mutable registry records. The model-level
@@ -87,6 +96,8 @@ are never reported as Product-open exact live commands.
   and safe public display projections.
 - `keysight_power_core.model_resolution`: strict no-hardware model profile
   resolution for dry-run/simulator planning and live expected-model guards.
+- `keysight_power_core.model_enablement`: injectable consistency validation for
+  Product-active, candidate, catalog-only, and de-scoped model inventories.
 - `keysight_power_core.testing`: no-hardware simulator used by tests and CLI
   simulation mode.
 
@@ -167,6 +178,10 @@ documented in the [CLI README scripted validation section](../cli/README.md#scri
 Active package. E36312A, EDU36311A, and E3646A are the current model-specific
 targets. Model-specific driver foundations are selected from valid `*IDN?`
 responses.
+They are the Product-active models. There are currently no candidate models;
+E36313A, E36233A, E36441A, and E36155A remain catalog-only, while E36103B and
+E36232A remain de-scoped. `GENERIC` is a no-hardware fallback profile, not a
+physical-model lifecycle stage.
 Channel-list SCPI, snapshot/readback parsing, protection state handling,
 sequence loading/planning, safety validation, simulator behavior, and
 output-operation planning are covered by no-hardware tests.

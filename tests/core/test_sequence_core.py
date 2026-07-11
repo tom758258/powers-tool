@@ -5,6 +5,7 @@ from keysight_power_core.support_policy import (
     SUPPORT_POLICY_MODE_VALIDATION,
 )
 from keysight_power_core.sequence import run_sequence
+from keysight_power_core.support_features import sequence_feature_requirements
 
 
 class FakeSession:
@@ -74,6 +75,22 @@ def test_sequence_core_has_no_webui_step_limit() -> None:
 
     assert data["status"] == "valid"
     assert data["step_count"] == 251
+
+
+def test_sequence_feature_requirements_are_normalized_deduplicated_and_host_only_free() -> None:
+    plan = {
+        "steps": [
+            {"action": "set"},
+            {"action": "set"},
+            {"action": "wait"},
+            {"action": "log"},
+            {"action": "measure"},
+        ]
+    }
+    assert sequence_feature_requirements(plan) == (
+        ("sequence_action", "measure"),
+        ("sequence_action", "set"),
+    )
 
 
 def test_sequence_dry_run_does_not_open_visa_and_adds_preview() -> None:
@@ -314,29 +331,42 @@ def test_e3646a_sequence_trigger_pulse_rejected() -> None:
     class E3646AFakeSession:
         capabilities = type("Capabilities", (), {"channels": (1, 2)})()
 
+        def __init__(self):
+            self.queries = []
+            self.writes = []
+            self.closed = False
+
         def __enter__(self):
             return self
 
         def __exit__(self, exc_type, exc, traceback):
+            self.closed = True
             return None
 
         def write(self, command: str) -> None:
-            pass
+            self.writes.append(command)
 
         def query(self, command: str) -> str:
+            self.queries.append(command)
             if command == "*IDN?":
                 return "KEYSIGHT,E3646A,SERIAL0000,1.0"
             return '0,"No error"'
 
     doc = {
         "version": 1,
-        "steps": [{"action": "trigger-pulse", "channel": 1, "pins": [1]}],
+        "steps": [
+            {"action": "set", "channel": 1, "voltage": 1.0, "current": 0.1},
+            {"action": "trigger-pulse", "channel": 1, "pins": [1]},
+        ],
     }
 
     req = SequenceRequest(
         runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False),
         parameters={"document": doc},
     )
-    res = run_sequence(req, opener=lambda *args, **kwargs: E3646AFakeSession())
-    assert res["status"] == "failed"
-    assert "trigger-pulse is only supported for E36312A" in res["failed_step"]["message"]
+    session = E3646AFakeSession()
+    with pytest.raises(LiveSupportPolicyError, match="missing_feature_metadata"):
+        run_sequence(req, opener=lambda *args, **kwargs: session)
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed

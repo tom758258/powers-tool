@@ -1,5 +1,8 @@
 from keysight_power_core.models import (
+    CANDIDATE_MODELS,
+    CATALOG_ONLY_MODELS,
     REGISTERED_MODELS,
+    PRODUCT_ACTIVE_MODELS,
     lookup_model,
     parse_idn,
     resource_interface,
@@ -89,3 +92,15 @@ def test_known_model_registry_lookup() -> None:
     assert lookup_model("E36103B") is None
     assert lookup_model("E36232A") is None
     assert lookup_model("UNKNOWN") is None
+
+
+def test_model_enablement_stages_are_explicit() -> None:
+    assert PRODUCT_ACTIVE_MODELS == {"E36312A", "EDU36311A", "E3646A"}
+    assert CANDIDATE_MODELS == frozenset()
+    assert CATALOG_ONLY_MODELS == {"E36313A", "E36233A", "E36441A", "E36155A"}
+    assert {REGISTERED_MODELS[model].enablement_stage for model in PRODUCT_ACTIVE_MODELS} == {
+        "product_active"
+    }
+    assert {REGISTERED_MODELS[model].enablement_stage for model in CATALOG_ONLY_MODELS} == {
+        "catalog_only"
+    }

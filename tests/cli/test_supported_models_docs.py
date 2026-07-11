@@ -106,6 +106,26 @@ def test_public_docs_describe_p4_policy_boundary_without_publishing_hidden_switc
     assert "The WebUI is product-only" in docs["docs/webui/USER_GUIDE.md"]
 
 
+def test_public_docs_describe_feature_policy_and_model_enablement_lifecycle():
+    root = Path("README.md").read_text(encoding="utf-8")
+    contributor = Path("docs/CONTRIBUTING.md").read_text(encoding="utf-8")
+    core = Path("docs/core/README.md").read_text(encoding="utf-8")
+    supported = Path("docs/core/supported-models.md").read_text(encoding="utf-8")
+    webui = Path("docs/webui/README.md").read_text(encoding="utf-8")
+
+    assert "sequence_action" in core
+    assert "trigger_source" in core
+    assert "Missing feature metadata is not pending" in supported
+    assert "Product-active" in root
+    assert "Catalog-only" in supported
+    assert "Candidate | None" in supported
+    assert "catalog-only model" in contributor
+    assert "candidate is not Product-open" in contributor
+    assert "complete exact pending command/feature policy" in contributor
+    assert "enables no new model" in webui
+    assert "Product model selector contains Product-active models only" in webui
+
+
 def test_contributor_guide_documents_p5_validation_boundary_without_publishing_switch_elsewhere():
     public_paths = (
         "README.md",

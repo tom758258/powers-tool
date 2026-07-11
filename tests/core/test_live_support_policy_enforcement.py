@@ -322,6 +322,55 @@ def test_trigger_abort_pending_scope_rejects_in_product_and_runs_in_validation_m
     assert validation_session.closed
 
 
+def test_trigger_source_feature_pending_rejects_product_before_setup_and_runs_in_validation(
+    monkeypatch,
+) -> None:
+    parameters = {
+        "channel": 1,
+        "source": "immediate",
+        "voltage": 1.0,
+        "current": 0.1,
+    }
+    product_session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    product_request = TriggerRequest(
+        "trigger-step",
+        RuntimeOptions(resource="TCPIP0::192.0.2.1::INSTR", backend="@py"),
+        parameters,
+    )
+    with pytest.raises(LiveSupportPolicyError, match="transport_pending"):
+        run_trigger(product_request, opener=lambda *args, **kwargs: product_session)
+    assert product_session.queries == ["*IDN?"]
+    assert product_session.writes == []
+    assert product_session.closed
+
+    validation_session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    validation_request = TriggerRequest(
+        "trigger-step",
+        RuntimeOptions(
+            resource="TCPIP0::192.0.2.1::INSTR",
+            backend="@py",
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        ),
+        parameters,
+    )
+    calls = []
+
+    def native_step(*args, **kwargs):
+        calls.append(kwargs)
+        return {"source": kwargs["source"], "armed": True}
+
+    monkeypatch.setattr("keysight_power_core.trigger._native_step", native_step)
+    result = run_trigger(
+        validation_request,
+        opener=lambda *args, **kwargs: validation_session,
+        sleep=lambda _: None,
+    )
+    assert result["trigger"]["source"] == "immediate"
+    assert calls and calls[0]["source"] == "immediate"
+    assert validation_session.queries[0] == "*IDN?"
+    assert validation_session.closed
+
+
 def test_trigger_expected_model_mismatch_precedes_validation_pending_scope() -> None:
     session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
     request = TriggerRequest(

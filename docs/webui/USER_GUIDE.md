@@ -183,6 +183,12 @@ pending scopes fail closed. E3646A product LIVE remains ASRL / RS-232 + system
 VISA only, and its software `ramp-list` and step-limited `sequence` are not
 native LIST.
 
+Sequence actions and Trigger Step/List sources also have exact feature status.
+A command shown as live validated does not automatically open a future action
+or source that lacks metadata. The browser may display this additive inventory,
+but Core validates the actual request and keeps missing or pending features
+closed in normal Product mode.
+
 The command rail distinguishes `Live validated`, `Pending live validation`,
 model-unsupported, missing exact scope, policy-exempt diagnostic, and
 `Connection scope not evaluated` states. Pending commands remain visible but

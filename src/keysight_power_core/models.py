@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+MODEL_ENABLEMENT_PRODUCT_ACTIVE = "product_active"
+MODEL_ENABLEMENT_CANDIDATE = "candidate"
+MODEL_ENABLEMENT_CATALOG_ONLY = "catalog_only"
+MODEL_ENABLEMENT_DE_SCOPED = "de_scoped"
+
 
 @dataclass(frozen=True)
 class IdnInfo:
@@ -36,6 +41,7 @@ class ModelInfo:
     manufacturer: str
     model: str
     target_group: str
+    enablement_stage: str
     first_hardware_target: bool = False
 
 
@@ -44,42 +50,64 @@ REGISTERED_MODELS: dict[str, ModelInfo] = {
         manufacturer="KEYSIGHT",
         model="E36312A",
         target_group="initial",
+        enablement_stage=MODEL_ENABLEMENT_PRODUCT_ACTIVE,
         first_hardware_target=True,
     ),
     "EDU36311A": ModelInfo(
         manufacturer="KEYSIGHT",
         model="EDU36311A",
         target_group="initial",
+        enablement_stage=MODEL_ENABLEMENT_PRODUCT_ACTIVE,
         first_hardware_target=True,
     ),
     "E36313A": ModelInfo(
         manufacturer="KEYSIGHT",
         model="E36313A",
         target_group="near-term",
+        enablement_stage=MODEL_ENABLEMENT_CATALOG_ONLY,
     ),
     "E3646A": ModelInfo(
         manufacturer="KEYSIGHT",
         model="E3646A",
         target_group="read-only-serial",
+        enablement_stage=MODEL_ENABLEMENT_PRODUCT_ACTIVE,
     ),
     "E36233A": ModelInfo(
         manufacturer="KEYSIGHT",
         model="E36233A",
         target_group="near-term",
+        enablement_stage=MODEL_ENABLEMENT_CATALOG_ONLY,
     ),
     "E36441A": ModelInfo(
         manufacturer="KEYSIGHT",
         model="E36441A",
         target_group="near-term",
+        enablement_stage=MODEL_ENABLEMENT_CATALOG_ONLY,
     ),
     "E36155A": ModelInfo(
         manufacturer="KEYSIGHT",
         model="E36155A",
         target_group="later",
+        enablement_stage=MODEL_ENABLEMENT_CATALOG_ONLY,
     ),
 }
 
 DE_SCOPED_MODELS = frozenset({"E36103B", "E36232A"})
+PRODUCT_ACTIVE_MODELS = frozenset(
+    model
+    for model, info in REGISTERED_MODELS.items()
+    if info.enablement_stage == MODEL_ENABLEMENT_PRODUCT_ACTIVE
+)
+CANDIDATE_MODELS = frozenset(
+    model
+    for model, info in REGISTERED_MODELS.items()
+    if info.enablement_stage == MODEL_ENABLEMENT_CANDIDATE
+)
+CATALOG_ONLY_MODELS = frozenset(
+    model
+    for model, info in REGISTERED_MODELS.items()
+    if info.enablement_stage == MODEL_ENABLEMENT_CATALOG_ONLY
+)
 
 
 def de_scoped_model_message(model: str) -> str:

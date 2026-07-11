@@ -79,25 +79,44 @@ registered; it is not normal product support.
 
 ## New models, commands, and capabilities
 
-Use this order for a proposed support expansion:
+Physical model enablement follows four explicit stages: `catalog_only`,
+`candidate`, `product_active`, and `de_scoped`. Catalog recognition is useful
+identity metadata, but it is not a runtime profile. A candidate is accepted
+only after its model metadata, model-specific driver, channels, deterministic
+simulator identity, capabilities, ratings/ranges, hard limits, safety checks,
+tests, and complete exact pending command/feature policy all exist.
+
+Use this order for a proposed model support expansion:
 
 ```text
-implement model/profile recognition
-→ implement driver/Core behavior
+catalog-only model
+→ implement complete model/profile/driver metadata
 → define channels, ratings, ranges, and hard limits
 → add request validation
-→ register the exact scope as pending
+→ mark candidate
+→ register exact command and feature scopes as pending
 → add simulator/fake/no-hardware tests
-→ run bounded contributor validation
+→ run bounded hidden Validation-mode bootstrap
 → extend the maintained wrapper where appropriate
-→ attach complete artifacts
+→ attach complete redacted artifacts
 → maintainer review
 → explicit later promotion
 ```
 
-Catalog recognition alone is not active support. A new model must not use
-`GenericScpiPowerSupply` for model-aware output merely because its SCPI looks
-similar to an existing model.
+Catalog recognition is not a candidate, a candidate is not Product-open, and
+a model with missing prerequisites is not pending support. Contributors must
+not mark a model candidate until every candidate prerequisite is present. A
+new model must not use `GenericScpiPowerSupply` for model-aware output merely
+because its SCPI looks similar to an existing model. Promotion requires
+accepted exact evidence plus an explicit later policy change; changing only a
+stage or attaching a passing artifact does not promote support.
+
+Exact command support is also feature-aware. The first feature kinds are
+normalized sequence actions and real trigger sources. Adding a new sequence
+action or trigger source requires profile/request validation and an exact
+feature entry for every applicable transport/backend scope. Missing feature
+metadata fails closed; `feature_pending` remains contributor Validation-mode
+only.
 
 ## Hidden validation mode
 

@@ -9,7 +9,20 @@ from typing import Iterable, Mapping
 from keysight_power_core.capabilities import command_support, known_capability_commands
 from keysight_power_core.core import CoreValidationError
 from keysight_power_core.model_resolution import canonical_model_profile
-from keysight_power_core.models import DE_SCOPED_MODELS, resource_interface
+from keysight_power_core.models import (
+    CANDIDATE_MODELS,
+    DE_SCOPED_MODELS,
+    PRODUCT_ACTIVE_MODELS,
+    resource_interface,
+)
+from keysight_power_core.support_features import (
+    FEATURE_KIND_SEQUENCE_ACTION,
+    FEATURE_KIND_TRIGGER_SOURCE,
+    REAL_TRIGGER_SOURCES,
+    normalize_real_trigger_source,
+    normalize_sequence_action,
+    supported_sequence_actions,
+)
 
 SUPPORT_POLICY_MODE_PRODUCT = "product"
 SUPPORT_POLICY_MODE_VALIDATION = "validation"
@@ -30,7 +43,7 @@ BACKEND_SYSTEM_VISA = "system_visa"
 BACKEND_PYVISA_PY = "pyvisa_py"
 BACKEND_CUSTOM_VISA = "custom_visa"
 
-ACTIVE_LIVE_POLICY_MODELS = frozenset({"E36312A", "EDU36311A", "E3646A"})
+ACTIVE_LIVE_POLICY_MODELS = PRODUCT_ACTIVE_MODELS | CANDIDATE_MODELS
 EXEMPT_LIVE_DIAGNOSTIC_COMMANDS = frozenset(
     {"list-resources", "verify", "identify", "error", "clear"}
 )
@@ -51,7 +64,13 @@ _SCOPE_STATUSES = frozenset(
     {
         VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
         VALIDATION_STATUS_TRANSPORT_PENDING,
+    }
+)
+_FEATURE_STATUSES = frozenset(
+    {
+        VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
         VALIDATION_STATUS_FEATURE_PENDING,
+        VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL,
     }
 )
 _TRANSPORTS = frozenset(
@@ -63,15 +82,22 @@ _BACKENDS = frozenset(
 _ALLOW_PRODUCT = frozenset({VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE})
 _ALLOW_VALIDATION = _ALLOW_PRODUCT | {
     VALIDATION_STATUS_TRANSPORT_PENDING,
-    VALIDATION_STATUS_FEATURE_PENDING,
 }
-_PENDING_STATUSES = frozenset(
-    {VALIDATION_STATUS_TRANSPORT_PENDING, VALIDATION_STATUS_FEATURE_PENDING}
-)
+_PENDING_STATUSES = frozenset({VALIDATION_STATUS_TRANSPORT_PENDING})
 
 
 class LiveSupportPolicyError(CoreValidationError):
     """Raised when an exact live support-policy decision rejects a scope."""
+
+
+@dataclass(frozen=True)
+class CommandFeatureSupportScope:
+    feature_kind: str
+    feature_value: str
+    validation_status: str
+    evidence: str | None = None
+    artifact: str | None = None
+    note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -82,6 +108,7 @@ class CommandLiveSupportScope:
     evidence: str | None = None
     artifact: str | None = None
     note: str | None = None
+    feature_scopes: tuple[CommandFeatureSupportScope, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -125,6 +152,20 @@ def normalize_backend(backend: str | None) -> str:
     if normalized == BACKEND_CUSTOM_VISA:
         return BACKEND_CUSTOM_VISA
     return BACKEND_CUSTOM_VISA
+
+
+def normalize_support_feature_value(feature_kind: str, feature_value: str) -> str:
+    """Return the canonical value for a supported live-policy feature kind."""
+
+    normalized_kind = (feature_kind or "").strip().lower()
+    try:
+        if normalized_kind == FEATURE_KIND_SEQUENCE_ACTION:
+            return normalize_sequence_action(feature_value)
+        if normalized_kind == FEATURE_KIND_TRIGGER_SOURCE:
+            return normalize_real_trigger_source(feature_value)
+    except ValueError as exc:
+        raise LiveSupportPolicyError(str(exc)) from exc
+    raise LiveSupportPolicyError(f"unsupported live support feature kind {feature_kind!r}")
 
 
 def is_live_support_policy_exempt(command: str) -> bool:
@@ -194,6 +235,30 @@ def find_live_support_scope(
         ):
             return scope
     return None
+
+
+def find_feature_support(
+    scope: CommandLiveSupportScope,
+    feature_kind: str,
+    feature_value: str,
+) -> CommandFeatureSupportScope | None:
+    """Return one exact normalized feature entry; wildcard matching is forbidden."""
+
+    normalized_kind = (feature_kind or "").strip().lower()
+    normalized_value = normalize_support_feature_value(normalized_kind, feature_value)
+    matches = [
+        feature
+        for feature in scope.feature_scopes
+        if feature.feature_kind == normalized_kind
+        and feature.feature_value == normalized_value
+    ]
+    if len(matches) > 1:
+        raise LiveSupportPolicyError(
+            "duplicate live support feature metadata: "
+            f"transport={scope.transport_scope}, backend={scope.backend_scope}, "
+            f"feature_kind={normalized_kind}, feature_value={normalized_value}"
+        )
+    return matches[0] if matches else None
 
 
 def live_support_policy_metadata(
@@ -319,6 +384,11 @@ def exact_live_support_metadata(
                         "product_open": product_open,
                         "disabled_reason": None if product_open else reason,
                         "support_reason": reason,
+                        **(
+                            {"features": matching_scope["features"]}
+                            if "features" in matching_scope
+                            else {}
+                        ),
                     }
                 )
         exact_commands[command] = entry
@@ -339,6 +409,7 @@ def ensure_live_scope_supported(
     transport: str,
     backend: str,
     support_policy_mode: str,
+    feature_requirements: Iterable[tuple[str, str]] = (),
     registry: tuple[ModelSupportPolicy, ...] | None = None,
 ) -> CommandLiveSupportScope:
     """Return an allowed exact scope or reject it with fail-closed semantics."""
@@ -417,6 +488,66 @@ def ensure_live_scope_supported(
                 reason=reason,
             )
         )
+    feature_allowed = (
+        _ALLOW_PRODUCT
+        if normalized_mode == SUPPORT_POLICY_MODE_PRODUCT
+        else _ALLOW_PRODUCT | {VALIDATION_STATUS_FEATURE_PENDING}
+    )
+    seen_requirements: set[tuple[str, str]] = set()
+    for feature_kind, feature_value in feature_requirements:
+        normalized_kind = (feature_kind or "").strip().lower()
+        try:
+            normalized_value = normalize_support_feature_value(normalized_kind, feature_value)
+        except LiveSupportPolicyError as exc:
+            raise LiveSupportPolicyError(
+                _rejection_message(
+                    **context,
+                    feature_kind=normalized_kind or "unknown",
+                    feature_value=(feature_value or "").strip().lower() or "unknown",
+                    status="invalid_feature_requirement",
+                    reason=str(exc),
+                )
+            ) from exc
+        feature_key = (normalized_kind, normalized_value)
+        if feature_key in seen_requirements:
+            continue
+        seen_requirements.add(feature_key)
+        feature_context = {
+            **context,
+            "feature_kind": normalized_kind,
+            "feature_value": normalized_value,
+        }
+        try:
+            feature = find_feature_support(scope, normalized_kind, normalized_value)
+        except LiveSupportPolicyError as exc:
+            raise LiveSupportPolicyError(
+                _rejection_message(
+                    **feature_context,
+                    status="duplicate_feature_metadata",
+                    reason=str(exc),
+                )
+            ) from exc
+        if feature is None:
+            raise LiveSupportPolicyError(
+                _rejection_message(
+                    **feature_context,
+                    status="missing_feature_metadata",
+                    reason="no exact feature scope is registered",
+                )
+            )
+        if feature.validation_status not in feature_allowed:
+            reason = (
+                "the exact feature is not allowed in this policy mode"
+                if feature.validation_status in _FEATURE_STATUSES
+                else "the exact feature has an unknown validation status"
+            )
+            raise LiveSupportPolicyError(
+                _rejection_message(
+                    **feature_context,
+                    status=feature.validation_status,
+                    reason=reason,
+                )
+            )
     return scope
 
 
@@ -495,9 +626,75 @@ def validate_live_support_metadata(
                         raise ValueError(f"validated scope lacks artifact: {model}/{command}/{scope_key}")
                 if scope.validation_status in {
                     VALIDATION_STATUS_TRANSPORT_PENDING,
-                    VALIDATION_STATUS_FEATURE_PENDING,
                 } and not scope.note:
                     raise ValueError(f"pending scope lacks note: {model}/{command}/{scope_key}")
+                expected_features = _expected_feature_inventory(model, command)
+                seen_features: set[tuple[str, str]] = set()
+                for feature in scope.feature_scopes:
+                    normalized_kind = feature.feature_kind.strip().lower()
+                    if feature.feature_kind != normalized_kind:
+                        raise ValueError(
+                            f"noncanonical feature kind: {model}/{command}/{scope_key}/{feature.feature_kind!r}"
+                        )
+                    if normalized_kind not in {
+                        FEATURE_KIND_SEQUENCE_ACTION,
+                        FEATURE_KIND_TRIGGER_SOURCE,
+                    }:
+                        raise ValueError(f"unsupported feature kind: {normalized_kind}")
+                    try:
+                        normalized_value = normalize_support_feature_value(
+                            normalized_kind, feature.feature_value
+                        )
+                    except LiveSupportPolicyError as exc:
+                        raise ValueError(str(exc)) from exc
+                    if feature.feature_value != normalized_value:
+                        raise ValueError(
+                            "noncanonical feature value: "
+                            f"{model}/{command}/{scope_key}/{feature.feature_value!r}"
+                        )
+                    feature_key = (normalized_kind, normalized_value)
+                    if feature_key in seen_features:
+                        raise ValueError(
+                            f"duplicate feature scope: {model}/{command}/{scope_key}/{feature_key}"
+                        )
+                    seen_features.add(feature_key)
+                    if feature_key not in expected_features:
+                        raise ValueError(
+                            f"unexpected feature scope: {model}/{command}/{scope_key}/{feature_key}"
+                        )
+                    if feature.validation_status not in _FEATURE_STATUSES:
+                        raise ValueError(
+                            f"unknown feature validation status: {feature.validation_status}"
+                        )
+                    if (
+                        feature.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+                        and not (feature.evidence or feature.note)
+                    ):
+                        raise ValueError(
+                            f"validated feature lacks evidence or migration note: {model}/{command}/{scope_key}/{feature_key}"
+                        )
+                    if (
+                        feature.validation_status == VALIDATION_STATUS_FEATURE_PENDING
+                        and not feature.note
+                    ):
+                        raise ValueError(
+                            f"pending feature lacks note: {model}/{command}/{scope_key}/{feature_key}"
+                        )
+                    required_status = (
+                        VALIDATION_STATUS_FEATURE_PENDING
+                        if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
+                        else VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+                    )
+                    if feature.validation_status != required_status:
+                        raise ValueError(
+                            "feature status does not match exact parent scope: "
+                            f"{model}/{command}/{scope_key}/{feature_key}"
+                        )
+                missing_features = expected_features - seen_features
+                if missing_features:
+                    raise ValueError(
+                        f"exact-scope feature inventory drift: {model}/{command}/{scope_key}/missing={sorted(missing_features)}"
+                    )
         missing = expected_commands - seen_commands
         unexpected = seen_commands - expected_commands
         if missing:
@@ -510,6 +707,20 @@ def validate_live_support_metadata(
     unexpected_models = seen_models - ACTIVE_LIVE_POLICY_MODELS
     if unexpected_models:
         raise ValueError(f"unexpected active models in live metadata: {sorted(unexpected_models)}")
+
+
+def _expected_feature_inventory(model: str, command: str) -> set[tuple[str, str]]:
+    if command == "sequence":
+        return {
+            (FEATURE_KIND_SEQUENCE_ACTION, action)
+            for action in supported_sequence_actions(model)
+        }
+    if command in {"trigger-step", "trigger-list"}:
+        return {
+            (FEATURE_KIND_TRIGGER_SOURCE, source)
+            for source in REAL_TRIGGER_SOURCES
+        }
+    return set()
 
 
 _LEGACY_BACKEND_NOTE = (
@@ -525,6 +736,12 @@ _PENDING_BACKEND_NOTE = (
 _NO_EXACT_EVIDENCE_NOTE = (
     "The command is profile-supported, but no accepted full-suite live case provides "
     "an exact transport/backend scope for this command."
+)
+_FEATURE_BASELINE_MIGRATION_NOTE = (
+    "Preserves the accepted pre-P7 command-level Product-open baseline; this is not new hardware evidence."
+)
+_FEATURE_PENDING_NOTE = (
+    "The implemented feature remains pending with its exact TCPIP/pyvisa-py parent scope."
 )
 
 _ARTIFACTS = {
@@ -572,7 +789,7 @@ _VALIDATED_TRANSPORTS = {
 def _build_registry() -> tuple[ModelSupportPolicy, ...]:
     commands = sorted(_policy_governed_command_inventory())
     model_policies: list[ModelSupportPolicy] = []
-    for model in sorted(ACTIVE_LIVE_POLICY_MODELS):
+    for model in sorted(PRODUCT_ACTIVE_MODELS):
         current_support = command_support(model)
         policies: list[CommandSupportPolicy] = []
         for command in commands:
@@ -599,6 +816,11 @@ def _build_registry() -> tuple[ModelSupportPolicy, ...]:
                             evidence="Accepted 2026-07-09 full-suite live validation record.",
                             artifact=artifact,
                             note=_LEGACY_BACKEND_NOTE,
+                            feature_scopes=_feature_scopes_for(
+                                model=model,
+                                command=command,
+                                validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
+                            ),
                         )
                     )
                     if transport == TRANSPORT_TCPIP and model in {"E36312A", "EDU36311A"}:
@@ -610,6 +832,11 @@ def _build_registry() -> tuple[ModelSupportPolicy, ...]:
                                 evidence="Candidate derived from the matching accepted TCPIP/system-VISA command inventory.",
                                 artifact=artifact,
                                 note=_PENDING_BACKEND_NOTE,
+                                feature_scopes=_feature_scopes_for(
+                                    model=model,
+                                    command=command,
+                                    validation_status=VALIDATION_STATUS_FEATURE_PENDING,
+                                ),
                             )
                         )
             policies.append(
@@ -622,6 +849,36 @@ def _build_registry() -> tuple[ModelSupportPolicy, ...]:
             )
         model_policies.append(ModelSupportPolicy(model=model, commands=tuple(policies)))
     return tuple(model_policies)
+
+
+def _feature_scopes_for(
+    *,
+    model: str,
+    command: str,
+    validation_status: str,
+) -> tuple[CommandFeatureSupportScope, ...]:
+    if command == "sequence":
+        values = supported_sequence_actions(model)
+        kind = FEATURE_KIND_SEQUENCE_ACTION
+    elif command in {"trigger-step", "trigger-list"}:
+        values = REAL_TRIGGER_SOURCES
+        kind = FEATURE_KIND_TRIGGER_SOURCE
+    else:
+        return ()
+    note = (
+        _FEATURE_BASELINE_MIGRATION_NOTE
+        if validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+        else _FEATURE_PENDING_NOTE
+    )
+    return tuple(
+        CommandFeatureSupportScope(
+            feature_kind=kind,
+            feature_value=value,
+            validation_status=validation_status,
+            note=note,
+        )
+        for value in sorted(values)
+    )
 
 
 def _policy_governed_command_inventory() -> set[str]:
@@ -760,6 +1017,28 @@ def _public_command_policy(
                         backend=scope.backend_scope,
                     )
                 ),
+                **(
+                    {
+                        "features": [
+                            {
+                                "feature_kind": feature.feature_kind,
+                                "feature_value": feature.feature_value,
+                                "validation_status": feature.validation_status,
+                                "product_open": feature.validation_status in _ALLOW_PRODUCT,
+                                "pending": feature.validation_status
+                                == VALIDATION_STATUS_FEATURE_PENDING,
+                                "disabled_reason": (
+                                    None
+                                    if feature.validation_status in _ALLOW_PRODUCT
+                                    else _feature_support_reason(feature)
+                                ),
+                            }
+                            for feature in scope.feature_scopes
+                        ]
+                    }
+                    if scope.feature_scopes
+                    else {}
+                ),
             }
             for scope in policy.scopes
         ],
@@ -793,6 +1072,15 @@ def _scope_support_reason(*, status: str, transport: str, backend: str) -> str:
     return f"Live support status is unavailable for {scope_label}."
 
 
+def _feature_support_reason(feature: CommandFeatureSupportScope) -> str:
+    label = f"{feature.feature_kind}={feature.feature_value}"
+    if feature.validation_status == VALIDATION_STATUS_FEATURE_PENDING:
+        return f"Pending live feature validation: {label}."
+    if feature.validation_status == VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL:
+        return f"Feature is not supported by the model: {label}."
+    return f"Live feature support status is unavailable: {label}."
+
+
 def _transport_display(transport: str) -> str:
     return {
         TRANSPORT_USB: "USB",
@@ -820,11 +1108,19 @@ def _rejection_message(
     mode: str,
     status: str,
     reason: str,
+    feature_kind: str | None = None,
+    feature_value: str | None = None,
 ) -> str:
+    feature_context = ""
+    if feature_kind is not None or feature_value is not None:
+        feature_context = (
+            f", feature_kind={feature_kind or 'unknown'}, "
+            f"feature_value={feature_value or 'unknown'}"
+        )
     return (
         "live support-policy rejected: "
         f"model={model}, command={command}, transport={transport}, backend={backend}, "
-        f"policy_mode={mode}, status={status}; reason={reason}"
+        f"policy_mode={mode}{feature_context}, status={status}; reason={reason}"
     )
 
 

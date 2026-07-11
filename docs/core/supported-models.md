@@ -43,6 +43,37 @@ have no accepted exact product LIVE scope. Normal real execution therefore
 rejects them after `*IDN?` and before command-specific SCPI. Dry-run or
 simulator support does not imply product LIVE support.
 
+## Feature-Aware Exact Scopes
+
+The Product-open command rows above are not wildcards for future command
+sub-features. Core additionally checks `sequence_action` for each normalized
+instrument-relevant Sequence step and `trigger_source` for Trigger Step/List.
+Sequence `wait` and `log` remain host-only and need no live feature entry.
+Current real trigger-source values are `bus` and `immediate` (`imm` normalizes
+to `immediate`); PIN/EXT inputs remain rejected by request/profile validation.
+
+On an accepted Product connection, currently supported actions/sources retain
+`live_validated_full_suite`. On the registered E36312A and EDU36311A
+TCPIP/pyvisa-py pending parent scopes, implemented features remain
+`feature_pending`. Product mode rejects those parent/feature scopes;
+contributor Validation mode may use only the exact registered pending entries.
+Missing feature metadata is not pending and fails closed in both modes.
+
+## Model Enablement Lifecycle
+
+| Stage | Current models | Runtime meaning |
+| --- | --- | --- |
+| Product-active | E36312A, EDU36311A, E3646A | Model-specific profiles/drivers with accepted exact Product scopes. |
+| Candidate | None | Complete contributor model eligible only for explicitly pending Validation-mode scopes. |
+| Catalog-only | E36313A, E36233A, E36441A, E36155A | Identity/catalog metadata only; not a planning or live expected-model profile. |
+| De-scoped | E36103B, E36232A | Blocked from Product, Validation, driver fallback, and live metadata. |
+
+`GENERIC` remains no-hardware/fallback-only and is not a physical model stage.
+Adding the candidate lifecycle does not enable a new model. A candidate must
+have complete driver, channel, simulator, capability, safety/rating/range,
+test, and exact pending policy metadata before entering that set; candidate
+status and validation artifacts do not make it Product-open.
+
 ## Live Suite Validation Matrix
 
 This table is the manually maintained source of truth for suite-based live
