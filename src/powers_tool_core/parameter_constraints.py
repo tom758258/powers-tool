@@ -36,6 +36,25 @@ NONNEGATIVE_LIST_PARAMETERS = frozenset({"voltage_list", "current_list", "voltag
 COMMAND_SPECIFIC_PARAMETERS = {
     "duration_ms": frozenset({"cycle-output", "smoke-output"}),
 }
+ALL_CHANNEL_COMMANDS = frozenset(
+    {
+        "apply",
+        "output-on",
+        "output-off",
+        "safe-off",
+        "output-state",
+        "cycle-output",
+        "read-status",
+        "readback",
+        "protection-status",
+        "protection-set",
+        "clear-protection",
+        "restore-from-snapshot",
+        "trigger-status",
+        "trigger-abort",
+    }
+)
+CHANNEL_FORBIDDEN_COMMANDS = frozenset({"measure-all"})
 
 
 def parameter_constraints_metadata() -> dict[str, dict[str, Any]]:
@@ -45,6 +64,16 @@ def parameter_constraints_metadata() -> dict[str, dict[str, Any]]:
 def validate_request_parameters(request: OperationRequest | TriggerRequest | SequenceRequest) -> None:
     """Reject invalid top-level numeric data before any VISA I/O."""
 
+    if "channel" in request.parameters:
+        if request.command in CHANNEL_FORBIDDEN_COMMANDS:
+            raise CoreValidationError(
+                f"{request.command} always reads all channels and does not accept channel"
+            )
+        strict_channel_parameter(
+            request.parameters,
+            "channel",
+            allow_all=request.command in ALL_CHANNEL_COMMANDS,
+        )
     if request.command == "restore-from-snapshot":
         strict_boolean_parameter(request.parameters, "restore_output_state", default=False)
 
@@ -76,6 +105,31 @@ def strict_boolean_parameter(
     value = parameters[name]
     if type(value) is not bool:
         raise CoreValidationError(f"{name} must be a boolean")
+    return value
+
+
+def strict_channel_parameter(
+    parameters: dict[str, Any],
+    name: str = "channel",
+    *,
+    allow_all: bool,
+    required: bool = False,
+    default: int | str | None = None,
+) -> int | str | None:
+    """Return one exact channel selection without coercing external data."""
+
+    if name not in parameters:
+        if required:
+            raise CoreValidationError(f"{name} is required")
+        return default
+    value = parameters[name]
+    if value == "all" and type(value) is str:
+        if allow_all:
+            return value
+        raise CoreValidationError(f"{name} must be a positive integer")
+    if type(value) is not int or value < 1:
+        suffix = " or 'all'" if allow_all else ""
+        raise CoreValidationError(f"{name} must be a positive integer{suffix}")
     return value
 
 

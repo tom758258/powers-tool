@@ -128,6 +128,51 @@ def test_worker_rejects_malformed_snapshot_boolean_before_artifacts(tmp_path: Pa
     assert not (tmp_path / "jobs").exists()
 
 
+@pytest.mark.parametrize("channel", [True, False, 1.0, 1.9, 0.0, "1", " 1 ", None, [], {}])
+def test_worker_rejects_coercible_channel_before_artifacts(
+    tmp_path: Path,
+    channel: object,
+) -> None:
+    state = _worker_validation_state(tmp_path)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "set",
+            "arguments": {"channel": channel, "voltage": 1.0},
+        },
+        state,
+    )
+
+    assert status == 400
+    assert payload["schema_version"] == 2
+    assert payload["error"]["code"] == "argument_error"
+    assert "channel must be a positive integer" in payload["error"]["message"]
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
+def test_worker_rejects_incomplete_protection_inventory_before_artifacts(tmp_path: Path) -> None:
+    state = _worker_validation_state(tmp_path)
+    snapshot = _worker_snapshot_document()
+    snapshot["protection_settings"] = snapshot["protection_settings"][1:]
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "restore-from-snapshot",
+            "arguments": {"document": snapshot, "channel": "all"},
+        },
+        state,
+    )
+
+    assert status == 400
+    assert payload["schema_version"] == 2
+    assert "protection_settings does not contain channel 1" in payload["error"]["message"]
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
 @pytest.mark.parametrize("field", ["support_policy_mode", "validation_allow_pending_live_support"])
 def test_worker_rejects_validation_mode_request_arguments(field: str) -> None:
     state = WorkerState(
@@ -482,7 +527,7 @@ def test_worker_command_execution(running_worker):
     payload = {
         "schema_version": 2,
         "command": "read-status",
-        "arguments": {"channel": "1"}
+        "arguments": {"channel": 1}
     }
     req = urllib.request.Request(
         url,

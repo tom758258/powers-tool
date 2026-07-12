@@ -20,7 +20,7 @@ from powers_tool_core.models import parse_idn
 from powers_tool_core.model_resolution import resolve_no_hardware_runtime
 from powers_tool_core.live_support import enforce_live_support_for_idn
 from powers_tool_core.operations import IDN_QUERY, ScpiLoggingSession
-from powers_tool_core.parameter_constraints import strict_boolean_parameter
+from powers_tool_core.parameter_constraints import strict_boolean_parameter, strict_channel_parameter
 from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.testing.simulator import SimulatedResourceManager
 from powers_tool_core.snapshot import SNAPSHOT_KIND, SNAPSHOT_SCHEMA_VERSION
@@ -110,8 +110,16 @@ def restore_plan(
     protection = _records_by_channel(snapshot.get("protection_settings"))
     steps: list[dict[str, Any]] = []
     for channel in channels:
+        if channel not in outputs:
+            raise CoreValidationError(f"snapshot outputs does not contain channel {channel}")
+        if channel not in readback:
+            raise CoreValidationError(f"snapshot readback does not contain channel {channel}")
+        if channel not in protection:
+            raise CoreValidationError(
+                f"snapshot protection_settings does not contain channel {channel}"
+            )
         steps.append(_restore_step("output_off", f"OUTP OFF,(@{channel})", channel=channel))
-        protection_record = protection.get(channel, {}).get("protection", {})
+        protection_record = protection[channel]["protection"]
         ovp_voltage = protection_record.get("ovp_voltage")
         if ovp_voltage is not None:
             steps.append(_restore_step("set_over_voltage_protection", f"VOLT:PROT {_format_value(ovp_voltage)},(@{channel})", channel=channel, voltage=ovp_voltage))
@@ -264,21 +272,20 @@ def validate_snapshot_document(document: dict[str, Any]) -> dict[str, Any]:
         raise CoreValidationError("snapshot outputs must not be empty")
     if not readback:
         raise CoreValidationError("snapshot readback must not be empty")
-    missing_outputs = sorted(set(readback) - set(outputs))
-    if missing_outputs:
-        raise CoreValidationError(
-            f"snapshot outputs does not contain channel {missing_outputs[0]}"
-        )
-    extra_outputs = sorted(set(outputs) - set(readback))
-    if extra_outputs:
-        raise CoreValidationError(
-            f"snapshot readback does not contain output channel {extra_outputs[0]}"
-        )
-    extra_protection = sorted(set(protection) - set(readback))
-    if extra_protection:
-        raise CoreValidationError(
-            f"snapshot readback does not contain protection channel {extra_protection[0]}"
-        )
+    if not protection:
+        raise CoreValidationError("snapshot protection_settings must not be empty")
+    inventories = {
+        "outputs": set(outputs),
+        "readback": set(readback),
+        "protection_settings": set(protection),
+    }
+    all_channels = set().union(*inventories.values())
+    for section, channels in inventories.items():
+        missing = sorted(all_channels - channels)
+        if missing:
+            raise CoreValidationError(
+                f"snapshot {section} does not contain channel {missing[0]}"
+            )
     return document
 
 
@@ -286,20 +293,23 @@ def _restore_channels(request: OperationRequest, snapshot: dict[str, Any]) -> tu
     available = sorted(_records_by_channel(snapshot.get("readback")))
     if not available:
         raise CoreValidationError("snapshot readback must not be empty")
-    selected = request.parameters.get("channel", "all")
+    selected = strict_channel_parameter(
+        request.parameters,
+        "channel",
+        allow_all=True,
+        default="all",
+    )
     if selected == "all":
         channels = tuple(channel for channel in available if channel in E36312APowerSupply.capabilities.channels)
-        _require_output_channels(snapshot, channels)
+        _require_restore_channels(snapshot, channels)
         return channels
-    try:
-        channel = int(selected)
-    except (TypeError, ValueError) as exc:
-        raise CoreValidationError(f"invalid channel parameter {selected!r}") from exc
+    assert type(selected) is int
+    channel = selected
     if channel not in E36312APowerSupply.capabilities.channels:
         raise CoreValidationError(f"channel {channel} is not supported; supported: {E36312APowerSupply.capabilities.channels}")
     if channel not in available:
         raise CoreValidationError(f"snapshot does not contain channel {channel}")
-    _require_output_channels(snapshot, (channel,))
+    _require_restore_channels(snapshot, (channel,))
     return (channel,)
 
 
@@ -399,9 +409,8 @@ def _records_by_channel(records: Any) -> dict[int, dict[str, Any]]:
     for record in records:
         if not isinstance(record, dict):
             continue
-        try:
-            channel = int(record.get("channel"))
-        except (TypeError, ValueError):
+        channel = record.get("channel")
+        if type(channel) is not int:
             continue
         by_channel[channel] = record
     return by_channel
@@ -494,11 +503,18 @@ def _require_finite_number(value: Any, field: str) -> None:
         raise CoreValidationError(f"{field} must be a finite number")
 
 
-def _require_output_channels(snapshot: dict[str, Any], channels: tuple[int, ...]) -> None:
-    outputs = _records_by_channel(snapshot.get("outputs"))
+def _require_restore_channels(snapshot: dict[str, Any], channels: tuple[int, ...]) -> None:
+    sections = {
+        "outputs": _records_by_channel(snapshot.get("outputs")),
+        "readback": _records_by_channel(snapshot.get("readback")),
+        "protection_settings": _records_by_channel(snapshot.get("protection_settings")),
+    }
     for channel in channels:
-        if channel not in outputs:
-            raise CoreValidationError(f"snapshot outputs does not contain channel {channel}")
+        for section, records in sections.items():
+            if channel not in records:
+                raise CoreValidationError(
+                    f"snapshot {section} does not contain channel {channel}"
+                )
 
 
 def _format_value(value: Any) -> str:

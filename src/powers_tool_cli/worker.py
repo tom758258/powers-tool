@@ -280,18 +280,6 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
             job_id,
             error={"code": "argument_error", "message": str(exc)},
         )
-    if "channel" in arguments:
-        channel = arguments["channel"]
-        if channel != "all":
-            try:
-                parsed = int(channel)
-            except (TypeError, ValueError):
-                return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "channel must be a positive integer or 'all'"})
-            if parsed <= 0:
-                return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "channel must be a positive integer or 'all'"})
-            arguments = {**arguments, "channel": parsed}
-    if command == "measure-all" and "channel" in arguments:
-        return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "measure-all always reads all channels and does not accept channel"})
     try:
         request_type = (
             SequenceRequest

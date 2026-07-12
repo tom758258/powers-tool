@@ -472,7 +472,17 @@ def _restore_document(
         },
         "outputs": [{"channel": 1, "enabled": False}],
         "readback": [{"channel": 1, "setpoints": {"voltage": voltage, "current": 0.1}}],
-        "protection_settings": [],
+        "protection_settings": [
+            {
+                "channel": 1,
+                "protection": {
+                    "ovp_voltage": None,
+                    "ocp_enabled": None,
+                    "ocp_delay": None,
+                    "ocp_delay_trigger": None,
+                },
+            }
+        ],
     }
 
 

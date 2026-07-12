@@ -497,21 +497,7 @@ def _strict_serial_string(values: dict[str, Any], field: str) -> str | None:
 
 
 def _normalize_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(parameters)
-    if "channel" in normalized:
-        normalized["channel"] = _normalize_channel(normalized["channel"])
-    return normalized
-
-
-def _normalize_channel(channel: Any) -> Any:
-    if not isinstance(channel, str):
-        return channel
-    if channel == "all":
-        return channel
-    stripped = channel.strip()
-    if stripped.isdecimal() and int(stripped) > 0:
-        return int(stripped)
-    return channel
+    return dict(parameters)
 
 
 def _requires_real_confirmation(command: str, runtime: RuntimeOptions) -> bool:

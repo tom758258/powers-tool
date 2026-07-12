@@ -1986,7 +1986,7 @@ def test_post_job_rejects_set_without_setpoints(client: TestClient):
     assert "set requires voltage, current, or both" in response.json()["detail"]
 
 
-def test_post_job_simulate_set_normalizes_string_channel(client: TestClient):
+def test_post_job_simulate_set_rejects_string_channel(client: TestClient):
     payload = {
         "command": "set",
         "runtime": {
@@ -1998,19 +1998,8 @@ def test_post_job_simulate_set_normalizes_string_channel(client: TestClient):
         "parameters": {"channel": "3", "voltage": 5.0, "current": 1.0},
     }
     response = client.post("/api/jobs", json=payload)
-    assert response.status_code == 200
-
-    job_id = response.json()["job_id"]
-    for _ in range(20):
-        res = client.get(f"/api/jobs/{job_id}")
-        if res.json()["status"] in ("finished", "failed"):
-            break
-        time.sleep(0.1)
-
-    job_data = client.get(f"/api/jobs/{job_id}").json()
-    assert job_data["status"] == "finished"
-    assert job_data["result"]["target"]["channel"] == 3
-    assert job_data["result"]["steps"][0]["parameters"]["channel"] == 3
+    assert response.status_code == 400
+    assert "channel must be a positive integer" in response.json()["detail"]
 
 
 def test_post_job_simulate_apply_preserves_all_channel(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -2051,7 +2040,7 @@ def test_post_job_simulate_apply_preserves_all_channel(client: TestClient, monke
     assert job_data["result"]["parameters"]["channel"] == "all"
 
 
-def test_adapter_normalizes_channel_for_core_requests(monkeypatch: pytest.MonkeyPatch):
+def test_adapter_preserves_validated_channel_for_core_requests(monkeypatch: pytest.MonkeyPatch):
     from powers_tool_core.core import RuntimeOptions
     from powers_tool_webui import commands
     from powers_tool_webui.jobs import Job
@@ -2065,16 +2054,16 @@ def test_adapter_normalizes_channel_for_core_requests(monkeypatch: pytest.Monkey
     monkeypatch.setattr(commands, "run_core_command", fake_run_core_command)
 
     runtime = {"resource": "USB0::SIM::E36312A::INSTR", "simulate": True}
-    commands.execute_job_command(Job("set-job", "set", runtime, {"channel": "3", "voltage": 1.0, "current": 0.1}))
-    commands.execute_job_command(Job("on-job", "output-on", runtime, {"channel": "3"}))
+    commands.execute_job_command(Job("set-job", "set", runtime, {"channel": 3, "voltage": 1.0, "current": 0.1}))
+    commands.execute_job_command(Job("on-job", "output-on", runtime, {"channel": 3}))
     commands.execute_job_command(Job("safe-job", "safe-off", runtime, {"channel": "all"}))
 
     assert captured[0].parameters["channel"] == 3
     assert captured[1].parameters["channel"] == 3
     assert captured[2].parameters["channel"] == "all"
 
-    request = commands._request_for_job("read-status", RuntimeOptions(simulate=True), {"channel": "bad"})
-    assert request.parameters["channel"] == "bad"
+    request = commands._request_for_job("read-status", RuntimeOptions(simulate=True), {"channel": 2})
+    assert request.parameters["channel"] == 2
 
 
 def test_webui_raw_live_expected_model_match_uses_idn_driver(
@@ -4265,7 +4254,18 @@ def test_api_restore_from_snapshot_dry_run(client: TestClient):
             "over_voltage_tripped": False,
             "over_current_tripped": False
         },
-        "protection_settings": []
+        "protection_settings": [
+            {
+                "channel": channel,
+                "protection": {
+                    "ovp_voltage": None,
+                    "ocp_enabled": None,
+                    "ocp_delay": None,
+                    "ocp_delay_trigger": None,
+                },
+            }
+            for channel in (1, 2, 3)
+        ]
     }
 
     payload = {
@@ -4476,6 +4476,70 @@ def test_api_restore_rejects_malformed_snapshot_boolean_before_submission(
 
     assert response.status_code == 400
     assert "outputs[].enabled must be a boolean" in response.json()["detail"]
+    assert set(job_manager.jobs) == jobs_before
+
+
+@pytest.mark.parametrize("channel", [True, False, 1.0, 1.9, 0.0, "1", " 1 ", None, [], {}])
+def test_api_rejects_coercible_channel_before_lock_or_submission(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    channel: object,
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = set(job_manager.jobs)
+
+    async def forbidden_submit(**kwargs: object) -> str:
+        raise AssertionError("submit_job must not be called")
+
+    def forbidden_lock_check() -> bool:
+        raise AssertionError("hardware lock must not be checked")
+
+    monkeypatch.setattr(job_manager, "submit_job", forbidden_submit)
+    monkeypatch.setattr(job_manager, "is_hardware_locked", forbidden_lock_check)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "set",
+            "runtime": {"simulate": True},
+            "parameters": {"channel": channel, "voltage": 1.0},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "channel must be a positive integer" in response.json()["detail"]
+    assert set(job_manager.jobs) == jobs_before
+
+
+def test_api_restore_rejects_incomplete_protection_inventory_before_submission(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    snapshot = policy_snapshot_document("E36312A")
+    snapshot["protection_settings"] = snapshot["protection_settings"][1:]
+    jobs_before = set(job_manager.jobs)
+
+    async def forbidden_submit(**kwargs: object) -> str:
+        raise AssertionError("submit_job must not be called")
+
+    def forbidden_lock_check() -> bool:
+        raise AssertionError("hardware lock must not be checked")
+
+    monkeypatch.setattr(job_manager, "submit_job", forbidden_submit)
+    monkeypatch.setattr(job_manager, "is_hardware_locked", forbidden_lock_check)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "restore-from-snapshot",
+            "runtime": {"dry_run": True},
+            "parameters": {"document": snapshot, "channel": "all"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "snapshot protection_settings must not be empty" in response.json()["detail"]
     assert set(job_manager.jobs) == jobs_before
 
 

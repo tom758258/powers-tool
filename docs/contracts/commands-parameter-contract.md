@@ -5,6 +5,12 @@ Power Worker, and WebUI Commands. Adapter defaults are not limits.
 
 ## Fixed Limits
 
+- Public Core and raw JSON `channel` values are type-strict: an accepted
+  channel is an exact positive integer. Exact `"all"` is accepted only by
+  commands that support all-channel selection. Booleans, floats, numeric
+  strings, whitespace-padded strings, null, arrays, objects, and alternate
+  spellings such as `"ALL"` are rejected rather than coerced. CLI text is
+  parsed by argparse before it reaches this contract.
 - Voltage and current values must be finite and non-negative.
 - `set` requires `channel` plus at least one of `voltage` or `current`.
   Supplying only one setpoint leaves the omitted setpoint unchanged on the

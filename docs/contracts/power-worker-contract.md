@@ -170,11 +170,20 @@ identity fields, including legacy `model_profile` and `model`.
 Command-specific fields match the CLI/core names, including `channel`,
 `voltage`, `current`, `max_errors`, `max_reads`, `file`, `document`,
 `snapshot`, `wait_timeout_ms`, `poll_ms`, protection options, snapshot
-options, and sequence options. `channel` accepts a positive integer or `"all"`;
+options, and sequence options. Raw JSON `channel` accepts an exact positive
+integer or exact `"all"`; booleans, floats, numeric strings, null, arrays, and
+objects are rejected before queue or artifact mutation. `"all"` is accepted
+only by commands with all-channel selection;
 for output commands, `"all"` is supported by `apply`, `safe-off`,
 `output-on`, `output-off`, `output-state`, and `cycle-output`. `set`, `ramp`,
 and `smoke-output` remain single-channel commands. `ramp-list` accepts `file`
 or `document`; each segment selects one positive integer channel.
+
+Restore snapshot documents must contain non-empty `outputs`, `readback`, and
+`protection_settings` sections with exactly the same channel inventory. A
+channel protection record is required even when each optional protection
+field is null; incomplete snapshots are rejected instead of partially
+restored.
 
 `set` arguments require `channel` plus `voltage`, `current`, or both. An
 omitted setpoint is left unchanged on the instrument and must not be replaced

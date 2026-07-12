@@ -597,15 +597,11 @@ def _model_from_idn(idn: str) -> str | None:
 
 
 def sequence_channel(value: Any, *, allow_all: bool = False) -> int | str:
-    if allow_all and isinstance(value, str) and value.lower() == "all":
+    if allow_all and type(value) is str and value == "all":
         return "all"
-    try:
-        channel = int(value)
-    except (TypeError, ValueError) as exc:
-        raise CoreValidationError("sequence channel must be a positive integer") from exc
-    if channel < 1:
+    if type(value) is not int or value < 1:
         raise CoreValidationError("sequence channel must be a positive integer")
-    return channel
+    return value
 
 
 def sequence_pulse_pins(value: Any) -> tuple[int, ...]:

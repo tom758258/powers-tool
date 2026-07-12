@@ -1,8 +1,9 @@
 import pytest
 
-from powers_tool_core.command_runner import run_core_command
+from powers_tool_core.command_runner import run_core_command, validate_request_admission
 from powers_tool_core.core import CoreValidationError, OperationRequest, RuntimeOptions, TriggerRequest
 from powers_tool_core.parameter_constraints import parameter_constraints_metadata
+from powers_tool_core.sequence import sequence_channel
 
 
 @pytest.mark.parametrize(
@@ -38,3 +39,66 @@ def test_constraint_metadata_describes_delay_semantics() -> None:
     assert delay["min"] == 0
     assert delay["step"] == 1
     assert "Additional delay after each voltage step" in delay["description"]
+
+
+@pytest.mark.parametrize(
+    "channel",
+    [True, False, 1.0, 1.9, 0.0, "1", " 1 ", None, [], {}],
+)
+def test_public_request_channels_reject_coercible_values(channel: object) -> None:
+    with pytest.raises(CoreValidationError, match="channel must be a positive integer"):
+        validate_request_admission(
+            OperationRequest(
+                "set",
+                RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+                {"channel": channel, "voltage": 1.0},
+            )
+        )
+
+
+@pytest.mark.parametrize("channel", [1, 2, 3, "all"])
+def test_all_channel_commands_accept_exact_contract_values(channel: int | str) -> None:
+    validate_request_admission(
+        OperationRequest(
+            "apply",
+            RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+            {"channel": channel, "voltage": 1.0, "current": 0.1},
+        )
+    )
+
+
+def test_single_channel_command_rejects_all_and_measure_all_rejects_channel() -> None:
+    with pytest.raises(CoreValidationError, match="channel must be a positive integer"):
+        validate_request_admission(
+            OperationRequest(
+                "ramp",
+                RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+                {
+                    "channel": "all",
+                    "start_voltage": 0,
+                    "stop_voltage": 1,
+                    "step_voltage": 1,
+                    "current": 0.1,
+                    "delay_ms": 0,
+                },
+            )
+        )
+
+
+@pytest.mark.parametrize("channel", [True, False, 1.0, 1.9, "1", "ALL", None, [], {}])
+def test_sequence_document_channels_reject_coercible_values(channel: object) -> None:
+    with pytest.raises(CoreValidationError, match="sequence channel must be a positive integer"):
+        sequence_channel(channel, allow_all=True)
+
+
+def test_sequence_document_channel_accepts_exact_integer_and_all() -> None:
+    assert sequence_channel(1) == 1
+    assert sequence_channel("all", allow_all=True) == "all"
+    with pytest.raises(CoreValidationError, match="does not accept channel"):
+        validate_request_admission(
+            OperationRequest(
+                "measure-all",
+                RuntimeOptions(simulate=True, resource="USB0::SIM::E36312A::INSTR"),
+                {"channel": 1},
+            )
+        )

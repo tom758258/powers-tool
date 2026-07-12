@@ -453,7 +453,13 @@ model identity is recovered from a bare reported model string.
 Restore validates all restore-relevant persisted fields without coercion.
 Channels are positive integers, output and OCP states are JSON booleans, and
 setpoints are finite numbers. A value such as `"false"` is rejected rather
-than treated as enabled or disabled.
+than treated as enabled or disabled. `outputs`, `readback`, and
+`protection_settings` must be non-empty and contain exactly the same channels;
+a protection record remains required when all of its optional protection
+values are null. Incomplete documents are rejected rather than partially
+restored. CLI `--channel 1` is parsed to an integer before Core validation,
+while raw Core/JSON numeric strings are rejected; exact `--channel all`
+remains available only for commands that support all-channel selection.
 
 `snapshot --compare PATH` compares the current E36312A snapshot with a
 schema-2 snapshot document (directly or as saved CLI envelope data). It ignores `resource` and

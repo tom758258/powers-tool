@@ -233,12 +233,18 @@ the model, command, or mode is unsupported.
 
 Raw runtime JSON is type-strict: boolean fields require JSON booleans, and a
 string such as `"false"` is rejected rather than treated as confirmation.
+Raw job channels require a positive JSON integer; exact `"all"` is accepted
+only by commands that support all-channel selection. Boolean, floating-point,
+and numeric-string channel values are rejected.
 Model-specific dry-run/simulator requests are rejected before job creation if
 no explicit or deterministic-SIM planning identity is available. Snapshot
 restore accepts only `schema_version: 2`, `kind: "powers-tool-snapshot"`
 documents with separate reported and canonical resolved identity. Restore
 request flags and persisted output/protection states also require exact JSON
-booleans. Unknown and intentionally unsupported `/api/jobs` commands are
+booleans. The snapshot `outputs`, `readback`, and `protection_settings`
+sections must be non-empty and contain exactly the same channels; every
+channel needs a protection record even when its optional values are null.
+Unknown and intentionally unsupported `/api/jobs` commands are
 rejected before a job or background task is created.
 
 ## Stop And Cancel

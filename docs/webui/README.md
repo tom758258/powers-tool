@@ -148,7 +148,9 @@ provide general dry-run or simulate controls.
 Raw runtime values are type-strict. Boolean fields accept only JSON `true` or
 `false`; strings such as `"false"` never satisfy confirmation or enable a
 mode. Integer, string, identity, and serial-option fields are likewise
-validated before job submission. Core-owned command admission rejects missing
+validated before job submission. Raw `parameters.channel` accepts only an
+exact positive JSON integer or exact `"all"` for commands that support it;
+booleans, floats, and numeric strings are not coerced. Core-owned command admission rejects missing
 or conflicting planning identity and malformed restore/snapshot booleans
 before creating a WebUI job. Unknown commands and commands intentionally
 unsupported by `/api/jobs` are also rejected synchronously before job or task

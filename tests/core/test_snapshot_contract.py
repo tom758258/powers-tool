@@ -7,7 +7,7 @@ import pytest
 from powers_tool_core.command_runner import run_core_command, validate_request_admission
 from powers_tool_core.core import CoreValidationError, OperationRequest, RuntimeOptions
 from powers_tool_core.models import parse_idn
-from powers_tool_core.restore import _validate_restore_identity, validate_snapshot_document
+from powers_tool_core.restore import _validate_restore_identity, restore_plan, validate_snapshot_document
 
 
 def _snapshot() -> dict[str, object]:
@@ -259,3 +259,83 @@ def test_restore_rejects_empty_or_incomplete_readback_and_missing_output_channel
                 {"document": missing_output, "channel": 1},
             )
         )
+
+
+@pytest.mark.parametrize(
+    ("section", "message"),
+    [
+        ("outputs", "snapshot outputs must not be empty"),
+        ("readback", "snapshot readback must not be empty"),
+        ("protection_settings", "snapshot protection_settings must not be empty"),
+    ],
+)
+def test_restore_requires_non_empty_restore_inventories(section: str, message: str) -> None:
+    snapshot = deepcopy(_snapshot())
+    snapshot[section] = []
+
+    with pytest.raises(CoreValidationError, match=message):
+        validate_snapshot_document(snapshot)
+
+
+@pytest.mark.parametrize(
+    ("section", "message"),
+    [
+        ("outputs", "snapshot outputs does not contain channel 1"),
+        ("readback", "snapshot readback does not contain channel 1"),
+        ("protection_settings", "snapshot protection_settings does not contain channel 1"),
+    ],
+)
+def test_restore_requires_exact_matching_channel_inventories(section: str, message: str) -> None:
+    snapshot = deepcopy(_snapshot())
+    snapshot[section] = snapshot[section][1:]
+
+    with pytest.raises(CoreValidationError, match=message):
+        validate_snapshot_document(snapshot)
+
+
+def test_restore_rejects_extra_protection_channel() -> None:
+    snapshot = deepcopy(_snapshot())
+    snapshot["outputs"] = snapshot["outputs"][:2]
+    snapshot["readback"] = snapshot["readback"][:2]
+
+    with pytest.raises(CoreValidationError, match="snapshot outputs does not contain channel 3"):
+        validate_snapshot_document(snapshot)
+
+
+def test_restore_plan_defensively_rejects_selected_channel_without_protection() -> None:
+    snapshot = deepcopy(_snapshot())
+    snapshot["protection_settings"] = snapshot["protection_settings"][1:]
+
+    with pytest.raises(CoreValidationError, match="protection_settings does not contain channel 1"):
+        restore_plan(
+            snapshot,
+            resource="USB0::SIM::E36312A::INSTR",
+            channels=(1,),
+            restore_output_state=True,
+            allow_output_on=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "channel",
+    [True, False, 1.0, 1.9, 0.0, "1", " 1 ", None, [], {}],
+)
+def test_restore_request_rejects_coercible_channels_before_open(channel: object) -> None:
+    opened = False
+
+    def forbidden_opener(*args: object, **kwargs: object) -> object:
+        nonlocal opened
+        opened = True
+        raise AssertionError("opener must not be called")
+
+    with pytest.raises(CoreValidationError, match="channel must be a positive integer or 'all'"):
+        run_core_command(
+            OperationRequest(
+                "restore-from-snapshot",
+                RuntimeOptions(resource="USB0::FAKE::INSTR"),
+                {"document": _snapshot(), "channel": channel},
+            ),
+            opener=forbidden_opener,
+        )
+
+    assert opened is False
