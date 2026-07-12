@@ -1356,7 +1356,7 @@ async function saveSnapshot() {
     const documentText = `${JSON.stringify(state.latestSnapshotDocument, null, 2)}\n`;
     const suggestedName = getSnapshotSuggestedName();
     await saveJsonFile(documentText, {
-      description: "Keysight Power Snapshot JSON",
+      description: "Powers Tool Snapshot JSON",
       extensions: SNAPSHOT_JSON_EXTENSIONS,
       suggestedName
     });
@@ -1520,7 +1520,7 @@ function renderRestoreForm(form) {
 async function loadRestoreSnapshot() {
   try {
     const { text, filename } = await openJsonFile({
-      description: "Keysight Power Snapshot JSON",
+      description: "Powers Tool Snapshot JSON",
       extensions: SNAPSHOT_JSON_EXTENSIONS
     });
     const rawDoc = JSON.parse(text);
@@ -1939,7 +1939,7 @@ function moveSequenceStep(index, offset) {
 async function loadSequenceFile() {
   try {
     const { text, filename } = await openJsonFile({
-      description: "Keysight Power Sequence JSON",
+      description: "Powers Tool Sequence JSON",
       extensions: SEQUENCE_JSON_EXTENSIONS
     });
     const rawDoc = JSON.parse(text);
@@ -1973,7 +1973,7 @@ async function saveSequenceFile() {
     const suggestedName = `powers-tool-sequence-${timestamp}.sequence.json`;
 
     await saveJsonFile(documentText, {
-      description: "Keysight Power Sequence JSON",
+      description: "Powers Tool Sequence JSON",
       extensions: SEQUENCE_JSON_EXTENSIONS,
       suggestedName
     });

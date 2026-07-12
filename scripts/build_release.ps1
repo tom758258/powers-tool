@@ -63,7 +63,7 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_webui_exe.ps1") -DistPath $versionDir -Name "powers-tool-webui-launcher-$Version"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_webui_exe.ps1") -DistPath $versionDir -Name "powers-tool-webui-$Version"
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

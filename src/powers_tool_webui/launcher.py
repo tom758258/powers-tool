@@ -1,4 +1,4 @@
-"""Tkinter launcher for the local Keysight Power WebUI."""
+"""Tkinter launcher for the local Powers Tool WebUI."""
 
 from __future__ import annotations
 

@@ -161,7 +161,7 @@ model, and it does not mean USB validation covers LAN validation. See
 [Contributing](../CONTRIBUTING.md) for the contributor workflow.
 
 Wrapper targets are exact canonical physical `model_id` values; bare model
-names are rejected. New shareable reports use integer `schema_version: 2`,
+names are rejected. New shareable reports use string `schema_version: "2.0"`,
 `kind: "powers-tool-live-validation"`, `vendor_id`, and `model_id`. Plan-only
 reports record `planning_model_id`; live reports record `expected_model_id`.
 The wrapper invokes `powers-tool` and never treats a passing report as support

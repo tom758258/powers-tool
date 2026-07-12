@@ -47,6 +47,11 @@ dry-run coverage for the changed behavior. Run relevant Core, CLI, WebUI, and
 documentation/ownership tests, followed by the full no-hardware suite when
 practical.
 
+The packaging identity tests scan every tracked UTF-8 text file for the frozen
+legacy framework-name inventory. Retained historical, negative-test, and
+deferred localized references require an exact file/token/count allowlist with
+a documented reason; a new occurrence or allowlist-count drift fails the gate.
+
 Real-instrument evidence is required before proposing a new model, command,
 workflow, SCPI behavior, VISA/backend behavior, transport scope, output setup,
 voltage/current limit, OVP/OCP behavior, trigger behavior, snapshot/restore,

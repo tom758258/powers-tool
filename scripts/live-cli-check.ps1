@@ -1258,7 +1258,7 @@ function Write-ValidationArtifacts {
         $Result = "failed"
     }
     $reportFields = [ordered]@{
-        schema_version = 2
+        schema_version = "2.0"
         kind = "powers-tool-live-validation"
         vendor_id = $TargetMetadata[$script:NormalizedTarget].vendor_id
         model_id = $script:NormalizedTarget

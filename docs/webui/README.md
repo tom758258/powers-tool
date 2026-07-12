@@ -20,7 +20,9 @@ toolchain is required.
 
 The WebUI exposes the `powers-tool-webui` console command for the local
 FastAPI server and the `powers-tool-webui-launcher` wrapper for the Windows
-launcher.
+launcher. The standalone PyInstaller launcher artifact is named
+`powers-tool-webui.exe`; this does not rename either installed console entry
+point.
 
 ## Purpose
 
@@ -440,10 +442,10 @@ uv pip install pyinstaller --python .\.venv\Scripts\python.exe
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_webui_exe.ps1
 ```
 
-After building, confirm the launcher reports the package version:
+After building, confirm the standalone launcher reports the package version:
 
 ```powershell
-.\dist\powers-tool-webui-launcher.exe --version
+.\dist\powers-tool-webui.exe --version
 ```
 
 Numeric field limits come from the shared

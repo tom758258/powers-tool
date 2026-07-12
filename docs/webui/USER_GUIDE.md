@@ -12,19 +12,19 @@ For normal use, double-click the WebUI launcher provided with the release or
 local build:
 
 ```text
-powers-tool-webui-launcher.exe
+powers-tool-webui.exe
 ```
 
 To confirm the launcher version from PowerShell:
 
 ```powershell
-.\powers-tool-webui-launcher.exe --version
+.\powers-tool-webui.exe --version
 ```
 
 Release folders may include a versioned launcher name, such as:
 
 ```text
-powers-tool-webui-launcher-<version>.exe
+powers-tool-webui-<version>.exe
 ```
 
 In the launcher window:

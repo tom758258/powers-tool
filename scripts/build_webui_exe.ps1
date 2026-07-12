@@ -1,6 +1,6 @@
 param(
     [string]$DistPath = "dist",
-    [string]$Name = "powers-tool-webui-launcher"
+    [string]$Name = "powers-tool-webui"
 )
 
 Set-StrictMode -Version Latest

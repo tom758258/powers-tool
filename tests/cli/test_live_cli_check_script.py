@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from powers_tool_core.support_evidence import SUPPORT_EVIDENCE_MANIFEST
+
 
 SCRIPT = Path("scripts/live-cli-check.ps1")
 
@@ -241,6 +243,7 @@ def test_live_cli_check_main_flow_marks_preflight_failure_cleanup_status(tmp_pat
 
     assert result.returncode != 0, result.stdout + result.stderr
     report = json.loads(_new_live_check_report(before).read_text(encoding="utf-8"))
+    assert report["schema_version"] == "2.0"
     assert report["validation_mode"] == "preflight_failed"
     assert report["result"] == "preflight_failed"
     assert report["live_executed"] is False
@@ -266,6 +269,7 @@ def test_live_cli_check_main_flow_marks_confirmation_required_cleanup_status(tmp
 
     assert result.returncode != 0, result.stdout + result.stderr
     report = json.loads(_new_live_check_report(before).read_text(encoding="utf-8"))
+    assert report["schema_version"] == "2.0"
     assert report["validation_mode"] == "confirmation_required"
     assert report["result"] == "confirmation_required"
     assert report["live_executed"] is False
@@ -751,7 +755,10 @@ def test_live_cli_check_readonly_plan_only_succeeds_without_hardware(target, con
     assert "Press Enter" not in result.stdout
     report = json.loads(_report_path(result.stdout, result.stderr).read_text(encoding="utf-8"))
     assert report["validation_mode"] == "planned"
-    assert report["schema_version"] == 2
+    assert report["schema_version"] == "2.0"
+    assert type(report["schema_version"]) is str
+    assert SUPPORT_EVIDENCE_MANIFEST.schema_version == 2
+    assert type(SUPPORT_EVIDENCE_MANIFEST.schema_version) is int
     assert report["kind"] == "powers-tool-live-validation"
     assert report["support_policy_mode"] == "validation"
     assert report["pending_live_support_allowed"] is True
@@ -1223,6 +1230,7 @@ def test_live_cli_check_shareable_artifacts_recursively_redact_private_live_fixt
     report_path = Path(result.stdout.strip())
     shareable_dir = report_path.parent
     report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["schema_version"] == "2.0"
     assert shareable_dir.name == "shareable"
     assert report["shareable_artifact_dir"].endswith("\\shareable")
     assert report["instrument_identity"] == {

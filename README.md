@@ -246,8 +246,12 @@ By default, these commands produce:
 
 ```text
 dist\powers-tool.exe
-dist\powers-tool-webui-launcher.exe
+dist\powers-tool-webui.exe
 ```
+
+The standalone `powers-tool-webui.exe` artifact is distinct from the installed
+`powers-tool-webui-launcher` console entry point; both invoke the existing
+`powers_tool_webui.launcher:main` launcher implementation where applicable.
 
 Check the built CLI executable without touching hardware:
 
@@ -266,7 +270,7 @@ This produces release artifacts named with the selected project version:
 
 ```text
 release\<version>\powers-tool-<version>.exe
-release\<version>\powers-tool-webui-launcher-<version>.exe
+release\<version>\powers-tool-webui-<version>.exe
 release\<version>\powers_tool-<version>-py3-none-any.whl
 release\<version>\powers_tool-<version>.tar.gz
 release\<version>\checksums.txt
