@@ -79,7 +79,7 @@ def _new_live_check_report(before: set[Path]) -> Path:
 
 
 def _fixture_cli_path(tmp_path: Path, *, mode: str, hardware_touched: bool) -> Path:
-    fixture_cli = tmp_path / "keysight_power_cli"
+    fixture_cli = tmp_path / "powers_tool_cli"
     fixture_cli.mkdir()
     (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
     (fixture_cli / "cli.py").write_text(
@@ -107,7 +107,7 @@ with open(save_path, "w", encoding="utf-8") as handle:
 
 
 def _dynamic_fixture_cli_path(tmp_path: Path) -> Path:
-    fixture_cli = tmp_path / "keysight_power_cli"
+    fixture_cli = tmp_path / "powers_tool_cli"
     fixture_cli.mkdir()
     (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
     (fixture_cli / "cli.py").write_text(
@@ -138,7 +138,7 @@ with open(save_path, "w", encoding="utf-8") as handle:
 
 
 def _artifact_privacy_fixture_cli_path(tmp_path: Path) -> Path:
-    fixture_cli = tmp_path / "keysight_power_cli"
+    fixture_cli = tmp_path / "powers_tool_cli"
     fixture_cli.mkdir()
     (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
     (fixture_cli / "cli.py").write_text(
@@ -199,7 +199,7 @@ sys.exit(2)
 
 
 def _main_flow_fixture_cli_path(tmp_path: Path) -> Path:
-    fixture_cli = tmp_path / "keysight_power_cli"
+    fixture_cli = tmp_path / "powers_tool_cli"
     fixture_cli.mkdir()
     (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
     (fixture_cli / "cli.py").write_text(
@@ -229,7 +229,7 @@ def test_live_cli_check_main_flow_marks_preflight_failure_cleanup_status(tmp_pat
     before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
     result = _run_live_cli_check(
         "-Target",
-        "E36312A",
+        "keysight-e36312a",
         "-Connection",
         "USB",
         "-Resource",
@@ -253,7 +253,7 @@ def test_live_cli_check_main_flow_marks_confirmation_required_cleanup_status(tmp
     before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
     result = _run_live_cli_check(
         "-Target",
-        "E36312A",
+        "keysight-e36312a",
         "-Connection",
         "USB",
         "-Resource",
@@ -278,13 +278,16 @@ def _artifact_privacy_command(
 ) -> str:
     case_names = ", ".join(f'"{name}"' for name in names)
     return rf'''
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
 $script:OutputDir = "{output_dir}"
 New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
 $script:RawResource = "TCPIP0::192.168.50.77::5025::SOCKET"
 $script:ResourceDisplay = "LAN:<redacted-resource>"
-$script:NormalizedTarget = "E36312A"
+$script:NormalizedTarget = "keysight-e36312a"
 $script:ConnectionLabel = "LAN"
 $script:TransportScope = "tcpip"
 $script:BackendArtifact = Get-BackendArtifactFields -Value "@py"
@@ -444,14 +447,19 @@ def test_live_cli_check_redacts_zero_serial_without_corrupting_numeric_evidence(
         ("Agilent,E3646A,MY00000001,A.01.00", "MY00000001", True),
         ("Agilent Technologies,E3646A,MY00000001,A.01.00", "MY00000001", True),
         ("Agilent Technologies,E3646A,0,1.0", "0", False),
+        ("Acme Instruments,PSU1000,SYNTH0001,3.2", "SYNTH0001", True),
+        ("aCmE instruments,PSU1000,0,3.2", "0", False),
     ],
 )
 def test_live_cli_check_free_form_idn_redactor_handles_manufacturer_variants(
     idn, serial, distinctive
 ):
     command = rf'''
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
 $script:SensitiveValues = New-Object System.Collections.Generic.List[string]
 $script:RawResource = $null
 $script:ResourceDisplay = "<redacted-resource>"
@@ -476,13 +484,16 @@ def test_live_cli_check_report_normalizes_stale_cleanup_lifecycle_states(tmp_pat
     fixture_path = _dynamic_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
     command = rf'''
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
 $script:OutputDir = "{output_dir}"
 New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
 $script:RawResource = "USB0::FIXTURE::INSTR"
 $script:ResourceDisplay = "USB:<redacted-resource>"
-$script:NormalizedTarget = "E36312A"
+$script:NormalizedTarget = "keysight-e36312a"
 $script:ConnectionLabel = "USB"
 $script:TransportScope = "usb"
 $script:BackendArtifact = Get-BackendArtifactFields -Value $null
@@ -521,8 +532,11 @@ def _live_fixture_validation_command(output_dir: Path, *, expect_passed: bool) -
         else 'if ($script:Failures.Count -eq 0) { throw "expected a live validation failure" }'
     )
     return rf"""
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
 $script:OutputDir = "{output_dir}"
 New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
 $script:RawResource = "USB0::FIXTURE::INSTR"
@@ -561,7 +575,7 @@ def test_live_validation_still_rejects_real_mode_without_hardware_touch_fixture(
 def _confirmation_warnings_for_suites(suites):
     suite_items = ", ".join(f'"{suite}"' for suite in suites)
     command = f"""
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\\scripts\\live-cli-check.ps1
 Write-LiveConfirmationWarnings -SuitesToRun @({suite_items})
 """
@@ -617,8 +631,11 @@ def test_live_cli_check_uses_phase_specific_artifact_names(tmp_path):
     fixture_path = _dynamic_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
     command = rf"""
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
 $script:OutputDir = "{output_dir}"
 New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
 $script:RawResource = "USB0::FIXTURE::INSTR"
@@ -649,8 +666,11 @@ def test_live_cli_check_failed_live_command_does_not_reuse_stale_preflight_json(
     fixture_path = _dynamic_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
     command = rf"""
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
 $script:OutputDir = "{output_dir}"
 New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
 $script:RawResource = "USB0::FIXTURE::INSTR"
@@ -681,8 +701,11 @@ def test_live_cli_check_preflight_still_rejects_hardware_touched_fixture(tmp_pat
     fixture_path = _dynamic_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
     command = rf"""
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
 $script:OutputDir = "{output_dir}"
 New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
 $script:RawResource = "USB0::FIXTURE::INSTR"
@@ -704,9 +727,9 @@ if (($script:Failures -join "`n") -notmatch "no-hardware validation") {{ throw (
 @pytest.mark.parametrize(
     ("target", "connection", "resource"),
     [
-        ("E36312A", "USB", "USB0::SIM::E36312A::INSTR"),
-        ("EDU36311A", "USB", "USB0::SIM::EDU36311A::INSTR"),
-        ("E3646A", "ASRL", "ASRL1::SIM::E3646A::INSTR"),
+        ("keysight-e36312a", "USB", "USB0::SIM::E36312A::INSTR"),
+        ("keysight-edu36311a", "USB", "USB0::SIM::EDU36311A::INSTR"),
+        ("keysight-e3646a", "ASRL", "ASRL1::SIM::E3646A::INSTR"),
     ],
 )
 def test_live_cli_check_readonly_plan_only_succeeds_without_hardware(target, connection, resource):
@@ -728,14 +751,18 @@ def test_live_cli_check_readonly_plan_only_succeeds_without_hardware(target, con
     assert "Press Enter" not in result.stdout
     report = json.loads(_report_path(result.stdout, result.stderr).read_text(encoding="utf-8"))
     assert report["validation_mode"] == "planned"
-    assert report["schema_version"] == "1.1"
+    assert report["schema_version"] == 2
+    assert report["kind"] == "powers-tool-live-validation"
     assert report["support_policy_mode"] == "validation"
     assert report["pending_live_support_allowed"] is True
     assert report["candidate_evidence_only"] is True
     assert report["promotes_live_support"] is False
     assert report["plan_only"] is True
     assert report["live_executed"] is False
-    assert report["expected_model"] == target
+    assert report["model_id"] == target
+    assert report["vendor_id"] == "keysight"
+    assert report["planning_model_id"] == target
+    assert "expected_model_id" not in report
     assert report["transport_scope"] == {"USB": "usb", "ASRL": "asrl"}[connection]
     assert report["backend"] == "system_visa"
     assert report["backend_scope"] == "system_visa"
@@ -748,8 +775,11 @@ def test_live_cli_check_readonly_plan_only_succeeds_without_hardware(target, con
 
 def test_live_cli_check_centrally_adds_validation_flag_only_for_policy_commands():
     command = r"""
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
 $policy = @(Add-ValidationSupportPolicyArgument -Arguments @("measure", "--json"))
 if (@($policy | Where-Object { $_ -eq "--validation-allow-pending-live-support" }).Count -ne 1) { throw "policy command did not receive exactly one flag" }
 $duplicate = @(Add-ValidationSupportPolicyArgument -Arguments @("measure", "--validation-allow-pending-live-support", "--json"))
@@ -776,8 +806,11 @@ def test_live_cli_check_normalizes_backend_for_artifacts(value, backend, scope, 
     literal = "$null" if value is None else f'"{value}"'
     expected_argument = "$null" if argument is None else f'"{argument}"'
     command = rf"""
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
 $fields = Get-BackendArtifactFields -Value {literal}
 if ($fields.backend -ne "{backend}") {{ throw "wrong backend: $($fields.backend)" }}
 if ($fields.backend_scope -ne "{scope}") {{ throw "wrong scope: $($fields.backend_scope)" }}
@@ -792,7 +825,7 @@ def test_live_cli_check_plan_artifact_redacts_resource_and_command_paths():
     resource = "TCPIP0::PLANONLY::E36312A::INSTR"
     result = _run_live_cli_check(
         "-Target",
-        "E36312A",
+        "keysight-e36312a",
         "-Connection",
         "LAN",
         "-Resource",
@@ -818,11 +851,11 @@ def test_live_cli_check_plan_artifact_redacts_resource_and_command_paths():
 @pytest.mark.parametrize(
     ("target", "connection", "resource", "suite"),
     [
-        ("EDU36311A", "USB", "USB0::SIM::EDU36311A::INSTR", "trigger-list"),
-        ("EDU36311A", "USB", "USB0::SIM::EDU36311A::INSTR", "snapshot"),
-        ("E3646A", "ASRL", "ASRL1::SIM::E3646A::INSTR", "protection"),
-        ("E3646A", "ASRL", "ASRL1::SIM::E3646A::INSTR", "trigger-list"),
-        ("E3646A", "ASRL", "ASRL1::SIM::E3646A::INSTR", "snapshot"),
+        ("keysight-edu36311a", "USB", "USB0::SIM::EDU36311A::INSTR", "trigger-list"),
+        ("keysight-edu36311a", "USB", "USB0::SIM::EDU36311A::INSTR", "snapshot"),
+        ("keysight-e3646a", "ASRL", "ASRL1::SIM::E3646A::INSTR", "protection"),
+        ("keysight-e3646a", "ASRL", "ASRL1::SIM::E3646A::INSTR", "trigger-list"),
+        ("keysight-e3646a", "ASRL", "ASRL1::SIM::E3646A::INSTR", "snapshot"),
     ],
 )
 def test_live_cli_check_unsupported_explicit_suites_fail_before_live(target, connection, resource, suite):
@@ -845,7 +878,7 @@ def test_live_cli_check_unsupported_explicit_suites_fail_before_live(target, con
 def test_live_cli_check_e3646a_full_plan_contains_software_sequence_not_native_list():
     result = _run_live_cli_check(
         "-Target",
-        "E3646A",
+        "keysight-e3646a",
         "-Connection",
         "ASRL",
         "-Resource",
@@ -871,28 +904,57 @@ def test_live_cli_check_e3646a_full_plan_contains_software_sequence_not_native_l
 def test_live_cli_check_full_suite_composition_is_model_aware():
     script = SCRIPT.read_text(encoding="utf-8")
 
-    assert 'return @("readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence")' in script
-    assert 'return @("readonly", "output", "protection", "software-sequence")' in script
-    assert 'return @("readonly", "output", "software-sequence")' in script
+    assert '"keysight-e36312a" = [pscustomobject]@{' in script
+    assert '"keysight-edu36311a" = [pscustomobject]@{' in script
+    assert '"keysight-e3646a" = [pscustomobject]@{' in script
+    assert 'suites = @("readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence")' in script
+    assert 'suites = @("readonly", "output", "protection", "software-sequence")' in script
+    assert 'suites = @("readonly", "output", "software-sequence")' in script
+
+
+def test_live_cli_check_target_metadata_matches_core_registries():
+    command = r'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
+$TargetMetadata | ConvertTo-Json -Depth 8 -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    metadata = json.loads(result.stdout)
+    from powers_tool_core.model_resolution import (
+        MODEL_CHANNELS_BY_ID,
+        SIMULATED_RESOURCE_FOR_MODEL_ID,
+    )
+    from powers_tool_core.models import PRODUCT_ACTIVE_MODEL_IDS
+
+    assert set(metadata) == set(PRODUCT_ACTIVE_MODEL_IDS)
+    for model_id, entry in metadata.items():
+        assert entry["model_id"] == model_id
+        assert entry["channels"] == list(MODEL_CHANNELS_BY_ID[model_id])
+        assert entry["simulator_resource"] == SIMULATED_RESOURCE_FOR_MODEL_ID[model_id]
 
 
 @pytest.mark.parametrize(
     ("target", "connection", "resource", "expected_suites"),
     [
         (
-            "E36312A",
+            "keysight-e36312a",
             "USB",
             "USB0::SIM::E36312A::INSTR",
             ["readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence"],
         ),
         (
-            "EDU36311A",
+            "keysight-edu36311a",
             "USB",
             "USB0::SIM::EDU36311A::INSTR",
             ["readonly", "output", "protection", "software-sequence"],
         ),
         (
-            "E3646A",
+            "keysight-e3646a",
             "ASRL",
             "ASRL1::SIM::E3646A::INSTR",
             ["readonly", "output", "software-sequence"],
@@ -937,9 +999,9 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
 @pytest.mark.parametrize(
     ("target", "connection", "resource"),
     [
-        ("E36312A", "USB", "USB0::SIM::E36312A::INSTR"),
-        ("EDU36311A", "USB", "USB0::SIM::EDU36311A::INSTR"),
-        ("E3646A", "ASRL", "ASRL1::SIM::E3646A::INSTR"),
+        ("keysight-e36312a", "USB", "USB0::SIM::E36312A::INSTR"),
+        ("keysight-edu36311a", "USB", "USB0::SIM::EDU36311A::INSTR"),
+        ("keysight-e3646a", "ASRL", "ASRL1::SIM::E3646A::INSTR"),
     ],
 )
 def test_live_cli_check_software_sequence_plan_only_supported_for_active_targets(target: str, connection: str, resource: str):
@@ -973,7 +1035,7 @@ def test_live_cli_check_software_sequence_plan_only_supported_for_active_targets
     ("target", "connection", "resource", "expected_failures"),
     [
         (
-            "EDU36311A",
+            "keysight-edu36311a",
             "USB",
             "USB0::SIM::EDU36311A::INSTR",
             {
@@ -988,7 +1050,7 @@ def test_live_cli_check_software_sequence_plan_only_supported_for_active_targets
             },
         ),
         (
-            "E3646A",
+            "keysight-e3646a",
             "ASRL",
             "ASRL1::SIM::E3646A::INSTR",
             {
@@ -1044,7 +1106,7 @@ def _cleanup_fixture_cli_path(
     output_states: object = None,
     instrument_errors: list[str] | None = None,
 ) -> Path:
-    fixture_cli = tmp_path / "keysight_power_cli"
+    fixture_cli = tmp_path / "powers_tool_cli"
     fixture_cli.mkdir()
     (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
     config = json.dumps(
@@ -1116,13 +1178,16 @@ def _run_state_changing_fixture(
     env: dict[str, str],
 ) -> subprocess.CompletedProcess[str]:
     command = rf"""
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
 $script:OutputDir = "{output_dir}"
 New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
 $script:RawResource = "TCPIP0::192.168.50.77::5025::SOCKET"
 $script:ResourceDisplay = "LAN:<redacted-resource>"
-$script:NormalizedTarget = "E36312A"
+$script:NormalizedTarget = "keysight-e36312a"
 $script:ConnectionLabel = "LAN"
 $script:TransportScope = "tcpip"
 $script:BackendArtifact = Get-BackendArtifactFields -Value "@py"
@@ -1270,8 +1335,11 @@ def test_live_cli_check_restore_false_is_truthfully_not_cleanup_verified(tmp_pat
 
 def test_live_cli_check_cleanup_lifecycle_statuses_are_distinct():
     command = r"""
-$env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
 $script:StateChanging = $true
 $script:Restore = $true
 $planned = New-CleanupEvidence -ValidationMode "planned"
@@ -1296,8 +1364,20 @@ $skipped = New-CleanupEvidence -ValidationMode "live"
     }
 
 
-@pytest.mark.parametrize("target", ["E36103B", "E36232A", "GENERIC"])
-def test_live_cli_check_descoped_and_generic_targets_fail_before_live(target: str):
+@pytest.mark.parametrize(
+    "target",
+    [
+        "E36312A",
+        "EDU36311A",
+        "E3646A",
+        "GENERIC",
+        "generic-scpi",
+        "keysight-e36103b",
+        "keysight-e36232a",
+        "keysight-e36313a",
+    ],
+)
+def test_live_cli_check_noncanonical_or_inactive_targets_fail_before_live(target: str):
     result = _run_live_cli_check(
         "-Target",
         target,
@@ -1312,18 +1392,17 @@ def test_live_cli_check_descoped_and_generic_targets_fail_before_live(target: st
 
     assert result.returncode == 2
     combined = result.stdout + result.stderr
-    if target == "GENERIC":
-        assert "GENERIC is no-hardware only" in combined
-    else:
-        assert "Unsupported -Target" in combined
+    assert "Unsupported -Target" in combined
     assert "Running no-hardware preflight" not in result.stdout
 
 
-def test_live_smoke_script_remains_compatible_legacy_entrypoint():
+def test_live_smoke_script_uses_v2_target_and_cli_identity():
     smoke = Path("scripts/live-smoke-validation-check.ps1").read_text(encoding="utf-8")
 
     assert '[string]$Profile = "auto"' in smoke
-    assert "Live smoke validation supports only Target E36312A or EDU36311A." in smoke
+    assert "canonical model IDs keysight-e36312a or keysight-edu36311a" in smoke
+    assert "powers-tool" in smoke
+    assert "keysight_power_cli" not in smoke
     assert "preflight-smoke-validation.ps1" in smoke
 
 

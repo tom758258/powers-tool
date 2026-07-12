@@ -6280,7 +6280,7 @@ def _resource_manager_for_args(args: argparse.Namespace) -> SimulatedResourceMan
 
 def _package_version() -> str:
     try:
-        return importlib.metadata.version("keysight-powers")
+        return importlib.metadata.version("powers-tool")
     except importlib.metadata.PackageNotFoundError:
         return "1.0.0"
 

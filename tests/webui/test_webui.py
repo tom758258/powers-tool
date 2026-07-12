@@ -750,7 +750,7 @@ def test_static_ramp_list_editor_contract():
     assert "if (state.rampListSegments.length <= 1) return;" in app_js
     assert "start_voltage: previous.stop_voltage" in app_js
     assert "stop_voltage: previous.stop_voltage" in app_js
-    assert 'kind: "keysight-power-ramp-list"' in app_js
+    assert 'kind: "powers-tool-ramp-list"' in app_js
     assert "window.showOpenFilePicker" in app_js
     assert "window.showSaveFilePicker" in app_js
     assert "const normalized = validateRampListDocument(JSON.parse(text));" in app_js
@@ -1297,7 +1297,7 @@ def test_static_trigger_list_uses_three_channel_workspace_editor():
     assert 'if (input.type === "number") input.step = "any";' in app_js
     for field in ("bost_list", "eost_list", "trigger_output_pins", "trigger_output_polarity"):
         assert field in payload
-    assert "keysight-power-trigger-list-workspace" in validator
+    assert "powers-tool-trigger-list-workspace" in validator
     assert 'exact(document.channels, ["1", "2", "3"]' in validator
     assert "contains unknown or missing fields" in validator
     assert ".trigger-list-editor {" in styles_css
@@ -3191,7 +3191,7 @@ def test_ramp_list_lint_dry_run(client: TestClient):
         "parameters": {
             "lint": True,
             "document": {
-                "kind": "keysight-power-ramp-list",
+                "kind": "powers-tool-ramp-list",
                 "version": 1,
                 "segments": [
                     {
@@ -3232,7 +3232,7 @@ def test_api_accepts_zero_delay_ramp_list_step_pulse(client: TestClient):
         },
         "parameters": {
             "document": {
-                "kind": "keysight-power-ramp-list",
+                "kind": "powers-tool-ramp-list",
                 "version": 1,
                 "completion_pulse": {"timing": "step", "pins": [1], "polarity": "positive"},
                 "segments": [{

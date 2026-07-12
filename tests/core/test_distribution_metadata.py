@@ -8,7 +8,7 @@ import powers_tool_webui
 
 
 def test_import_package_versions_match_distribution():
-    distribution_version = metadata.version("keysight-powers")
+    distribution_version = metadata.version("powers-tool")
 
     assert powers_tool_core.__version__ == distribution_version
     assert powers_tool_cli.__version__ == distribution_version

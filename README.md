@@ -1,9 +1,9 @@
 [繁體中文](README.zh-TW.md)
 
-# Keysight Powers
+# Powers Tool
 
-Keysight Powers is a Python control toolkit for Keysight DC power supplies.
-It provides one installable distribution, `keysight-powers` `<version>`, while
+Powers Tool is a Python control toolkit for Keysight DC power supplies.
+It provides one installable distribution, `powers-tool` `<version>`, while
 preserving three V2 import packages: `powers_tool_core`, `powers_tool_cli`,
 and `powers_tool_webui`.
 
@@ -113,7 +113,7 @@ IDN/model data.
 The repository has one distribution and one version number. In examples,
 `<version>` means `[project].version` from the root `pyproject.toml`:
 
-- Distribution: `keysight-powers` `<version>`
+- Distribution: `powers-tool` `<version>`
 - Core import: `powers_tool_core`
 - CLI import: `powers_tool_cli`
 - WebUI import: `powers_tool_webui`
@@ -188,6 +188,11 @@ The `uv.lock` file is used by uv for development and CI reproducibility.
 `pip install .` reads `pyproject.toml`, not `uv.lock`. Users without uv must
 install uv before using the locked environment.
 
+The lock file records the local project as `powers-tool`. Installed command
+wrappers are `powers-tool`, `powers-tool-webui`, and
+`powers-tool-webui-launcher`; former distribution, package, and command names
+are not compatibility aliases.
+
 If you need pip directly, use the virtual environment's Python:
 
 ```powershell
@@ -213,8 +218,8 @@ the `dev` extra installed above:
 This produces only one Python distribution:
 
 ```text
-dist\keysight_powers-<version>-py3-none-any.whl
-dist\keysight_powers-<version>.tar.gz
+dist\powers_tool-<version>-py3-none-any.whl
+dist\powers_tool-<version>.tar.gz
 ```
 
 Standalone executables are separate PyInstaller workflows. Install PyInstaller
@@ -240,15 +245,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_webui_ex
 By default, these commands produce:
 
 ```text
-dist\keysight-power.exe
-dist\keysight-power-webui-launcher.exe
+dist\powers-tool.exe
+dist\powers-tool-webui-launcher.exe
 ```
 
 Check the built CLI executable without touching hardware:
 
 ```powershell
-.\dist\keysight-power.exe --version
-.\dist\keysight-power.exe doctor --simulate --json
+.\dist\powers-tool.exe --version
+.\dist\powers-tool.exe doctor --simulate --json
 ```
 
 Build a release folder with wheel, sdist, standalone executables, and checksums:
@@ -260,10 +265,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_release.
 This produces release artifacts named with the selected project version:
 
 ```text
-release\<version>\keysight-power-<version>.exe
-release\<version>\keysight-power-webui-launcher-<version>.exe
-release\<version>\keysight_powers-<version>-py3-none-any.whl
-release\<version>\keysight_powers-<version>.tar.gz
+release\<version>\powers-tool-<version>.exe
+release\<version>\powers-tool-webui-launcher-<version>.exe
+release\<version>\powers_tool-<version>-py3-none-any.whl
+release\<version>\powers_tool-<version>.tar.gz
 release\<version>\checksums.txt
 ```
 
@@ -328,12 +333,12 @@ USB and LAN remain outside the current scope.
 Examples:
 
 ```powershell
-.\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target E36312A -Connection LAN -Resource $env:E36312A_LAN_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target EDU36311A -Connection LAN -Resource $env:EDU36311A_LAN_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target E3646A -Connection ASRL -Resource $env:E3646A_ASRL_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite output -PlanOnly
+.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection LAN -Resource $env:E36312A_LAN_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target keysight-edu36311a -Connection USB -Resource $env:EDU36311A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target keysight-edu36311a -Connection LAN -Resource $env:EDU36311A_LAN_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target keysight-e3646a -Connection ASRL -Resource $env:E3646A_ASRL_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite output -PlanOnly
 ```
 
 ## Contributing

@@ -1323,7 +1323,7 @@ def test_worker_ramp_list_rejects_invalid_document_before_enqueue():
             "command": "ramp-list",
             "arguments": {
                 "document": {
-                    "kind": "keysight-power-ramp-list",
+                    "kind": "powers-tool-ramp-list",
                     "version": 1,
                     "segments": [],
                 }
@@ -1351,7 +1351,7 @@ def test_worker_live_ramp_list_requires_output_confirmation():
             "command": "ramp-list",
             "arguments": {
                 "document": {
-                    "kind": "keysight-power-ramp-list",
+                    "kind": "powers-tool-ramp-list",
                     "version": 1,
                     "segments": [
                         {
@@ -1386,7 +1386,7 @@ def test_worker_simulate_ramp_list_document(running_worker):
                 "command": "ramp-list",
                 "arguments": {
                     "document": {
-                        "kind": "keysight-power-ramp-list",
+                        "kind": "powers-tool-ramp-list",
                         "version": 1,
                         "segments": [
                             {

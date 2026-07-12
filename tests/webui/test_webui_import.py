@@ -8,7 +8,7 @@ import pytest
 def test_webui_import() -> None:
     import powers_tool_webui
 
-    assert powers_tool_webui.__version__ == metadata.version("keysight-powers")
+    assert powers_tool_webui.__version__ == metadata.version("powers-tool")
 
 
 def test_webui_server_version_prints_without_starting_server(monkeypatch, capsys) -> None:

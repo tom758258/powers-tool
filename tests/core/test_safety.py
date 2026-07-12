@@ -93,7 +93,7 @@ def test_safety_error_type_matches_project_and_value_errors() -> None:
 
 
 def test_load_safety_config_returns_limits(tmp_path) -> None:
-    config_path = tmp_path / "keysight-power.toml"
+    config_path = tmp_path / "powers-tool.toml"
     config_path.write_text(
         """
 [safety]
@@ -116,7 +116,7 @@ allowed_channels = [1, 2, 3]
 
 
 def test_load_safety_config_resolves_resource_alias_with_field_overrides(tmp_path) -> None:
-    config_path = tmp_path / "keysight-power.toml"
+    config_path = tmp_path / "powers-tool.toml"
     config_path.write_text(
         """
 [safety]
@@ -143,7 +143,7 @@ allowed_channels = [1]
 
 
 def test_load_safety_config_resolves_raw_resource_matches(tmp_path) -> None:
-    config_path = tmp_path / "keysight-power.toml"
+    config_path = tmp_path / "powers-tool.toml"
     config_path.write_text(
         """
 [safety]
@@ -172,7 +172,7 @@ max_current = 0.1
 
 
 def test_load_safety_config_raw_resource_falls_back_to_global_limits(tmp_path) -> None:
-    config_path = tmp_path / "keysight-power.toml"
+    config_path = tmp_path / "powers-tool.toml"
     config_path.write_text(
         """
 [safety]
@@ -193,7 +193,7 @@ max_voltage = 3.3
 
 
 def test_load_safety_config_rejects_unknown_resource_alias(tmp_path) -> None:
-    config_path = tmp_path / "keysight-power.toml"
+    config_path = tmp_path / "powers-tool.toml"
     config_path.write_text(
         """
 [safety]
@@ -216,7 +216,7 @@ def test_load_safety_config_rejects_missing_file(tmp_path) -> None:
 
 
 def test_load_safety_config_rejects_invalid_toml(tmp_path) -> None:
-    config_path = tmp_path / "keysight-power.toml"
+    config_path = tmp_path / "powers-tool.toml"
     config_path.write_text("[safety\n", encoding="utf-8")
 
     with pytest.raises(SafetyConfigError, match="could not parse safety config"):
@@ -236,7 +236,7 @@ def test_load_safety_config_rejects_schema_errors(
     content,
     expected_message,
 ) -> None:
-    config_path = tmp_path / "keysight-power.toml"
+    config_path = tmp_path / "powers-tool.toml"
     config_path.write_text(content, encoding="utf-8")
 
     with pytest.raises(SafetyConfigError, match=expected_message):
@@ -327,7 +327,7 @@ def test_load_safety_config_rejects_resource_entry_errors(
     content,
     expected_message,
 ) -> None:
-    config_path = tmp_path / "keysight-power.toml"
+    config_path = tmp_path / "powers-tool.toml"
     config_path.write_text(content, encoding="utf-8")
 
     with pytest.raises(SafetyConfigError, match=expected_message):
@@ -353,7 +353,7 @@ def test_load_safety_config_rejects_invalid_numeric_limits(
     value,
     expected_message,
 ) -> None:
-    config_path = tmp_path / "keysight-power.toml"
+    config_path = tmp_path / "powers-tool.toml"
     config_path.write_text(f"[safety]\n{field} = {value}\n", encoding="utf-8")
 
     with pytest.raises(SafetyConfigError, match=expected_message):
@@ -372,7 +372,7 @@ def test_load_safety_config_rejects_invalid_numeric_limits(
     ],
 )
 def test_load_safety_config_rejects_invalid_allowed_channels(tmp_path, value) -> None:
-    config_path = tmp_path / "keysight-power.toml"
+    config_path = tmp_path / "powers-tool.toml"
     config_path.write_text(f"[safety]\nallowed_channels = {value}\n", encoding="utf-8")
 
     with pytest.raises(

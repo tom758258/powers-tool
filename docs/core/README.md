@@ -1,8 +1,8 @@
-# Keysight Power Core
+# Powers Tool Core
 
 Core library and driver layer for controlling Keysight DC power supplies safely.
 
-Core ships inside the single `keysight-powers` distribution while preserving
+Core ships inside the single `powers-tool` distribution while preserving
 the `powers_tool_core` import boundary. It owns hardware-facing behavior
 and is shared by the CLI and WebUI adapters.
 
@@ -14,7 +14,7 @@ sequence runtime. It must stay independent from the CLI and WebUI packages.
 
 Use the core package when another Python package needs to call the power-supply
 runtime directly. End users should normally use the `powers-tool` console
-script included in the same `keysight-powers` distribution.
+script included in the same `powers-tool` distribution.
 
 ## Physical Identity And Registry Boundary
 
@@ -172,7 +172,7 @@ the CLI adapter. Run the no-hardware gate before live validation:
 
 ```powershell
 .\scripts\no-hardware-regression.ps1
-.\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource USB0::SIM::E36312A::INSTR -Suite readonly -PlanOnly
+.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection USB -Resource USB0::SIM::E36312A::INSTR -Suite readonly -PlanOnly
 ```
 
 Live suite checks and hardware pytest are explicit, opt-in hardware checks.

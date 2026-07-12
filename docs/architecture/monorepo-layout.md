@@ -3,8 +3,8 @@
 ```text
 src/
   powers_tool_core/
-  keysight_power_cli/
-  keysight_power_webui/
+  powers_tool_cli/
+  powers_tool_webui/
 tests/
   core/
   cli/
@@ -20,20 +20,20 @@ docs/
 ## Package Names
 
 Core, CLI, and WebUI are separate import packages and maintenance boundaries,
-released together as one `keysight-powers` distribution. The distribution
+released together as one `powers-tool` distribution. The distribution
 version is owned by `[project].version` in the root `pyproject.toml`; use
 `<version>` in examples where the installed release version is substituted.
 
 | Area | Distribution | Import | Version | Console command |
 | --- | --- | --- | --- | --- |
-| Core | `keysight-powers` | `powers_tool_core` | distribution version | None |
-| CLI | `keysight-powers` | `keysight_power_cli` | distribution version | `keysight-power` |
-| WebUI | `keysight-powers` | `keysight_power_webui` | distribution version | `keysight-power-webui`, `keysight-power-webui-launcher` |
+| Core | `powers-tool` | `powers_tool_core` | distribution version | None |
+| CLI | `powers-tool` | `powers_tool_cli` | distribution version | `powers-tool` |
+| WebUI | `powers-tool` | `powers_tool_webui` | distribution version | `powers-tool-webui`, `powers-tool-webui-launcher` |
 
 ## Ownership
 
 Root `pyproject.toml` owns distribution metadata, dependencies, console
 scripts, package discovery, and WebUI package data for the single
-`keysight-powers` distribution. Root docs own repository planning,
+`powers-tool` distribution. Root docs own repository planning,
 architecture notes, release checklists, and canonical cross-package contracts
 under `../contracts/`.

@@ -406,11 +406,7 @@ def test_product_ui_and_wrapper_targets_match_product_active_models() -> None:
     assert '<option value="">Auto-detect</option>' in index_html
     assert 'option value="keysight-' not in index_html
     wrapper = Path("scripts/live-cli-check.ps1").read_text(encoding="utf-8")
-    target_line = next(
-        line for line in wrapper.splitlines() if line.startswith("$SupportedTargets = @(")
+    wrapper_targets = frozenset(
+        re.findall(r'^    "(keysight-[^"]+)" = \[pscustomobject\]@\{', wrapper, re.MULTILINE)
     )
-    assert frozenset(re.findall(r'"([A-Z0-9]+)"', target_line)) == {
-        "E36312A",
-        "EDU36311A",
-        "E3646A",
-    }
+    assert wrapper_targets == PRODUCT_ACTIVE_MODEL_IDS

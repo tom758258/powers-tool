@@ -24,7 +24,7 @@ These instructions guide coding agents working in this repository. They are long
 
 ## 3. Project Direction
 
-- Maintain the existing single-distribution `keysight-powers` project for
+- Maintain the existing single-distribution `powers-tool` project for
   Keysight DC power supplies.
 - CLI and WebUI are parallel product interfaces over the shared Core runtime.
 - Keep adapter behavior aligned; neither CLI nor WebUI may own SCPI behavior.
@@ -126,9 +126,9 @@ This repository is organized as a single-distribution project under the root
 `src/` directory:
 
 - `src/powers_tool_core`: Core instrument driver, transport, and runtime layer.
-- `src/keysight_power_cli`: Command line interface adapter.
-- `src/keysight_power_webui`: Web interface adapter and static dashboard.
+- `src/powers_tool_cli`: Command line interface adapter.
+- `src/powers_tool_webui`: Web interface adapter and static dashboard.
 
-- Never let `powers_tool_core` import from `keysight_power_cli` or
-  `keysight_power_webui`.
-- CLI commands are invoked via `keysight-power` or `python -m keysight_power_cli.cli`. The old `python -m keysight_power.cli` entry is no longer supported.
+- Never let `powers_tool_core` import from `powers_tool_cli` or
+  `powers_tool_webui`.
+- CLI commands are invoked via `powers-tool` or `python -m powers_tool_cli.cli`.

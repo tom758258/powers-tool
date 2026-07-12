@@ -1,8 +1,8 @@
-# Keysight Power CLI
+# Powers Tool CLI
 
 CLI adapter for controlling Keysight DC power supplies.
 
-The CLI ships inside the single `keysight-powers` distribution while
+The CLI ships inside the single `powers-tool` distribution while
 preserving the `powers_tool_cli` import boundary. It exposes the
 `powers-tool` console command and adapts operator commands to the shared
 `powers_tool_core` runtime.
@@ -128,7 +128,7 @@ process-local bypass for the selected script:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\no-hardware-regression.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\preflight-smoke-validation.ps1 -Target E36312A
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\preflight-smoke-validation.ps1 -Target keysight-e36312a
 ```
 
 No-hardware regression runs focused follow-up checks, JSON/docs contract
@@ -160,6 +160,15 @@ support. It does not prove every feature, every connection type, or every
 model, and it does not mean USB validation covers LAN validation. See
 [Contributing](../CONTRIBUTING.md) for the contributor workflow.
 
+Wrapper targets are exact canonical physical `model_id` values; bare model
+names are rejected. New shareable reports use integer `schema_version: 2`,
+`kind: "powers-tool-live-validation"`, `vendor_id`, and `model_id`. Plan-only
+reports record `planning_model_id`; live reports record `expected_model_id`.
+The wrapper invokes `powers-tool` and never treats a passing report as support
+promotion. Generic examples use `POWERS_TOOL_RESOURCE` or
+`POWERS_TOOL_ASRL_RESOURCE`; model-specific lab variables such as
+`E36312A_USB_RESOURCE` remain explicit operator inputs.
+
 Current accepted evidence connections from passing validation artifacts:
 
 - E36312A USB + system VISA
@@ -179,21 +188,21 @@ there are currently no candidate models and no new model is enabled by this
 framework.
 
 ```powershell
-.\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target E36312A -Connection LAN -Resource $env:E36312A_LAN_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target EDU36311A -Connection LAN -Resource $env:EDU36311A_LAN_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target E3646A -Connection ASRL -Resource $env:E3646A_ASRL_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite output -PlanOnly
+.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection LAN -Resource $env:E36312A_LAN_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target keysight-edu36311a -Connection USB -Resource $env:EDU36311A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target keysight-edu36311a -Connection LAN -Resource $env:EDU36311A_LAN_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target keysight-e3646a -Connection ASRL -Resource $env:E3646A_ASRL_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite output -PlanOnly
 ```
 
 Supported suites are model-aware:
 
 | Target | `full` suite composition |
 | --- | --- |
-| E36312A | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` |
-| EDU36311A | `readonly`, `output`, `protection`, `software-sequence` |
-| E3646A | `readonly`, `output`, `software-sequence` |
+| `keysight-e36312a` | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` |
+| `keysight-edu36311a` | `readonly`, `output`, `protection`, `software-sequence` |
+| `keysight-e3646a` | `readonly`, `output`, `software-sequence` |
 
 For each active model, `-Suite full` is an evidence grouping. With a passing
 expanded full-suite record for the approved model and connection, only the
@@ -230,11 +239,11 @@ or touch hardware. It uses deterministic SIM resources for the selected target
 so the no-hardware planning identity is deterministic:
 
 ```powershell
-.\scripts\preflight-smoke-validation.ps1 -Target E36312A
-.\scripts\preflight-smoke-validation.ps1 -Target EDU36311A
+.\scripts\preflight-smoke-validation.ps1 -Target keysight-e36312a
+.\scripts\preflight-smoke-validation.ps1 -Target keysight-edu36311a
 ```
 
-Pass `-Profile readonly` with `-Target EDU36311A` only when you need the
+Pass `-Profile readonly` with `-Target keysight-edu36311a` only when you need the
 legacy read-only preflight instead of the default output-smoke preflight.
 
 Reports are written to `.tmp_tests\smoke_validation_preflight\<Target>`.
@@ -256,8 +265,8 @@ smoke script. It pauses for confirmation before opening VISA:
 $env:E36312A_USB_RESOURCE = "USB0::...::INSTR"
 $env:EDU36311A_USB_RESOURCE = "USB0::...::INSTR"
 
-.\scripts\live-smoke-validation-check.ps1 -Target E36312A -Connection USB -Resource $env:E36312A_USB_RESOURCE
-.\scripts\live-smoke-validation-check.ps1 -Target EDU36311A -Connection USB -Resource $env:EDU36311A_USB_RESOURCE
+.\scripts\live-smoke-validation-check.ps1 -Target keysight-e36312a -Connection USB -Resource $env:E36312A_USB_RESOURCE
+.\scripts\live-smoke-validation-check.ps1 -Target keysight-edu36311a -Connection USB -Resource $env:EDU36311A_USB_RESOURCE
 ```
 
 E36312A and EDU36311A live smoke are the normal hardware acceptance gates.
@@ -492,15 +501,15 @@ Ramp List version 1 may contain a global `completion_pulse` object. Inline
 the document is authoritative and CLI pulse overrides are rejected.
 
 ```powershell
-$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
+$env:POWERS_TOOL_RESOURCE = "USB0::...::INSTR"
 uv run powers-tool ramp-list --lint --json --file example.ramp-list.json
 uv run powers-tool ramp-list --dry-run --json --model keysight-e36312a --file example.ramp-list.json
-uv run powers-tool ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
+uv run powers-tool ramp-list --json --resource "$env:POWERS_TOOL_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
 ```
 
 ## Power Worker Daemon
 
-The Keysight Power Supply Worker is a local background service that listens on
+The Powers Tool Worker is a local background service that listens on
 localhost and accepts HTTP commands to control Keysight instruments
 asynchronously.
 
@@ -562,7 +571,7 @@ instrument is not currently reachable.
 For live USB examples below, set the VISA resource once per PowerShell session:
 
 ```powershell
-$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
+$env:POWERS_TOOL_RESOURCE = "USB0::...::INSTR"
 ```
 
 ### Generic USB Live Examples
@@ -570,20 +579,20 @@ $env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
 Verify that one resource can be opened and queried with `*IDN?`:
 
 ```powershell
-uv run powers-tool verify --resource "$env:KEYSIGHT_POWER_RESOURCE"
-uv run powers-tool verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool verify --resource "$env:POWERS_TOOL_RESOURCE"
+uv run powers-tool verify --resource "$env:POWERS_TOOL_RESOURCE" --log-scpi
 ```
 
 Clear instrument status and the error queue with `*CLS`:
 
 ```powershell
-uv run powers-tool clear --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool clear --resource "$env:POWERS_TOOL_RESOURCE" --log-scpi
 ```
 
 Read the instrument error queue without changing output state:
 
 ```powershell
-uv run powers-tool error --resource "$env:KEYSIGHT_POWER_RESOURCE" --max-reads 20 --log-scpi
+uv run powers-tool error --resource "$env:POWERS_TOOL_RESOURCE" --max-reads 20 --log-scpi
 ```
 
 ### E3646A RS-232 / ASRL Examples
@@ -610,13 +619,13 @@ rejected by the current feature-lock policy.
 Set the ASRL resource once per PowerShell session:
 
 ```powershell
-$env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
+$env:POWERS_TOOL_ASRL_RESOURCE = "ASRL1::INSTR"
 ```
 
 For repeated examples, keep common ASRL settings in variables:
 
 ```powershell
-$Base = @("--resource", "$env:KEYSIGHT_POWER_ASRL_RESOURCE", "--serial-read-termination", "CRLF", "--serial-write-termination", "LF")
+$Base = @("--resource", "$env:POWERS_TOOL_ASRL_RESOURCE", "--serial-read-termination", "CRLF", "--serial-write-termination", "LF")
 $Remote = @("--serial-remote", "--serial-local-on-close")
 ```
 
@@ -630,7 +639,7 @@ If Connection Expert already has the ASRL resource configured and verified,
 you can let VISA use those settings:
 
 ```powershell
-uv run powers-tool verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE"
+uv run powers-tool verify --resource "$env:POWERS_TOOL_ASRL_RESOURCE"
 ```
 
 Serial settings are explicit only. If omitted, the CLI does not overwrite
@@ -641,7 +650,7 @@ resources. The E3646A factory example is 9600 baud, 8 data bits, none parity,
 settings may differ:
 
 ```powershell
-uv run powers-tool verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
+uv run powers-tool verify --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
 ```
 
 `--serial-remote` sends `SYST:REM` after opening the ASRL resource.
@@ -652,10 +661,10 @@ explicitly requested.
 Read/status examples:
 
 ```powershell
-uv run powers-tool identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
-uv run powers-tool readback --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
-uv run powers-tool measure --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
-uv run powers-tool output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+uv run powers-tool identify --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --serial-remote --serial-local-on-close
+uv run powers-tool readback --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+uv run powers-tool measure --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
+uv run powers-tool output-state --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
 ```
 
 Validated output examples:
@@ -676,7 +685,7 @@ confirmation threshold. `set`, `output-off`, `safe-off`, `ramp`, and
 For serial terminations, prefer aliases in PowerShell:
 
 ```powershell
-uv run powers-tool verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-read-termination CRLF --serial-write-termination LF
+uv run powers-tool verify --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --serial-read-termination CRLF --serial-write-termination LF
 ```
 
 Supported aliases are `CR`, `LF`, `CRLF`, and `NONE`/`none`. `NONE` means do
@@ -690,8 +699,8 @@ the aliases when you need actual control characters.
 Measure voltage and current:
 
 ```powershell
-uv run powers-tool measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
-uv run powers-tool measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 2 --log-scpi
+uv run powers-tool measure --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --log-scpi
+uv run powers-tool measure --resource "$env:POWERS_TOOL_RESOURCE" --channel 2 --log-scpi
 ```
 
 Preview all-channel measurement without hardware, and read product-open live
@@ -699,20 +708,20 @@ status:
 
 ```powershell
 uv run powers-tool measure-all --simulate --json --resource USB0::SIM::E36312A::INSTR
-uv run powers-tool read-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool read-status --json --resource "$env:POWERS_TOOL_RESOURCE" --log-scpi
 ```
 
 Run a full read-only validation pass on E36312A or EDU36311A:
 
 ```powershell
-uv run powers-tool validate-readonly --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi --save-json logs\validate-readonly.json
+uv run powers-tool validate-readonly --json --resource "$env:POWERS_TOOL_RESOURCE" --log-scpi --save-json logs\validate-readonly.json
 ```
 
 Read programmed E36312A setpoints and protection state:
 
 ```powershell
-uv run powers-tool readback --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
-uv run powers-tool protection-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool readback --json --resource "$env:POWERS_TOOL_RESOURCE" --log-scpi
+uv run powers-tool protection-status --json --resource "$env:POWERS_TOOL_RESOURCE" --log-scpi
 ```
 
 For E36312A and EDU36311A, `protection-status` reads OVP/OCP trip flags per
@@ -724,9 +733,9 @@ the OR of the selected channel results.
 Capture a raw E36312A snapshot that restore can consume, then compare it:
 
 ```powershell
-uv run powers-tool identify --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
-uv run powers-tool snapshot --resource "$env:KEYSIGHT_POWER_RESOURCE" --snapshot-json logs\before.json --log-scpi
-uv run powers-tool snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --compare logs\e36312a-baseline.json
+uv run powers-tool identify --json --resource "$env:POWERS_TOOL_RESOURCE" --log-scpi
+uv run powers-tool snapshot --resource "$env:POWERS_TOOL_RESOURCE" --snapshot-json logs\before.json --log-scpi
+uv run powers-tool snapshot --json --resource "$env:POWERS_TOOL_RESOURCE" --compare logs\e36312a-baseline.json
 uv run powers-tool snapshot-diff --summary --json --before logs\before.json --after logs\after.json
 ```
 
@@ -742,10 +751,10 @@ Preview or confirm E36312A protection actions:
 
 ```powershell
 uv run powers-tool clear-protection --dry-run --json --model keysight-e36312a --all
-uv run powers-tool clear-protection --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --all --confirm --log-scpi
+uv run powers-tool clear-protection --json --resource "$env:POWERS_TOOL_RESOURCE" --all --confirm --log-scpi
 uv run powers-tool protection-set --dry-run --json --model keysight-e36312a --channel all --ovp-voltage 5 --ocp on
 uv run powers-tool protection-set --dry-run --json --model keysight-e36312a --channel 1 --ocp-delay 0.5 --ocp-delay-trigger setting-change
-uv run powers-tool protection-set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
+uv run powers-tool protection-set --json --resource "$env:POWERS_TOOL_RESOURCE" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
 ```
 
 Configure an E36312A rear digital pin as trigger output, arm one output channel
@@ -767,12 +776,12 @@ connected IDN model to match and never overrides connected hardware.
 Native E36312A trigger/LIST commands:
 
 ```powershell
-uv run powers-tool trigger-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all
-uv run powers-tool trigger-step --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --source bus --fire --wait-complete
-uv run powers-tool trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --completion-pulse-pins 1 --fire --wait-complete
-uv run powers-tool trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --bost-list on,off --eost-list off,on --trigger-output-pins 1 --source immediate --wait-complete
+uv run powers-tool trigger-status --json --resource "$env:POWERS_TOOL_RESOURCE" --channel all
+uv run powers-tool trigger-step --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --source bus --fire --wait-complete
+uv run powers-tool trigger-list --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --completion-pulse-pins 1 --fire --wait-complete
+uv run powers-tool trigger-list --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --bost-list on,off --eost-list off,on --trigger-output-pins 1 --source immediate --wait-complete
 uv run powers-tool trigger-fire --dry-run --json --model keysight-e36312a --channel 1 --wait-complete
-uv run powers-tool trigger-abort --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all
+uv run powers-tool trigger-abort --json --resource "$env:POWERS_TOOL_RESOURCE" --channel all
 ```
 
 For native BUS triggers, `trigger-step` and `trigger-list` only arm by default;
@@ -800,8 +809,8 @@ Set low E36312A, E3646A, or EDU36311A setpoints without enabling output:
 
 ```powershell
 uv run powers-tool set --model keysight-e36312a --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
-uv run powers-tool set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --log-scpi
-uv run powers-tool set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --log-scpi
+uv run powers-tool set --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --voltage 1 --current 0.05 --log-scpi
+uv run powers-tool set --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --voltage 1 --log-scpi
 ```
 
 The first example uses `--model keysight-e36312a` as a live expected-model guard: it
@@ -826,9 +835,9 @@ exercise only dry-run/simulator planning.
 Read back and cycle output state:
 
 ```powershell
-uv run powers-tool output-state --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
-uv run powers-tool cycle-output --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --duration-ms 500 --confirm --log-scpi
-uv run powers-tool cycle-output --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --duration-ms 500 --confirm --log-scpi
+uv run powers-tool output-state --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --log-scpi
+uv run powers-tool cycle-output --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --duration-ms 500 --confirm --log-scpi
+uv run powers-tool cycle-output --json --resource "$env:POWERS_TOOL_RESOURCE" --channel all --duration-ms 500 --confirm --log-scpi
 ```
 
 For `cycle-output --channel all`, the CLI enables channels 1, 2, and 3 in
@@ -838,9 +847,9 @@ order.
 Apply low setpoints and enable output:
 
 ```powershell
-uv run powers-tool apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --confirm --log-scpi
-uv run powers-tool apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --voltage 1 --current 0.05 --confirm --log-scpi
-uv run powers-tool apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --voltage 1 --current 0.05 --no-output --log-scpi
+uv run powers-tool apply --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --voltage 1 --current 0.05 --confirm --log-scpi
+uv run powers-tool apply --json --resource "$env:POWERS_TOOL_RESOURCE" --channel all --voltage 1 --current 0.05 --confirm --log-scpi
+uv run powers-tool apply --json --resource "$env:POWERS_TOOL_RESOURCE" --channel all --voltage 1 --current 0.05 --no-output --log-scpi
 ```
 
 Add an explicit safety config to apply local global limits to output plans:
@@ -868,8 +877,8 @@ entry's resource-specific limits; otherwise the global `[safety]` limits apply.
 Ramp voltage setpoints without changing output state:
 
 ```powershell
-uv run powers-tool ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
-uv run powers-tool ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
+uv run powers-tool ramp --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
+uv run powers-tool ramp --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
 ```
 
 Validate a sequence file or preview deterministic write SCPI without opening
@@ -897,7 +906,7 @@ Ramp List examples:
 uv run powers-tool ramp-list --lint --json --file example.ramp-list.json
 uv run powers-tool ramp-list --dry-run --json --model keysight-e36312a --file example.ramp-list.json
 uv run powers-tool ramp-list --dry-run --json --model keysight-e3646a --file example.ramp-list.json
-uv run powers-tool ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
+uv run powers-tool ramp-list --json --resource "$env:POWERS_TOOL_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
 ```
 
 ### Simulator Examples
@@ -940,7 +949,7 @@ query behavior:
 
 ```powershell
 .\.venv\Scripts\python.exe examples\01_list_resources.py
-.\.venv\Scripts\python.exe examples\02_identify.py --resource "$env:KEYSIGHT_POWER_RESOURCE"
+.\.venv\Scripts\python.exe examples\02_identify.py --resource "$env:POWERS_TOOL_RESOURCE"
 ```
 
 Add `--json` to supported CLI commands for the stable machine-readable v1

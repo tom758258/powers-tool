@@ -1,6 +1,6 @@
-# Keysight Power WebUI
+# Powers Tool WebUI
 
-FastAPI and static-asset WebUI adapter for Keysight Power.
+FastAPI and static-asset WebUI adapter for Powers Tool.
 
 This README is the WebUI behavior, API, validation, and maintainer guide. For
 normal operator workflows, use the [WebUI User Guide](USER_GUIDE.md). For
@@ -10,7 +10,7 @@ developer and agent UI-change boundaries, use the
 The WebUI and CLI are parallel product interfaces over the shared Core
 runtime.
 
-The WebUI ships inside the single `keysight-powers` distribution while
+The WebUI ships inside the single `powers-tool` distribution while
 preserving the `powers_tool_webui` import boundary. It depends on the
 shared `powers_tool_core` runtime and the distribution's `webui` extra.
 Its frontend is static `index.html`, `styles.css`, and `app.js`; no Node
@@ -70,7 +70,7 @@ The installed Windows GUI launcher wrapper is:
 
 The launcher defaults to `127.0.0.1:7999`, opens the browser after Start, and
 keeps the window available so Quit can stop the local Uvicorn server. If the
-selected port already hosts Keysight Power WebUI, the launcher opens that page
+selected port already hosts Powers Tool WebUI, the launcher opens that page
 instead of starting a second server. If the port is used by another service,
 startup is rejected. Quit is blocked while a hardware command is active; stop
 or cancel the command in the browser first and wait for cleanup.
@@ -98,7 +98,7 @@ model map. Evidence and private support metadata are not exposed.
 
 `/api/health` reports the adapter identifier `powers-tool-webui` for the
 `package` field, while `version` is sourced from the single installed
-`keysight-powers` distribution.
+`powers-tool` distribution.
 
 ## Runtime Boundary
 
@@ -325,7 +325,7 @@ configured for asynchronous execution.
 Trigger List uses a dedicated three-channel workspace editor. Each channel
 keeps its own count and 1 to 100 step rows with Voltage, Current, Dwell, BOST,
 and EOST. Run submits only the selected channel. Load/Save uses strict
-`keysight-power-trigger-list-workspace` version 1 JSON and preserves all three
+`powers-tool-trigger-list-workspace` version 1 JSON and preserves all three
 channel drafts plus shared controls. Enabled BOST/EOST rows require LIST
 output pins.
 
@@ -431,7 +431,7 @@ uv run python -m pytest tests -q -p no:cacheprovider
 ```
 
 Build the optional local WebUI launcher exe with PyInstaller from an
-environment that already has `keysight-powers` installed. PyInstaller is a
+environment that already has `powers-tool` installed. PyInstaller is a
 local release-build tool, not a WebUI runtime dependency, so install it into
 the venv before rebuilding on a fresh machine:
 
@@ -443,7 +443,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_webui_ex
 After building, confirm the launcher reports the package version:
 
 ```powershell
-.\dist\keysight-power-webui-launcher.exe --version
+.\dist\powers-tool-webui-launcher.exe --version
 ```
 
 Numeric field limits come from the shared

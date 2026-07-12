@@ -150,7 +150,7 @@ try {
             -FilePath "uv" `
             -ArgumentList @(
                 "run",
-                "keysight-power",
+                "powers-tool",
                 "worker",
                 "--id",
                 "orchestrator_smoke",
@@ -175,7 +175,11 @@ try {
     }
 
     $ready = Wait-WorkerReady -Path $EventsJsonl -TimeoutSec $ReadyTimeoutSec
-    $body = @{ command = "status"; dry_run = $true } | ConvertTo-Json -Depth 4
+    $body = @{
+        schema_version = 2
+        command = "read-status"
+        arguments = @{ dry_run = $true }
+    } | ConvertTo-Json -Depth 4
     $accepted = Invoke-RestMethod `
         -Method Post `
         -Uri $ready.command_url `

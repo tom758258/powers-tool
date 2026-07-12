@@ -4,7 +4,7 @@
 supplies. Adapter packages should build parser-neutral request objects and call
 the shared command runners instead of constructing SCPI directly.
 
-`powers_tool_core` ships as part of the single `keysight-powers`
+`powers_tool_core` ships as part of the single `powers-tool`
 distribution. Its installed version follows `[project].version` from the root
 `pyproject.toml`, while the import boundary remains `powers_tool_core`.
 

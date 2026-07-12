@@ -1,14 +1,14 @@
 param(
-    [string]$Target = "E36312A",
+    [string]$Target = "keysight-e36312a",
     [string]$Profile = "auto"
 )
 
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = "Stop"
 
-$normalizedTarget = $Target.Trim().ToUpperInvariant()
-if ($normalizedTarget -notin @("E36312A", "EDU36311A")) {
-    [Console]::Error.WriteLine("Smoke validation preflight supports only Target E36312A or EDU36311A.")
+$normalizedTarget = $Target
+if ($normalizedTarget -notin @("keysight-e36312a", "keysight-edu36311a")) {
+    [Console]::Error.WriteLine("Smoke validation preflight supports only canonical model IDs keysight-e36312a or keysight-edu36311a.")
     exit 2
 }
 $normalizedProfile = $Profile.Trim().ToLowerInvariant()
@@ -16,7 +16,7 @@ if ($normalizedProfile -notin @("auto", "readonly", "output", "output_smoke")) {
     [Console]::Error.WriteLine("Unsupported -Profile. Use auto, readonly, or output.")
     exit 2
 }
-$isEduReadonly = $normalizedTarget -eq "EDU36311A" -and $normalizedProfile -eq "readonly"
+$isEduReadonly = $normalizedTarget -eq "keysight-edu36311a" -and $normalizedProfile -eq "readonly"
 
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $TmpRoot = Join-Path $RepoRoot ".tmp_tests"
@@ -27,6 +27,8 @@ $PythonExe = Join-Path (Join-Path $RepoRoot ".venv") "Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $PythonExe)) {
     $PythonExe = "python"
 }
+$CliExecutable = if ($PythonExe -eq "python") { "powers-tool" } else { Join-Path (Split-Path -Parent $PythonExe) "powers-tool.exe" }
+if ($PythonExe -ne "python" -and -not (Test-Path -LiteralPath $CliExecutable)) { $CliExecutable = "powers-tool" }
 
 function Assert-UnderDirectory {
     param(
@@ -127,7 +129,7 @@ function Invoke-CliJsonCommand {
             $oldNativePreference = [bool]$nativePreferenceVariable.Value
             $PSNativeCommandUseErrorActionPreference = $false
         }
-        & $PythonExe -m keysight_power_cli.cli @allArgs 1> $stdoutPath 2> $stderrPath
+        & $CliExecutable @allArgs 1> $stdoutPath 2> $stderrPath
         $exitCode = $LASTEXITCODE
     }
     finally {
@@ -166,8 +168,7 @@ function Invoke-CliJsonCommand {
         }
     }
 
-    $formattedArgs = @("-m", "keysight_power_cli.cli") + $allArgs
-    $commandLine = (Format-CommandArgument -Argument $PythonExe) + " " + (($formattedArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
+    $commandLine = "powers-tool " + (($allArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
 
     return [pscustomobject]@{
         name = $Name
@@ -216,9 +217,10 @@ function Write-PreflightArtifacts {
     $reportPath = Join-Path $OutputDir "report.json"
     $summaryPath = Join-Path $OutputDir "summary.md"
     $report = [pscustomobject]@{
-        schema_version = "1.0"
-        kind = "smoke_validation_preflight"
-        target = $Target
+        schema_version = 2
+        kind = "powers-tool-smoke-validation-preflight"
+        model_id = $normalizedTarget
+        planning_model_id = $normalizedTarget
         profile = $ProfileName
         state_changing = $StateChanging
         resource = $script:SimResource
@@ -286,7 +288,7 @@ function Assert-PreflightArtifacts {
 
 $OutputDir = Reset-OutputDirectory -Path $OutputDir -Root $TmpRoot
 $startedAt = Get-Date
-$simResource = if ($normalizedTarget -eq "EDU36311A") { "USB0::SIM::EDU36311A::INSTR" } else { "USB0::SIM::E36312A::INSTR" }
+$simResource = if ($normalizedTarget -eq "keysight-edu36311a") { "USB0::SIM::EDU36311A::INSTR" } else { "USB0::SIM::E36312A::INSTR" }
 $script:SimResource = $simResource
 $records = New-Object System.Collections.Generic.List[object]
 $failures = New-Object System.Collections.Generic.List[string]
@@ -306,12 +308,12 @@ $commands = @(
     [pscustomobject]@{ Name = "protection-status-simulate"; Json = "protection-status.json"; Args = @("protection-status", "--simulate", "--json", "--resource", $simResource, "--all") },
     [pscustomobject]@{ Name = "log-simulate"; Json = "log.json"; Args = @("log", "--simulate", "--json", "--resource", $simResource, "--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--csv", (Join-Path $OutputDir ($normalizedTarget.ToLowerInvariant() + "-smoke.csv")), "--jsonl", (Join-Path $OutputDir ($normalizedTarget.ToLowerInvariant() + "-smoke.jsonl"))) }
 )
-if ($normalizedTarget -eq "EDU36311A") {
+if ($normalizedTarget -eq "keysight-edu36311a") {
     $commands += [pscustomobject]@{ Name = "sequence-readonly-simulate"; Json = "sequence.json"; Args = @("sequence", "--simulate", "--json", "--resource", $simResource, "--file", (Join-Path $RepoRoot "examples\sequence-readonly-edu.yaml")) }
 }
 $commands += [pscustomobject]@{ Name = "capabilities-simulate"; Json = "capabilities.json"; Args = @("capabilities", "--simulate", "--json", "--resource", $simResource) }
 if (-not $isEduReadonly) {
-    if ($normalizedTarget -eq "E36312A") {
+    if ($normalizedTarget -eq "keysight-e36312a") {
         $commands += [pscustomobject]@{ Name = "snapshot-before-simulate"; Json = "snapshot-before.json"; Args = @("snapshot", "--simulate", "--json", "--resource", $simResource) }
     }
     $commands += @(
@@ -322,7 +324,7 @@ if (-not $isEduReadonly) {
         [pscustomobject]@{ Name = "smoke-output-ch3-dry-run"; Json = "smoke-output-ch3.json"; Args = @("smoke-output", "--dry-run", "--json", "--resource", $simResource, "--channel", "3", "--voltage", "1", "--current", "0.05", "--duration-ms", "500") },
         [pscustomobject]@{ Name = "safe-off-cleanup-dry-run"; Json = "safe-off-cleanup.json"; Args = @("safe-off", "--dry-run", "--json", "--resource", $simResource, "--channel", "all") }
     )
-    if ($normalizedTarget -eq "E36312A") {
+    if ($normalizedTarget -eq "keysight-e36312a") {
         $commands += [pscustomobject]@{ Name = "snapshot-after-simulate"; Json = "snapshot-after.json"; Args = @("snapshot", "--simulate", "--json", "--resource", $simResource) }
     }
 }

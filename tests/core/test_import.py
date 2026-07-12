@@ -7,7 +7,7 @@ def test_package_imports() -> None:
 
     import powers_tool_core
 
-    assert powers_tool_core.__version__ == metadata.version("keysight-powers")
+    assert powers_tool_core.__version__ == metadata.version("powers-tool")
 
 
 def test_old_core_namespace_is_absent_without_compatibility_shim() -> None:

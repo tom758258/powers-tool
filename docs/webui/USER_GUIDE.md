@@ -1,4 +1,4 @@
-# Keysight Power WebUI User Guide
+# Powers Tool WebUI User Guide
 
 This guide is for operators who receive the built WebUI launcher and use it to
 inspect and control supported Keysight DC power supplies. It avoids developer
@@ -12,19 +12,19 @@ For normal use, double-click the WebUI launcher provided with the release or
 local build:
 
 ```text
-keysight-power-webui-launcher.exe
+powers-tool-webui-launcher.exe
 ```
 
 To confirm the launcher version from PowerShell:
 
 ```powershell
-.\keysight-power-webui-launcher.exe --version
+.\powers-tool-webui-launcher.exe --version
 ```
 
 Release folders may include a versioned launcher name, such as:
 
 ```text
-keysight-power-webui-launcher-<version>.exe
+powers-tool-webui-launcher-<version>.exe
 ```
 
 In the launcher window:
@@ -276,7 +276,7 @@ that URL.
 
 ### The launcher says the port is already in use
 
-If another Keysight Power WebUI server is already running on that port, the
+If another Powers Tool WebUI server is already running on that port, the
 launcher opens it. If a different service owns the port, choose another port or
 stop that service before starting the launcher.
 

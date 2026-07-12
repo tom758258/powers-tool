@@ -189,7 +189,7 @@ def test_public_dry_run_examples_do_not_use_live_resource_without_model():
         for line_number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), start=1):
             if "--dry-run" not in line:
                 continue
-            if "$env:KEYSIGHT_POWER_RESOURCE" in line and "--model" not in line and "::SIM::" not in line:
+            if "$env:POWERS_TOOL_RESOURCE" in line and "--model" not in line and "::SIM::" not in line:
                 offenders.append(f"{path}:{line_number}: {line}")
             if re.search(r"USB0::FAKE::\w+::INSTR", line) and "--dry-run" in line and "--model" not in line:
                 context = "\n".join(Path(path).read_text(encoding="utf-8").splitlines()[max(0, line_number - 5):line_number + 2])
@@ -213,8 +213,7 @@ def test_no_hardware_scripts_use_model_or_deterministic_sim_resources():
     assert "Test-DeterministicSimResource" in batch
     assert '"USB0::SIM::E36312A::INSTR"' in batch
     assert '"USB0::SIM::EDU36311A::INSTR"' in batch
-    # Script argument migration is intentionally assigned to V2-P5.
-    assert '@("--model", "E36312A")' in batch
+    assert '@("--model", "keysight-e36312a")' in batch
 
 
 def test_e3646a_public_status_docs_do_not_use_pending_output_wording():

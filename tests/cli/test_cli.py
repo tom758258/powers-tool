@@ -1615,7 +1615,7 @@ def output_command_args(
 
 
 def write_safety_config(tmp_path, content: str | None = None) -> str:
-    config_path = tmp_path / "keysight-power.toml"
+    config_path = tmp_path / "powers-tool.toml"
     config_path.write_text(
         content
         or """
@@ -7815,7 +7815,7 @@ def test_ramp_list_dry_run_file_uses_versioned_document(tmp_path, capsys) -> Non
     ramp_file.write_text(
         json.dumps(
             {
-                "kind": "keysight-power-ramp-list",
+                "kind": "powers-tool-ramp-list",
                 "version": 1,
                 "segments": [
                     {

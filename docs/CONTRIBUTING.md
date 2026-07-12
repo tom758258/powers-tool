@@ -1,6 +1,6 @@
-# Contributing to Keysight Powers
+# Contributing to Powers Tool
 
-Thank you for improving Keysight Powers. Useful contributions include issue
+Thank you for improving Powers Tool. Useful contributions include issue
 reports, focused bug fixes, English documentation, tests, simulator and fake
 instrument improvements, model support, command/workflow support, and
 transport/backend evidence.
@@ -22,7 +22,7 @@ uv sync --all-extras --locked --link-mode=copy
 .\.venv\Scripts\python.exe -m pytest tests -q -p no:cacheprovider
 ```
 
-The repository is one distribution, `keysight-powers`; do not create a
+The repository is one distribution, `powers-tool`; do not create a
 component-local distribution. Use focused no-hardware tests while iterating,
 then run relevant Core, CLI, WebUI, and documentation/ownership tests. Explain
 in the pull request if the full no-hardware suite was not run.
@@ -33,8 +33,8 @@ The three import packages have distinct responsibilities:
 
 - `powers_tool_core` owns model logic, exact live-scope authorization,
   drivers, safety validation, and hardware-facing behavior.
-- `keysight_power_cli` is the command-line adapter.
-- `keysight_power_webui` is the browser and HTTP adapter.
+- `powers_tool_cli` is the command-line adapter.
+- `powers_tool_webui` is the browser and HTTP adapter.
 
 The dependency direction is `CLI -> Core` and `WebUI -> Core`. Core must not
 import either adapter. Frontend enabled/disabled state is UX only; Core is the
@@ -142,7 +142,7 @@ implemented, ratings/hard limits and request validation exist, the exact
 pending scope is registered, and simulator or fake coverage exists:
 
 ```powershell
-.\.venv\Scripts\python.exe -m keysight_power_cli.cli `
+.\.venv\Scripts\python.exe -m powers_tool_cli.cli `
   <COMMAND> `
   --validation-allow-pending-live-support `
   --resource "<EXPLICIT_VISA_RESOURCE>" `

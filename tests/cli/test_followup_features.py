@@ -812,10 +812,10 @@ def test_edu36311a_live_smoke_defaults_to_output_profile():
     live = Path("scripts/live-smoke-validation-check.ps1").read_text(encoding="utf-8")
 
     assert '[string]$Profile = "auto"' in preflight
-    assert '$isEduReadonly = $normalizedTarget -eq "EDU36311A" -and $normalizedProfile -eq "readonly"' in preflight
-    assert '$isEduReadonly = $normalizedTarget -eq "EDU36311A" -and $normalizedProfile -eq "readonly"' in live
+    assert '$isEduReadonly = $normalizedTarget -eq "keysight-edu36311a" -and $normalizedProfile -eq "readonly"' in preflight
+    assert '$isEduReadonly = $normalizedTarget -eq "keysight-edu36311a" -and $normalizedProfile -eq "readonly"' in live
     assert '& $preflightScript -Target $Target -Profile $Profile' in live
-    assert 'Invoke-LiveReadOnlyChecks -LogPrefix "output-smoke" -IncludeSequence:($normalizedTarget -eq "EDU36311A")' in live
+    assert 'Invoke-LiveReadOnlyChecks -LogPrefix "output-smoke" -IncludeSequence:($normalizedTarget -eq "keysight-edu36311a")' in live
     assert 'Name = "sequence-readonly-simulate"' in preflight
     assert 'Name = "apply-no-output-dry-run"' in preflight
 

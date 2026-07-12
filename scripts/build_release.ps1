@@ -58,18 +58,18 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_cli_exe.ps1") -DistPath $versionDir -Name "keysight-power-$Version"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_cli_exe.ps1") -DistPath $versionDir -Name "powers-tool-$Version"
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_webui_exe.ps1") -DistPath $versionDir -Name "keysight-power-webui-launcher-$Version"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_webui_exe.ps1") -DistPath $versionDir -Name "powers-tool-webui-launcher-$Version"
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-Copy-Item -LiteralPath (Join-Path $RepoRoot "dist\keysight_powers-$Version-py3-none-any.whl") -Destination $versionDir -Force
-Copy-Item -LiteralPath (Join-Path $RepoRoot "dist\keysight_powers-$Version.tar.gz") -Destination $versionDir -Force
+Copy-Item -LiteralPath (Join-Path $RepoRoot "dist\powers_tool-$Version-py3-none-any.whl") -Destination $versionDir -Force
+Copy-Item -LiteralPath (Join-Path $RepoRoot "dist\powers_tool-$Version.tar.gz") -Destination $versionDir -Force
 
 $checksums = foreach ($artifact in Get-ChildItem -LiteralPath $versionDir -File | Sort-Object Name) {
     $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $artifact.FullName

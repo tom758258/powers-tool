@@ -28,7 +28,7 @@ from powers_tool_core.safety import SafetyConfigError, SafetyValidationError, re
 from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.trigger import run_post_action_completion_pulse
 
-RAMP_LIST_KIND = "keysight-power-ramp-list"
+RAMP_LIST_KIND = "powers-tool-ramp-list"
 RAMP_LIST_VERSION = 1
 MAX_RAMP_SEGMENTS = 10
 SEGMENT_FIELDS = frozenset(

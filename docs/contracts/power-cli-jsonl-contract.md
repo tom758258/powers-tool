@@ -7,7 +7,7 @@ Numeric command fields follow the shared
 
 ## CLI Commands
 
-The installed Python distribution is `keysight-powers`. CLI JSON payloads use
+The installed Python distribution is `powers-tool`. CLI JSON payloads use
 the V2 adapter identifier `powers-tool-cli`, while the reported version is
 sourced from the single distribution.
 

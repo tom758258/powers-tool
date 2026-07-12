@@ -1,6 +1,6 @@
 param(
     [string]$DistPath = "dist",
-    [string]$Name = "keysight-power"
+    [string]$Name = "powers-tool"
 )
 
 Set-StrictMode -Version Latest
@@ -35,7 +35,7 @@ if (-not (
     --workpath (Join-Path $RepoRoot "build\pyinstaller-cli") `
     --specpath (Join-Path $RepoRoot "build\pyinstaller-specs") `
     --paths (Join-Path $RepoRoot "src") `
-    (Join-Path $RepoRoot "src\keysight_power_cli\cli.py")
+    (Join-Path $RepoRoot "src\powers_tool_cli\cli.py")
 
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

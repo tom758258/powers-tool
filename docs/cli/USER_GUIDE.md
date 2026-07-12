@@ -1,4 +1,4 @@
-# Keysight Power CLI User Guide
+# Powers Tool CLI User Guide
 
 This guide is for operators who receive the built CLI executable or an
 already-installed `powers-tool` command to control supported Keysight DC
@@ -11,13 +11,13 @@ automation details, see the [CLI README](README.md).
 Open PowerShell in the folder that contains the CLI executable and check it:
 
 ```powershell
-.\keysight-power.exe --version
+.\powers-tool.exe --version
 ```
 
 Release folders may include a versioned executable name, such as:
 
 ```text
-keysight-power-<version>.exe
+powers-tool-<version>.exe
 ```
 
 Use that file name in the commands below if your release folder uses a
@@ -25,7 +25,7 @@ versioned executable. Developers or source-checkout users should use the
 [CLI README](README.md) for virtual environment, module, validation, and build
 commands.
 
-For an already-installed command, replace `.\keysight-power.exe` with
+For an already-installed command, replace `.\powers-tool.exe` with
 `powers-tool`:
 
 ```powershell
@@ -42,26 +42,26 @@ supply setup.
 2. List only VISA resources that currently answer `*IDN?`:
 
 ```powershell
-.\keysight-power.exe list-resources --live-only
+.\powers-tool.exe list-resources --live-only
 ```
 
 3. Copy the exact resource string and set a session variable:
 
 ```powershell
-$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
+$env:POWERS_TOOL_RESOURCE = "USB0::...::INSTR"
 ```
 
 4. Run a read-only identity check:
 
 ```powershell
-.\keysight-power.exe verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+.\powers-tool.exe verify --resource "$env:POWERS_TOOL_RESOURCE" --log-scpi
 ```
 
 5. Run a read-only measurement or status check before any output action:
 
 ```powershell
-.\keysight-power.exe measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
-.\keysight-power.exe read-status --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\powers-tool.exe measure --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --log-scpi
+.\powers-tool.exe read-status --resource "$env:POWERS_TOOL_RESOURCE" --json --log-scpi
 ```
 
 Use an explicit resource string for live commands. Do not rely on a script or
@@ -72,7 +72,7 @@ unattended workflow to guess which instrument should be used.
 For normal live use, prefer:
 
 ```powershell
-.\keysight-power.exe list-resources --live-only
+.\powers-tool.exe list-resources --live-only
 ```
 
 Plain `list-resources` is passive VISA discovery. It can show stale cached
@@ -84,13 +84,13 @@ Use `--verify` when diagnosing stale entries because it reports both live and
 failed resources:
 
 ```powershell
-.\keysight-power.exe list-resources --verify
+.\powers-tool.exe list-resources --verify
 ```
 
 Add `--json` when copying results into automation:
 
 ```powershell
-.\keysight-power.exe list-resources --live-only --json
+.\powers-tool.exe list-resources --live-only --json
 ```
 
 ## Resource Variables
@@ -98,13 +98,13 @@ Add `--json` when copying results into automation:
 Use environment variables to simplify copying and running multiple commands in a session:
 
 ```powershell
-$env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
-$env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
+$env:POWERS_TOOL_RESOURCE = "USB0::...::INSTR"
+$env:POWERS_TOOL_ASRL_RESOURCE = "ASRL1::INSTR"
 ```
 
 Please note:
-* `$env:KEYSIGHT_POWER_RESOURCE` is for generic live USB/LAN examples.
-* `$env:KEYSIGHT_POWER_ASRL_RESOURCE` is for E3646A RS-232 / ASRL examples.
+* `$env:POWERS_TOOL_RESOURCE` is for generic live USB/LAN examples.
+* `$env:POWERS_TOOL_ASRL_RESOURCE` is for E3646A RS-232 / ASRL examples.
 * These are documentation convenience variables, not hidden CLI defaults.
 * Live commands still require an explicit `--resource` argument.
 
@@ -128,7 +128,7 @@ snapshot, restore, native LIST, and completion-pulse steps are rejected.
 Set the ASRL resource once per PowerShell session:
 
 ```powershell
-$env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
+$env:POWERS_TOOL_ASRL_RESOURCE = "ASRL1::INSTR"
 ```
 
 Plain `list-resources` normally does not need serial settings:
@@ -141,7 +141,7 @@ If Keysight IO Libraries Suite / Connection Expert already has the ASRL
 resource configured, try a read-only check without overriding those settings:
 
 ```powershell
-powers-tool verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE"
+powers-tool verify --resource "$env:POWERS_TOOL_ASRL_RESOURCE"
 ```
 
 To explicitly apply serial settings for one command, pass only the fields you
@@ -150,7 +150,7 @@ parity, 2 stop bits, and DTR/DSR handshake, but the instrument front-panel
 settings may have been changed:
 
 ```powershell
-powers-tool verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
+powers-tool verify --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
 ```
 
 `--serial-remote` sends `SYST:REM`. `--serial-local-on-close` best-effort
@@ -160,10 +160,10 @@ only when explicitly requested.
 Useful read/status examples:
 
 ```powershell
-powers-tool identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
-powers-tool readback --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
-powers-tool measure --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
-powers-tool output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+powers-tool identify --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --serial-remote --serial-local-on-close
+powers-tool readback --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+powers-tool measure --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
+powers-tool output-state --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
 ```
 
 For serial read/write termination in PowerShell, use aliases when possible:
@@ -175,10 +175,10 @@ not override the VISA setting.
 Use read-only commands first when validating an instrument:
 
 ```powershell
-.\keysight-power.exe identify --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
-.\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
-.\keysight-power.exe protection-status --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
-.\keysight-power.exe validate-readonly --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\powers-tool.exe identify --resource "$env:POWERS_TOOL_RESOURCE" --json --log-scpi
+.\powers-tool.exe readback --resource "$env:POWERS_TOOL_RESOURCE" --json --log-scpi
+.\powers-tool.exe protection-status --resource "$env:POWERS_TOOL_RESOURCE" --json --log-scpi
+.\powers-tool.exe validate-readonly --resource "$env:POWERS_TOOL_RESOURCE" --json --log-scpi
 ```
 
 These commands query identity, programmed setpoints, measured values, status,
@@ -193,25 +193,25 @@ settings.
 Set low setpoints without enabling output:
 
 ```powershell
-.\keysight-power.exe set --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --json --log-scpi
+.\powers-tool.exe set --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --voltage 1 --current 0.05 --json --log-scpi
 ```
 
 Read back the programmed state:
 
 ```powershell
-.\keysight-power.exe readback --resource "$env:KEYSIGHT_POWER_RESOURCE" --json --log-scpi
+.\powers-tool.exe readback --resource "$env:POWERS_TOOL_RESOURCE" --json --log-scpi
 ```
 
 Preview the implemented output-enable plan without opening real hardware:
 
 ```powershell
-.\keysight-power.exe output-on --dry-run --model keysight-e36312a --channel 1 --json
+.\powers-tool.exe output-on --dry-run --model keysight-e36312a --channel 1 --json
 ```
 
 Turn output off when the check is complete:
 
 ```powershell
-.\keysight-power.exe output-off --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --json --log-scpi
+.\powers-tool.exe output-off --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --json --log-scpi
 ```
 
 For a short smoke action, keep voltage and current low and use the documented
@@ -242,10 +242,10 @@ needs model-specific planning, pass a canonical simulation/dry-run model ID with
 `USB0::SIM::E36312A::INSTR`.
 
 ```powershell
-.\keysight-power.exe set --dry-run --model keysight-e3646a --channel 1 --voltage 1 --current 0.05
-.\keysight-power.exe readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
-.\keysight-power.exe trigger-step --dry-run --model keysight-e36312a --channel 1 --source bus --fire
-.\keysight-power.exe set --dry-run --profile generic-scpi --channel 1 --voltage 1 --current 0.05
+.\powers-tool.exe set --dry-run --model keysight-e3646a --channel 1 --voltage 1 --current 0.05
+.\powers-tool.exe readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
+.\powers-tool.exe trigger-step --dry-run --model keysight-e36312a --channel 1 --source bus --fire
+.\powers-tool.exe set --dry-run --profile generic-scpi --channel 1 --voltage 1 --current 0.05
 ```
 
 `--profile generic-scpi` is dry-run-only and is exposed only on commands whose
@@ -263,7 +263,7 @@ does not match the connected IDN model, the command fails before setup or write
 SCPI:
 
 ```powershell
-.\keysight-power.exe set --model keysight-e36312a --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
+.\powers-tool.exe set --model keysight-e36312a --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
 ```
 
 This requires the connected model to be E36312A and does not force the E36312A
@@ -279,7 +279,7 @@ in that family is product-open. See the
 
 ## Common Problems
 
-If `keysight-power.exe` is missing, confirm you are in the folder that contains
+If `powers-tool.exe` is missing, confirm you are in the folder that contains
 the CLI executable and use the actual filename from that folder.
 
 If no live resources are found, check instrument power, USB/LAN cabling, VISA

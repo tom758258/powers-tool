@@ -23,9 +23,9 @@ if ([string]::IsNullOrWhiteSpace($Target)) {
 if ([string]::IsNullOrWhiteSpace($Connection)) {
     Fail-Validation "Missing required -Connection. Supported names: USB/local or LAN/network."
 }
-$normalizedTarget = $Target.Trim().ToUpperInvariant()
-if ($normalizedTarget -notin @("E36312A", "EDU36311A")) {
-    Fail-Validation "Live smoke validation supports only Target E36312A or EDU36311A."
+$normalizedTarget = $Target
+if ($normalizedTarget -notin @("keysight-e36312a", "keysight-edu36311a")) {
+    Fail-Validation "Live smoke validation supports only canonical model IDs keysight-e36312a or keysight-edu36311a."
 }
 
 $normalizedConnection = $Connection.Trim().ToUpperInvariant()
@@ -47,7 +47,7 @@ $normalizedProfile = $Profile.Trim().ToLowerInvariant()
 if ($normalizedProfile -notin @("auto", "readonly", "output", "output_smoke")) {
     Fail-Validation "Unsupported -Profile. Use auto, readonly, or output."
 }
-$isEduReadonly = $normalizedTarget -eq "EDU36311A" -and $normalizedProfile -eq "readonly"
+$isEduReadonly = $normalizedTarget -eq "keysight-edu36311a" -and $normalizedProfile -eq "readonly"
 $ProfileName = if ($isEduReadonly) { "readonly" } else { "output_smoke" }
 $StateChanging = -not $isEduReadonly
 
@@ -59,6 +59,8 @@ $PythonExe = Join-Path (Join-Path $RepoRoot ".venv") "Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $PythonExe)) {
     $PythonExe = "python"
 }
+$CliExecutable = if ($PythonExe -eq "python") { "powers-tool" } else { Join-Path (Split-Path -Parent $PythonExe) "powers-tool.exe" }
+if ($PythonExe -ne "python" -and -not (Test-Path -LiteralPath $CliExecutable)) { $CliExecutable = "powers-tool" }
 
 function Assert-UnderDirectory {
     param(
@@ -173,7 +175,7 @@ function Invoke-LiveCliJsonCommand {
     $stdoutPath = Join-Path $OutputDir ($Name + ".stdout.txt")
     $stderrPath = Join-Path $OutputDir ($Name + ".stderr-scpi.txt")
     $argsWithBackend = Add-BackendArgument -Arguments $Arguments
-    $allArgs = @($argsWithBackend + @("--save-json", $jsonPath))
+    $allArgs = @($argsWithBackend + @("--model", $normalizedTarget, "--save-json", $jsonPath))
 
     $oldErrorActionPreference = $ErrorActionPreference
     $nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
@@ -185,7 +187,7 @@ function Invoke-LiveCliJsonCommand {
             $oldNativePreference = [bool]$nativePreferenceVariable.Value
             $PSNativeCommandUseErrorActionPreference = $false
         }
-        & $PythonExe -m keysight_power_cli.cli @allArgs 1> $stdoutPath 2> $stderrPath
+        & $CliExecutable @allArgs 1> $stdoutPath 2> $stderrPath
         $exitCode = $LASTEXITCODE
     }
     finally {
@@ -225,8 +227,7 @@ function Invoke-LiveCliJsonCommand {
     }
 
     $recordArgs = Protect-ValidationArguments -Arguments $allArgs
-    $formattedArgs = @("-m", "keysight_power_cli.cli") + $recordArgs
-    $commandLine = (Format-CommandArgument -Argument $PythonExe) + " " + (($formattedArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
+    $commandLine = "powers-tool " + (($recordArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
     $record = [pscustomobject]@{
         name = $Name
         command_line = $commandLine
@@ -360,9 +361,10 @@ function Write-LiveArtifacts {
     $reportPath = Join-Path $OutputDir "report.json"
     $summaryPath = Join-Path $OutputDir "summary.md"
     $report = [pscustomobject]@{
-        schema_version = "1.0"
-        kind = "smoke_validation_live"
-        target = $Target
+        schema_version = 2
+        kind = "powers-tool-live-smoke-validation"
+        model_id = $normalizedTarget
+        expected_model_id = $normalizedTarget
         profile = $ProfileName
         state_changing = $StateChanging
         connection = $connectionLabel
@@ -524,9 +526,9 @@ try {
         Invoke-LiveReadOnlyChecks -LogPrefix "readonly" -IncludeSequence:$true
     }
     else {
-        Invoke-LiveReadOnlyChecks -LogPrefix "output-smoke" -IncludeSequence:($normalizedTarget -eq "EDU36311A")
+        Invoke-LiveReadOnlyChecks -LogPrefix "output-smoke" -IncludeSequence:($normalizedTarget -eq "keysight-edu36311a")
 
-        if ($normalizedTarget -eq "E36312A") {
+        if ($normalizedTarget -eq "keysight-e36312a") {
             Invoke-LiveCliJsonCommand `
                 -Name "snapshot-before" `
                 -Arguments @("snapshot", "--json", "--resource", $Resource, "--log-scpi") `
@@ -557,7 +559,7 @@ try {
                 -JsonFileName "safe-off-cleanup.json" | Out-Null
         }
 
-        if ($normalizedTarget -eq "E36312A") {
+        if ($normalizedTarget -eq "keysight-e36312a") {
             Invoke-LiveCliJsonCommand `
                 -Name "snapshot-after" `
                 -Arguments @("snapshot", "--json", "--resource", $Resource, "--log-scpi") `

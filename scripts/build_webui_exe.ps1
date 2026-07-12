@@ -1,6 +1,6 @@
 param(
     [string]$DistPath = "dist",
-    [string]$Name = "keysight-power-webui-launcher"
+    [string]$Name = "powers-tool-webui-launcher"
 )
 
 Set-StrictMode -Version Latest
@@ -35,8 +35,8 @@ if (-not (
     --workpath (Join-Path $RepoRoot "build\pyinstaller-webui") `
     --specpath (Join-Path $RepoRoot "build\pyinstaller-specs") `
     --paths (Join-Path $RepoRoot "src") `
-    --add-data "$(Join-Path $RepoRoot 'src\keysight_power_webui\static');keysight_power_webui\static" `
-    (Join-Path $RepoRoot "src\keysight_power_webui\launcher.py")
+    --add-data "$(Join-Path $RepoRoot 'src\powers_tool_webui\static');powers_tool_webui\static" `
+    (Join-Path $RepoRoot "src\powers_tool_webui\launcher.py")
 
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

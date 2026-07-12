@@ -18,6 +18,8 @@ $PythonExe = Join-Path (Join-Path $RepoRoot ".venv") "Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $PythonExe)) {
     $PythonExe = "python"
 }
+$CliExecutable = if ($PythonExe -eq "python") { "powers-tool" } else { Join-Path (Split-Path -Parent $PythonExe) "powers-tool.exe" }
+if ($PythonExe -ne "python" -and -not (Test-Path -LiteralPath $CliExecutable)) { $CliExecutable = "powers-tool" }
 
 function ConvertTo-RepoRelativePath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -88,7 +90,7 @@ function Invoke-CliJsonCommand {
     $stderrPath = Join-Path $OutputDir ($Name + ".stderr.txt")
     $allArgs = @(Add-BackendArgument -Arguments $Arguments) + @("--save-json", $jsonPath)
 
-    & $PythonExe -m keysight_power_cli.cli @allArgs 1> $stdoutPath 2> $stderrPath
+    & $CliExecutable @allArgs 1> $stdoutPath 2> $stderrPath
     $exitCode = $LASTEXITCODE
 
     $payload = $null
@@ -152,7 +154,7 @@ if ($RunE36312AOutput) {
         $args = @("smoke-output", "--json", "--resource", $E36312AUsbResource, "--channel", "1", "--voltage", "1", "--current", "0.05", "--duration-ms", "500")
         if (Test-DeterministicSimResource -Resource $E36312AUsbResource -ExpectedResource "USB0::SIM::E36312A::INSTR") {
             $args += "--simulate"
-            $args += @("--model", "E36312A")
+            $args += @("--model", "keysight-e36312a")
         }
         else {
             $args += "--confirm"
@@ -193,8 +195,8 @@ $result = if ($failed.Count -gt 0) { "failed" } else { "passed" }
 $reportPath = Join-Path $OutputDir "report.json"
 $summaryPath = Join-Path $OutputDir "summary.md"
 $report = [pscustomobject]@{
-    schema_version = "1.0"
-    kind = "batch_validation"
+    schema_version = 2
+    kind = "powers-tool-batch-validation"
     output_dir = ConvertTo-RepoRelativePath -Path $OutputDir
     started_at = $startedAt.ToUniversalTime().ToString("o")
     completed_at = $completedAt.ToUniversalTime().ToString("o")
@@ -214,7 +216,7 @@ $report = [pscustomobject]@{
 Write-Utf8NoBomFile -LiteralPath $reportPath -Value @($report | ConvertTo-Json -Depth 20)
 
 $lines = New-Object System.Collections.Generic.List[string]
-$lines.Add("# Keysight Power Batch Validation")
+$lines.Add("# Powers Tool Batch Validation")
 $lines.Add("")
 $lines.Add("Result: " + $result.ToUpperInvariant())
 $lines.Add("")

@@ -1021,7 +1021,7 @@ function moveRampSegment(index, offset) {
 
 function rampListDocument() {
   const document = {
-    kind: "keysight-power-ramp-list",
+    kind: "powers-tool-ramp-list",
     version: 1,
     segments: state.rampListSegments.map((segment) => ({ ...segment }))
   };
@@ -1030,7 +1030,7 @@ function rampListDocument() {
 }
 
 function validateRampListDocument(document) {
-  if (!document || document.kind !== "keysight-power-ramp-list" || document.version !== 1) {
+  if (!document || document.kind !== "powers-tool-ramp-list" || document.version !== 1) {
     throw new Error("Invalid Ramp List kind or version.");
   }
   if (Object.keys(document).some((field) => !["kind", "version", "completion_pulse", "segments"].includes(field))) {
@@ -1098,7 +1098,7 @@ async function saveRampList() {
 
 function triggerListWorkspaceDocument() {
   return {
-    kind: "keysight-power-trigger-list-workspace", version: 1, active_channel: state.triggerListActiveChannel,
+    kind: "powers-tool-trigger-list-workspace", version: 1, active_channel: state.triggerListActiveChannel,
     controls: { ...state.triggerListControls, trigger_output_pins: [...state.triggerListControls.trigger_output_pins] },
     channels: Object.fromEntries(["1", "2", "3"].map((channel) => [channel, {
       count: state.triggerListChannels[channel].count,
@@ -1112,7 +1112,7 @@ function validateTriggerListWorkspace(document) {
     if (!object || typeof object !== "object" || Array.isArray(object) || Object.keys(object).some((field) => !fields.includes(field)) || fields.some((field) => !(field in object))) throw new Error(`${label} contains unknown or missing fields.`);
   };
   exact(document, ["kind", "version", "active_channel", "controls", "channels"], "Trigger List workspace");
-  if (document.kind !== "keysight-power-trigger-list-workspace" || document.version !== 1 || ![1, 2, 3].includes(document.active_channel)) throw new Error("Invalid Trigger List workspace kind, version, or active channel.");
+  if (document.kind !== "powers-tool-trigger-list-workspace" || document.version !== 1 || ![1, 2, 3].includes(document.active_channel)) throw new Error("Invalid Trigger List workspace kind, version, or active channel.");
   const fields = ["source", "fire", "wait_complete", "trigger_output_pins", "trigger_output_polarity", "exclusive_pins", "poll_ms", "wait_timeout_ms", "leave_trigger_configured"];
   exact(document.controls, fields, "Trigger List controls");
   const c = document.controls;
@@ -1970,7 +1970,7 @@ async function saveSequenceFile() {
     const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
     const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const suggestedName = `keysight-power-sequence-${timestamp}.sequence.json`;
+    const suggestedName = `powers-tool-sequence-${timestamp}.sequence.json`;
 
     await saveJsonFile(documentText, {
       description: "Keysight Power Sequence JSON",

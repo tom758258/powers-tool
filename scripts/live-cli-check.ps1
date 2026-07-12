@@ -1,5 +1,4 @@
 param(
-    [Alias("Model", "Profile")]
     [string]$Target,
 
     [Alias("Transport")]
@@ -20,7 +19,33 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = "Stop"
 
-$SupportedTargets = @("E36312A", "EDU36311A", "E3646A")
+$TargetMetadata = [ordered]@{
+    "keysight-e36312a" = [pscustomobject]@{
+        model_id = "keysight-e36312a"
+        vendor_id = "keysight"
+        model_name = "E36312A"
+        simulator_resource = "USB0::SIM::E36312A::INSTR"
+        channels = @(1, 2, 3)
+        suites = @("readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence")
+    }
+    "keysight-edu36311a" = [pscustomobject]@{
+        model_id = "keysight-edu36311a"
+        vendor_id = "keysight"
+        model_name = "EDU36311A"
+        simulator_resource = "USB0::SIM::EDU36311A::INSTR"
+        channels = @(1, 2, 3)
+        suites = @("readonly", "output", "protection", "software-sequence")
+    }
+    "keysight-e3646a" = [pscustomobject]@{
+        model_id = "keysight-e3646a"
+        vendor_id = "keysight"
+        model_name = "E3646A"
+        simulator_resource = "ASRL1::SIM::E3646A::INSTR"
+        channels = @(1, 2)
+        suites = @("readonly", "output", "software-sequence")
+    }
+}
+$SupportedTargets = @($TargetMetadata.Keys)
 $PolicyGatedCommands = @(
     "measure", "measure-all", "output-state", "read-status", "validate-readonly", "readback",
     "protection-status", "protection-set", "clear-protection", "snapshot", "restore-from-snapshot",
@@ -29,18 +54,17 @@ $PolicyGatedCommands = @(
     "trigger-status", "trigger-step", "trigger-list", "trigger-fire", "trigger-abort"
 )
 $ExemptLiveDiagnosticCommands = @("list-resources", "verify", "identify", "error", "clear")
-$SimResources = @{
-    E36312A = "USB0::SIM::E36312A::INSTR"
-    EDU36311A = "USB0::SIM::EDU36311A::INSTR"
-    E3646A = "ASRL1::SIM::E3646A::INSTR"
-}
-
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $TmpRoot = Join-Path $RepoRoot ".tmp_tests"
 $PythonExe = Join-Path (Join-Path $RepoRoot ".venv") "Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $PythonExe)) {
     $PythonExe = "python"
 }
+$CliExecutable = if ($PythonExe -eq "python") { "powers-tool" } else { Join-Path (Split-Path -Parent $PythonExe) "powers-tool.exe" }
+if ($PythonExe -ne "python" -and -not (Test-Path -LiteralPath $CliExecutable)) {
+    $CliExecutable = "powers-tool"
+}
+$CliPrefix = @()
 
 function Fail-Validation {
     param(
@@ -163,6 +187,10 @@ function Get-ShareablePythonCommand {
     return ".venv\\Scripts\\python.exe"
 }
 
+function Get-ShareableCliCommand {
+    return "powers-tool"
+}
+
 function Add-SensitiveValue {
     param([AllowNull()][string]$Value)
 
@@ -172,7 +200,7 @@ function Add-SensitiveValue {
 }
 
 function Get-FreeFormIdnPattern {
-    return '(?i)\b(?:keysight(?: technologies)?|agilent(?: technologies)?)\s*,\s*(?:E\d{4,5}[A-Z]?|EDU\d+[A-Z0-9-]*)\s*,\s*([^,\s]+)\s*,\s*([A-Za-z0-9][A-Za-z0-9._-]*)'
+    return '(?i)\b[A-Z][A-Z0-9 .&_-]{1,63}\s*,\s*[A-Z0-9][A-Z0-9._/-]{1,31}\s*,\s*([^,\r\n]{1,64})\s*,\s*[A-Z0-9][A-Z0-9._/-]{0,31}'
 }
 
 function Test-DistinctiveSensitiveToken {
@@ -382,16 +410,12 @@ function Resolve-Target {
     param([string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
-        Fail-Validation "Missing required -Target. Supported targets: $($SupportedTargets -join ', '). GENERIC is no-hardware only."
+        Fail-Validation "Missing required -Target. Supported canonical model IDs: $($SupportedTargets -join ', '). generic-scpi is no-hardware planning only."
     }
-    $normalized = $Value.Trim().ToUpperInvariant()
-    if ($normalized -eq "GENERIC") {
-        Fail-Validation "GENERIC is no-hardware only and is not accepted as a live validation target."
+    if ($Value -notin $SupportedTargets) {
+        Fail-Validation "Unsupported -Target '$Value'. Use one canonical model_id: $($SupportedTargets -join ', ')."
     }
-    if ($normalized -notin $SupportedTargets) {
-        Fail-Validation "Unsupported -Target '$Value'. Supported targets: $($SupportedTargets -join ', ')."
-    }
-    return $normalized
+    return $Value
 }
 
 function Resolve-Connection {
@@ -416,26 +440,17 @@ function Resolve-Connection {
 function Get-TargetChannels {
     param([string]$Model)
 
-    if ($Model -in @("E36312A", "EDU36311A")) {
-        return @(1, 2, 3)
+    if ($TargetMetadata.Contains($Model)) {
+        return @($TargetMetadata[$Model].channels)
     }
-    if ($Model -eq "E3646A") {
-        return @(1, 2)
-    }
-    return @(1)
+    Fail-Validation "Unsupported -Target '$Model'. Supported targets: $($SupportedTargets -join ', ')."
 }
 
 function Get-SupportedSuites {
     param([string]$Model)
 
-    if ($Model -eq "E36312A") {
-        return @("readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence")
-    }
-    if ($Model -eq "EDU36311A") {
-        return @("readonly", "output", "protection", "software-sequence")
-    }
-    if ($Model -eq "E3646A") {
-        return @("readonly", "output", "software-sequence")
+    if ($TargetMetadata.Contains($Model)) {
+        return @($TargetMetadata[$Model].suites)
     }
     Fail-Validation "Unsupported -Target '$Model'. Supported targets: $($SupportedTargets -join ', ')."
 }
@@ -607,24 +622,28 @@ function New-ValidationSnapshotFile {
     Ensure-ArtifactDirectories
     $path = Join-Path $script:PrivateArtifactDir "generated-e36312a-snapshot.json"
     $snapshot = [pscustomobject]@{
-        ok = $true
-        data = [pscustomobject]@{
-            resource = $SimResources.E36312A
-            idn = [pscustomobject]@{
-                raw = "KEYSIGHT,E36312A,SIM000003,1.0"
-                manufacturer = "KEYSIGHT"
-                model = "E36312A"
-                serial = "SIM000003"
-                firmware = "1.0"
-                parse_ok = $true
-            }
-            errors = @()
-            outputs = @([pscustomobject]@{ channel = 1; enabled = $false })
-            readback = @([pscustomobject]@{ channel = 1; setpoints = [pscustomobject]@{ voltage = 1.0; current = 0.05 } })
-            measurements = @([pscustomobject]@{ channel = 1; measurements = [pscustomobject]@{ voltage = 1.0; current = 0.0 } })
-            protection = [pscustomobject]@{ over_voltage_tripped = $false; over_current_tripped = $false }
-            protection_settings = @([pscustomobject]@{ channel = 1; protection = [pscustomobject]@{ ovp_voltage = 5.0; ocp_enabled = $true } })
+        schema_version = 2
+        kind = "powers-tool-snapshot"
+        resource = $TargetMetadata["keysight-e36312a"].simulator_resource
+        reported_identity = [pscustomobject]@{
+            manufacturer = "KEYSIGHT"
+            model = "E36312A"
+            serial = "SIM000003"
+            firmware = "1.0"
+            parse_ok = $true
         }
+        resolved_identity = [pscustomobject]@{
+            vendor_id = "keysight"
+            model_id = "keysight-e36312a"
+            model_name = "E36312A"
+            display_name = "Keysight E36312A"
+        }
+        errors = @()
+        outputs = @([pscustomobject]@{ channel = 1; enabled = $false })
+        readback = @([pscustomobject]@{ channel = 1; setpoints = [pscustomobject]@{ voltage = 1.0; current = 0.05 } })
+        measurements = @([pscustomobject]@{ channel = 1; measurements = [pscustomobject]@{ voltage = 1.0; current = 0.0 } })
+        protection = [pscustomobject]@{ over_voltage_tripped = $false; over_current_tripped = $false }
+        protection_settings = @([pscustomobject]@{ channel = 1; protection = [pscustomobject]@{ ovp_voltage = 5.0; ocp_enabled = $true; ocp_delay = $null; ocp_delay_trigger = $null } })
     }
     Write-Utf8NoBomFile -LiteralPath $path -Value @($snapshot | ConvertTo-Json -Depth 20)
     return $path
@@ -633,7 +652,7 @@ function New-ValidationSnapshotFile {
 function Get-ReadOnlyCases {
     param([string]$Model, [bool]$Live)
 
-    $resource = if ($Live) { $script:RawResource } else { $SimResources[$Model] }
+    $resource = if ($Live) { $script:RawResource } else { $TargetMetadata[$Model].simulator_resource }
     $modeFlag = if ($Live) { @() } else { @("--simulate") }
     $phase = if ($Live) { "live" } else { "preflight" }
     $cases = New-Object System.Collections.Generic.List[object]
@@ -647,7 +666,7 @@ function Get-ReadOnlyCases {
     }
     $cases.Add((New-CommandCase -Name "read-status" -Suite "readonly" -Phase $phase -Args (@("read-status") + $modeFlag + @("--json", "--resource", $resource, "--all", "--log-scpi")) -LiveHardwareExpected:$Live))
     $cases.Add((New-CommandCase -Name "readback" -Suite "readonly" -Phase $phase -Args (@("readback") + $modeFlag + @("--json", "--resource", $resource, "--all", "--log-scpi")) -LiveHardwareExpected:$Live))
-    if ($Model -in @("E36312A", "EDU36311A")) {
+    if ($Model -in @("keysight-e36312a", "keysight-edu36311a")) {
         $cases.Add((New-CommandCase -Name "validate-readonly" -Suite "readonly" -Phase $phase -Args (@("validate-readonly") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi")) -LiveHardwareExpected:$Live))
         $cases.Add((New-CommandCase -Name "protection-status" -Suite "readonly" -Phase $phase -Args (@("protection-status") + $modeFlag + @("--json", "--resource", $resource, "--all", "--log-scpi")) -LiveHardwareExpected:$Live))
     }
@@ -658,7 +677,7 @@ function Get-ReadOnlyCases {
 function Get-OutputCases {
     param([string]$Model, [bool]$Live)
 
-    $resource = if ($Live) { $script:RawResource } else { $SimResources[$Model] }
+    $resource = if ($Live) { $script:RawResource } else { $TargetMetadata[$Model].simulator_resource }
     $modelArgs = if ($Live) { @() } else { @("--model", $Model) }
     $phase = if ($Live) { "live" } else { "preflight" }
     $cases = New-Object System.Collections.Generic.List[object]
@@ -687,7 +706,7 @@ function Get-OutputCases {
 function Get-ProtectionCases {
     param([string]$Model, [bool]$Live)
 
-    $resource = if ($Live) { $script:RawResource } else { $SimResources[$Model] }
+    $resource = if ($Live) { $script:RawResource } else { $TargetMetadata[$Model].simulator_resource }
     $phase = if ($Live) { "live" } else { "preflight" }
     $modeFlag = if ($Live) { @() } else { @("--simulate") }
     $writeFlag = if ($Live) { @() } else { @("--dry-run") }
@@ -703,12 +722,12 @@ function Get-ProtectionCases {
 function Get-SnapshotCases {
     param([bool]$Live)
 
-    $resource = if ($Live) { $script:RawResource } else { $SimResources.E36312A }
+    $resource = if ($Live) { $script:RawResource } else { $TargetMetadata["keysight-e36312a"].simulator_resource }
     $phase = if ($Live) { "live" } else { "preflight" }
     $snapshotPath = if ($Live) { Join-Path $script:OutputDir "snapshot-live.json" } else { New-ValidationSnapshotFile }
     $modeFlag = if ($Live) { @() } else { @("--simulate") }
     return @(
-        (New-CommandCase -Name "snapshot-save" -Suite "snapshot" -Phase $phase -Args (@("snapshot") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi", "--save-json", $snapshotPath)) -LiveHardwareExpected:$Live),
+        (New-CommandCase -Name "snapshot-save" -Suite "snapshot" -Phase $phase -Args (@("snapshot") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi", "--snapshot-json", $snapshotPath)) -LiveHardwareExpected:$Live),
         (New-CommandCase -Name "snapshot-compare" -Suite "snapshot" -Phase $phase -Args (@("snapshot") + $modeFlag + @("--json", "--resource", $resource, "--compare", $snapshotPath, "--log-scpi")) -LiveHardwareExpected:$Live),
         (New-CommandCase -Name "restore-from-snapshot-plan" -Suite "snapshot" -Phase $phase -Args @("restore-from-snapshot", "--dry-run", "--json", "--snapshot", $snapshotPath, "--resource", $resource, "--channel", "all") -StateChanging:$false -LiveHardwareExpected:$false)
     )
@@ -717,7 +736,7 @@ function Get-SnapshotCases {
 function Get-TriggerListCases {
     param([bool]$Live)
 
-    $resource = if ($Live) { $script:RawResource } else { $SimResources.E36312A }
+    $resource = if ($Live) { $script:RawResource } else { $TargetMetadata["keysight-e36312a"].simulator_resource }
     $phase = if ($Live) { "live" } else { "preflight" }
     $modeFlag = if ($Live) { @() } else { @("--simulate") }
     $stepFlag = if ($Live) { @() } else { @("--dry-run") }
@@ -732,7 +751,7 @@ function Get-TriggerListCases {
 function Get-SoftwareSequenceCases {
     param([string]$Model, [bool]$Live)
 
-    $resource = if ($Live) { $script:RawResource } else { $SimResources[$Model] }
+    $resource = if ($Live) { $script:RawResource } else { $TargetMetadata[$Model].simulator_resource }
     $phase = if ($Live) { "live" } else { "preflight" }
     $readOnlySequence = New-ValidationSequenceFile -Name "sequence-readonly" -Lines @(
         "version: 1",
@@ -771,14 +790,14 @@ function Get-SoftwareSequenceCases {
         $cases.Add((New-CommandCase -Name "ramp-list-dry-run" -Suite "software-sequence" -Phase $phase -Args (@("ramp-list", "--dry-run", "--json", "--model", $Model) + $rampListArgs)))
         $cases.Add((New-CommandCase -Name "sequence-lint-readonly" -Suite "software-sequence" -Phase $phase -Args @("sequence", "--lint", "--json", "--model", $Model, "--resource", $resource, "--file", $readOnlySequence)))
         $cases.Add((New-CommandCase -Name "sequence-dry-run-readonly" -Suite "software-sequence" -Phase $phase -Args @("sequence", "--dry-run", "--json", "--model", $Model, "--resource", $resource, "--file", $readOnlySequence)))
-        if ($Model -in @("EDU36311A", "E3646A")) {
+        if ($Model -in @("keysight-edu36311a", "keysight-e3646a")) {
             $negativeCases = @(
                 @{ Name = "sequence-unsupported-trigger"; Action = "trigger-list"; Expected = "trigger-list" },
                 @{ Name = "sequence-unsupported-snapshot"; Action = "snapshot"; Expected = "snapshot" },
                 @{ Name = "sequence-unsupported-restore"; Action = "restore-from-snapshot"; Expected = "restore" },
                 @{ Name = "sequence-unsupported-native-list"; Action = "native-list"; Expected = "native-list" }
             )
-            if ($Model -eq "E3646A") {
+            if ($Model -eq "keysight-e3646a") {
                 $negativeCases += @(
                     @{ Name = "sequence-unsupported-protection"; Action = "protection-set"; Expected = "protection" },
                     @{ Name = "sequence-unsupported-completion-pulse"; Action = "trigger-pulse"; Expected = "trigger-pulse" }
@@ -841,7 +860,13 @@ function Invoke-ValidationCommand {
     $shareableJsonPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".json")
     $shareableStdoutPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".stdout.txt")
     $shareableStderrPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".stderr-scpi.txt")
-    $argsWithPolicy = Add-ValidationSupportPolicyArgument -Arguments $Case.args
+    $argsWithIdentity = if ($Case.phase -eq "live" -and $Case.args -notcontains "--model") {
+        @($Case.args + @("--model", $script:NormalizedTarget))
+    }
+    else {
+        $Case.args
+    }
+    $argsWithPolicy = Add-ValidationSupportPolicyArgument -Arguments $argsWithIdentity
     $argsWithBackend = if ($Case.phase -eq "live") { Add-BackendArgument -Arguments $argsWithPolicy } else { $argsWithPolicy }
     $hasSaveJson = $false
     foreach ($arg in $argsWithBackend) {
@@ -874,7 +899,7 @@ function Invoke-ValidationCommand {
             $oldNativePreference = [bool]$nativePreferenceVariable.Value
             $PSNativeCommandUseErrorActionPreference = $false
         }
-        & $PythonExe -m keysight_power_cli.cli @allArgs 1> $stdoutPath 2> $stderrPath
+        & $CliExecutable @CliPrefix @allArgs 1> $stdoutPath 2> $stderrPath
         $exitCode = $LASTEXITCODE
     }
     finally {
@@ -984,8 +1009,7 @@ function Invoke-ValidationCommand {
     }
 
     $recordArgs = Protect-Arguments -Arguments $allArgs
-    $formattedArgs = @("-m", "keysight_power_cli.cli") + $recordArgs
-    $commandLine = (Format-CommandArgument -Argument (Get-ShareablePythonCommand)) + " " + (($formattedArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
+    $commandLine = (Get-ShareableCliCommand) + " " + (($recordArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
     $backendScope = if ($null -eq $script:BackendArtifact) { $null } else { $script:BackendArtifact.backend_scope }
     $record = [pscustomobject]@{
         name = $Case.name
@@ -1233,11 +1257,11 @@ function Write-ValidationArtifacts {
         }
         $Result = "failed"
     }
-    $report = [pscustomobject]@{
-        schema_version = "1.1"
-        kind = "power_cli_live_validation"
-        target = $script:NormalizedTarget
-        expected_model = $script:NormalizedTarget
+    $reportFields = [ordered]@{
+        schema_version = 2
+        kind = "powers-tool-live-validation"
+        vendor_id = $TargetMetadata[$script:NormalizedTarget].vendor_id
+        model_id = $script:NormalizedTarget
         connection = $script:ConnectionLabel
         transport_scope = $script:TransportScope
         suite = $Suite
@@ -1269,11 +1293,18 @@ function Write-ValidationArtifacts {
         commands = $script:CommandRecords.ToArray()
         failures = @($script:Failures | ForEach-Object { Protect-ShareableText -Text $_ })
     }
+    if ($ValidationMode -eq "live") {
+        $reportFields.expected_model_id = $script:NormalizedTarget
+    }
+    else {
+        $reportFields.planning_model_id = $script:NormalizedTarget
+    }
+    $report = [pscustomobject]$reportFields
     $shareableReport = ConvertTo-ShareableJsonValue -Value $report -FieldName $null -ParentName $null
     Write-Utf8NoBomFile -LiteralPath $reportPath -Value @($shareableReport | ConvertTo-Json -Depth 30)
 
     $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add("# Power CLI Live Validation")
+    $lines.Add("# Powers Tool Live Validation")
     $lines.Add("")
     $lines.Add("Target: ``" + $script:NormalizedTarget + "``")
     $lines.Add("Connection: ``" + $script:ConnectionLabel + "``")
@@ -1301,13 +1332,13 @@ function Write-ValidationArtifacts {
     else {
         $lines.Add("- The selected suite is non-output-affecting except for possible status/error queue reads.")
     }
-    if ($script:NormalizedTarget -eq "E3646A") {
+    if ($script:NormalizedTarget -eq "keysight-e3646a") {
         $lines.Add("- E3646A OUTP ON/OFF is global, not an independent per-channel relay behavior.")
         $lines.Add("- E3646A ramp-list and sequence are software workflows, not native LIST.")
     }
     $lines.Add("")
     $lines.Add("## Identity And Cleanup Evidence")
-    $lines.Add("- Expected model target: ``" + $script:NormalizedTarget + "`` (not a detected-driver override).")
+    $lines.Add("- Canonical model ID: ``" + $script:NormalizedTarget + "`` (not a detected-driver override).")
     $lines.Add("- Observed identity availability: ``" + $script:InstrumentIdentity.availability + "``")
     if ($null -ne $script:InstrumentIdentity.detected_model) {
         $lines.Add("- Detected model: ``" + $script:InstrumentIdentity.detected_model + "`` from ``" + $script:InstrumentIdentity.source_command + "``.")
@@ -1353,7 +1384,7 @@ $script:PrivateArtifactDir = $null
 $script:ShareableArtifactDir = $null
 $script:SensitiveValues = New-Object System.Collections.Generic.List[string]
 
-if ($env:KEYSIGHT_POWER_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1") {
+if ($env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1") {
     return
 }
 
@@ -1362,7 +1393,7 @@ $ConnectionLabel = Resolve-Connection -Value $Connection
 if ([string]::IsNullOrWhiteSpace($Resource)) {
     Fail-Validation "Missing required -Resource. Pass the exact VISA resource explicitly; this script never scans or guesses a live resource."
 }
-if ($NormalizedTarget -eq "E3646A" -and $ConnectionLabel -ne "ASRL") {
+if ($NormalizedTarget -eq "keysight-e3646a" -and $ConnectionLabel -ne "ASRL") {
     Fail-Validation "E3646A live validation currently requires an explicit ASRL/RS-232/serial connection."
 }
 
@@ -1446,7 +1477,7 @@ if (-not [string]::IsNullOrWhiteSpace($Backend)) {
 Write-Host "Suites: $($SuitesToRun -join ', ')"
 Write-Host ""
 Write-LiveConfirmationWarnings -SuitesToRun $SuitesToRun
-if ($NormalizedTarget -eq "E3646A") {
+if ($NormalizedTarget -eq "keysight-e3646a") {
     Write-Host "- E3646A OUTP ON/OFF is global, not independent per-channel relay behavior."
     Write-Host "- E3646A ramp-list and sequence are software workflows, not native LIST."
 }
