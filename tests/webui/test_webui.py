@@ -2308,6 +2308,37 @@ def test_webui_diagnostic_expected_model_cannot_override_wrong_vendor(
 
 
 @pytest.mark.parametrize("command", ["identify", "verify"])
+def test_webui_diagnostic_wrong_vendor_different_model_preserves_expected_guard(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+) -> None:
+    session = FakeCoreSession("OTHER_VENDOR,E36312A,SERIAL0000,1.0")
+    patch_core_opener(monkeypatch, session)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": command,
+            "runtime": {
+                "resource": "USB0::FAKE::INSTR",
+                "model_profile": "E3646A",
+            },
+            "parameters": {},
+        },
+    )
+
+    assert response.status_code == 200
+    job_data = wait_for_job(client, response.json()["job_id"])
+    assert job_data["status"] == "failed"
+    assert "Expected model E3646A" in job_data["error"]
+    assert "reported E36312A" in job_data["error"]
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed is True
+
+
+@pytest.mark.parametrize("command", ["identify", "verify"])
 @pytest.mark.parametrize("model", ["UNKNOWN_MODEL", "E36103B"])
 def test_webui_diagnostic_unknown_or_descoped_model_returns_neutral_live_support(
     client: TestClient,

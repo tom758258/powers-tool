@@ -217,6 +217,12 @@ def _with_diagnostic_live_support(
     try:
         identity = resolve_physical_model_identity(manufacturer, model)
     except IdentityResolutionError:
+        if not runtime.simulate:
+            validate_live_expected_model(
+                runtime.model_profile,
+                model,
+                command=command,
+            )
         live_support = _unsupported_detected_model_live_support(model, runtime)
         return {**result, "live_support": live_support}
     if runtime.simulate:
