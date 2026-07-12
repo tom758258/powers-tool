@@ -12,6 +12,8 @@ import powers_tool_cli.worker as worker_mod
 import powers_tool_cli.cli as cli
 from powers_tool_cli.worker import WorkerState, _run_job_impl, _write_json_artifact_atomic, load_worker_config, run_worker
 from powers_tool_cli.cli import build_parser
+from powers_tool_core.command_runner import run_core_command
+from powers_tool_core.core import OperationRequest, RuntimeOptions
 
 
 def _worker_validation_state(tmp_path: Path, *, mode: str = "simulate") -> WorkerState:
@@ -28,6 +30,18 @@ def _worker_validation_state(tmp_path: Path, *, mode: str = "simulate") -> Worke
             "settings": {},
         },
         0,
+    )
+
+
+def _worker_snapshot_document() -> dict:
+    return run_core_command(
+        OperationRequest(
+            "snapshot",
+            RuntimeOptions(
+                simulate=True,
+                resource="USB0::SIM::E36312A::INSTR",
+            ),
+        )
     )
 
 
@@ -61,6 +75,55 @@ def test_worker_missing_planning_identity_fails_before_admission(tmp_path: Path)
 
     assert status == 400
     assert "require planning_model_id" in payload["error"]["message"]
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
+@pytest.mark.parametrize("value", ["false", "true", 0, 1, 0.0, 1.0, None, [], {}])
+def test_worker_rejects_malformed_restore_boolean_before_artifacts(
+    tmp_path: Path,
+    value: object,
+) -> None:
+    state = _worker_validation_state(tmp_path)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "restore-from-snapshot",
+            "arguments": {
+                "document": _worker_snapshot_document(),
+                "channel": 1,
+                "restore_output_state": value,
+            },
+        },
+        state,
+    )
+
+    assert status == 400
+    assert payload["schema_version"] == 2
+    assert payload["error"]["code"] == "argument_error"
+    assert "restore_output_state must be a boolean" in payload["error"]["message"]
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
+def test_worker_rejects_malformed_snapshot_boolean_before_artifacts(tmp_path: Path) -> None:
+    state = _worker_validation_state(tmp_path)
+    snapshot = _worker_snapshot_document()
+    snapshot["outputs"][0]["enabled"] = "false"
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "restore-from-snapshot",
+            "arguments": {"document": snapshot, "channel": 1},
+        },
+        state,
+    )
+
+    assert status == 400
+    assert payload["schema_version"] == 2
+    assert "outputs[].enabled must be a boolean" in payload["error"]["message"]
     assert state.next_job is None
     assert not (tmp_path / "jobs").exists()
 

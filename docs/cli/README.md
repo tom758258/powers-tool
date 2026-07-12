@@ -445,8 +445,15 @@ mapping.
 manufacturer/model/serial/firmware under `reported_identity` and canonical
 `vendor_id`/`model_id` under `resolved_identity`. `restore-from-snapshot`
 accepts only that versioned document; legacy, unversioned, and arbitrary
-CLI-envelope documents are rejected. No model identity is recovered from a
-bare reported model string.
+CLI-envelope documents are rejected. `snapshot --snapshot-json PATH` writes
+the raw persisted snapshot, while `--json --save-json PATH` writes the full
+CLI schema-2 envelope. The paths must differ when both options are used. No
+model identity is recovered from a bare reported model string.
+
+Restore validates all restore-relevant persisted fields without coercion.
+Channels are positive integers, output and OCP states are JSON booleans, and
+setpoints are finite numbers. A value such as `"false"` is rejected rather
+than treated as enabled or disabled.
 
 `snapshot --compare PATH` compares the current E36312A snapshot with a
 schema-2 snapshot document (directly or as saved CLI envelope data). It ignores `resource` and
@@ -708,11 +715,11 @@ the OR of the selected channel results.
 
 ### Snapshot And Restore Examples
 
-Capture and compare E36312A snapshots:
+Capture a raw E36312A snapshot that restore can consume, then compare it:
 
 ```powershell
 uv run powers-tool identify --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
-uv run powers-tool snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool snapshot --resource "$env:KEYSIGHT_POWER_RESOURCE" --snapshot-json logs\before.json --log-scpi
 uv run powers-tool snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --compare logs\e36312a-baseline.json
 uv run powers-tool snapshot-diff --summary --json --before logs\before.json --after logs\after.json
 ```
@@ -901,10 +908,10 @@ Measure voltage and current on a simulated resource:
 uv run powers-tool measure --simulate --json --resource "USB0::SIM::E36312A::INSTR" --channel 2
 ```
 
-Capture a snapshot on a simulated resource with redacted resource details:
+Capture a raw snapshot on a simulated resource with redacted resource details:
 
 ```powershell
-uv run powers-tool snapshot --simulate --json --redact-resource --resource "USB0::SIM::E36312A::INSTR"
+uv run powers-tool snapshot --simulate --redact-resource --resource "USB0::SIM::E36312A::INSTR" --snapshot-json logs\before.json
 ```
 
 Preview output-affecting commands with no hardware writes:

@@ -7376,6 +7376,102 @@ def test_snapshot_real_reads_full_state(monkeypatch, capsys) -> None:
     }
 
 
+def test_snapshot_human_output_uses_schema_2_identity(capsys) -> None:
+    resource = "USB0::SIM::E36312A::INSTR"
+
+    assert cli.main(["snapshot", "--simulate", "--resource", resource]) == 0
+
+    output = capsys.readouterr().out
+    assert "Model: Keysight E36312A" in output
+    assert "Reported manufacturer: KEYSIGHT" in output
+    assert "Reported model: E36312A" in output
+    assert "Serial: SIM000003" in output
+
+
+def test_snapshot_json_writes_raw_document_and_envelope_separately(tmp_path, capsys) -> None:
+    resource = "USB0::SIM::E36312A::INSTR"
+    raw_path = tmp_path / "snapshot.json"
+    envelope_path = tmp_path / "envelope.json"
+
+    assert cli.main([
+        "snapshot", "--simulate", "--resource", resource, "--json",
+        "--save-json", str(envelope_path), "--snapshot-json", str(raw_path),
+    ]) == 0
+
+    raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    envelope = json.loads(envelope_path.read_text(encoding="utf-8"))
+    assert raw["schema_version"] == 2
+    assert raw["kind"] == "powers-tool-snapshot"
+    assert "ok" not in raw
+    assert envelope["schema_version"] == 2
+    assert envelope["data"] == raw
+    assert json.loads(capsys.readouterr().out) == envelope
+
+
+def test_snapshot_json_round_trips_to_restore_dry_run(tmp_path, capsys) -> None:
+    resource = "USB0::SIM::E36312A::INSTR"
+    raw_path = tmp_path / "snapshot.json"
+
+    assert cli.main(["snapshot", "--simulate", "--resource", resource, "--snapshot-json", str(raw_path)]) == 0
+    capsys.readouterr()
+    assert cli.main([
+        "restore-from-snapshot", "--dry-run", "--snapshot", str(raw_path),
+        "--resource", resource, "--channel", "all", "--json",
+    ]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["plan"]["target"]["channels"] == [1, 2, 3]
+
+
+def test_restore_rejects_cli_snapshot_envelope(tmp_path, capsys) -> None:
+    resource = "USB0::SIM::E36312A::INSTR"
+    envelope_path = tmp_path / "envelope.json"
+
+    assert cli.main([
+        "snapshot", "--simulate", "--resource", resource,
+        "--json", "--save-json", str(envelope_path),
+    ]) == 0
+    capsys.readouterr()
+    assert cli.main([
+        "restore-from-snapshot", "--dry-run", "--snapshot", str(envelope_path),
+        "--resource", resource, "--channel", "all", "--json",
+    ]) == 2
+
+    assert "snapshot kind" in json.loads(capsys.readouterr().out)["error"]["message"]
+
+
+def test_snapshot_json_write_failure_is_reported(tmp_path, capsys) -> None:
+    resource = "USB0::SIM::E36312A::INSTR"
+    invalid_parent = tmp_path / "not-a-directory"
+    invalid_parent.write_text("occupied", encoding="utf-8")
+
+    assert cli.main([
+        "snapshot", "--simulate", "--resource", resource, "--json",
+        "--snapshot-json", str(invalid_parent / "snapshot.json"),
+    ]) == 2
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "snapshot_write_failed"
+
+
+def test_snapshot_rejects_same_raw_and_envelope_path_before_open(tmp_path, monkeypatch, capsys) -> None:
+    output_path = tmp_path / "snapshot.json"
+    opened = False
+
+    def forbidden_opener(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("opener must not be called")
+
+    monkeypatch.setattr(cli, "open_resource", forbidden_opener)
+    assert cli.main([
+        "snapshot", "--json", "--resource", OUTPUT_RESOURCE,
+        "--save-json", str(output_path), "--snapshot-json", str(output_path),
+    ]) == 2
+    assert opened is False
+    assert "must use different paths" in json.loads(capsys.readouterr().out)["error"]["message"]
+
+
 def test_snapshot_compare_accepts_raw_baseline(tmp_path, capsys) -> None:
     resource = "USB0::SIM::E36312A::INSTR"
 

@@ -149,7 +149,10 @@ Raw runtime values are type-strict. Boolean fields accept only JSON `true` or
 `false`; strings such as `"false"` never satisfy confirmation or enable a
 mode. Integer, string, identity, and serial-option fields are likewise
 validated before job submission. Core-owned command admission rejects missing
-or conflicting planning identity before creating a WebUI job. Physical model
+or conflicting planning identity and malformed restore/snapshot booleans
+before creating a WebUI job. Unknown commands and commands intentionally
+unsupported by `/api/jobs` are also rejected synchronously before job or task
+creation. Physical model
 options and every model-keyed support/rating map are generated from the same
 Core Product-active metadata inventory; `generic-scpi` remains a separate
 nonphysical planning profile.

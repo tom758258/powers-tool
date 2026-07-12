@@ -45,6 +45,9 @@ def parameter_constraints_metadata() -> dict[str, dict[str, Any]]:
 def validate_request_parameters(request: OperationRequest | TriggerRequest | SequenceRequest) -> None:
     """Reject invalid top-level numeric data before any VISA I/O."""
 
+    if request.command == "restore-from-snapshot":
+        strict_boolean_parameter(request.parameters, "restore_output_state", default=False)
+
     for name, constraint in PARAMETER_CONSTRAINTS.items():
         if name not in request.parameters or request.parameters[name] is None:
             continue
@@ -58,6 +61,22 @@ def validate_request_parameters(request: OperationRequest | TriggerRequest | Seq
     for name in NONNEGATIVE_LIST_PARAMETERS:
         if name in request.parameters and request.parameters[name] is not None:
             _validate_number_list(name, request.parameters[name], minimum=0)
+
+
+def strict_boolean_parameter(
+    parameters: dict[str, Any],
+    name: str,
+    *,
+    default: bool,
+) -> bool:
+    """Return one exact boolean parameter without coercing external data."""
+
+    if name not in parameters:
+        return default
+    value = parameters[name]
+    if type(value) is not bool:
+        raise CoreValidationError(f"{name} must be a boolean")
+    return value
 
 
 def _validate_number(name: str, value: Any, constraint: dict[str, Any], *, integer: bool) -> None:

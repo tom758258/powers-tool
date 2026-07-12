@@ -103,6 +103,9 @@ WEBUI_UNSUPPORTED_COMMANDS = {
     "log",
 }
 
+WEBUI_SPECIAL_JOB_COMMANDS = {"capabilities", "safety inspect"}
+WEBUI_JOB_COMMANDS = frozenset(SHARED_CORE_COMMANDS | WEBUI_SPECIAL_JOB_COMMANDS)
+
 
 def selectable_physical_models(
     metadata: dict[str, dict[str, Any]] | None = None,
@@ -197,14 +200,12 @@ def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
 def execute_job_command(job: Job) -> dict[str, Any]:
     runtime = build_runtime_options(job.runtime)
     command = job.command
+    if command not in WEBUI_JOB_COMMANDS:
+        raise CoreValidationError(f"command is not supported by /api/jobs: {command}")
     if command == "capabilities":
         return _capabilities(runtime)
     if command == "safety inspect":
         return _safety_inspect(runtime)
-    if command in WEBUI_UNSUPPORTED_COMMANDS:
-        raise CoreValidationError(f"not_implemented_in_webui: {command}")
-    if command not in SHARED_CORE_COMMANDS:
-        raise CoreValidationError(f"unknown_webui_command: {command}")
     if _requires_real_confirmation(command, runtime):
         raise ConfirmationRequiredError(f"Command '{command}' affects hardware output and requires explicit confirmation.")
     request = _request_for_job(command, runtime, job.parameters)

@@ -170,6 +170,11 @@ Selected data mappings:
 - `snapshot`: a `schema_version: 2`, `kind: "powers-tool-snapshot"` document
   with separate `reported_identity` and canonical `resolved_identity`, plus
   errors, outputs, readback, measurements, and protection settings.
+  `--snapshot-json PATH` writes this raw document atomically and can be used
+  without JSON stdout. `--json --save-json PATH` separately writes the full
+  CLI schema-2 envelope; restore does not unwrap that envelope. If both options
+  are used, their paths must differ. Resource redaction applies to the raw
+  snapshot too, and restore never depends on the saved resource field.
 - `sequence`: lint/plan/execution status, step results, and stop/failure details.
 - `ramp-list`: version, segment count, completed segment count, ordered segment
   plans/results, and failed segment details when execution stops or fails.
@@ -184,7 +189,9 @@ Selected data mappings:
 - `restore-from-snapshot`: accepts only the schema-2 snapshot document,
   validates canonical model identity and serial before writes, and returns
   restored channels and the restore plan. Legacy and unversioned snapshots
-  are rejected rather than converted.
+  are rejected rather than converted. Restore-relevant booleans must be exact
+  JSON booleans, channels must be unique positive integers, and setpoints must
+  be finite numbers; no persisted value is interpreted by truthiness.
 - `trigger-list`: selected channel, step count, completion state, and
   `restored`; `restored: true` means the pre-run Trigger configuration and LIST
   table were written back after completion.

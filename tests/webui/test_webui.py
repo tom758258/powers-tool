@@ -3051,7 +3051,10 @@ def test_post_job_real_apply_all_without_confirm_fails(client: TestClient):
     assert "requires explicit confirmation" in job_data["error"]
 
 
-def test_hidden_unsupported_command_direct_submit_fails(client: TestClient):
+def test_hidden_unsupported_command_is_rejected_before_submit(client: TestClient):
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = set(job_manager.jobs)
     payload = {
         "command": "doctor",
         "runtime": {
@@ -3061,18 +3064,52 @@ def test_hidden_unsupported_command_direct_submit_fails(client: TestClient):
         "parameters": {},
     }
     response = client.post("/api/jobs", json=payload)
-    assert response.status_code == 200
+    assert response.status_code == 400
+    assert "not supported by /api/jobs" in response.json()["detail"]
+    assert set(job_manager.jobs) == jobs_before
 
-    job_id = response.json()["job_id"]
-    for _ in range(20):
-        res = client.get(f"/api/jobs/{job_id}")
-        if res.json()["status"] in ("finished", "failed"):
-            break
-        time.sleep(0.05)
 
-    job_data = client.get(f"/api/jobs/{job_id}").json()
-    assert job_data["status"] == "failed"
-    assert "not_implemented_in_webui: doctor" in job_data["error"]
+def test_unknown_command_is_rejected_before_submit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = set(job_manager.jobs)
+
+    async def forbidden_submit(**kwargs: object) -> str:
+        raise AssertionError("submit_job must not be called")
+
+    def forbidden_lock_check() -> bool:
+        raise AssertionError("hardware lock must not be checked")
+
+    monkeypatch.setattr(job_manager, "submit_job", forbidden_submit)
+    monkeypatch.setattr(job_manager, "is_hardware_locked", forbidden_lock_check)
+    response = client.post(
+        "/api/jobs",
+        json={"command": "unknown-command", "runtime": {}, "parameters": {}},
+    )
+
+    assert response.status_code == 400
+    assert "not supported by /api/jobs" in response.json()["detail"]
+    assert set(job_manager.jobs) == jobs_before
+
+
+@pytest.mark.parametrize("command", sorted(WEBUI_HIDDEN_UNSUPPORTED_COMMANDS))
+def test_all_webui_unsupported_commands_are_rejected_before_submit(
+    client: TestClient,
+    command: str,
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = set(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={"command": command, "runtime": {}, "parameters": {}},
+    )
+
+    assert response.status_code == 400
+    assert set(job_manager.jobs) == jobs_before
 
 
 def test_hardware_lock_prevents_concurrent_jobs(client: TestClient):
@@ -4392,6 +4429,54 @@ def test_api_restore_from_snapshot_rejects_missing_setpoints(client: TestClient)
     response = client.post("/api/jobs", json=payload)
     assert response.status_code == 400
     assert "setpoints" in response.json()["detail"].lower()
+
+
+@pytest.mark.parametrize("value", ["false", "true", 0, 1, 0.0, 1.0, None, [], {}])
+def test_api_restore_rejects_malformed_restore_boolean_before_submission(
+    client: TestClient,
+    value: object,
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = set(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "restore-from-snapshot",
+            "runtime": {"dry_run": True},
+            "parameters": {
+                "document": policy_snapshot_document("E36312A"),
+                "channel": 1,
+                "restore_output_state": value,
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "restore_output_state must be a boolean" in response.json()["detail"]
+    assert set(job_manager.jobs) == jobs_before
+
+
+def test_api_restore_rejects_malformed_snapshot_boolean_before_submission(
+    client: TestClient,
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    snapshot = policy_snapshot_document("E36312A")
+    snapshot["outputs"][0]["enabled"] = "false"
+    jobs_before = set(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "restore-from-snapshot",
+            "runtime": {"dry_run": True},
+            "parameters": {"document": snapshot, "channel": 1},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "outputs[].enabled must be a boolean" in response.json()["detail"]
+    assert set(job_manager.jobs) == jobs_before
 
 
 @pytest.mark.parametrize("value", ["false", "true", 1, 0, "", [], {}])

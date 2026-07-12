@@ -8,8 +8,10 @@ import importlib.metadata
 import importlib.util
 import json
 import math
+import os
 import platform
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -566,6 +568,10 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot_parser.add_argument("--measured-voltage-tolerance", type=float, default=0.05, help="Snapshot compare measured voltage tolerance in volts.")
     snapshot_parser.add_argument("--measured-current-tolerance", type=float, default=0.01, help="Snapshot compare measured current tolerance in amps.")
     snapshot_parser.add_argument("--redact-resource", action="store_true", help="Redact the VISA resource string in JSON snapshot data.")
+    snapshot_parser.add_argument(
+        "--snapshot-json",
+        help="Write the raw schema-2 powers-tool-snapshot document to a UTF-8 JSON file.",
+    )
     _add_json_argument(snapshot_parser)
     _add_simulate_argument(snapshot_parser)
     _add_model_argument(snapshot_parser)
@@ -829,6 +835,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             error_type="validation",
             code="argument_error",
             message="--save-json requires --json",
+            retryable=False,
+        )
+        set_json_start_time(None)
+        return 2
+    if (
+        args.command == "snapshot"
+        and getattr(args, "save_json", None) is not None
+        and getattr(args, "snapshot_json", None) is not None
+        and Path(args.save_json).resolve() == Path(args.snapshot_json).resolve()
+    ):
+        emit_json_error(
+            command=args.command,
+            execution=_execution_for_args(args, hardware_intent=False),
+            request=_request_for_args(args),
+            error_type="validation",
+            code="argument_error",
+            message="--save-json and --snapshot-json must use different paths",
             retryable=False,
         )
         set_json_start_time(None)
@@ -3397,6 +3420,7 @@ def _run_snapshot(args: argparse.Namespace) -> int:
     except CoreIoError as exc:
         code = "snapshot_failed" if exc.opened else "connection_failed"
         return _emit_safe_io_error(args, request=request, execution=execution, code=code, message=str(exc))
+    persisted_snapshot = dict(data)
     comparison = None
     if args.compare:
         try:
@@ -3415,6 +3439,21 @@ def _run_snapshot(args: argparse.Namespace) -> int:
     if args.redact_resource:
         data["resource"] = "<redacted>"
         data["resource_redacted"] = True
+        persisted_snapshot["resource"] = "<redacted>"
+        persisted_snapshot["resource_redacted"] = True
+    if args.snapshot_json:
+        try:
+            _write_json_file_atomic(args.snapshot_json, persisted_snapshot)
+        except OSError as exc:
+            return _emit_cli_error(
+                args,
+                request=request,
+                error_type="validation",
+                code="snapshot_write_failed",
+                message=f"Could not write raw snapshot JSON: {exc}",
+                retryable=False,
+                hardware_intent=True,
+            )
     if args.json:
         emit_json_success(
             command=args.command,
@@ -3424,7 +3463,12 @@ def _run_snapshot(args: argparse.Namespace) -> int:
         )
         return 0 if comparison is None or comparison["passed"] else 3
     print(f"Resource: {data['resource']}")
-    print(f"Model: {data['idn']['model']}")
+    reported = data["reported_identity"]
+    resolved = data["resolved_identity"]
+    print(f"Model: {resolved.get('display_name') or resolved['model_id']}")
+    print(f"Reported manufacturer: {reported['manufacturer']}")
+    print(f"Reported model: {reported['model']}")
+    print(f"Serial: {reported['serial']}")
     print(f"Errors: {len(data['errors'])}")
     for output in data["outputs"]:
         print(f"Channel {output['channel']}: Output enabled: {str(output['enabled']).lower()}")
@@ -3521,6 +3565,37 @@ def _write_json_file(path: str, data: dict[str, Any]) -> None:
     if output_path.parent != Path("."):
         output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(data, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _write_json_file_atomic(path: str, data: dict[str, Any]) -> None:
+    output_path = Path(path)
+    parent = output_path.parent
+    if parent != Path("."):
+        parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=parent,
+            prefix=f".{output_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            json.dump(data, temporary, indent=2, sort_keys=True)
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, output_path)
+    except OSError:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
 
 
 def _run_restore_from_snapshot(args: argparse.Namespace) -> int:
@@ -5973,13 +6048,13 @@ def _restore_plan(
             )
         ocp_enabled = protection_record.get("ocp_enabled")
         if ocp_enabled is not None:
-            ocp_command = "ON" if bool(ocp_enabled) else "OFF"
+            ocp_command = "ON" if ocp_enabled else "OFF"
             steps.append(
                 _restore_step(
                     "set_over_current_protection_enabled",
                     f"CURR:PROT:STAT {ocp_command},(@{channel})",
                     channel=channel,
-                    enabled=bool(ocp_enabled),
+                    enabled=ocp_enabled,
                 )
             )
         ocp_delay = protection_record.get("ocp_delay")
@@ -6062,7 +6137,7 @@ def _execute_restore_plan(power_supply: E36312APowerSupply, plan: dict[str, Any]
         elif action == "set_over_voltage_protection":
             power_supply.set_over_voltage_protection(channel=channel, voltage=float(parameters["voltage"]))
         elif action == "set_over_current_protection_enabled":
-            power_supply.set_over_current_protection_enabled(channel=channel, enabled=bool(parameters["enabled"]))
+            power_supply.set_over_current_protection_enabled(channel=channel, enabled=parameters["enabled"])
         elif action == "set_over_current_protection_delay":
             power_supply.set_over_current_protection_delay(channel=channel, seconds=float(parameters["seconds"]))
         elif action == "set_over_current_protection_delay_trigger":

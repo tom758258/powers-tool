@@ -23,6 +23,7 @@ from . import __version__ as WEBUI_VERSION
 from .jobs import job_manager, JobStatus
 from .commands import (
     MUTATING_COMMANDS,
+    WEBUI_JOB_COMMANDS,
     WEBUI_UNSUPPORTED_COMMANDS,
     build_runtime_options,
     channel_capabilities_by_model_id,
@@ -206,6 +207,11 @@ async def create_job(request: Request):
     artifacts = payload.get("artifacts")
     if not isinstance(command, str) or not command:
         raise HTTPException(status_code=400, detail="command must be a non-empty string")
+    if command not in WEBUI_JOB_COMMANDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"command is not supported by /api/jobs: {command}",
+        )
     if not isinstance(parameters, dict):
         raise HTTPException(status_code=400, detail="parameters must be an object")
     validation_runtime = _validated_webui_runtime(runtime)

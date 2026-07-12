@@ -122,3 +122,140 @@ def test_real_restore_identity_compares_vendor_qualified_model_and_serial() -> N
             parse_idn("KEYSIGHT TECHNOLOGIES,E36312A,OTHER,1.0"),
             snapshot,
         )
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_restore_output_state_accepts_exact_booleans(value: bool) -> None:
+    admitted = validate_request_admission(
+        OperationRequest(
+            "restore-from-snapshot",
+            RuntimeOptions(dry_run=True),
+            {"document": _snapshot(), "channel": 1, "restore_output_state": value},
+        )
+    )
+
+    assert admitted.parameters["restore_output_state"] is value
+
+
+def test_restore_output_state_omission_defaults_to_false() -> None:
+    result = run_core_command(
+        OperationRequest(
+            "restore-from-snapshot",
+            RuntimeOptions(dry_run=True),
+            {"document": _snapshot(), "channel": 1},
+        )
+    )
+
+    assert result["restore_output_state"] is False
+
+
+@pytest.mark.parametrize("value", ["false", "true", 0, 1, 0.0, 1.0, None, [], {}])
+def test_restore_output_state_rejects_non_booleans_before_open(value: object) -> None:
+    opened = False
+
+    def forbidden_opener(*args: object, **kwargs: object) -> object:
+        nonlocal opened
+        opened = True
+        raise AssertionError("opener must not be called")
+
+    with pytest.raises(CoreValidationError, match="restore_output_state must be a boolean"):
+        run_core_command(
+            OperationRequest(
+                "restore-from-snapshot",
+                RuntimeOptions(resource="USB0::FAKE::INSTR"),
+                {"document": _snapshot(), "channel": 1, "restore_output_state": value},
+            ),
+            opener=forbidden_opener,
+        )
+
+    assert opened is False
+
+
+@pytest.mark.parametrize("value", ["false", "true", 0, 1, None, [], {}])
+def test_restore_rejects_non_boolean_output_state(value: object) -> None:
+    snapshot = deepcopy(_snapshot())
+    snapshot["outputs"][0]["enabled"] = value
+
+    with pytest.raises(CoreValidationError, match=r"outputs\[\]\.enabled must be a boolean"):
+        validate_snapshot_document(snapshot)
+
+
+@pytest.mark.parametrize("value", ["false", "true", 0, 1, [], {}])
+def test_restore_rejects_non_boolean_ocp_enabled(value: object) -> None:
+    snapshot = deepcopy(_snapshot())
+    snapshot["protection_settings"][0]["protection"]["ocp_enabled"] = value
+
+    with pytest.raises(CoreValidationError, match="ocp_enabled must be a boolean or null"):
+        validate_snapshot_document(snapshot)
+
+
+@pytest.mark.parametrize("section", ["outputs", "readback", "protection_settings"])
+def test_restore_rejects_duplicate_snapshot_channels(section: str) -> None:
+    snapshot = deepcopy(_snapshot())
+    snapshot[section].append(deepcopy(snapshot[section][0]))
+
+    with pytest.raises(CoreValidationError, match=f"duplicate snapshot {section} channel"):
+        validate_snapshot_document(snapshot)
+
+
+@pytest.mark.parametrize("channel", [True, 1.0, "1", 0, -1])
+def test_restore_rejects_invalid_snapshot_channel_types(channel: object) -> None:
+    snapshot = deepcopy(_snapshot())
+    snapshot["outputs"][0]["channel"] = channel
+
+    with pytest.raises(CoreValidationError, match=r"outputs\[\]\.channel must be a positive integer"):
+        validate_snapshot_document(snapshot)
+
+
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), -float("inf")])
+def test_restore_rejects_invalid_setpoint_numbers(value: object) -> None:
+    snapshot = deepcopy(_snapshot())
+    snapshot["readback"][0]["setpoints"]["voltage"] = value
+
+    with pytest.raises(CoreValidationError, match="setpoints.voltage must be a finite number"):
+        validate_snapshot_document(snapshot)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("ovp_voltage", True, "ovp_voltage must be a finite number"),
+        ("ovp_voltage", float("nan"), "ovp_voltage must be a finite number"),
+        ("ocp_delay", -0.1, "ocp_delay must be non-negative"),
+        ("ocp_delay", float("inf"), "ocp_delay must be a finite number"),
+        ("ocp_delay_trigger", "other", "ocp_delay_trigger must be one of"),
+    ],
+)
+def test_restore_rejects_invalid_protection_values(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    snapshot = deepcopy(_snapshot())
+    snapshot["protection_settings"][0]["protection"][field] = value
+
+    with pytest.raises(CoreValidationError, match=message):
+        validate_snapshot_document(snapshot)
+
+
+def test_restore_rejects_empty_or_incomplete_readback_and_missing_output_channel() -> None:
+    empty = deepcopy(_snapshot())
+    empty["readback"] = []
+    with pytest.raises(CoreValidationError, match="readback must not be empty"):
+        validate_snapshot_document(empty)
+
+    incomplete = deepcopy(_snapshot())
+    del incomplete["readback"][0]["setpoints"]["current"]
+    with pytest.raises(CoreValidationError, match="setpoints.current"):
+        validate_snapshot_document(incomplete)
+
+    missing_output = deepcopy(_snapshot())
+    missing_output["outputs"] = missing_output["outputs"][1:]
+    with pytest.raises(CoreValidationError, match="outputs does not contain channel 1"):
+        validate_request_admission(
+            OperationRequest(
+                "restore-from-snapshot",
+                RuntimeOptions(dry_run=True),
+                {"document": missing_output, "channel": 1},
+            )
+        )

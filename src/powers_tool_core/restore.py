@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
+import math
 from pathlib import Path
 from typing import Any, Callable
 
@@ -19,6 +20,7 @@ from powers_tool_core.models import parse_idn
 from powers_tool_core.model_resolution import resolve_no_hardware_runtime
 from powers_tool_core.live_support import enforce_live_support_for_idn
 from powers_tool_core.operations import IDN_QUERY, ScpiLoggingSession
+from powers_tool_core.parameter_constraints import strict_boolean_parameter
 from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.testing.simulator import SimulatedResourceManager
 from powers_tool_core.snapshot import SNAPSHOT_KIND, SNAPSHOT_SCHEMA_VERSION
@@ -34,6 +36,11 @@ def run_restore(
     if request.command != "restore-from-snapshot":
         raise CoreValidationError(f"unsupported restore command {request.command!r}")
     request, snapshot = prepare_restore_request(request)
+    restore_output_state = strict_boolean_parameter(
+        request.parameters,
+        "restore_output_state",
+        default=False,
+    )
     if request.runtime.dry_run or request.runtime.simulate:
         mode = "dry_run" if request.runtime.dry_run else "simulate"
         capabilities.ensure_command_supported(
@@ -47,14 +54,14 @@ def run_restore(
         snapshot,
         resource=str(request.runtime.resource),
         channels=channels,
-        restore_output_state=bool(request.parameters.get("restore_output_state", False)),
-        allow_output_on=bool(request.parameters.get("restore_output_state", False)) and request.runtime.confirm,
+        restore_output_state=restore_output_state,
+        allow_output_on=restore_output_state and request.runtime.confirm,
     )
     if request.runtime.dry_run or request.runtime.simulate:
         return {
             "plan": plan,
             "restored_channels": list(channels),
-            "restore_output_state": bool(request.parameters.get("restore_output_state", False)),
+            "restore_output_state": restore_output_state,
             "resource": request.runtime.resource,
         }
     if not request.runtime.confirm:
@@ -110,8 +117,8 @@ def restore_plan(
             steps.append(_restore_step("set_over_voltage_protection", f"VOLT:PROT {_format_value(ovp_voltage)},(@{channel})", channel=channel, voltage=ovp_voltage))
         ocp_enabled = protection_record.get("ocp_enabled")
         if ocp_enabled is not None:
-            ocp_command = "ON" if bool(ocp_enabled) else "OFF"
-            steps.append(_restore_step("set_over_current_protection_enabled", f"CURR:PROT:STAT {ocp_command},(@{channel})", channel=channel, enabled=bool(ocp_enabled)))
+            ocp_command = "ON" if ocp_enabled else "OFF"
+            steps.append(_restore_step("set_over_current_protection_enabled", f"CURR:PROT:STAT {ocp_command},(@{channel})", channel=channel, enabled=ocp_enabled))
         ocp_delay = protection_record.get("ocp_delay")
         if ocp_delay is not None:
             steps.append(_restore_step("set_over_current_protection_delay", f"CURR:PROT:DEL {_format_value(ocp_delay)},(@{channel})", channel=channel, seconds=ocp_delay))
@@ -140,6 +147,7 @@ def prepare_restore_request(
 ) -> tuple[OperationRequest, dict[str, Any]]:
     """Validate snapshot identity and resolve no-hardware restore planning."""
 
+    strict_boolean_parameter(request.parameters, "restore_output_state", default=False)
     snapshot = snapshot_document_for_request(request)
     snapshot_model_id = snapshot["resolved_identity"]["model_id"]
     if request.runtime.planning_profile_id is not None:
@@ -166,12 +174,17 @@ def validate_restore_admission(request: OperationRequest) -> OperationRequest:
     """Validate restore document, identity, channels, and plan without I/O."""
 
     request, snapshot = prepare_restore_request(request)
+    restore_output_state = strict_boolean_parameter(
+        request.parameters,
+        "restore_output_state",
+        default=False,
+    )
     channels = _restore_channels(request, snapshot)
     restore_plan(
         snapshot,
         resource=str(request.runtime.resource),
         channels=channels,
-        restore_output_state=bool(request.parameters.get("restore_output_state", False)),
+        restore_output_state=restore_output_state,
         allow_output_on=False,
     )
     return request
@@ -244,16 +257,40 @@ def validate_snapshot_document(document: dict[str, Any]) -> dict[str, Any]:
             "snapshot model must be E36312A (model_id keysight-e36312a) "
             "for restore-from-snapshot"
         )
+    outputs = _validate_output_records(document.get("outputs"))
+    readback = _validate_readback_records(document.get("readback"))
+    protection = _validate_protection_records(document.get("protection_settings"))
+    if not outputs:
+        raise CoreValidationError("snapshot outputs must not be empty")
+    if not readback:
+        raise CoreValidationError("snapshot readback must not be empty")
+    missing_outputs = sorted(set(readback) - set(outputs))
+    if missing_outputs:
+        raise CoreValidationError(
+            f"snapshot outputs does not contain channel {missing_outputs[0]}"
+        )
+    extra_outputs = sorted(set(outputs) - set(readback))
+    if extra_outputs:
+        raise CoreValidationError(
+            f"snapshot readback does not contain output channel {extra_outputs[0]}"
+        )
+    extra_protection = sorted(set(protection) - set(readback))
+    if extra_protection:
+        raise CoreValidationError(
+            f"snapshot readback does not contain protection channel {extra_protection[0]}"
+        )
     return document
 
 
 def _restore_channels(request: OperationRequest, snapshot: dict[str, Any]) -> tuple[int, ...]:
     available = sorted(_records_by_channel(snapshot.get("readback")))
     if not available:
-        available = list(E36312APowerSupply.capabilities.channels)
+        raise CoreValidationError("snapshot readback must not be empty")
     selected = request.parameters.get("channel", "all")
     if selected == "all":
-        return tuple(channel for channel in available if channel in E36312APowerSupply.capabilities.channels)
+        channels = tuple(channel for channel in available if channel in E36312APowerSupply.capabilities.channels)
+        _require_output_channels(snapshot, channels)
+        return channels
     try:
         channel = int(selected)
     except (TypeError, ValueError) as exc:
@@ -262,6 +299,7 @@ def _restore_channels(request: OperationRequest, snapshot: dict[str, Any]) -> tu
         raise CoreValidationError(f"channel {channel} is not supported; supported: {E36312APowerSupply.capabilities.channels}")
     if channel not in available:
         raise CoreValidationError(f"snapshot does not contain channel {channel}")
+    _require_output_channels(snapshot, (channel,))
     return (channel,)
 
 
@@ -293,7 +331,7 @@ def _execute_restore_plan(
         elif action == "set_over_voltage_protection":
             power_supply.set_over_voltage_protection(channel=channel, voltage=float(parameters["voltage"]))
         elif action == "set_over_current_protection_enabled":
-            power_supply.set_over_current_protection_enabled(channel=channel, enabled=bool(parameters["enabled"]))
+            power_supply.set_over_current_protection_enabled(channel=channel, enabled=parameters["enabled"])
         elif action == "set_over_current_protection_delay":
             power_supply.set_over_current_protection_delay(channel=channel, seconds=float(parameters["seconds"]))
         elif action == "set_over_current_protection_delay_trigger":
@@ -367,6 +405,100 @@ def _records_by_channel(records: Any) -> dict[int, dict[str, Any]]:
             continue
         by_channel[channel] = record
     return by_channel
+
+
+def _validated_channel_records(records: Any, section: str) -> dict[int, dict[str, Any]]:
+    if not isinstance(records, list):
+        raise CoreValidationError(f"snapshot {section} must be a list")
+    by_channel: dict[int, dict[str, Any]] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            raise CoreValidationError(f"snapshot {section} entries must be objects")
+        channel = record.get("channel")
+        if type(channel) is not int or channel <= 0:
+            raise CoreValidationError(
+                f"snapshot {section}[].channel must be a positive integer"
+            )
+        if channel not in E36312APowerSupply.capabilities.channels:
+            raise CoreValidationError(
+                f"snapshot {section}[].channel {channel} is not supported"
+            )
+        if channel in by_channel:
+            raise CoreValidationError(f"duplicate snapshot {section} channel {channel}")
+        by_channel[channel] = record
+    return by_channel
+
+
+def _validate_output_records(records: Any) -> dict[int, dict[str, Any]]:
+    by_channel = _validated_channel_records(records, "outputs")
+    for record in by_channel.values():
+        if type(record.get("enabled")) is not bool:
+            raise CoreValidationError("snapshot outputs[].enabled must be a boolean")
+    return by_channel
+
+
+def _validate_readback_records(records: Any) -> dict[int, dict[str, Any]]:
+    by_channel = _validated_channel_records(records, "readback")
+    for record in by_channel.values():
+        setpoints = record.get("setpoints")
+        if not isinstance(setpoints, dict):
+            raise CoreValidationError("snapshot readback[].setpoints must be an object")
+        for field in ("voltage", "current"):
+            _require_finite_number(
+                setpoints.get(field),
+                f"snapshot readback[].setpoints.{field}",
+            )
+    return by_channel
+
+
+def _validate_protection_records(records: Any) -> dict[int, dict[str, Any]]:
+    by_channel = _validated_channel_records(records, "protection_settings")
+    for record in by_channel.values():
+        protection = record.get("protection")
+        if not isinstance(protection, dict):
+            raise CoreValidationError(
+                "snapshot protection_settings[].protection must be an object"
+            )
+        ovp_voltage = protection.get("ovp_voltage")
+        if ovp_voltage is not None:
+            _require_finite_number(
+                ovp_voltage,
+                "snapshot protection_settings[].protection.ovp_voltage",
+            )
+        ocp_enabled = protection.get("ocp_enabled")
+        if ocp_enabled is not None and type(ocp_enabled) is not bool:
+            raise CoreValidationError("snapshot ocp_enabled must be a boolean or null")
+        ocp_delay = protection.get("ocp_delay")
+        if ocp_delay is not None:
+            _require_finite_number(
+                ocp_delay,
+                "snapshot protection_settings[].protection.ocp_delay",
+            )
+            if float(ocp_delay) < 0:
+                raise CoreValidationError("snapshot ocp_delay must be non-negative")
+        ocp_delay_trigger = protection.get("ocp_delay_trigger")
+        if ocp_delay_trigger is not None and ocp_delay_trigger not in {
+            "setting-change",
+            "cc-transition",
+        }:
+            raise CoreValidationError(
+                "snapshot ocp_delay_trigger must be one of: setting-change, cc-transition, null"
+            )
+    return by_channel
+
+
+def _require_finite_number(value: Any, field: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise CoreValidationError(f"{field} must be a finite number")
+    if not math.isfinite(float(value)):
+        raise CoreValidationError(f"{field} must be a finite number")
+
+
+def _require_output_channels(snapshot: dict[str, Any], channels: tuple[int, ...]) -> None:
+    outputs = _records_by_channel(snapshot.get("outputs"))
+    for channel in channels:
+        if channel not in outputs:
+            raise CoreValidationError(f"snapshot outputs does not contain channel {channel}")
 
 
 def _format_value(value: Any) -> str:
