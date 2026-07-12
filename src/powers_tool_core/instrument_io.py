@@ -100,7 +100,6 @@ def _run_measure(
     if channel == 1 and not request.runtime.simulate and resource_interface(resource) != "ASRL":
         instrument, idn = _open_power_supply(request, opener=opener, scpi_logger=scpi_logger)
         with instrument:
-            validate_live_expected_model(request.runtime.model_profile, parse_idn(idn).model, command=request.command)
             enforce_live_support_for_idn(request, idn)
             measurements = {
                 "voltage": _parse_float(instrument.session.query("MEAS:VOLT?"), "voltage"),
@@ -114,7 +113,6 @@ def _run_measure(
     instrument, idn = _open_power_supply(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
         if not request.runtime.simulate:
-            validate_live_expected_model(request.runtime.model_profile, parse_idn(idn).model, command=request.command)
             enforce_live_support_for_idn(request, idn)
         power_supply = create_power_supply(instrument.session, idn)
         allowed = (

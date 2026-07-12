@@ -2995,7 +2995,7 @@ function captureResourceLiveSupport(job, resource) {
   state.resourceLiveSupport = liveSupport;
   state.resourceLiveSupportContext = {
     resource,
-    model: liveSupport.model || null,
+    model: liveSupport.model_name || null,
     transport_scope: liveSupport.transport_scope || "unknown",
     backend_scope: liveSupport.backend_scope || "system_visa"
   };
@@ -3076,7 +3076,7 @@ function exactCommandSupportText(commandSupport, liveSupport) {
     return `Pending live validation: ${scope}`;
   }
   if (commandSupport.profile_validation_status === "not_supported_by_model") {
-    return `Not supported by ${liveSupport.model}`;
+    return `Not supported by ${liveSupport.display_name || liveSupport.model_name || liveSupport.model_id}`;
   }
   return commandSupport.disabled_reason || `No product-open live scope is registered for ${scope}`;
 }

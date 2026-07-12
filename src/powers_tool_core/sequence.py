@@ -20,7 +20,6 @@ from powers_tool_core.factory import create_power_supply
 from powers_tool_core.model_resolution import (
     no_hardware_channels,
     resolve_no_hardware_runtime,
-    validate_live_expected_model,
 )
 from powers_tool_core.live_support import enforce_live_support_for_idn
 from powers_tool_core.safety import SafetyConfigError, SafetyLimits, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
@@ -312,17 +311,12 @@ def execute_sequence(
             if request.runtime.log_scpi and scpi_logger is not None:
                 instrument = ScpiLoggingSession(str(request.runtime.resource), instrument, scpi_logger)
             idn_raw = instrument.query(IDN_QUERY)
-            validate_live_expected_model(
-                request.runtime.model_profile,
-                _model_from_idn(idn_raw),
-                command=request.command,
-            )
-            power_supply = create_power_supply(instrument, idn_raw)
             enforce_live_support_for_idn(
                 request,
                 idn_raw,
                 feature_requirements=sequence_feature_requirements(plan),
             )
+            power_supply = create_power_supply(instrument, idn_raw)
             _preflight_sequence(request, power_supply, plan, model=_model_from_idn(idn_raw))
             for step in plan["steps"]:
                 try:

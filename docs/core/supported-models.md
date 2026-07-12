@@ -17,9 +17,10 @@ request and response shapes, not live-support promotion.
 
 ## Product LIVE Exact-Scope Matrix
 
-Core identifies the connected model with `*IDN?`, checks any expected-model
-guard, and then requires an exact detected-model, command, transport, and
-backend match. Missing and pending scopes fail closed. System-VISA evidence
+Core parses `*IDN?` and resolves reported manufacturer plus model to one
+canonical physical `model_id`, checks any expected-model guard, and then
+requires an exact `model_id + command + transport + backend + required
+feature` match. Missing and pending scopes fail closed. System-VISA evidence
 does not validate pyvisa-py or a custom backend, and no public validation
 bypass exists.
 
@@ -115,6 +116,30 @@ Current accepted evidence records:
 - EDU36311A USB + system VISA
 - EDU36311A LAN + system VISA
 - E3646A ASRL / RS-232 + system VISA
+
+Support policy refers to these accepted historical bundles by immutable
+evidence ID rather than treating repeated artifact paths as authority:
+
+| Evidence ID | Canonical model ID | Exact connection | Historical artifact directory |
+| --- | --- | --- | --- |
+| `keysight-e36312a-usb-system-visa-20260709-full` | `keysight-e36312a` | USB + system VISA | `.tmp_tests/live_cli_check/20260709_153201_E36312A_USB_full` |
+| `keysight-e36312a-tcpip-system-visa-20260709-full` | `keysight-e36312a` | TCPIP + system VISA | `.tmp_tests/live_cli_check/20260709_201420_E36312A_LAN_full` |
+| `keysight-edu36311a-usb-system-visa-20260709-full` | `keysight-edu36311a` | USB + system VISA | `.tmp_tests/live_cli_check/20260709_151534_EDU36311A_USB_full` |
+| `keysight-edu36311a-tcpip-system-visa-20260709-full` | `keysight-edu36311a` | TCPIP + system VISA | `.tmp_tests/live_cli_check/20260709_200530_EDU36311A_LAN_full` |
+| `keysight-e3646a-asrl-system-visa-20260709-full` | `keysight-e3646a` | ASRL + system VISA | `.tmp_tests/live_cli_check/20260709_151205_E3646A_ASRL_full` |
+
+The original directories are immutable historical references. This identity
+migration is not new hardware validation. In a clean clone the ignored
+artifacts may be absent; such records remain explicitly
+`historical_reference_only` and do not claim a checksum. The historical
+wrapper used the default system-VISA resource-manager path, so these records
+do not validate pyvisa-py or a custom backend.
+
+The E36312A and EDU36311A TCPIP + pyvisa-py scopes cite their corresponding
+TCPIP/system-VISA evidence only as a non-promoting candidate basis. They have
+no accepted pyvisa-py evidence, remain `transport_pending`, and remain closed
+in Product mode. Passing later artifacts never promotes support automatically;
+P9 remains a separate evidence-backed review and promotion phase.
 
 E36312A USB, E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL /
 RS-232 are opened only by their own recorded full-suite artifacts. E3646A live

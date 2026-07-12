@@ -37,13 +37,14 @@ SCPI preview unless the resource is a known deterministic SIM resource.
 
 In live mode, `--model` / `model_profile` is an expected-model guard. The
 connected instrument is still identified with `*IDN?`, and Core requires the
-reported model to match the selected model before any setup or write SCPI. The
-selected model never overrides the IDN-detected driver.
+reported manufacturer and model to resolve to one canonical physical
+`model_id` before checking the selected model and before any setup or write
+SCPI. The selected model never overrides the IDN-detected driver.
 `GENERIC` is no-hardware only and is not accepted as a live expected model.
 
 For model-aware live commands, Core makes the final product decision after
-`*IDN?` using the detected model plus the exact command, resource transport,
-and VISA backend. Missing exact metadata and pending TCPIP/pyvisa-py scopes
+`*IDN?` using canonical `model_id + command + transport + backend + required
+feature`. Missing exact metadata and pending TCPIP/pyvisa-py scopes
 fail closed; system-VISA evidence does not validate another backend. Identity
 diagnostics do not imply command support, and no validation bypass exists.
 Unsupported model, command, and mode failures are intentional feature-lock
@@ -307,6 +308,14 @@ and exact recorded cases:
 - EDU36311A USB + system VISA
 - EDU36311A LAN + system VISA
 - E3646A ASRL / RS-232 + system VISA
+
+Core references these immutable historical bundles by stable evidence ID.
+Their original artifact directories remain unchanged; migrating their identity
+metadata is not new hardware validation. System-VISA evidence does not validate
+pyvisa-py, a custom backend, another transport, model, vendor, command, or
+feature. Passing a later validation artifact is candidate evidence only and
+does not promote Product support automatically; evidence-backed promotion
+remains separate P9 work.
 
 Only the exact commands in the Core policy matrix are product-open on these
 connections. E3646A live validation is restricted to ASRL / RS-232; E3646A

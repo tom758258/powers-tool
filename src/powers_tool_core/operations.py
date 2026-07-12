@@ -29,7 +29,6 @@ from powers_tool_core.models import parse_idn
 from powers_tool_core.model_resolution import (
     no_hardware_channels,
     resolve_no_hardware_runtime,
-    validate_live_expected_model,
 )
 from powers_tool_core.live_support import enforce_live_support_for_idn
 from powers_tool_core.parameter_constraints import validate_request_parameters
@@ -299,11 +298,6 @@ def _run_output_write_operation(
                 else instrument
             )
             idn = session.query(IDN_QUERY)
-            validate_live_expected_model(
-                request.runtime.model_profile,
-                parse_idn(idn).model,
-                command=request.command,
-            )
             enforce_live_support_for_idn(request, idn)
             power_supply = create_power_supply(session, idn)
             allowed_types = (

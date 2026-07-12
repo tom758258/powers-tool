@@ -12,7 +12,7 @@ from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.errors import VisaConnectionError
 from powers_tool_core.factory import create_power_supply
 from powers_tool_core.models import parse_idn
-from powers_tool_core.model_resolution import resolve_no_hardware_runtime, validate_live_expected_model
+from powers_tool_core.model_resolution import resolve_no_hardware_runtime
 from powers_tool_core.live_support import enforce_live_support_for_idn
 from powers_tool_core.operations import ScpiLoggingSession
 from powers_tool_core.testing.simulator import SimulatedResourceManager
@@ -35,7 +35,6 @@ def run_snapshot(
     instrument, idn = _open(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
         if not request.runtime.simulate:
-            validate_live_expected_model(request.runtime.model_profile, parse_idn(idn).model, command=request.command)
             enforce_live_support_for_idn(request, idn)
         power_supply = create_power_supply(instrument.session, idn)
         if not isinstance(power_supply, E36312APowerSupply):

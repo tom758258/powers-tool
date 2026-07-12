@@ -1,5 +1,6 @@
 import pytest
 
+import powers_tool_core.live_support as live_support_module
 from powers_tool_core.core import (
     ConfirmationRequiredError,
     CoreValidationError,
@@ -170,7 +171,7 @@ def test_validation_mode_keeps_unregistered_scopes_and_commands_closed() -> None
                 "USB0::1::INSTR",
                 support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
             ),
-            "E36312A",
+            "keysight-e36312a",
             "missing_or_unknown_metadata",
         ),
         (
@@ -180,7 +181,7 @@ def test_validation_mode_keeps_unregistered_scopes_and_commands_closed() -> None
                 backend="@py",
                 support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
             ),
-            "EDU36311A",
+            "keysight-edu36311a",
             "not_supported_by_model",
         ),
     ],
@@ -232,6 +233,48 @@ def test_expected_model_mismatch_precedes_scope_rejection() -> None:
             opener=lambda *args, **kwargs: session,
         )
     assert session.queries == ["*IDN?"]
+
+
+def test_idn_resolves_to_canonical_model_id_before_exact_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def capture_scope(**kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(live_support_module, "ensure_live_scope_supported", capture_scope)
+    request = _request("measure", "USB0::1::INSTR", model="E36312A")
+    live_support_module.enforce_live_support_for_idn(
+        request,
+        "KEYSIGHT TECHNOLOGIES,E36312A,SN,1.0",
+    )
+    assert captured["model_id"] == "keysight-e36312a"
+    assert "model" not in captured
+
+
+@pytest.mark.parametrize(
+    ("idn", "match"),
+    [
+        ("ACME,E36312A,SN,1.0", "manufacturer and model do not resolve"),
+        ("KEYSIGHT,UNKNOWN_MODEL,SN,1.0", "unknown live support-policy model_id"),
+        ("KEYSIGHT,E36103B,SN,1.0", "de-scoped"),
+    ],
+)
+def test_unresolved_or_descoped_idn_fails_before_command_scpi(
+    idn: str,
+    match: str,
+) -> None:
+    session = FakeSession(idn)
+    with pytest.raises(CoreValidationError, match=match):
+        run_instrument_io(
+            _request("measure", "USB0::1::INSTR"),
+            opener=lambda *args, **kwargs: session,
+        )
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed
 
 
 @pytest.mark.parametrize(

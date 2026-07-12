@@ -21,7 +21,6 @@ from powers_tool_core.models import parse_idn
 from powers_tool_core.model_resolution import (
     no_hardware_channels,
     resolve_no_hardware_runtime,
-    validate_live_expected_model,
 )
 from powers_tool_core.live_support import enforce_live_support_for_idn
 from powers_tool_core.operations import ScpiLoggingSession, ramp_voltages
@@ -270,11 +269,6 @@ def execute_ramp_list(
                 else instrument
             )
             idn_raw = session.query("*IDN?")
-            validate_live_expected_model(
-                request.runtime.model_profile,
-                parse_idn(idn_raw).model,
-                command=request.command,
-            )
             enforce_live_support_for_idn(request, idn_raw)
             power_supply = create_power_supply(session, idn_raw)
             if not isinstance(power_supply, OUTPUT_WRITE_POWER_SUPPLY_TYPES):

@@ -3,10 +3,10 @@ from dataclasses import replace
 
 import pytest
 
-from powers_tool_core.support_features import supported_sequence_actions
+from powers_tool_core.support_features import supported_sequence_actions_for_model_id
 
 from powers_tool_core.support_policy import (
-    ACTIVE_LIVE_POLICY_MODELS,
+    ACTIVE_LIVE_POLICY_MODEL_IDS,
     BACKEND_CUSTOM_VISA,
     BACKEND_PYVISA_PY,
     BACKEND_SYSTEM_VISA,
@@ -108,10 +108,10 @@ E3646A_VALIDATED_COMMANDS = {
 }
 
 
-def _commands_for_scope(model: str, transport: str, backend: str) -> set[str]:
+def _commands_for_scope(model_id: str, transport: str, backend: str) -> set[str]:
     return {
         command
-        for command, policy in command_live_support_matrix(model).items()
+        for command, policy in command_live_support_matrix(model_id).items()
         if any(
             scope.transport_scope == transport and scope.backend_scope == backend
             for scope in policy.scopes
@@ -121,7 +121,7 @@ def _commands_for_scope(model: str, transport: str, backend: str) -> set[str]:
 
 def _replace_command(
     registry: tuple[ModelSupportPolicy, ...],
-    model: str,
+    model_id: str,
     command: str,
     replacement: CommandSupportPolicy,
 ) -> tuple[ModelSupportPolicy, ...]:
@@ -133,7 +133,7 @@ def _replace_command(
                 for policy in model_policy.commands
             ),
         )
-        if model_policy.model == model
+        if model_policy.model_id == model_id
         else model_policy
         for model_policy in registry
     )
@@ -212,11 +212,11 @@ def test_backend_normalization_is_idempotent(value: str | None) -> None:
 @pytest.mark.parametrize(
     ("model", "transport", "commands"),
     [
-        ("E36312A", TRANSPORT_USB, E36312A_VALIDATED_COMMANDS),
-        ("E36312A", TRANSPORT_TCPIP, E36312A_VALIDATED_COMMANDS),
-        ("EDU36311A", TRANSPORT_USB, EDU36311A_VALIDATED_COMMANDS),
-        ("EDU36311A", TRANSPORT_TCPIP, EDU36311A_VALIDATED_COMMANDS),
-        ("E3646A", TRANSPORT_ASRL, E3646A_VALIDATED_COMMANDS),
+        ("keysight-e36312a", TRANSPORT_USB, E36312A_VALIDATED_COMMANDS),
+        ("keysight-e36312a", TRANSPORT_TCPIP, E36312A_VALIDATED_COMMANDS),
+        ("keysight-edu36311a", TRANSPORT_USB, EDU36311A_VALIDATED_COMMANDS),
+        ("keysight-edu36311a", TRANSPORT_TCPIP, EDU36311A_VALIDATED_COMMANDS),
+        ("keysight-e3646a", TRANSPORT_ASRL, E3646A_VALIDATED_COMMANDS),
     ],
 )
 def test_exact_validated_command_inventory(
@@ -225,30 +225,30 @@ def test_exact_validated_command_inventory(
     assert _commands_for_scope(model, transport, BACKEND_SYSTEM_VISA) == commands
     for command in commands:
         scope = find_live_support_scope(
-            model=model,
+            model_id=model,
             command=command,
             transport=transport,
             backend=BACKEND_SYSTEM_VISA,
         )
         assert scope is not None
         assert scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
-        assert scope.evidence
-        assert scope.artifact
+        assert scope.accepted_evidence_ids
+        assert scope.accepted_evidence_ids
         assert "pyvisa.ResourceManager()" in (scope.note or "")
 
 
 @pytest.mark.parametrize(
     ("model", "commands"),
     [
-        ("E36312A", E36312A_VALIDATED_COMMANDS),
-        ("EDU36311A", EDU36311A_VALIDATED_COMMANDS),
+        ("keysight-e36312a", E36312A_VALIDATED_COMMANDS),
+        ("keysight-edu36311a", EDU36311A_VALIDATED_COMMANDS),
     ],
 )
 def test_tcpip_pyvisa_py_pending_inventory(model: str, commands: set[str]) -> None:
     assert _commands_for_scope(model, TRANSPORT_TCPIP, BACKEND_PYVISA_PY) == commands
     for command in commands:
         scope = find_live_support_scope(
-            model=model,
+            model_id=model,
             command=command,
             transport=TRANSPORT_TCPIP,
             backend="@py",
@@ -261,12 +261,12 @@ def test_tcpip_pyvisa_py_pending_inventory(model: str, commands: set[str]) -> No
 @pytest.mark.parametrize(
     ("model", "transport", "backend"),
     [
-        ("E36312A", TRANSPORT_USB, BACKEND_PYVISA_PY),
-        ("EDU36311A", TRANSPORT_USB, BACKEND_PYVISA_PY),
-        ("E3646A", TRANSPORT_TCPIP, BACKEND_SYSTEM_VISA),
-        ("E3646A", TRANSPORT_USB, BACKEND_SYSTEM_VISA),
-        ("E3646A", TRANSPORT_TCPIP, BACKEND_PYVISA_PY),
-        ("E36312A", TRANSPORT_TCPIP, BACKEND_CUSTOM_VISA),
+        ("keysight-e36312a", TRANSPORT_USB, BACKEND_PYVISA_PY),
+        ("keysight-edu36311a", TRANSPORT_USB, BACKEND_PYVISA_PY),
+        ("keysight-e3646a", TRANSPORT_TCPIP, BACKEND_SYSTEM_VISA),
+        ("keysight-e3646a", TRANSPORT_USB, BACKEND_SYSTEM_VISA),
+        ("keysight-e3646a", TRANSPORT_TCPIP, BACKEND_PYVISA_PY),
+        ("keysight-e36312a", TRANSPORT_TCPIP, BACKEND_CUSTOM_VISA),
     ],
 )
 def test_unregistered_scopes_do_not_appear(
@@ -278,7 +278,7 @@ def test_unregistered_scopes_do_not_appear(
 @pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
 def test_validated_scope_is_allowed_in_both_modes(mode: str) -> None:
     scope = ensure_live_scope_supported(
-        model="e36312a",
+        model_id="keysight-e36312a",
         command="measure",
         transport="USB0::fixture::INSTR",
         backend=None,
@@ -289,7 +289,7 @@ def test_validated_scope_is_allowed_in_both_modes(mode: str) -> None:
 
 def test_product_rejects_and_validation_allows_transport_pending() -> None:
     arguments = {
-        "model": "E36312A",
+        "model_id": "keysight-e36312a",
         "command": "measure",
         "transport": "TCPIP",
         "backend": "@py",
@@ -305,7 +305,7 @@ def test_product_rejects_and_validation_allows_transport_pending() -> None:
 
 
 def test_feature_pending_is_validation_only_with_synthetic_metadata() -> None:
-    base = command_live_support("E36312A", "sequence")
+    base = command_live_support("keysight-e36312a", "sequence")
     feature_scope = replace(base.scopes[0], feature_scopes=(
         CommandFeatureSupportScope(
             feature_kind="sequence_action",
@@ -316,13 +316,13 @@ def test_feature_pending_is_validation_only_with_synthetic_metadata() -> None:
     ))
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "sequence",
         replace(base, scopes=(feature_scope,)),
     )
     with pytest.raises(LiveSupportPolicyError, match="feature_pending"):
         ensure_live_scope_supported(
-            model="E36312A",
+            model_id="keysight-e36312a",
             command="sequence",
             feature_requirements=(("sequence_action", "set"),),
             transport=feature_scope.transport_scope,
@@ -332,7 +332,7 @@ def test_feature_pending_is_validation_only_with_synthetic_metadata() -> None:
         )
     assert (
         ensure_live_scope_supported(
-            model="E36312A",
+            model_id="keysight-e36312a",
             command="sequence",
             transport=feature_scope.transport_scope,
             backend=feature_scope.backend_scope,
@@ -357,7 +357,7 @@ def test_feature_value_normalization(kind: str, value: str, expected: str) -> No
 
 
 def test_feature_lookup_is_exact_and_rejects_duplicates() -> None:
-    scope = command_live_support("E36312A", "trigger-step").scopes[0]
+    scope = command_live_support("keysight-e36312a", "trigger-step").scopes[0]
     assert find_feature_support(scope, "trigger_source", "IMM").feature_value == "immediate"
     without_immediate = replace(
         scope,
@@ -373,7 +373,7 @@ def test_feature_lookup_is_exact_and_rejects_duplicates() -> None:
 
 def test_transport_pending_parent_requires_and_allows_pending_feature_only_in_validation() -> None:
     arguments = {
-        "model": "E36312A",
+        "model_id": "keysight-e36312a",
         "command": "sequence",
         "transport": TRANSPORT_TCPIP,
         "backend": BACKEND_PYVISA_PY,
@@ -392,12 +392,13 @@ def test_transport_pending_parent_requires_and_allows_pending_feature_only_in_va
 
 
 def test_validated_parent_allows_mixed_validated_and_pending_features() -> None:
-    base = command_live_support("E36312A", "sequence")
+    base = command_live_support("keysight-e36312a", "sequence")
     scope = base.scopes[0]
     changed_features = tuple(
         replace(
             feature,
             validation_status=VALIDATION_STATUS_FEATURE_PENDING,
+            inherits_parent_accepted_evidence=False,
             note="Synthetic future feature validation remains pending.",
         )
         if feature.feature_value == "set"
@@ -407,7 +408,7 @@ def test_validated_parent_allows_mixed_validated_and_pending_features() -> None:
     changed_scope = replace(scope, feature_scopes=changed_features)
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "sequence",
         replace(base, scopes=(changed_scope,) + base.scopes[1:]),
     )
@@ -415,7 +416,7 @@ def test_validated_parent_allows_mixed_validated_and_pending_features() -> None:
     validate_live_support_metadata(registry)
     for mode in (SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION):
         ensure_live_scope_supported(
-            model="E36312A",
+            model_id="keysight-e36312a",
             command="sequence",
             transport=scope.transport_scope,
             backend=scope.backend_scope,
@@ -425,7 +426,7 @@ def test_validated_parent_allows_mixed_validated_and_pending_features() -> None:
         )
     with pytest.raises(LiveSupportPolicyError, match="feature_pending"):
         ensure_live_scope_supported(
-            model="E36312A",
+            model_id="keysight-e36312a",
             command="sequence",
             transport=scope.transport_scope,
             backend=scope.backend_scope,
@@ -434,7 +435,7 @@ def test_validated_parent_allows_mixed_validated_and_pending_features() -> None:
             registry=registry,
         )
     ensure_live_scope_supported(
-        model="E36312A",
+        model_id="keysight-e36312a",
         command="sequence",
         transport=scope.transport_scope,
         backend=scope.backend_scope,
@@ -443,7 +444,7 @@ def test_validated_parent_allows_mixed_validated_and_pending_features() -> None:
         registry=registry,
     )
     projected_scope = live_support_policy_metadata(
-        "E36312A", {"sequence"}, registry=registry
+        "keysight-e36312a", {"sequence"}, registry=registry
     )["commands"]["sequence"]["scopes"][0]
     projected_features = {
         feature["feature_value"]: feature
@@ -457,7 +458,7 @@ def test_validated_parent_allows_mixed_validated_and_pending_features() -> None:
 
 @pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
 def test_validated_parent_allows_explicit_unsupported_feature_metadata(mode: str) -> None:
-    base = command_live_support("E36312A", "sequence")
+    base = command_live_support("keysight-e36312a", "sequence")
     scope = base.scopes[0]
     changed_scope = replace(
         scope,
@@ -465,6 +466,7 @@ def test_validated_parent_allows_explicit_unsupported_feature_metadata(mode: str
             replace(
                 feature,
                 validation_status=VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL,
+                inherits_parent_accepted_evidence=False,
                 note="Synthetic explicit unsupported feature.",
             )
             if feature.feature_value == "set"
@@ -474,7 +476,7 @@ def test_validated_parent_allows_explicit_unsupported_feature_metadata(mode: str
     )
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "sequence",
         replace(base, scopes=(changed_scope,) + base.scopes[1:]),
     )
@@ -482,7 +484,7 @@ def test_validated_parent_allows_explicit_unsupported_feature_metadata(mode: str
     validate_live_support_metadata(registry)
     with pytest.raises(LiveSupportPolicyError, match="not_supported_by_model"):
         ensure_live_scope_supported(
-            model="E36312A",
+            model_id="keysight-e36312a",
             command="sequence",
             transport=scope.transport_scope,
             backend=scope.backend_scope,
@@ -493,7 +495,7 @@ def test_validated_parent_allows_explicit_unsupported_feature_metadata(mode: str
 
 
 def test_transport_pending_parent_rejects_validated_feature_metadata() -> None:
-    base = command_live_support("E36312A", "sequence")
+    base = command_live_support("keysight-e36312a", "sequence")
     pending_scope = next(
         scope
         for scope in base.scopes
@@ -512,7 +514,7 @@ def test_transport_pending_parent_rejects_validated_feature_metadata() -> None:
     )
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "sequence",
         replace(
             base,
@@ -527,7 +529,7 @@ def test_transport_pending_parent_rejects_validated_feature_metadata() -> None:
 
 
 def test_transport_pending_parent_allows_explicit_unsupported_feature_metadata() -> None:
-    base = command_live_support("E36312A", "sequence")
+    base = command_live_support("keysight-e36312a", "sequence")
     pending_scope = next(
         scope
         for scope in base.scopes
@@ -548,7 +550,7 @@ def test_transport_pending_parent_allows_explicit_unsupported_feature_metadata()
     )
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "sequence",
         replace(
             base,
@@ -561,7 +563,7 @@ def test_transport_pending_parent_allows_explicit_unsupported_feature_metadata()
     validate_live_support_metadata(registry)
     with pytest.raises(LiveSupportPolicyError, match="not_supported_by_model"):
         ensure_live_scope_supported(
-            model="E36312A",
+            model_id="keysight-e36312a",
             command="sequence",
             transport=pending_scope.transport_scope,
             backend=pending_scope.backend_scope,
@@ -573,7 +575,7 @@ def test_transport_pending_parent_allows_explicit_unsupported_feature_metadata()
 
 @pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
 def test_missing_feature_metadata_fails_closed(mode: str) -> None:
-    base = command_live_support("E36312A", "sequence")
+    base = command_live_support("keysight-e36312a", "sequence")
     scope = replace(
         base.scopes[0],
         feature_scopes=tuple(
@@ -582,13 +584,13 @@ def test_missing_feature_metadata_fails_closed(mode: str) -> None:
     )
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "sequence",
         replace(base, scopes=(scope,)),
     )
     with pytest.raises(LiveSupportPolicyError, match="missing_feature_metadata") as raised:
         ensure_live_scope_supported(
-            model="E36312A",
+            model_id="keysight-e36312a",
             command="sequence",
             transport=scope.transport_scope,
             backend=scope.backend_scope,
@@ -601,7 +603,7 @@ def test_missing_feature_metadata_fails_closed(mode: str) -> None:
 
 
 def test_unknown_feature_status_fails_closed() -> None:
-    base = command_live_support("E36312A", "trigger-step")
+    base = command_live_support("keysight-e36312a", "trigger-step")
     source = base.scopes[0].feature_scopes[0]
     scope = replace(
         base.scopes[0],
@@ -610,13 +612,13 @@ def test_unknown_feature_status_fails_closed() -> None:
     )
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "trigger-step",
         replace(base, scopes=(scope,)),
     )
     with pytest.raises(LiveSupportPolicyError, match="unknown validation status"):
         ensure_live_scope_supported(
-            model="E36312A",
+            model_id="keysight-e36312a",
             command="trigger-step",
             transport=scope.transport_scope,
             backend=scope.backend_scope,
@@ -630,7 +632,7 @@ def test_unknown_feature_status_fails_closed() -> None:
 def test_not_supported_is_rejected_in_both_modes(mode: str) -> None:
     with pytest.raises(LiveSupportPolicyError, match="not_supported_by_model"):
         ensure_live_scope_supported(
-            model="EDU36311A",
+            model_id="keysight-edu36311a",
             command="trigger-list",
             transport=TRANSPORT_USB,
             backend=BACKEND_SYSTEM_VISA,
@@ -639,30 +641,32 @@ def test_not_supported_is_rejected_in_both_modes(mode: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("model", "command", "transport", "mode", "match"),
+    ("model_id", "command", "transport", "mode", "match"),
     [
-        ("E36312A", "missing-command", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
-        ("E36312A", "measure", TRANSPORT_GPIB, SUPPORT_POLICY_MODE_PRODUCT, "no exact transport/backend scope"),
-        ("E36312A", "measure", TRANSPORT_USB, "future", "unknown_policy_mode"),
-        ("E36103B", "measure", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
-        ("E36232A", "measure", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
-        ("UNKNOWN", "measure", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
-        ("GENERIC", "measure", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
+        ("keysight-e36312a", "missing-command", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
+        ("keysight-e36312a", "measure", TRANSPORT_GPIB, SUPPORT_POLICY_MODE_PRODUCT, "no exact transport/backend scope"),
+        ("keysight-e36312a", "measure", TRANSPORT_USB, "future", "unknown_policy_mode"),
+        ("E36312A", "measure", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
+        ("keysight-e36103b", "measure", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
+        ("keysight-e36232a", "measure", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
+        ("keysight-e36313a", "measure", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
+        ("keysight-unknown", "measure", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
+        ("generic-scpi", "measure", TRANSPORT_USB, SUPPORT_POLICY_MODE_PRODUCT, "missing_or_unknown_metadata"),
     ],
 )
 def test_evaluator_fails_closed(
-    model: str, command: str, transport: str, mode: str, match: str
+    model_id: str, command: str, transport: str, mode: str, match: str
 ) -> None:
     with pytest.raises(LiveSupportPolicyError, match=match) as raised:
         ensure_live_scope_supported(
-            model=model,
+            model_id=model_id,
             command=command,
             transport=transport,
             backend=BACKEND_SYSTEM_VISA,
             support_policy_mode=mode,
         )
     message = str(raised.value)
-    assert "model=" in message
+    assert "model_id=" in message
     assert "command=" in message
     assert "transport=" in message
     assert "backend=" in message
@@ -671,16 +675,16 @@ def test_evaluator_fails_closed(
 
 
 def test_unknown_scope_status_fails_closed() -> None:
-    base = command_live_support("E36312A", "measure")
+    base = command_live_support("keysight-e36312a", "measure")
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "measure",
         replace(base, scopes=(replace(base.scopes[0], validation_status="future_status"),)),
     )
     with pytest.raises(LiveSupportPolicyError, match="unknown validation status"):
         ensure_live_scope_supported(
-            model="E36312A",
+            model_id="keysight-e36312a",
             command="measure",
             transport=base.scopes[0].transport_scope,
             backend=base.scopes[0].backend_scope,
@@ -702,16 +706,16 @@ def test_unknown_scope_status_fails_closed() -> None:
 def test_evaluator_rejects_invalid_top_level_status_with_valid_scope(
     status: str, mode: str
 ) -> None:
-    base = command_live_support("E36312A", "measure")
+    base = command_live_support("keysight-e36312a", "measure")
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "measure",
         replace(base, validation_status=status),
     )
     with pytest.raises(LiveSupportPolicyError, match="command-policy validation status"):
         ensure_live_scope_supported(
-            model="E36312A",
+            model_id="keysight-e36312a",
             command="measure",
             transport=base.scopes[0].transport_scope,
             backend=base.scopes[0].backend_scope,
@@ -721,12 +725,12 @@ def test_evaluator_rejects_invalid_top_level_status_with_valid_scope(
 
 
 def test_profile_validated_without_an_exact_scope_does_not_open_live() -> None:
-    policy = command_live_support("E36312A", "output-on")
+    policy = command_live_support("keysight-e36312a", "output-on")
     assert policy.validation_status == VALIDATION_STATUS_PROFILE_VALIDATED
     assert policy.scopes == ()
     with pytest.raises(LiveSupportPolicyError, match="no exact transport/backend scope"):
         ensure_live_scope_supported(
-            model="E36312A",
+            model_id="keysight-e36312a",
             command="output-on",
             transport=TRANSPORT_USB,
             backend=BACKEND_SYSTEM_VISA,
@@ -738,7 +742,7 @@ def test_profile_validated_without_an_exact_scope_does_not_open_live() -> None:
     ("model", "commands"),
     [
         (
-            "EDU36311A",
+            "keysight-edu36311a",
             {
                 "measure-all",
                 "trigger-pulse",
@@ -752,7 +756,7 @@ def test_profile_validated_without_an_exact_scope_does_not_open_live() -> None:
             },
         ),
         (
-            "E3646A",
+            "keysight-e3646a",
             {
                 "measure-all",
                 "protection-status",
@@ -779,7 +783,7 @@ def test_explicit_model_unsupported_boundaries(model: str, commands: set[str]) -
 
 def test_e3646a_software_workflows_have_only_current_asrl_scope() -> None:
     for command in ("ramp-list", "sequence"):
-        policy = command_live_support("E3646A", command)
+        policy = command_live_support("keysight-e3646a", command)
         assert {
             (scope.transport_scope, scope.backend_scope, scope.validation_status)
             for scope in policy.scopes
@@ -806,7 +810,7 @@ def test_diagnostic_and_offline_boundaries_are_explicit() -> None:
     assert not is_live_support_policy_exempt("capabilities")
     assert not is_live_support_policy_exempt("measure")
     assert not is_live_support_policy_exempt("missing-read-command")
-    for matrix in (command_live_support_matrix(model) for model in ACTIVE_LIVE_POLICY_MODELS):
+    for matrix in (command_live_support_matrix(model) for model in ACTIVE_LIVE_POLICY_MODEL_IDS):
         assert EXEMPT_LIVE_DIAGNOSTIC_COMMANDS.isdisjoint(matrix)
         assert PURE_OFFLINE_COMMANDS.isdisjoint(matrix)
 
@@ -816,11 +820,11 @@ def test_checked_in_registry_passes_validation() -> None:
 
 
 def test_checked_in_feature_inventory_matches_current_profiles() -> None:
-    for model in ACTIVE_LIVE_POLICY_MODELS:
+    for model in ACTIVE_LIVE_POLICY_MODEL_IDS:
         for scope in command_live_support(model, "sequence").scopes:
             assert {
                 feature.feature_value for feature in scope.feature_scopes
-            } == supported_sequence_actions(model)
+            } == supported_sequence_actions_for_model_id(model)
             expected_status = (
                 VALIDATION_STATUS_FEATURE_PENDING
                 if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
@@ -829,18 +833,18 @@ def test_checked_in_feature_inventory_matches_current_profiles() -> None:
             assert {feature.validation_status for feature in scope.feature_scopes} == {
                 expected_status
             }
-    assert "trigger-pulse" in supported_sequence_actions("E36312A")
-    assert "trigger-pulse" not in supported_sequence_actions("EDU36311A")
-    assert "trigger-pulse" not in supported_sequence_actions("E3646A")
+    assert "trigger-pulse" in supported_sequence_actions_for_model_id("keysight-e36312a")
+    assert "trigger-pulse" not in supported_sequence_actions_for_model_id("keysight-edu36311a")
+    assert "trigger-pulse" not in supported_sequence_actions_for_model_id("keysight-e3646a")
     for command in ("trigger-step", "trigger-list"):
-        for scope in command_live_support("E36312A", command).scopes:
+        for scope in command_live_support("keysight-e36312a", command).scopes:
             assert {feature.feature_value for feature in scope.feature_scopes} == {
                 "bus", "immediate"
             }
 
 
 def test_public_feature_projection_is_additive_and_redacted() -> None:
-    metadata = live_support_policy_metadata("E36312A", {"sequence"})
+    metadata = live_support_policy_metadata("keysight-e36312a", {"sequence"})
     scope = metadata["commands"]["sequence"]["scopes"][0]
     assert scope["features"]
     assert {feature["feature_kind"] for feature in scope["features"]} == {
@@ -854,11 +858,11 @@ def test_public_feature_projection_is_additive_and_redacted() -> None:
 
 
 def test_validator_rejects_feature_inventory_drift() -> None:
-    base = command_live_support("E36312A", "sequence")
+    base = command_live_support("keysight-e36312a", "sequence")
     scope = replace(base.scopes[0], feature_scopes=base.scopes[0].feature_scopes[:-1])
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "sequence",
         replace(base, scopes=(scope,) + base.scopes[1:]),
     )
@@ -887,18 +891,18 @@ def test_validator_rejects_feature_inventory_drift() -> None:
         ),
         (
             CommandFeatureSupportScope("sequence_action", "set", VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE),
-            "validated feature lacks evidence or migration note",
+            "validated feature lacks explicit parent-evidence inheritance",
         ),
     ],
 )
 def test_validator_rejects_invalid_feature_metadata(
     feature: CommandFeatureSupportScope, match: str
 ) -> None:
-    base = command_live_support("E36312A", "sequence")
+    base = command_live_support("keysight-e36312a", "sequence")
     scope = replace(base.scopes[0], feature_scopes=(feature,) + base.scopes[0].feature_scopes[1:])
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "sequence",
         replace(base, scopes=(scope,) + base.scopes[1:]),
     )
@@ -907,7 +911,7 @@ def test_validator_rejects_invalid_feature_metadata(
 
 
 def test_validator_rejects_duplicate_feature_scope_and_wrong_command_kind() -> None:
-    sequence = command_live_support("E36312A", "sequence")
+    sequence = command_live_support("keysight-e36312a", "sequence")
     duplicate_scope = replace(
         sequence.scopes[0],
         feature_scopes=sequence.scopes[0].feature_scopes
@@ -915,21 +919,21 @@ def test_validator_rejects_duplicate_feature_scope_and_wrong_command_kind() -> N
     )
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "sequence",
         replace(sequence, scopes=(duplicate_scope,) + sequence.scopes[1:]),
     )
     with pytest.raises(ValueError, match="duplicate feature scope"):
         validate_live_support_metadata(registry)
 
-    measure = command_live_support("E36312A", "measure")
+    measure = command_live_support("keysight-e36312a", "measure")
     wrong_scope = replace(
         measure.scopes[0],
         feature_scopes=(sequence.scopes[0].feature_scopes[0],),
     )
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "measure",
         replace(measure, scopes=(wrong_scope,) + measure.scopes[1:]),
     )
@@ -938,10 +942,10 @@ def test_validator_rejects_duplicate_feature_scope_and_wrong_command_kind() -> N
 
 
 def test_validator_rejects_duplicate_exact_scope() -> None:
-    base = command_live_support("E36312A", "measure")
+    base = command_live_support("keysight-e36312a", "measure")
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "measure",
         replace(base, scopes=base.scopes + (base.scopes[0],)),
     )
@@ -953,54 +957,54 @@ def test_validator_rejects_duplicate_exact_scope() -> None:
     ("replacement", "match"),
     [
         (
-            replace(command_live_support("E36312A", "measure"), validation_status="future"),
+            replace(command_live_support("keysight-e36312a", "measure"), validation_status="future"),
             "invalid command-policy validation status",
         ),
         (
             replace(
-                command_live_support("E36312A", "measure"),
+                command_live_support("keysight-e36312a", "measure"),
                 validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
             ),
             "invalid command-policy validation status",
         ),
         (
             replace(
-                command_live_support("E36312A", "measure"),
+                command_live_support("keysight-e36312a", "measure"),
                 validation_status=VALIDATION_STATUS_TRANSPORT_PENDING,
             ),
             "invalid command-policy validation status",
         ),
         (
             replace(
-                command_live_support("E36312A", "measure"),
+                command_live_support("keysight-e36312a", "measure"),
                 validation_status=VALIDATION_STATUS_FEATURE_PENDING,
             ),
             "invalid command-policy validation status",
         ),
         (
             replace(
-                command_live_support("E36312A", "measure"),
-                scopes=(replace(command_live_support("E36312A", "measure").scopes[0], validation_status="future"),),
+                command_live_support("keysight-e36312a", "measure"),
+                scopes=(replace(command_live_support("keysight-e36312a", "measure").scopes[0], validation_status="future"),),
             ),
             "unknown scope validation status",
         ),
         (
             replace(
-                command_live_support("E36312A", "measure"),
-                scopes=(replace(command_live_support("E36312A", "measure").scopes[0], evidence=None),),
+                command_live_support("keysight-e36312a", "measure"),
+                scopes=(replace(command_live_support("keysight-e36312a", "measure").scopes[0], accepted_evidence_ids=()),),
             ),
-            "validated scope lacks evidence",
+            "validated scope lacks accepted evidence",
         ),
         (
             replace(
-                command_live_support("E36312A", "measure"),
-                scopes=(replace(command_live_support("E36312A", "measure").scopes[0], artifact=None),),
+                command_live_support("keysight-e36312a", "measure"),
+                scopes=(replace(command_live_support("keysight-e36312a", "measure").scopes[0], accepted_evidence_ids=("missing-evidence-id",)),),
             ),
-            "validated scope lacks artifact",
+            "missing evidence registry entry",
         ),
         (
             replace(
-                command_live_support("E36312A", "measure"),
+                command_live_support("keysight-e36312a", "measure"),
                 scopes=(
                     CommandLiveSupportScope(
                         VALIDATION_STATUS_TRANSPORT_PENDING,
@@ -1013,8 +1017,8 @@ def test_validator_rejects_duplicate_exact_scope() -> None:
         ),
         (
             replace(
-                command_live_support("EDU36311A", "trigger-list"),
-                scopes=(command_live_support("E36312A", "measure").scopes[0],),
+                command_live_support("keysight-edu36311a", "trigger-list"),
+                scopes=(command_live_support("keysight-e36312a", "measure").scopes[0],),
             ),
             "unsupported command has live scopes",
         ),
@@ -1023,7 +1027,7 @@ def test_validator_rejects_duplicate_exact_scope() -> None:
 def test_validator_rejects_invalid_command_metadata(
     replacement: CommandSupportPolicy, match: str
 ) -> None:
-    model = "EDU36311A" if replacement.command == "trigger-list" else "E36312A"
+    model = "keysight-edu36311a" if replacement.command == "trigger-list" else "keysight-e36312a"
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY, model, replacement.command, replacement
     )
@@ -1033,7 +1037,7 @@ def test_validator_rejects_invalid_command_metadata(
 
 def test_validator_rejects_de_scoped_model() -> None:
     registry = LIVE_SUPPORT_POLICY_REGISTRY + (
-        ModelSupportPolicy("E36103B", command_live_support_matrix("E36312A").values()),
+        ModelSupportPolicy("keysight-e36103b", tuple(command_live_support_matrix("keysight-e36312a").values())),
     )
     with pytest.raises(ValueError, match="de-scoped model"):
         validate_live_support_metadata(registry)
@@ -1041,17 +1045,17 @@ def test_validator_rejects_de_scoped_model() -> None:
 
 @pytest.mark.parametrize("model", ["e36312a", " E36312A", "E36312A "])
 def test_validator_rejects_noncanonical_model_metadata(model: str) -> None:
-    registry = (replace(LIVE_SUPPORT_POLICY_REGISTRY[0], model=model),) + LIVE_SUPPORT_POLICY_REGISTRY[1:]
+    registry = (replace(LIVE_SUPPORT_POLICY_REGISTRY[0], model_id=model),) + LIVE_SUPPORT_POLICY_REGISTRY[1:]
     with pytest.raises(ValueError, match="noncanonical model policy"):
         validate_live_support_metadata(registry)
 
 
 @pytest.mark.parametrize("command", ["Measure", " measure", "measure "])
 def test_validator_rejects_noncanonical_command_metadata(command: str) -> None:
-    base = command_live_support("E36312A", "measure")
+    base = command_live_support("keysight-e36312a", "measure")
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "measure",
         replace(base, command=command),
     )
@@ -1060,10 +1064,10 @@ def test_validator_rejects_noncanonical_command_metadata(command: str) -> None:
 
 
 def test_validator_rejects_unknown_exact_transport() -> None:
-    base = command_live_support("E36312A", "measure")
+    base = command_live_support("keysight-e36312a", "measure")
     registry = _replace_command(
         LIVE_SUPPORT_POLICY_REGISTRY,
-        "E36312A",
+        "keysight-e36312a",
         "measure",
         replace(base, scopes=(replace(base.scopes[0], transport_scope=TRANSPORT_UNKNOWN),)),
     )
@@ -1072,7 +1076,7 @@ def test_validator_rejects_unknown_exact_transport() -> None:
 
 
 def test_validator_rejects_missing_and_unexpected_command_inventory_entries() -> None:
-    inventory = set(command_live_support_matrix("E36312A"))
+    inventory = set(command_live_support_matrix("keysight-e36312a"))
     with pytest.raises(ValueError, match="policy-governed commands missing"):
         validate_live_support_metadata(command_inventory=inventory | {"future-command"})
     with pytest.raises(ValueError, match="outside current inventory"):
@@ -1081,10 +1085,15 @@ def test_validator_rejects_missing_and_unexpected_command_inventory_entries() ->
 
 def test_public_model_projection_is_json_safe_and_omits_private_evidence() -> None:
     metadata = live_support_policy_metadata(
-        "E36312A", {"set", "clear", "snapshot-diff", "future-command"}
+        "keysight-e36312a", {"set", "clear", "snapshot-diff", "future-command"}
     )
 
-    assert metadata["model"] == "E36312A"
+    assert metadata["schema_version"] == 2
+    assert metadata["model_id"] == "keysight-e36312a"
+    assert "model" not in metadata
+    assert metadata["vendor_id"] == "keysight"
+    assert metadata["model_name"] == "E36312A"
+    assert metadata["display_name"] == "Keysight E36312A"
     assert metadata["live_capable"] is True
     set_support = metadata["commands"]["set"]
     assert set_support["profile_validation_status"] == VALIDATION_STATUS_PROFILE_VALIDATED
@@ -1119,19 +1128,19 @@ def test_public_model_projection_is_json_safe_and_omits_private_evidence() -> No
 def test_public_exact_projection_distinguishes_open_pending_and_missing_scopes() -> None:
     commands = {"set", "output-on", "clear", "snapshot-diff"}
     usb = exact_live_support_metadata(
-        model="E36312A",
+        model_id="keysight-e36312a",
         resource="USB0::FAKE::INSTR",
         backend=None,
         commands=commands,
     )
     system_tcpip = exact_live_support_metadata(
-        model="E36312A",
+        model_id="keysight-e36312a",
         resource="TCPIP0::192.0.2.1::INSTR",
         backend=None,
         commands=commands,
     )
     pending = exact_live_support_metadata(
-        model="E36312A",
+        model_id="keysight-e36312a",
         resource="TCPIP0::192.0.2.1::INSTR",
         backend="@py",
         commands=commands,
@@ -1167,37 +1176,30 @@ def test_public_exact_projection_distinguishes_open_pending_and_missing_scopes()
 
 
 def test_public_projection_preserves_model_and_generic_boundaries() -> None:
-    edu = live_support_policy_metadata("EDU36311A", {"trigger-list"})
+    edu = live_support_policy_metadata("keysight-edu36311a", {"trigger-list"})
     e3646a_asrl = exact_live_support_metadata(
-        model="E3646A",
+        model_id="keysight-e3646a",
         resource="ASRL7::INSTR",
         backend=None,
         commands={"set"},
     )
     e3646a_usb = exact_live_support_metadata(
-        model="E3646A",
+        model_id="keysight-e3646a",
         resource="USB0::FAKE::INSTR",
         backend=None,
         commands={"set"},
     )
-    generic = live_support_policy_metadata("GENERIC", {"set", "identify"})
-
     assert edu["commands"]["trigger-list"]["profile_validation_status"] == VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL
     assert edu["commands"]["trigger-list"]["profile_supported"] is False
     assert edu["commands"]["trigger-list"]["scopes"] == []
     assert e3646a_asrl["commands"]["set"]["product_open"] is True
     assert e3646a_usb["commands"]["set"]["product_open"] is False
     assert e3646a_usb["commands"]["set"]["exact_scope_validation_status"] is None
-    assert generic["live_capable"] is False
-    assert generic["fallback_only"] is True
-    assert generic["commands"]["set"]["scopes"] == []
-    assert generic["commands"]["identify"]["policy_exempt"] is True
-
     with pytest.raises(LiveSupportPolicyError):
         exact_live_support_metadata(
-            model="GENERIC", resource="USB0::FAKE::INSTR", backend=None
+            model_id="GENERIC", resource="USB0::FAKE::INSTR", backend=None
         )
     with pytest.raises(LiveSupportPolicyError):
-        live_support_policy_metadata("E36103B", {"set"})
+        live_support_policy_metadata("keysight-e36103b", {"set"})
     with pytest.raises(LiveSupportPolicyError):
-        live_support_policy_metadata("UNKNOWN", {"set"})
+        live_support_policy_metadata("keysight-unknown", {"set"})

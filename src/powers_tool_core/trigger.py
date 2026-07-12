@@ -622,8 +622,9 @@ def _run_trigger_pulse(
             opened = True
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             idn = instrument.query(IDN_QUERY)
-            _validate_trigger_expected_model(request, idn)
-            if not request.runtime.simulate:
+            if request.runtime.simulate:
+                _validate_trigger_expected_model(request, idn)
+            else:
                 enforce_live_support_for_idn(request, idn)
             power_supply = create_power_supply(instrument, idn)
             setattr(power_supply, "_core_idn_raw", idn)
@@ -682,8 +683,9 @@ def _run_trigger_status(
             opened = True
             instrument = _instrument_for_request(request, instrument, scpi_logger)
             idn = instrument.query(IDN_QUERY)
-            _validate_trigger_expected_model(request, idn)
-            if not request.runtime.simulate:
+            if request.runtime.simulate:
+                _validate_trigger_expected_model(request, idn)
+            else:
                 enforce_live_support_for_idn(request, idn)
             power_supply = create_power_supply(instrument, idn)
             setattr(power_supply, "_core_idn_raw", idn)
@@ -1107,11 +1109,9 @@ def _trigger_power_supply(
     request: TriggerRequest,
 ) -> Any:
     idn = instrument.query(IDN_QUERY)
-    validate_live_expected_model(
-        request.runtime.model_profile, parse_idn(idn).model, command=request.command
-    )
-    power_supply = create_power_supply(instrument, idn)
-    if not request.runtime.simulate:
+    if request.runtime.simulate:
+        _validate_trigger_expected_model(request, idn)
+    else:
         enforce_live_support_for_idn(
             request,
             idn,
@@ -1120,6 +1120,7 @@ def _trigger_power_supply(
                 str(request.parameters.get("source", "bus")),
             ),
         )
+    power_supply = create_power_supply(instrument, idn)
     setattr(power_supply, "_core_idn_raw", idn)
     return power_supply
 

@@ -9,23 +9,28 @@ from typing import Iterable, Mapping
 from powers_tool_core.capabilities import (
     command_support,
     known_capability_commands,
-    planning_profile_command_support,
 )
 from powers_tool_core.core import CoreValidationError
-from powers_tool_core.model_resolution import canonical_model_profile
+from powers_tool_core.identity import (
+    IDENTITY_INDEXES,
+    IdentityResolutionError,
+    canonical_physical_model_id,
+)
 from powers_tool_core.models import (
     CANDIDATE_MODEL_IDS,
+    CATALOG_ONLY_MODEL_IDS,
     DE_SCOPED_MODEL_IDS,
     PRODUCT_ACTIVE_MODEL_IDS,
     resource_interface,
 )
+from powers_tool_core.support_evidence import SUPPORT_EVIDENCE_BY_ID, SupportEvidenceRecord
 from powers_tool_core.support_features import (
     FEATURE_KIND_SEQUENCE_ACTION,
     FEATURE_KIND_TRIGGER_SOURCE,
     normalize_real_trigger_source,
     normalize_sequence_action,
-    supported_real_trigger_sources,
-    supported_sequence_actions,
+    supported_real_trigger_sources_for_model_id,
+    supported_sequence_actions_for_model_id,
 )
 
 SUPPORT_POLICY_MODE_PRODUCT = "product"
@@ -47,21 +52,9 @@ BACKEND_SYSTEM_VISA = "system_visa"
 BACKEND_PYVISA_PY = "pyvisa_py"
 BACKEND_CUSTOM_VISA = "custom_visa"
 
-def _policy_model_names(model_ids: frozenset[str]) -> frozenset[str]:
-    """P2 bridge for P3-owned support-policy model-name identity."""
-
-    from powers_tool_core.identity import IDENTITY_INDEXES
-
-    return frozenset(
-        IDENTITY_INDEXES.models_by_id[model_id].canonical_model
-        for model_id in model_ids
-    )
-
-
-PRODUCT_ACTIVE_POLICY_MODELS = _policy_model_names(PRODUCT_ACTIVE_MODEL_IDS)
-CANDIDATE_POLICY_MODELS = _policy_model_names(CANDIDATE_MODEL_IDS)
-DE_SCOPED_POLICY_MODELS = _policy_model_names(DE_SCOPED_MODEL_IDS)
-ACTIVE_LIVE_POLICY_MODELS = PRODUCT_ACTIVE_POLICY_MODELS | CANDIDATE_POLICY_MODELS
+PRODUCT_ACTIVE_POLICY_MODEL_IDS = PRODUCT_ACTIVE_MODEL_IDS
+CANDIDATE_POLICY_MODEL_IDS = CANDIDATE_MODEL_IDS
+ACTIVE_LIVE_POLICY_MODEL_IDS = PRODUCT_ACTIVE_POLICY_MODEL_IDS | CANDIDATE_POLICY_MODEL_IDS
 EXEMPT_LIVE_DIAGNOSTIC_COMMANDS = frozenset(
     {"list-resources", "verify", "identify", "error", "clear"}
 )
@@ -113,8 +106,7 @@ class CommandFeatureSupportScope:
     feature_kind: str
     feature_value: str
     validation_status: str
-    evidence: str | None = None
-    artifact: str | None = None
+    inherits_parent_accepted_evidence: bool = False
     note: str | None = None
 
 
@@ -123,8 +115,8 @@ class CommandLiveSupportScope:
     validation_status: str
     transport_scope: str
     backend_scope: str
-    evidence: str | None = None
-    artifact: str | None = None
+    accepted_evidence_ids: tuple[str, ...] = ()
+    candidate_basis_evidence_ids: tuple[str, ...] = ()
     note: str | None = None
     feature_scopes: tuple[CommandFeatureSupportScope, ...] = ()
 
@@ -139,7 +131,7 @@ class CommandSupportPolicy:
 
 @dataclass(frozen=True)
 class ModelSupportPolicy:
-    model: str
+    model_id: str
     commands: tuple[CommandSupportPolicy, ...]
 
 
@@ -194,21 +186,21 @@ def is_live_support_policy_exempt(command: str) -> bool:
 
 
 def command_live_support(
-    model: str,
+    model_id: str,
     command: str,
     *,
     registry: tuple[ModelSupportPolicy, ...] | None = None,
 ) -> CommandSupportPolicy:
     """Return one explicit command policy, failing closed for unknown metadata."""
 
-    model_policy = _model_policy(model, registry=registry)
+    model_policy = _model_policy(model_id, registry=registry)
     normalized_command = _canonical_command(command)
     for policy in model_policy.commands:
         if policy.command == normalized_command:
             return policy
     raise LiveSupportPolicyError(
         _rejection_message(
-            model=model_policy.model,
+            model_id=model_policy.model_id,
             command=normalized_command,
             transport=TRANSPORT_UNKNOWN,
             backend=BACKEND_SYSTEM_VISA,
@@ -220,19 +212,19 @@ def command_live_support(
 
 
 def command_live_support_matrix(
-    model: str,
+    model_id: str,
     *,
     registry: tuple[ModelSupportPolicy, ...] | None = None,
 ) -> Mapping[str, CommandSupportPolicy]:
     """Return the immutable command-policy matrix for an active model."""
 
-    model_policy = _model_policy(model, registry=registry)
+    model_policy = _model_policy(model_id, registry=registry)
     return MappingProxyType({policy.command: policy for policy in model_policy.commands})
 
 
 def find_live_support_scope(
     *,
-    model: str,
+    model_id: str,
     command: str,
     transport: str,
     backend: str,
@@ -241,7 +233,7 @@ def find_live_support_scope(
     """Return an exact transport/backend scope; wildcard matching is forbidden."""
 
     try:
-        policy = command_live_support(model, command, registry=registry)
+        policy = command_live_support(model_id, command, registry=registry)
     except LiveSupportPolicyError:
         return None
     normalized_transport = normalize_transport(transport)
@@ -280,34 +272,29 @@ def find_feature_support(
 
 
 def live_support_policy_metadata(
-    model: str,
+    model_id: str,
     commands: Iterable[str] | None = None,
     *,
     registry: tuple[ModelSupportPolicy, ...] | None = None,
 ) -> dict[str, object]:
     """Return a safe JSON-ready model-level live-support projection."""
 
-    normalized_model = _public_projection_model(model)
+    canonical_model_id = _active_policy_model_id(model_id)
+    identity = IDENTITY_INDEXES.models_by_id[canonical_model_id]
     command_names = _public_projection_commands(commands)
-    if normalized_model == "GENERIC":
-        return {
-            "model": normalized_model,
-            "live_capable": False,
-            "fallback_only": True,
-            "commands": {
-                command: _generic_public_command(command)
-                for command in command_names
-            },
-        }
-
-    matrix = command_live_support_matrix(normalized_model, registry=registry)
+    matrix = command_live_support_matrix(canonical_model_id, registry=registry)
     return {
-        "model": normalized_model,
+        "schema_version": 2,
+        "evaluated": True,
+        "model_id": canonical_model_id,
+        "vendor_id": identity.vendor_id,
+        "model_name": identity.canonical_model,
+        "display_name": identity.display_name,
         "live_capable": True,
         "fallback_only": False,
         "commands": {
             command: _public_command_policy(
-                model=normalized_model,
+                model_id=canonical_model_id,
                 command=command,
                 policy=matrix.get(command),
             )
@@ -318,7 +305,7 @@ def live_support_policy_metadata(
 
 def exact_live_support_metadata(
     *,
-    model: str,
+    model_id: str,
     resource: str | None,
     backend: str | None,
     commands: Iterable[str] | None = None,
@@ -326,12 +313,8 @@ def exact_live_support_metadata(
 ) -> dict[str, object]:
     """Return a safe JSON-ready Product-mode projection for one exact scope."""
 
-    model_metadata = live_support_policy_metadata(model, commands, registry=registry)
-    normalized_model = str(model_metadata["model"])
-    if normalized_model == "GENERIC":
-        raise LiveSupportPolicyError(
-            "model 'GENERIC' has no active live support-policy metadata"
-        )
+    model_metadata = live_support_policy_metadata(model_id, commands, registry=registry)
+    canonical_model_id = str(model_metadata["model_id"])
     transport_scope = normalize_transport(resource)
     backend_scope = normalize_backend(backend)
     exact_commands: dict[str, dict[str, object]] = {}
@@ -414,8 +397,12 @@ def exact_live_support_metadata(
                 )
         exact_commands[command] = entry
     return {
+        "schema_version": 2,
         "evaluated": True,
-        "model": normalized_model,
+        "model_id": canonical_model_id,
+        "vendor_id": model_metadata["vendor_id"],
+        "model_name": model_metadata["model_name"],
+        "display_name": model_metadata["display_name"],
         "transport_scope": transport_scope,
         "backend_scope": backend_scope,
         "policy_mode": SUPPORT_POLICY_MODE_PRODUCT,
@@ -425,7 +412,7 @@ def exact_live_support_metadata(
 
 def ensure_live_scope_supported(
     *,
-    model: str,
+    model_id: str,
     command: str,
     transport: str,
     backend: str,
@@ -440,7 +427,7 @@ def ensure_live_scope_supported(
     normalized_backend = normalize_backend(backend)
     normalized_mode = (support_policy_mode or "").strip().lower()
     context = {
-        "model": (model or "").strip().upper() or "UNKNOWN",
+        "model_id": model_id if isinstance(model_id, str) and model_id else "UNKNOWN",
         "command": normalized_command,
         "transport": normalized_transport,
         "backend": normalized_backend,
@@ -455,7 +442,7 @@ def ensure_live_scope_supported(
             )
         )
     try:
-        policy = command_live_support(model, normalized_command, registry=registry)
+        policy = command_live_support(model_id, normalized_command, registry=registry)
     except LiveSupportPolicyError as exc:
         raise LiveSupportPolicyError(
             _rejection_message(
@@ -481,7 +468,7 @@ def ensure_live_scope_supported(
             )
         )
     scope = find_live_support_scope(
-        model=model,
+        model_id=model_id,
         command=normalized_command,
         transport=normalized_transport,
         backend=normalized_backend,
@@ -576,10 +563,14 @@ def validate_live_support_metadata(
     registry: tuple[ModelSupportPolicy, ...] | None = None,
     *,
     command_inventory: Iterable[str] | None = None,
+    evidence_registry: Mapping[str, SupportEvidenceRecord] | None = None,
 ) -> None:
     """Validate registry structure and its consistency with current capabilities."""
 
     selected_registry = LIVE_SUPPORT_POLICY_REGISTRY if registry is None else registry
+    selected_evidence_registry = (
+        SUPPORT_EVIDENCE_BY_ID if evidence_registry is None else evidence_registry
+    )
     expected_commands = (
         _policy_governed_command_inventory()
         if command_inventory is None
@@ -587,23 +578,30 @@ def validate_live_support_metadata(
     )
     seen_models: set[str] = set()
     for model_policy in selected_registry:
-        model = model_policy.model.strip().upper()
-        if model_policy.model != model:
-            raise ValueError(f"noncanonical model policy: {model_policy.model!r}")
-        if model in seen_models:
-            raise ValueError(f"duplicate model policy: {model}")
-        seen_models.add(model)
-        if model in DE_SCOPED_POLICY_MODELS:
-            raise ValueError(f"de-scoped model appears in live metadata: {model}")
-        if model not in ACTIVE_LIVE_POLICY_MODELS:
-            raise ValueError(f"unexpected active live policy model: {model}")
+        model_id = model_policy.model_id
+        try:
+            if canonical_physical_model_id(model_id) != model_id:
+                raise ValueError(f"noncanonical model policy: {model_id!r}")
+        except IdentityResolutionError as exc:
+            raise ValueError(f"noncanonical model policy: {model_id!r}") from exc
+        if model_id in seen_models:
+            raise ValueError(f"duplicate model policy: {model_id}")
+        seen_models.add(model_id)
+        if model_id in DE_SCOPED_MODEL_IDS:
+            raise ValueError(f"de-scoped model appears in live metadata: {model_id}")
+        if model_id in CATALOG_ONLY_MODEL_IDS:
+            raise ValueError(f"catalog-only model appears in live metadata: {model_id}")
+        if model_id == "generic-scpi":
+            raise ValueError("generic-scpi appears in active live metadata")
+        if model_id not in ACTIVE_LIVE_POLICY_MODEL_IDS:
+            raise ValueError(f"unexpected active live policy model: {model_id}")
         seen_commands: set[str] = set()
         for policy in model_policy.commands:
             command = _canonical_command(policy.command)
             if policy.command != command:
-                raise ValueError(f"noncanonical command policy: {model}/{policy.command!r}")
+                raise ValueError(f"noncanonical command policy: {model_id}/{policy.command!r}")
             if command in seen_commands:
-                raise ValueError(f"duplicate command policy: {model}/{command}")
+                raise ValueError(f"duplicate command policy: {model_id}/{command}")
             seen_commands.add(command)
             if command in EXEMPT_LIVE_DIAGNOSTIC_COMMANDS:
                 raise ValueError(f"exempt diagnostic entered live registry: {command}")
@@ -617,18 +615,18 @@ def validate_live_support_metadata(
                 policy.validation_status == VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL
                 and policy.scopes
             ):
-                raise ValueError(f"unsupported command has live scopes: {model}/{command}")
+                raise ValueError(f"unsupported command has live scopes: {model_id}/{command}")
             if (
                 policy.validation_status == VALIDATION_STATUS_PROFILE_VALIDATED
                 and not policy.scopes
                 and not policy.note
             ):
-                raise ValueError(f"profile-supported command lacks exact-scope reason: {model}/{command}")
+                raise ValueError(f"profile-supported command lacks exact-scope reason: {model_id}/{command}")
             seen_scopes: set[tuple[str, str]] = set()
             for scope in policy.scopes:
                 scope_key = (scope.transport_scope, scope.backend_scope)
                 if scope_key in seen_scopes:
-                    raise ValueError(f"duplicate exact scope: {model}/{command}/{scope_key}")
+                    raise ValueError(f"duplicate exact scope: {model_id}/{command}/{scope_key}")
                 seen_scopes.add(scope_key)
                 if scope.validation_status not in _SCOPE_STATUSES:
                     raise ValueError(f"unknown scope validation status: {scope.validation_status}")
@@ -636,60 +634,150 @@ def validate_live_support_metadata(
                     raise ValueError(f"invalid transport value: {scope.transport_scope}")
                 if scope.transport_scope == TRANSPORT_UNKNOWN:
                     raise ValueError(
-                        f"exact live scope cannot use unknown transport: {model}/{command}/{scope_key}"
+                        f"exact live scope cannot use unknown transport: {model_id}/{command}/{scope_key}"
                     )
                 if scope.backend_scope not in _BACKENDS:
                     raise ValueError(f"invalid backend value: {scope.backend_scope}")
                 if scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE:
-                    if not scope.evidence:
-                        raise ValueError(f"validated scope lacks evidence: {model}/{command}/{scope_key}")
-                    if not scope.artifact:
-                        raise ValueError(f"validated scope lacks artifact: {model}/{command}/{scope_key}")
+                    if not scope.accepted_evidence_ids:
+                        raise ValueError(
+                            f"validated scope lacks accepted evidence: {model_id}/{command}/{scope_key}"
+                        )
+                elif scope.accepted_evidence_ids:
+                    raise ValueError(
+                        f"pending scope claims accepted evidence: {model_id}/{command}/{scope_key}"
+                    )
+                if len(set(scope.accepted_evidence_ids)) != len(scope.accepted_evidence_ids):
+                    raise ValueError(f"duplicate accepted evidence reference: {model_id}/{command}/{scope_key}")
+                if len(set(scope.candidate_basis_evidence_ids)) != len(scope.candidate_basis_evidence_ids):
+                    raise ValueError(f"duplicate candidate-basis evidence reference: {model_id}/{command}/{scope_key}")
+                if set(scope.accepted_evidence_ids) & set(scope.candidate_basis_evidence_ids):
+                    raise ValueError(f"ambiguous evidence reference role: {model_id}/{command}/{scope_key}")
+                _validate_scope_evidence_references(
+                    model_id,
+                    command,
+                    scope,
+                    selected_evidence_registry,
+                )
                 if scope.validation_status in {
                     VALIDATION_STATUS_TRANSPORT_PENDING,
                 } and not scope.note:
-                    raise ValueError(f"pending scope lacks note: {model}/{command}/{scope_key}")
+                    raise ValueError(f"pending scope lacks note: {model_id}/{command}/{scope_key}")
                 validate_live_feature_scope_metadata(
-                    model=model,
+                    model_id=model_id,
                     command=command,
                     scope=scope,
-                    expected_features=expected_live_feature_inventory(model, command),
+                    expected_features=expected_live_feature_inventory(model_id, command),
                 )
         missing = expected_commands - seen_commands
         unexpected = seen_commands - expected_commands
         if missing:
-            raise ValueError(f"policy-governed commands missing for {model}: {sorted(missing)}")
+            raise ValueError(f"policy-governed commands missing for {model_id}: {sorted(missing)}")
         if unexpected:
-            raise ValueError(f"unexpected commands for {model}: {sorted(unexpected)}")
-    missing_models = ACTIVE_LIVE_POLICY_MODELS - seen_models
+            raise ValueError(f"unexpected commands for {model_id}: {sorted(unexpected)}")
+    missing_models = ACTIVE_LIVE_POLICY_MODEL_IDS - seen_models
     if missing_models:
         raise ValueError(f"active models missing from live metadata: {sorted(missing_models)}")
-    unexpected_models = seen_models - ACTIVE_LIVE_POLICY_MODELS
+    unexpected_models = seen_models - ACTIVE_LIVE_POLICY_MODEL_IDS
     if unexpected_models:
         raise ValueError(f"unexpected active models in live metadata: {sorted(unexpected_models)}")
+    _validate_public_projection_privacy(selected_registry)
+
+
+def _validate_scope_evidence_references(
+    model_id: str,
+    command: str,
+    scope: CommandLiveSupportScope,
+    evidence_registry: Mapping[str, SupportEvidenceRecord],
+) -> None:
+    scope_key = (scope.transport_scope, scope.backend_scope)
+    for evidence_id in scope.accepted_evidence_ids:
+        evidence = evidence_registry.get(evidence_id)
+        if evidence is None:
+            raise ValueError(f"missing evidence registry entry: {evidence_id}")
+        if evidence.model_id != model_id:
+            raise ValueError(f"evidence model mismatch: {model_id}/{command}/{scope_key}/{evidence_id}")
+        if evidence.transport_scope != scope.transport_scope:
+            raise ValueError(
+                f"evidence transport mismatch: {model_id}/{command}/{scope_key}/{evidence_id}"
+            )
+        if evidence.backend_scope != scope.backend_scope:
+            raise ValueError(f"evidence backend mismatch: {model_id}/{command}/{scope_key}/{evidence_id}")
+    for evidence_id in scope.candidate_basis_evidence_ids:
+        evidence = evidence_registry.get(evidence_id)
+        if evidence is None:
+            raise ValueError(f"missing candidate-basis evidence registry entry: {evidence_id}")
+        if evidence.model_id != model_id:
+            raise ValueError(
+                f"candidate-basis evidence model mismatch: {model_id}/{command}/{scope_key}/{evidence_id}"
+            )
+        if evidence.transport_scope != scope.transport_scope:
+            raise ValueError(
+                f"candidate-basis evidence transport mismatch: {model_id}/{command}/{scope_key}/{evidence_id}"
+            )
+        if (
+            scope.validation_status != VALIDATION_STATUS_TRANSPORT_PENDING
+            or scope.backend_scope != BACKEND_PYVISA_PY
+            or evidence.backend_scope != BACKEND_SYSTEM_VISA
+        ):
+            raise ValueError(
+                f"candidate-basis evidence is not a non-promoting system-VISA basis: "
+                f"{model_id}/{command}/{scope_key}/{evidence_id}"
+            )
+
+
+def _validate_public_projection_privacy(
+    registry: tuple[ModelSupportPolicy, ...],
+) -> None:
+    forbidden_keys = {
+        "evidence",
+        "evidence_id",
+        "accepted_evidence_ids",
+        "candidate_basis_evidence_ids",
+        "artifact",
+        "artifact_directory",
+        "report_path",
+        "summary_path",
+        "report_sha256",
+        "note",
+    }
+
+    def visit(value: object) -> None:
+        if isinstance(value, Mapping):
+            leaked = forbidden_keys & set(value)
+            if leaked:
+                raise ValueError(f"public live-support projection leaks private metadata: {sorted(leaked)}")
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, (tuple, list)):
+            for child in value:
+                visit(child)
+
+    for model_id in ACTIVE_LIVE_POLICY_MODEL_IDS:
+        visit(live_support_policy_metadata(model_id, registry=registry))
 
 
 def expected_live_feature_inventory(
-    model: str, command: str
+    model_id: str, command: str
 ) -> frozenset[tuple[str, str]]:
     """Return the canonical request-layer feature inventory for one command."""
 
     if command == "sequence":
         return frozenset(
             (FEATURE_KIND_SEQUENCE_ACTION, action)
-            for action in supported_sequence_actions(model)
+            for action in supported_sequence_actions_for_model_id(model_id)
         )
     if command in {"trigger-step", "trigger-list"}:
         return frozenset(
             (FEATURE_KIND_TRIGGER_SOURCE, source)
-            for source in supported_real_trigger_sources(model)
+            for source in supported_real_trigger_sources_for_model_id(model_id)
         )
     return frozenset()
 
 
 def validate_live_feature_scope_metadata(
     *,
-    model: str,
+    model_id: str,
     command: str,
     scope: CommandLiveSupportScope,
     expected_features: Iterable[tuple[str, str]],
@@ -715,7 +803,7 @@ def validate_live_feature_scope_metadata(
         normalized_kind = feature.feature_kind.strip().lower()
         if feature.feature_kind != normalized_kind:
             raise ValueError(
-                f"noncanonical feature kind: {model}/{command}/{scope_key}/{feature.feature_kind!r}"
+                f"noncanonical feature kind: {model_id}/{command}/{scope_key}/{feature.feature_kind!r}"
             )
         if normalized_kind not in {
             FEATURE_KIND_SEQUENCE_ACTION,
@@ -731,46 +819,54 @@ def validate_live_feature_scope_metadata(
         if feature.feature_value != normalized_value:
             raise ValueError(
                 "noncanonical feature value: "
-                f"{model}/{command}/{scope_key}/{feature.feature_value!r}"
+                f"{model_id}/{command}/{scope_key}/{feature.feature_value!r}"
             )
         feature_key = (normalized_kind, normalized_value)
         if feature_key in seen_features:
             raise ValueError(
-                f"duplicate feature scope: {model}/{command}/{scope_key}/{feature_key}"
+                f"duplicate feature scope: {model_id}/{command}/{scope_key}/{feature_key}"
             )
         seen_features.add(feature_key)
         if feature_key not in expected:
             raise ValueError(
-                f"unexpected feature scope: {model}/{command}/{scope_key}/{feature_key}"
+                f"unexpected feature scope: {model_id}/{command}/{scope_key}/{feature_key}"
             )
         if feature.validation_status not in _FEATURE_STATUSES:
             raise ValueError(
                 f"unknown feature validation status: {feature.validation_status}"
             )
-        if (
-            feature.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
-            and not (feature.evidence or feature.note)
+        if feature.validation_status not in allowed_statuses:
+            raise ValueError(
+                "feature status is invalid for exact parent scope: "
+                f"{model_id}/{command}/{scope_key}/{feature_key}/"
+                f"parent={scope.validation_status}/feature={feature.validation_status}"
+            )
+        if feature.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE and not (
+            feature.inherits_parent_accepted_evidence
+            and scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+            and scope.accepted_evidence_ids
         ):
             raise ValueError(
-                f"validated feature lacks evidence or migration note: {model}/{command}/{scope_key}/{feature_key}"
+                "validated feature lacks explicit parent-evidence inheritance: "
+                f"{model_id}/{command}/{scope_key}/{feature_key}"
+            )
+        if feature.validation_status != VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE and (
+            feature.inherits_parent_accepted_evidence
+        ):
+            raise ValueError(
+                f"nonvalidated feature inherits accepted evidence: {model_id}/{command}/{scope_key}/{feature_key}"
             )
         if (
             feature.validation_status == VALIDATION_STATUS_FEATURE_PENDING
             and not feature.note
         ):
             raise ValueError(
-                f"pending feature lacks note: {model}/{command}/{scope_key}/{feature_key}"
-            )
-        if feature.validation_status not in allowed_statuses:
-            raise ValueError(
-                "feature status is invalid for exact parent scope: "
-                f"{model}/{command}/{scope_key}/{feature_key}/"
-                f"parent={scope.validation_status}/feature={feature.validation_status}"
+                f"pending feature lacks note: {model_id}/{command}/{scope_key}/{feature_key}"
             )
     missing_features = expected - seen_features
     if missing_features:
         raise ValueError(
-            f"exact-scope feature inventory drift: {model}/{command}/{scope_key}/"
+            f"exact-scope feature inventory drift: {model_id}/{command}/{scope_key}/"
             f"missing={sorted(missing_features)}"
         )
 
@@ -796,16 +892,16 @@ _FEATURE_PENDING_NOTE = (
     "The implemented feature remains pending with its exact TCPIP/pyvisa-py parent scope."
 )
 
-_ARTIFACTS = {
-    ("E36312A", TRANSPORT_USB): ".tmp_tests/live_cli_check/20260709_153201_E36312A_USB_full",
-    ("E36312A", TRANSPORT_TCPIP): ".tmp_tests/live_cli_check/20260709_201420_E36312A_LAN_full",
-    ("EDU36311A", TRANSPORT_USB): ".tmp_tests/live_cli_check/20260709_151534_EDU36311A_USB_full",
-    ("EDU36311A", TRANSPORT_TCPIP): ".tmp_tests/live_cli_check/20260709_200530_EDU36311A_LAN_full",
-    ("E3646A", TRANSPORT_ASRL): ".tmp_tests/live_cli_check/20260709_151205_E3646A_ASRL_full",
+_EVIDENCE_IDS = {
+    ("keysight-e36312a", TRANSPORT_USB): "keysight-e36312a-usb-system-visa-20260709-full",
+    ("keysight-e36312a", TRANSPORT_TCPIP): "keysight-e36312a-tcpip-system-visa-20260709-full",
+    ("keysight-edu36311a", TRANSPORT_USB): "keysight-edu36311a-usb-system-visa-20260709-full",
+    ("keysight-edu36311a", TRANSPORT_TCPIP): "keysight-edu36311a-tcpip-system-visa-20260709-full",
+    ("keysight-e3646a", TRANSPORT_ASRL): "keysight-e3646a-asrl-system-visa-20260709-full",
 }
 
 _VALIDATED_COMMANDS = {
-    "E36312A": frozenset(
+    "keysight-e36312a": frozenset(
         {
             "measure", "output-state", "read-status", "readback", "validate-readonly",
             "capabilities", "set", "output-off", "safe-off", "cycle-output", "apply",
@@ -814,7 +910,7 @@ _VALIDATED_COMMANDS = {
             "trigger-step", "trigger-list", "trigger-abort",
         }
     ),
-    "EDU36311A": frozenset(
+    "keysight-edu36311a": frozenset(
         {
             "measure", "output-state", "read-status", "readback", "validate-readonly",
             "capabilities", "set", "output-off", "safe-off", "cycle-output", "apply",
@@ -822,7 +918,7 @@ _VALIDATED_COMMANDS = {
             "protection-set", "clear-protection",
         }
     ),
-    "E3646A": frozenset(
+    "keysight-e3646a": frozenset(
         {
             "measure", "output-state", "read-status", "readback", "capabilities", "set",
             "output-off", "safe-off", "cycle-output", "apply", "ramp", "smoke-output",
@@ -832,17 +928,17 @@ _VALIDATED_COMMANDS = {
 }
 
 _VALIDATED_TRANSPORTS = {
-    "E36312A": (TRANSPORT_USB, TRANSPORT_TCPIP),
-    "EDU36311A": (TRANSPORT_USB, TRANSPORT_TCPIP),
-    "E3646A": (TRANSPORT_ASRL,),
+    "keysight-e36312a": (TRANSPORT_USB, TRANSPORT_TCPIP),
+    "keysight-edu36311a": (TRANSPORT_USB, TRANSPORT_TCPIP),
+    "keysight-e3646a": (TRANSPORT_ASRL,),
 }
 
 
 def _build_registry() -> tuple[ModelSupportPolicy, ...]:
     commands = sorted(_policy_governed_command_inventory())
     model_policies: list[ModelSupportPolicy] = []
-    for model in sorted(PRODUCT_ACTIVE_POLICY_MODELS):
-        current_support = planning_profile_command_support(model)
+    for model_id in sorted(PRODUCT_ACTIVE_POLICY_MODEL_IDS):
+        current_support = command_support(model_id)
         policies: list[CommandSupportPolicy] = []
         for command in commands:
             capability = current_support.get(command)
@@ -857,35 +953,36 @@ def _build_registry() -> tuple[ModelSupportPolicy, ...]:
                 )
                 continue
             scopes: list[CommandLiveSupportScope] = []
-            if command in _VALIDATED_COMMANDS[model]:
-                for transport in _VALIDATED_TRANSPORTS[model]:
-                    artifact = _ARTIFACTS[(model, transport)]
+            if command in _VALIDATED_COMMANDS[model_id]:
+                for transport in _VALIDATED_TRANSPORTS[model_id]:
+                    evidence_id = _EVIDENCE_IDS[(model_id, transport)]
                     scopes.append(
                         CommandLiveSupportScope(
                             validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
                             transport_scope=transport,
                             backend_scope=BACKEND_SYSTEM_VISA,
-                            evidence="Accepted 2026-07-09 full-suite live validation record.",
-                            artifact=artifact,
+                            accepted_evidence_ids=(evidence_id,),
                             note=_LEGACY_BACKEND_NOTE,
                             feature_scopes=_feature_scopes_for(
-                                model=model,
+                                model_id=model_id,
                                 command=command,
                                 validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
                             ),
                         )
                     )
-                    if transport == TRANSPORT_TCPIP and model in {"E36312A", "EDU36311A"}:
+                    if transport == TRANSPORT_TCPIP and model_id in {
+                        "keysight-e36312a",
+                        "keysight-edu36311a",
+                    }:
                         scopes.append(
                             CommandLiveSupportScope(
                                 validation_status=VALIDATION_STATUS_TRANSPORT_PENDING,
                                 transport_scope=TRANSPORT_TCPIP,
                                 backend_scope=BACKEND_PYVISA_PY,
-                                evidence="Candidate derived from the matching accepted TCPIP/system-VISA command inventory.",
-                                artifact=artifact,
+                                candidate_basis_evidence_ids=(evidence_id,),
                                 note=_PENDING_BACKEND_NOTE,
                                 feature_scopes=_feature_scopes_for(
-                                    model=model,
+                                    model_id=model_id,
                                     command=command,
                                     validation_status=VALIDATION_STATUS_FEATURE_PENDING,
                                 ),
@@ -899,21 +996,21 @@ def _build_registry() -> tuple[ModelSupportPolicy, ...]:
                     note=None if scopes else _NO_EXACT_EVIDENCE_NOTE,
                 )
             )
-        model_policies.append(ModelSupportPolicy(model=model, commands=tuple(policies)))
+        model_policies.append(ModelSupportPolicy(model_id=model_id, commands=tuple(policies)))
     return tuple(model_policies)
 
 
 def _feature_scopes_for(
     *,
-    model: str,
+    model_id: str,
     command: str,
     validation_status: str,
 ) -> tuple[CommandFeatureSupportScope, ...]:
     if command == "sequence":
-        values = supported_sequence_actions(model)
+        values = supported_sequence_actions_for_model_id(model_id)
         kind = FEATURE_KIND_SEQUENCE_ACTION
     elif command in {"trigger-step", "trigger-list"}:
-        values = supported_real_trigger_sources(model)
+        values = supported_real_trigger_sources_for_model_id(model_id)
         kind = FEATURE_KIND_TRIGGER_SOURCE
     else:
         return ()
@@ -927,6 +1024,9 @@ def _feature_scopes_for(
             feature_kind=kind,
             feature_value=value,
             validation_status=validation_status,
+            inherits_parent_accepted_evidence=(
+                validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+            ),
             note=note,
         )
         for value in sorted(values)
@@ -942,43 +1042,45 @@ def _policy_governed_command_inventory() -> set[str]:
 
 
 def _model_policy(
-    model: str,
+    model_id: str,
     *,
     registry: tuple[ModelSupportPolicy, ...] | None,
 ) -> ModelSupportPolicy:
     try:
-        normalized = canonical_model_profile(model)
-    except CoreValidationError as exc:
-        raise LiveSupportPolicyError(f"unknown live support-policy model {model!r}") from exc
-    if normalized not in ACTIVE_LIVE_POLICY_MODELS:
+        canonical_model_id = canonical_physical_model_id(model_id)
+    except IdentityResolutionError as exc:
         raise LiveSupportPolicyError(
-            f"model {normalized!r} has no active live support-policy metadata"
+            f"unknown live support-policy model_id {model_id!r}"
+        ) from exc
+    if canonical_model_id not in ACTIVE_LIVE_POLICY_MODEL_IDS:
+        raise LiveSupportPolicyError(
+            f"model_id {canonical_model_id!r} has no active live support-policy metadata"
         )
     selected_registry = LIVE_SUPPORT_POLICY_REGISTRY if registry is None else registry
     for policy in selected_registry:
-        if policy.model == normalized:
+        if policy.model_id == canonical_model_id:
             return policy
-    raise LiveSupportPolicyError(f"model {normalized!r} is missing live support-policy metadata")
+    raise LiveSupportPolicyError(
+        f"model_id {canonical_model_id!r} is missing live support-policy metadata"
+    )
 
 
 def _canonical_command(command: str) -> str:
     return (command or "").strip().lower()
 
 
-def _public_projection_model(model: str) -> str:
+def _active_policy_model_id(model_id: str) -> str:
     try:
-        normalized = canonical_model_profile(model)
-    except CoreValidationError as exc:
+        canonical_model_id = canonical_physical_model_id(model_id)
+    except IdentityResolutionError as exc:
         raise LiveSupportPolicyError(
-            f"unknown live support-policy model {model!r}"
+            f"unknown live support-policy model_id {model_id!r}"
         ) from exc
-    if normalized == "GENERIC":
-        return normalized
-    if normalized not in ACTIVE_LIVE_POLICY_MODELS:
+    if canonical_model_id not in ACTIVE_LIVE_POLICY_MODEL_IDS:
         raise LiveSupportPolicyError(
-            f"model {normalized!r} has no active live support-policy metadata"
+            f"model_id {canonical_model_id!r} has no active live support-policy metadata"
         )
-    return normalized
+    return canonical_model_id
 
 
 def _public_projection_commands(commands: Iterable[str] | None) -> tuple[str, ...]:
@@ -1002,7 +1104,7 @@ def _public_projection_commands(commands: Iterable[str] | None) -> tuple[str, ..
 
 def _public_command_policy(
     *,
-    model: str,
+    model_id: str,
     command: str,
     policy: CommandSupportPolicy | None,
 ) -> dict[str, object]:
@@ -1044,7 +1146,7 @@ def _public_command_policy(
             "scopes": [],
         }
     profile_supported = policy.validation_status == VALIDATION_STATUS_PROFILE_VALIDATED
-    reason = None if profile_supported else f"Not supported by {model}."
+    reason = None if profile_supported else f"Not supported by {model_id}."
     return {
         "profile_validation_status": policy.validation_status,
         "profile_supported": profile_supported,
@@ -1097,24 +1199,6 @@ def _public_command_policy(
     }
 
 
-def _generic_public_command(command: str) -> dict[str, object]:
-    if command in PURE_OFFLINE_COMMANDS or command in EXEMPT_LIVE_DIAGNOSTIC_COMMANDS:
-        return _public_command_policy(model="GENERIC", command=command, policy=None)
-    capability = command_support(None).get(command, {})
-    profile_supported = bool(capability.get("simulate") or capability.get("dry_run"))
-    reason = "GENERIC is no-hardware/fallback-only; live exact scopes are unavailable."
-    return {
-        "profile_validation_status": None,
-        "profile_supported": profile_supported,
-        "metadata_available": False,
-        "policy_exempt": False,
-        "offline_only": False,
-        "disabled_reason": reason,
-        "support_reason": reason,
-        "scopes": [],
-    }
-
-
 def _scope_support_reason(*, status: str, transport: str, backend: str) -> str:
     scope_label = f"{_transport_display(transport)} / {_backend_display(backend)}"
     if status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE:
@@ -1153,7 +1237,7 @@ def _backend_display(backend: str) -> str:
 
 def _rejection_message(
     *,
-    model: str,
+    model_id: str,
     command: str,
     transport: str,
     backend: str,
@@ -1171,9 +1255,10 @@ def _rejection_message(
         )
     return (
         "live support-policy rejected: "
-        f"model={model}, command={command}, transport={transport}, backend={backend}, "
+        f"model_id={model_id}, command={command}, transport={transport}, backend={backend}, "
         f"policy_mode={mode}{feature_context}, status={status}; reason={reason}"
     )
 
 
 LIVE_SUPPORT_POLICY_REGISTRY = _build_registry()
+validate_live_support_metadata()

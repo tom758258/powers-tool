@@ -42,22 +42,6 @@ MODEL_ENABLEMENT_STAGES = frozenset(
 PRODUCT_RATING_COMPATIBILITY_MODEL_IDS = frozenset({"keysight-e3646a"})
 
 
-def _policy_model_id(policy_model: str) -> str:
-    """P2 bridge for P3-owned model-name policy identity."""
-
-    from powers_tool_core.identity import resolve_physical_model_identity
-
-    return resolve_physical_model_identity("KEYSIGHT", policy_model).model_id
-
-
-def _policy_model_name_for_model_id(model_id: str) -> str:
-    """P2 bridge from canonical Core identity to P3-owned policy identity."""
-
-    from powers_tool_core.identity import IDENTITY_INDEXES
-
-    return IDENTITY_INDEXES.models_by_id[model_id].canonical_model
-
-
 def _resolved_simulator_model_id(idn: str) -> str | None:
     from powers_tool_core.identity import (
         IDENTITY_INDEXES,
@@ -132,7 +116,7 @@ def current_model_enablement_inventory() -> ModelEnablementInventory:
     feature_inventories = {
         model_id: {
             command: expected_live_feature_inventory(
-                _policy_model_name_for_model_id(model_id), command
+                model_id, command
             )
             for command, capability in capabilities.items()
             if capability.get("real") is True
@@ -150,10 +134,7 @@ def current_model_enablement_inventory() -> ModelEnablementInventory:
         simulator_idns=simulator_idns,
         drivers=MODEL_DRIVERS,
         command_capabilities=command_capabilities,
-        live_policies={
-            _policy_model_id(policy.model): policy
-            for policy in LIVE_SUPPORT_POLICY_REGISTRY
-        },
+        live_policies={policy.model_id: policy for policy in LIVE_SUPPORT_POLICY_REGISTRY},
         feature_inventories=feature_inventories,
         electrical_rating_models=frozenset(ELECTRICAL_RATINGS_BY_MODEL_ID),
         setpoint_range_models=frozenset(SETPOINT_RANGES_BY_MODEL_ID),
@@ -311,7 +292,7 @@ def _validate_enabled_model(
                     )
                 for scope in command_policy.scopes:
                     validate_live_feature_scope_metadata(
-                        model=model,
+                        model_id=model,
                         command=command,
                         scope=scope,
                         expected_features=expected_features,
@@ -334,9 +315,7 @@ def _validate_enabled_model(
         raise ValueError(f"{model}: candidate model has an accidental Product-open exact scope")
     if not candidate and not product_open:
         raise ValueError(f"{model}: Product-active model has no Product-open exact scope")
-    if not candidate and any(
-        not scope.evidence or not scope.artifact for scope in product_open
-    ):
+    if not candidate and any(not scope.accepted_evidence_ids for scope in product_open):
         raise ValueError(f"{model}: Product-open scope lacks accepted evidence metadata")
 
 

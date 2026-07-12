@@ -24,7 +24,6 @@ from powers_tool_core.models import parse_idn
 from powers_tool_core.model_resolution import (
     no_hardware_channels,
     resolve_no_hardware_runtime,
-    validate_live_expected_model,
 )
 from powers_tool_core.live_support import enforce_live_support_for_idn
 from powers_tool_core.operations import ScpiLoggingSession
@@ -66,7 +65,6 @@ def _run_status(request: OperationRequest, *, opener: Callable[..., Any], scpi_l
     instrument, idn = _open(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
         if not request.runtime.simulate:
-            validate_live_expected_model(request.runtime.model_profile, parse_idn(idn).model, command=request.command)
             enforce_live_support_for_idn(request, idn)
         power_supply = create_power_supply(instrument.session, idn)
         _require_supported(power_supply, request.command, parse_idn(idn).model)
@@ -119,11 +117,6 @@ def _run_clear(request: OperationRequest, *, opener: Callable[..., Any], scpi_lo
         raise ConfirmationRequiredError("clear-protection real execution requires --confirm")
     instrument, idn = _open(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
-        validate_live_expected_model(
-            request.runtime.model_profile,
-            parse_idn(idn).model,
-            command=request.command,
-        )
         enforce_live_support_for_idn(request, idn)
         power_supply = create_power_supply(instrument.session, idn)
         _require_supported(power_supply, request.command, parse_idn(idn).model)
@@ -163,11 +156,6 @@ def _run_set(request: OperationRequest, *, opener: Callable[..., Any], scpi_logg
         raise ConfirmationRequiredError("protection-set real execution requires --confirm")
     instrument, idn = _open(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
-        validate_live_expected_model(
-            request.runtime.model_profile,
-            parse_idn(idn).model,
-            command=request.command,
-        )
         enforce_live_support_for_idn(request, idn)
         power_supply = create_power_supply(instrument.session, idn)
         _require_supported(power_supply, request.command, parse_idn(idn).model)

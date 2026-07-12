@@ -964,7 +964,7 @@ def test_static_frontend_consumes_exact_live_support_without_exposing_validation
     assert "state.resourceLiveSupport = null;" in unevaluated_branch
     assert "state.resourceLiveSupportContext = null;" in unevaluated_branch
     assert unevaluated_branch.index("state.resourceLiveSupport = null;") < unevaluated_branch.rindex("return false;")
-    assert "model: liveSupport.model || null" in capture_support
+    assert "model: liveSupport.model_name || null" in capture_support
     assert "transport_scope: liveSupport.transport_scope" in capture_support
     assert "backend_scope: liveSupport.backend_scope" in capture_support
     assert "state.resourceLiveSupportContext.resource === resource" in clear_stale
@@ -2093,7 +2093,9 @@ def test_webui_resource_capabilities_enforces_exact_scope(
 
     assert result["driver"]["class"] == "E36312APowerSupply"
     assert result["live_support"]["evaluated"] is True
-    assert result["live_support"]["model"] == "E36312A"
+    assert result["live_support"]["schema_version"] == 2
+    assert result["live_support"]["model_id"] == "keysight-e36312a"
+    assert "model" not in result["live_support"]
     assert result["live_support"]["transport_scope"] == "usb"
     assert result["live_support"]["backend_scope"] == "system_visa"
     assert result["live_support"]["policy_mode"] == "product"
@@ -2175,7 +2177,9 @@ def test_webui_identify_returns_pending_exact_metadata_without_opening_it(
 
     live_support = result["live_support"]
     assert live_support["evaluated"] is True
-    assert live_support["model"] == "E36312A"
+    assert live_support["schema_version"] == 2
+    assert live_support["model_id"] == "keysight-e36312a"
+    assert "model" not in live_support
     assert live_support["transport_scope"] == "tcpip"
     assert live_support["backend_scope"] == "pyvisa_py"
     assert live_support["policy_mode"] == "product"
@@ -2266,7 +2270,9 @@ def test_webui_diagnostic_narrow_e3646a_alias_has_exact_support(
     assert job_data["status"] == "finished", job_data.get("error")
     live_support = job_data["result"]["live_support"]
     assert live_support["evaluated"] is True
-    assert live_support["model"] == "E3646A"
+    assert live_support["schema_version"] == 2
+    assert live_support["model_id"] == "keysight-e3646a"
+    assert "model" not in live_support
     assert live_support["transport_scope"] == "asrl"
     assert live_support["backend_scope"] == "system_visa"
     assert live_support["commands"][command]["product_open"] is True
@@ -2376,8 +2382,11 @@ def test_webui_diagnostic_unknown_or_descoped_model_returns_neutral_live_support
     detected_idn = result["idn"] if command == "identify" else result["resource"]["idn"]
     assert detected_idn["model"] == model
     assert result["live_support"] == {
+        "schema_version": 2,
         "evaluated": False,
-        "model": model,
+        "model_id": None,
+        "reported_manufacturer": "KEYSIGHT",
+        "reported_model": model,
         "transport_scope": "usb",
         "backend_scope": "system_visa",
         "policy_mode": "product",
@@ -2452,7 +2461,7 @@ def test_webui_unknown_model_normal_live_command_remains_rejected(
     assert response.status_code == 200
     job_data = wait_for_job(client, response.json()["job_id"])
     assert job_data["status"] == "failed"
-    assert "unknown live support-policy model 'UNKNOWN_MODEL'" in job_data["error"]
+    assert "unknown live support-policy model_id for reported model 'UNKNOWN_MODEL'" in job_data["error"]
     assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed is True
@@ -3789,8 +3798,11 @@ def test_webui_capabilities_uses_selected_resource_model(client: TestClient):
     assert result["command_support"]["trigger-list"]["real"] is False
     assert result["command_support"]["protection-set"]["real"] is True
     assert result["live_support"] == {
+        "schema_version": 2,
         "evaluated": False,
-        "model": "EDU36311A",
+        "model_id": "keysight-edu36311a",
+        "reported_manufacturer": "KEYSIGHT",
+        "reported_model": "EDU36311A",
         "transport_scope": "usb",
         "backend_scope": "system_visa",
         "policy_mode": "product",

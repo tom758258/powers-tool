@@ -51,8 +51,9 @@ Instrument/domain commands include:
 
 This list defines accepted command names and payload envelopes. It does not
 mean every command is product-open for real hardware. Model-aware LIVE
-execution requires an exact detected-model, command, transport, and backend
-scope in the Core support policy; missing or pending scopes fail closed.
+execution resolves detected manufacturer plus model to canonical `model_id`.
+The exact Core policy key is `model_id + command + transport + backend +
+required feature`; missing or pending scopes fail closed.
 Dry-run/simulator availability also does not imply product LIVE support. The
 five explicit diagnostics are `list-resources`, `verify`, `identify`,
 `error`, and `clear`; their success does not promote another command.

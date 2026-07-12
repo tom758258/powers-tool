@@ -216,6 +216,10 @@ controls are UX; the Core post-IDN exact-scope gate remains authoritative.
 The safe Core projection can also include additive `sequence_action` and
 `trigger_source` inventories for an exact scope. These entries expose status
 and Product availability only; they do not expose evidence or internal notes.
+The projection contract is schema version 2: evaluated physical results use
+canonical `model_id`, while unevaluated diagnostics keep reported manufacturer
+and model separate from a nullable resolved `model_id`. The projection never
+exposes evidence IDs, historical paths, checksums, or private evidence notes.
 Because documents and trigger requests select features at run time, the
 command rail remains command-level and does not globally disable a command
 merely because another future feature is pending. Core validates the actual
@@ -342,8 +346,9 @@ Live validation evidence is recorded by CLI suite artifacts, not created by
 the browser selector. The WebUI only displays a safe Core projection of the
 current policy; it does not expose evidence paths or promote status. Suite
 names are evidence groupings and do not open every command in a feature
-family. Core requires an exact detected-model, command, transport, and backend
-scope; missing and pending scopes fail closed. The authoritative current
+family. Core requires an exact canonical `model_id`, command, transport,
+backend, and required-feature scope; missing and pending scopes fail closed.
+The authoritative current
 command list is the
 [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix).
 WebUI hiding or disabling remains UX only; backend/Core rejection is still the

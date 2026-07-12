@@ -135,10 +135,38 @@ def channel_capabilities_by_model() -> dict[str, dict[str, Any]]:
 def live_support_by_model(command_names: set[str]) -> dict[str, dict[str, Any]]:
     """Return safe Core-owned live-support projections for WebUI commands."""
 
-    return {
-        model: live_support_policy_metadata(model, command_names)
-        for model in ("E36312A", "EDU36311A", "E3646A", "GENERIC")
+    projections = {
+        model: live_support_policy_metadata(model_id, command_names)
+        for model, model_id in {
+            "E36312A": "keysight-e36312a",
+            "EDU36311A": "keysight-edu36311a",
+            "E3646A": "keysight-e3646a",
+        }.items()
     }
+    generic_commands: dict[str, dict[str, Any]] = {}
+    generic_capabilities = core_capabilities.command_support(None)
+    for command in command_names:
+        capability = generic_capabilities.get(command, {})
+        reason = "GENERIC is no-hardware/fallback-only; live exact scopes are unavailable."
+        generic_commands[command] = {
+            "profile_validation_status": None,
+            "profile_supported": bool(capability.get("simulate") or capability.get("dry_run")),
+            "metadata_available": False,
+            "policy_exempt": command in MODEL_INDEPENDENT_DIAGNOSTICS,
+            "offline_only": False,
+            "disabled_reason": reason,
+            "support_reason": reason,
+            "scopes": [],
+        }
+    projections["GENERIC"] = {
+        "schema_version": 2,
+        "evaluated": False,
+        "model_id": None,
+        "live_capable": False,
+        "fallback_only": True,
+        "commands": generic_commands,
+    }
+    return projections
 
 
 def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
@@ -223,10 +251,19 @@ def _with_diagnostic_live_support(
                 model,
                 command=command,
             )
-        live_support = _unsupported_detected_model_live_support(model, runtime)
+        live_support = _unsupported_detected_model_live_support(
+            manufacturer,
+            model,
+            runtime,
+        )
         return {**result, "live_support": live_support}
     if runtime.simulate:
-        live_support = _unevaluated_live_support(identity.canonical_model, runtime)
+        live_support = _unevaluated_live_support(
+            model_id=identity.model_id,
+            reported_manufacturer=manufacturer,
+            reported_model=model,
+            runtime=runtime,
+        )
     else:
         validate_live_expected_model(
             runtime.model_profile,
@@ -235,25 +272,32 @@ def _with_diagnostic_live_support(
         )
         try:
             live_support = exact_live_support_metadata(
-                model=identity.canonical_model,
+                model_id=identity.model_id,
                 resource=runtime.resource,
                 backend=runtime.backend,
             )
         except LiveSupportPolicyError:
             live_support = _unsupported_detected_model_live_support(
-                identity.canonical_model,
+                manufacturer,
+                model,
                 runtime,
             )
     return {**result, "live_support": live_support}
 
 
 def _unevaluated_live_support(
-    model: str,
+    *,
+    model_id: str | None,
+    reported_manufacturer: str | None,
+    reported_model: str | None,
     runtime: RuntimeOptions,
 ) -> dict[str, Any]:
     return {
+        "schema_version": 2,
         "evaluated": False,
-        "model": model,
+        "model_id": model_id,
+        "reported_manufacturer": reported_manufacturer,
+        "reported_model": reported_model,
         "transport_scope": normalize_transport(runtime.resource),
         "backend_scope": normalize_backend(runtime.backend),
         "policy_mode": SUPPORT_POLICY_MODE_PRODUCT,
@@ -263,12 +307,16 @@ def _unevaluated_live_support(
 
 
 def _unsupported_detected_model_live_support(
-    model: str,
+    reported_manufacturer: str | None,
+    reported_model: str | None,
     runtime: RuntimeOptions,
 ) -> dict[str, Any]:
     return {
+        "schema_version": 2,
         "evaluated": False,
-        "model": model,
+        "model_id": None,
+        "reported_manufacturer": reported_manufacturer,
+        "reported_model": reported_model,
         "transport_scope": normalize_transport(runtime.resource),
         "backend_scope": normalize_backend(runtime.backend),
         "policy_mode": SUPPORT_POLICY_MODE_PRODUCT,
@@ -393,7 +441,6 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
             ) as instrument:
                 idn_raw = instrument.query(IDN_QUERY)
                 if not runtime.simulate:
-                    validate_live_expected_model(runtime.model_profile, parse_idn(idn_raw).model, command="capabilities")
                     enforce_product_live_support_for_idn(
                         OperationRequest(command="capabilities", runtime=runtime), idn_raw
                     )
@@ -403,10 +450,19 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
         selection = select_driver(idn_raw)
         caps = selection.capabilities
         live_support = (
-            _unevaluated_live_support(selection.idn.model, runtime)
+            _unevaluated_live_support(
+                model_id=(
+                    selection.physical_identity.model_id
+                    if selection.physical_identity is not None
+                    else None
+                ),
+                reported_manufacturer=selection.idn.manufacturer,
+                reported_model=selection.idn.model,
+                runtime=runtime,
+            )
             if runtime.simulate
             else exact_live_support_metadata(
-                model=selection.idn.model,
+                model_id=selection.physical_identity.model_id,
                 resource=runtime.resource,
                 backend=runtime.backend,
             )

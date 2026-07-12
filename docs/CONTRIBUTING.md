@@ -175,6 +175,17 @@ Skipped or incomplete cleanup is not cleanup-verified evidence. Required
 state-changing evidence cannot pass unless safe-off succeeds, outputs are
 confirmed OFF, and the final error queue is clean.
 
+Accepted historical support is referenced from Core policy by an immutable,
+non-sensitive evidence ID. Each accepted record remains exact to canonical
+physical `model_id`, transport, backend, command, and required feature; an
+artifact for another vendor, model, transport, or backend cannot be inherited.
+The original artifact directory remains immutable. Registering or migrating an
+evidence identity does not constitute new hardware validation, and a passing
+candidate artifact does not update Product support automatically. A policy
+promotion remains a separate evidence-backed P9 review. In particular,
+system-VISA evidence may be cited as a non-promoting basis for a pending
+pyvisa-py scope, but it never validates that backend.
+
 ## Power-supply safety and privacy
 
 Use no DUT or only a known safe load for state-changing validation. Set an

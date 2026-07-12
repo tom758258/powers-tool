@@ -32,9 +32,11 @@ model, and it is not present in physical registries.
 ## Live Support Policy Modes
 
 `RuntimeOptions.support_policy_mode` defaults to `product`. After Core reads
-`*IDN?` and validates any expected-model guard, product execution requires an
-exact detected-model, command, transport, and backend scope before
-command-specific SCPI. Missing, unsupported, and pending scopes fail closed.
+`*IDN?`, it resolves the reported manufacturer plus model to a canonical
+physical `model_id` and validates any expected-model guard. Product execution
+then requires an exact `model_id + command + transport + backend + required
+feature` scope before command-specific SCPI. Missing, unsupported, and pending
+scopes fail closed.
 
 Core also has an internal contributor-validation policy mode for running only
 already-registered pending exact scopes. It does not select or override the
@@ -62,7 +64,11 @@ exposing validation artifacts or mutable registry records. The model-level
 projection distinguishes profile support, explicit diagnostic exemptions, and
 registered scopes. The exact projection evaluates one detected model,
 resource transport, and backend in Product mode for adapter UX; it does not
-replace the enforcing runtime gate.
+replace the enforcing runtime gate. These projections use schema version 2 and
+canonical `model_id`; they do not expose evidence IDs, artifact paths,
+checksums, or private evidence notes. Unevaluated diagnostics distinguish
+reported manufacturer/model fields from resolved physical identity and expose
+no Product-open command map.
 
 Identity/status diagnostics and pure offline utilities are separate in this
 projection. Exempt diagnostics may report exact Product-policy metadata after
@@ -111,6 +117,8 @@ are never reported as Product-open exact live commands.
 - `powers_tool_core.capabilities`: command and model capability reporting.
 - `powers_tool_core.support_policy`: exact live-support enforcement metadata
   and safe public display projections.
+- `powers_tool_core.support_evidence`: immutable accepted historical evidence
+  identities and non-sensitive migration metadata.
 - `powers_tool_core.model_resolution`: strict no-hardware model profile
   resolution for dry-run/simulator planning and live expected-model guards.
 - `powers_tool_core.model_enablement`: injectable consistency validation for
@@ -251,10 +259,11 @@ expected-model guard: after `*IDN?`, Core requires the detected model to match
 before setup/write SCPI. The selected model never overrides the IDN-selected
 driver.
 
-After that guard, Core enforces exact product support using the detected model,
-effective command, VISA resource transport, and runtime backend. Missing or
-pending scopes fail closed before command-specific I/O. This applies equally to
-direct Core callers and adapter requests; no validation-mode bypass exists.
+After that guard, Core enforces exact product support using the resolved
+canonical `model_id`, effective command, VISA resource transport, runtime
+backend, and required feature. Missing or pending scopes fail closed before
+command-specific I/O. This applies equally to direct Core callers and adapter
+requests; no validation-mode bypass exists.
 
 ## Output Workflow Pulses
 

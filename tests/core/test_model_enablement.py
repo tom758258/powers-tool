@@ -46,7 +46,7 @@ def _synthetic_candidate() -> ModelEnablementInventory:
     current = current_model_enablement_inventory()
     model = SYNTHETIC_CANDIDATE_MODEL_ID
     policy = ModelSupportPolicy(
-        model="E36313A",
+        model_id="keysight-e36313a",
         commands=(
             CommandSupportPolicy(
                 command="measure",
@@ -255,8 +255,7 @@ def test_candidate_cannot_have_product_open_scope() -> None:
     validated_scope = replace(
         command.scopes[0],
         validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
-        evidence="Synthetic accepted evidence.",
-        artifact="synthetic/report.json",
+        accepted_evidence_ids=("synthetic-accepted-evidence",),
     )
     changed = replace(policy, commands=(replace(command, scopes=(validated_scope,)),))
     with pytest.raises(ValueError, match="not exclusively pending|accidental Product-open"):

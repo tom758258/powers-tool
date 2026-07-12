@@ -15,7 +15,7 @@ from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.errors import VisaConnectionError
 from powers_tool_core.factory import create_power_supply
 from powers_tool_core.models import parse_idn
-from powers_tool_core.model_resolution import resolve_no_hardware_runtime, validate_live_expected_model
+from powers_tool_core.model_resolution import resolve_no_hardware_runtime
 from powers_tool_core.live_support import enforce_live_support_for_idn
 from powers_tool_core.operations import IDN_QUERY, ScpiLoggingSession
 from powers_tool_core.setpoint_limits import validate_effective_setpoint
@@ -68,7 +68,6 @@ def run_restore(
             opened = True
             session = ScpiLoggingSession(resource, instrument, scpi_logger) if request.runtime.log_scpi and scpi_logger is not None else instrument
             idn_raw = session.query(IDN_QUERY)
-            validate_live_expected_model(request.runtime.model_profile, parse_idn(idn_raw).model, command=request.command)
             _validate_restore_identity(parse_idn(idn_raw), snapshot.get("idn") if isinstance(snapshot.get("idn"), dict) else {})
             enforce_live_support_for_idn(request, idn_raw)
             power_supply = create_power_supply(session, idn_raw)

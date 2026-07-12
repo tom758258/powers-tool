@@ -1365,7 +1365,7 @@ def test_measure_real_generic_channel_two_is_rejected_after_idn(
     assert payload["execution"]["hardware_touched"] is True
     assert payload["error"]["type"] == "validation"
     assert payload["error"]["code"] == "unsupported_live_scope"
-    assert "model=UNKNOWN" in payload["error"]["message"]
+    assert "unknown live support-policy model_id for reported model 'UNKNOWN'" in payload["error"]["message"]
     assert captured.err == ""
 
 

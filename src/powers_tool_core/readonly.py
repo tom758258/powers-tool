@@ -21,7 +21,6 @@ from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
 from powers_tool_core.errors import VisaConnectionError
 from powers_tool_core.models import parse_idn
 from powers_tool_core.live_support import enforce_live_support_for_idn
-from powers_tool_core.model_resolution import validate_live_expected_model
 from powers_tool_core.testing.simulator import SimulatedResourceManager
 from powers_tool_core.transport import dry_run_plan
 
@@ -56,7 +55,6 @@ def run_readonly(
 
             idn_raw = instrument.query(IDN_QUERY)
             if not request.runtime.simulate:
-                validate_live_expected_model(request.runtime.model_profile, parse_idn(idn_raw).model, command=request.command)
                 enforce_live_support_for_idn(request, idn_raw)
             power_supply = create_power_supply(instrument, idn_raw)
 
@@ -168,7 +166,6 @@ def run_live_panel_read(
 
             idn_raw = instrument.query(IDN_QUERY)
             if not request.runtime.simulate:
-                validate_live_expected_model(request.runtime.model_profile, parse_idn(idn_raw).model, command=request.command)
                 selection = select_driver(idn_raw)
                 model_id = (
                     selection.physical_identity.model_id
