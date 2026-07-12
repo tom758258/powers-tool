@@ -9,6 +9,12 @@ from types import MappingProxyType
 from typing import Mapping
 
 from powers_tool_core.identity import IdentityResolutionError, canonical_physical_model_id
+from powers_tool_core.support_features import (
+    FEATURE_KIND_SEQUENCE_ACTION,
+    FEATURE_KIND_TRIGGER_SOURCE,
+    normalize_real_trigger_source,
+    normalize_sequence_action,
+)
 
 SOURCE_AVAILABILITY_VERIFIED_LOCAL = "verified_local"
 SOURCE_AVAILABILITY_HISTORICAL_REFERENCE_ONLY = "historical_reference_only"
@@ -40,6 +46,86 @@ EVIDENCE_MIGRATION_NOTE = (
     "artifact remains immutable, and this identity migration is not new hardware validation."
 )
 
+_E36312A_ACCEPTED_COMMANDS = frozenset(
+    {
+        "measure", "output-state", "read-status", "readback", "validate-readonly",
+        "capabilities", "set", "output-off", "safe-off", "cycle-output", "apply",
+        "ramp", "smoke-output", "ramp-list", "sequence", "protection-status",
+        "protection-set", "clear-protection", "snapshot", "trigger-status",
+        "trigger-step", "trigger-list", "trigger-abort",
+    }
+)
+_EDU36311A_ACCEPTED_COMMANDS = frozenset(
+    {
+        "measure", "output-state", "read-status", "readback", "validate-readonly",
+        "capabilities", "set", "output-off", "safe-off", "cycle-output", "apply",
+        "ramp", "smoke-output", "ramp-list", "sequence", "protection-status",
+        "protection-set", "clear-protection",
+    }
+)
+_E3646A_ACCEPTED_COMMANDS = frozenset(
+    {
+        "measure", "output-state", "read-status", "readback", "capabilities", "set",
+        "output-off", "safe-off", "cycle-output", "apply", "ramp", "smoke-output",
+        "ramp-list", "sequence",
+    }
+)
+
+_E36312A_ACCEPTED_FEATURES = {
+    "sequence": frozenset(
+        (FEATURE_KIND_SEQUENCE_ACTION, value)
+        for value in {
+            "apply", "cycle-output", "measure", "output-off", "output-on",
+            "output-state", "readback", "safe-off", "set", "trigger-pulse",
+        }
+    ),
+    "trigger-step": frozenset(
+        {
+            (FEATURE_KIND_TRIGGER_SOURCE, "bus"),
+            (FEATURE_KIND_TRIGGER_SOURCE, "immediate"),
+        }
+    ),
+    "trigger-list": frozenset(
+        {
+            (FEATURE_KIND_TRIGGER_SOURCE, "bus"),
+            (FEATURE_KIND_TRIGGER_SOURCE, "immediate"),
+        }
+    ),
+}
+_EDU36311A_ACCEPTED_FEATURES = {
+    "sequence": frozenset(
+        (FEATURE_KIND_SEQUENCE_ACTION, value)
+        for value in {
+            "apply", "cycle-output", "measure", "output-off", "output-on",
+            "output-state", "readback", "safe-off", "set",
+        }
+    ),
+}
+_E3646A_ACCEPTED_FEATURES = {
+    "sequence": frozenset(
+        (FEATURE_KIND_SEQUENCE_ACTION, value)
+        for value in {
+            "apply", "cycle-output", "measure", "output-off", "output-on",
+            "output-state", "readback", "safe-off", "set",
+        }
+    ),
+}
+
+_ACCEPTED_COMMANDS_BY_MODEL_ID = MappingProxyType(
+    {
+        "keysight-e36312a": _E36312A_ACCEPTED_COMMANDS,
+        "keysight-edu36311a": _EDU36311A_ACCEPTED_COMMANDS,
+        "keysight-e3646a": _E3646A_ACCEPTED_COMMANDS,
+    }
+)
+_ACCEPTED_FEATURES_BY_MODEL_ID = MappingProxyType(
+    {
+        "keysight-e36312a": _E36312A_ACCEPTED_FEATURES,
+        "keysight-edu36311a": _EDU36311A_ACCEPTED_FEATURES,
+        "keysight-e3646a": _E3646A_ACCEPTED_FEATURES,
+    }
+)
+
 
 @dataclass(frozen=True)
 class SupportEvidenceRecord:
@@ -56,10 +142,12 @@ class SupportEvidenceRecord:
     summary_path: str
     legacy_model_name: str
     legacy_backend_interpretation: str
-    artifact_schema_version: int | None
+    artifact_schema_version: str | None
     report_sha256: str | None
     source_availability: str
     migration_note: str
+    accepted_commands: frozenset[str]
+    accepted_features_by_command: Mapping[str, frozenset[tuple[str, str]]]
 
 
 def _historical_record(
@@ -77,14 +165,18 @@ def _historical_record(
         evidence_date="2026-07-09",
         evidence_kind=EVIDENCE_KIND_FULL_SUITE,
         artifact_directory=artifact_directory,
-        report_path=f"{artifact_directory}/shareable/report.json",
-        summary_path=f"{artifact_directory}/shareable/summary.md",
+        report_path=f"{artifact_directory}/report.json",
+        summary_path=f"{artifact_directory}/summary.md",
         legacy_model_name=legacy_model_name,
         legacy_backend_interpretation=LEGACY_SYSTEM_VISA_INTERPRETATION,
-        artifact_schema_version=None,
+        artifact_schema_version="1.0",
         report_sha256=None,
         source_availability=SOURCE_AVAILABILITY_HISTORICAL_REFERENCE_ONLY,
         migration_note=EVIDENCE_MIGRATION_NOTE,
+        accepted_commands=_ACCEPTED_COMMANDS_BY_MODEL_ID[model_id],
+        accepted_features_by_command=MappingProxyType(
+            dict(_ACCEPTED_FEATURES_BY_MODEL_ID[model_id])
+        ),
     )
 
 
@@ -162,18 +254,51 @@ def validate_support_evidence_metadata(
             raise ValueError(
                 f"historical-reference-only evidence cannot claim a checksum: {record.evidence_id}"
             )
-        if record.artifact_schema_version is not None and record.artifact_schema_version < 1:
+        if record.artifact_schema_version is not None and (
+            not isinstance(record.artifact_schema_version, str)
+            or not re.fullmatch(r"[1-9]\d*\.\d+", record.artifact_schema_version)
+        ):
             raise ValueError(f"invalid artifact schema version: {record.evidence_id}")
         if not record.migration_note.strip():
             raise ValueError(f"evidence migration note is required: {record.evidence_id}")
         _validate_repository_relative_path(record.artifact_directory, record.evidence_id)
         _validate_repository_relative_path(record.report_path, record.evidence_id)
         _validate_repository_relative_path(record.summary_path, record.evidence_id)
-        if record.report_path != f"{record.artifact_directory}/shareable/report.json":
+        if record.report_path != f"{record.artifact_directory}/report.json":
             raise ValueError(f"unexpected evidence report path: {record.evidence_id}")
-        if record.summary_path != f"{record.artifact_directory}/shareable/summary.md":
+        if record.summary_path != f"{record.artifact_directory}/summary.md":
             raise ValueError(f"unexpected evidence summary path: {record.evidence_id}")
+        _validate_accepted_inventory(record)
         _validate_non_sensitive_record(record)
+
+
+def _validate_accepted_inventory(record: SupportEvidenceRecord) -> None:
+    if not isinstance(record.accepted_commands, frozenset) or not record.accepted_commands:
+        raise ValueError(f"evidence accepted commands must be a non-empty frozenset: {record.evidence_id}")
+    for command in record.accepted_commands:
+        if not command or command != command.strip().lower():
+            raise ValueError(f"noncanonical evidence command: {record.evidence_id}/{command!r}")
+    if not isinstance(record.accepted_features_by_command, MappingProxyType):
+        raise ValueError(f"evidence feature inventory must be immutable: {record.evidence_id}")
+    for command, features in record.accepted_features_by_command.items():
+        if command not in record.accepted_commands:
+            raise ValueError(f"evidence feature command mismatch: {record.evidence_id}/{command}")
+        if not isinstance(features, frozenset):
+            raise ValueError(f"evidence features must be immutable: {record.evidence_id}/{command}")
+        for feature_kind, feature_value in features:
+            if feature_kind == FEATURE_KIND_SEQUENCE_ACTION:
+                normalized_value = normalize_sequence_action(feature_value)
+            elif feature_kind == FEATURE_KIND_TRIGGER_SOURCE:
+                normalized_value = normalize_real_trigger_source(feature_value)
+            else:
+                raise ValueError(
+                    f"unsupported evidence feature kind: {record.evidence_id}/{command}/{feature_kind}"
+                )
+            if feature_value != normalized_value:
+                raise ValueError(
+                    f"noncanonical evidence feature: {record.evidence_id}/{command}/"
+                    f"{feature_kind}/{feature_value!r}"
+                )
 
 
 def _validate_repository_relative_path(value: str, evidence_id: str) -> None:

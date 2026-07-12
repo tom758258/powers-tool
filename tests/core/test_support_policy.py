@@ -42,6 +42,7 @@ from powers_tool_core.support_policy import (
     normalize_support_feature_value,
     normalize_transport,
     validate_live_support_metadata,
+    unevaluated_live_support_policy_metadata,
 )
 
 
@@ -1123,6 +1124,35 @@ def test_public_model_projection_is_json_safe_and_omits_private_evidence() -> No
     assert "artifact" not in serialized
     assert "evidence" not in serialized
     assert "serial" not in serialized
+
+
+def test_unevaluated_projection_uses_core_owned_safe_classification() -> None:
+    metadata = unevaluated_live_support_policy_metadata(
+        commands={"set"},
+        reason="No resolved physical identity.",
+    )
+
+    assert metadata["schema_version"] == 2
+    assert metadata["evaluated"] is False
+    assert metadata["model_id"] is None
+    assert metadata["live_capable"] is False
+    assert metadata["fallback_only"] is True
+    for command in EXEMPT_LIVE_DIAGNOSTIC_COMMANDS:
+        entry = metadata["commands"][command]
+        assert entry["policy_exempt"] is True
+        assert entry["offline_only"] is False
+        assert entry["scopes"] == []
+    for command in PURE_OFFLINE_COMMANDS:
+        entry = metadata["commands"][command]
+        assert entry["policy_exempt"] is False
+        assert entry["offline_only"] is True
+        assert entry["scopes"] == []
+    assert metadata["commands"]["set"]["policy_exempt"] is False
+    assert metadata["commands"]["set"]["offline_only"] is False
+    assert metadata["commands"]["set"]["scopes"] == []
+    serialized = json.dumps(metadata)
+    for forbidden in ("evidence", "artifact", ".tmp_tests", "report_sha256"):
+        assert forbidden not in serialized
 
 
 def test_public_exact_projection_distinguishes_open_pending_and_missing_scopes() -> None:

@@ -2,6 +2,7 @@ import json
 import re
 from dataclasses import fields, replace
 from pathlib import PurePosixPath, PureWindowsPath
+from types import MappingProxyType
 
 import pytest
 
@@ -51,6 +52,48 @@ EXPECTED_EVIDENCE = {
     ),
 }
 
+EXPECTED_COMMAND_COUNTS = {
+    "keysight-e36312a": 23,
+    "keysight-edu36311a": 18,
+    "keysight-e3646a": 14,
+}
+
+EXPECTED_FEATURES_BY_MODEL = {
+    "keysight-e36312a": {
+        "sequence": frozenset(
+            ("sequence_action", value)
+            for value in {
+                "apply", "cycle-output", "measure", "output-off", "output-on",
+                "output-state", "readback", "safe-off", "set", "trigger-pulse",
+            }
+        ),
+        "trigger-step": frozenset(
+            {("trigger_source", "bus"), ("trigger_source", "immediate")}
+        ),
+        "trigger-list": frozenset(
+            {("trigger_source", "bus"), ("trigger_source", "immediate")}
+        ),
+    },
+    "keysight-edu36311a": {
+        "sequence": frozenset(
+            ("sequence_action", value)
+            for value in {
+                "apply", "cycle-output", "measure", "output-off", "output-on",
+                "output-state", "readback", "safe-off", "set",
+            }
+        ),
+    },
+    "keysight-e3646a": {
+        "sequence": frozenset(
+            ("sequence_action", value)
+            for value in {
+                "apply", "cycle-output", "measure", "output-off", "output-on",
+                "output-state", "readback", "safe-off", "set",
+            }
+        ),
+    },
+}
+
 
 def test_exactly_five_immutable_historical_evidence_identities_exist() -> None:
     assert len(SUPPORT_EVIDENCE_RECORDS) == 5
@@ -64,13 +107,50 @@ def test_exactly_five_immutable_historical_evidence_identities_exist() -> None:
             "system_visa",
         )
         assert record.artifact_directory == artifact_directory
-        assert record.report_path == f"{artifact_directory}/shareable/report.json"
-        assert record.summary_path == f"{artifact_directory}/shareable/summary.md"
+        assert record.report_path == f"{artifact_directory}/report.json"
+        assert record.summary_path == f"{artifact_directory}/summary.md"
         assert record.source_availability == SOURCE_AVAILABILITY_HISTORICAL_REFERENCE_ONLY
         assert record.report_sha256 is None
-        assert record.artifact_schema_version is None
+        assert record.artifact_schema_version == "1.0"
     with pytest.raises(TypeError):
         SUPPORT_EVIDENCE_BY_ID["new-evidence"] = SUPPORT_EVIDENCE_RECORDS[0]  # type: ignore[index]
+
+
+def test_historical_evidence_inventories_are_frozen_and_exact() -> None:
+    for record in SUPPORT_EVIDENCE_RECORDS:
+        assert len(record.accepted_commands) == EXPECTED_COMMAND_COUNTS[record.model_id]
+        assert record.accepted_features_by_command == EXPECTED_FEATURES_BY_MODEL[record.model_id]
+        assert isinstance(record.accepted_features_by_command, MappingProxyType)
+        with pytest.raises(AttributeError):
+            record.accepted_commands.add("future-command")  # type: ignore[attr-defined]
+        with pytest.raises(TypeError):
+            record.accepted_features_by_command["sequence"] = frozenset()  # type: ignore[index]
+
+
+def test_unrecorded_command_cannot_inherit_accepted_evidence() -> None:
+    evidence = SUPPORT_EVIDENCE_RECORDS[0]
+    mismatched = replace(
+        evidence,
+        accepted_commands=evidence.accepted_commands - {"measure"},
+    )
+    evidence_registry = {**SUPPORT_EVIDENCE_BY_ID, evidence.evidence_id: mismatched}
+    with pytest.raises(ValueError, match="evidence command mismatch"):
+        validate_live_support_metadata(evidence_registry=evidence_registry)
+
+
+def test_unrecorded_feature_cannot_inherit_accepted_evidence() -> None:
+    evidence = SUPPORT_EVIDENCE_RECORDS[0]
+    features = dict(evidence.accepted_features_by_command)
+    features["sequence"] = features["sequence"] - {
+        ("sequence_action", "apply")
+    }
+    mismatched = replace(
+        evidence,
+        accepted_features_by_command=MappingProxyType(features),
+    )
+    evidence_registry = {**SUPPORT_EVIDENCE_BY_ID, evidence.evidence_id: mismatched}
+    with pytest.raises(ValueError, match="evidence feature mismatch"):
+        validate_live_support_metadata(evidence_registry=evidence_registry)
 
 
 def test_evidence_paths_are_relative_and_metadata_is_non_sensitive() -> None:
@@ -105,6 +185,8 @@ def test_availability_and_checksum_combinations_fail_closed() -> None:
         validate_support_evidence_metadata((replace(base, report_sha256="a" * 64),))
     with pytest.raises(ValueError, match="invalid evidence source availability"):
         validate_support_evidence_metadata((replace(base, source_availability="unknown"),))
+    with pytest.raises(ValueError, match="invalid artifact schema version"):
+        validate_support_evidence_metadata((replace(base, artifact_schema_version=1),))
     with pytest.raises(ValueError, match="duplicate evidence_id"):
         validate_support_evidence_metadata((base, base))
     with pytest.raises(ValueError, match="noncanonical evidence model_id"):

@@ -23,7 +23,11 @@ from powers_tool_core.models import (
     PRODUCT_ACTIVE_MODEL_IDS,
     resource_interface,
 )
-from powers_tool_core.support_evidence import SUPPORT_EVIDENCE_BY_ID, SupportEvidenceRecord
+from powers_tool_core.support_evidence import (
+    SUPPORT_EVIDENCE_BY_ID,
+    SupportEvidenceRecord,
+    validate_support_evidence_metadata,
+)
 from powers_tool_core.support_features import (
     FEATURE_KIND_SEQUENCE_ACTION,
     FEATURE_KIND_TRIGGER_SOURCE,
@@ -303,6 +307,53 @@ def live_support_policy_metadata(
     }
 
 
+def unevaluated_live_support_policy_metadata(
+    *,
+    commands: Iterable[str] | None = None,
+    reason: str,
+    fallback_only: bool = True,
+) -> dict[str, object]:
+    """Return a safe schema-v2 projection without a resolved physical model."""
+
+    command_names = tuple(
+        sorted(
+            set(_public_projection_commands(commands))
+            | set(EXEMPT_LIVE_DIAGNOSTIC_COMMANDS)
+            | set(PURE_OFFLINE_COMMANDS)
+        )
+    )
+    generic_support = command_support(None)
+    projected_commands: dict[str, dict[str, object]] = {}
+    for command in command_names:
+        entry = _public_command_policy(
+            model_id="generic-scpi",
+            command=command,
+            policy=None,
+        )
+        if command not in EXEMPT_LIVE_DIAGNOSTIC_COMMANDS | PURE_OFFLINE_COMMANDS:
+            capability = generic_support.get(command, {})
+            profile_supported = bool(
+                capability.get("simulate") or capability.get("dry_run")
+            )
+            entry.update(
+                {
+                    "profile_supported": profile_supported,
+                    "disabled_reason": reason,
+                    "support_reason": reason,
+                }
+            )
+        projected_commands[command] = entry
+    return {
+        "schema_version": 2,
+        "evaluated": False,
+        "model_id": None,
+        "live_capable": False,
+        "fallback_only": fallback_only,
+        "commands": projected_commands,
+        "reason": reason,
+    }
+
+
 def exact_live_support_metadata(
     *,
     model_id: str,
@@ -571,6 +622,7 @@ def validate_live_support_metadata(
     selected_evidence_registry = (
         SUPPORT_EVIDENCE_BY_ID if evidence_registry is None else evidence_registry
     )
+    validate_support_evidence_metadata(tuple(selected_evidence_registry.values()))
     expected_commands = (
         _policy_governed_command_inventory()
         if command_inventory is None
@@ -653,12 +705,6 @@ def validate_live_support_metadata(
                     raise ValueError(f"duplicate candidate-basis evidence reference: {model_id}/{command}/{scope_key}")
                 if set(scope.accepted_evidence_ids) & set(scope.candidate_basis_evidence_ids):
                     raise ValueError(f"ambiguous evidence reference role: {model_id}/{command}/{scope_key}")
-                _validate_scope_evidence_references(
-                    model_id,
-                    command,
-                    scope,
-                    selected_evidence_registry,
-                )
                 if scope.validation_status in {
                     VALIDATION_STATUS_TRANSPORT_PENDING,
                 } and not scope.note:
@@ -668,6 +714,12 @@ def validate_live_support_metadata(
                     command=command,
                     scope=scope,
                     expected_features=expected_live_feature_inventory(model_id, command),
+                )
+                _validate_scope_evidence_references(
+                    model_id,
+                    command,
+                    scope,
+                    selected_evidence_registry,
                 )
         missing = expected_commands - seen_commands
         unexpected = seen_commands - expected_commands
@@ -703,6 +755,24 @@ def _validate_scope_evidence_references(
             )
         if evidence.backend_scope != scope.backend_scope:
             raise ValueError(f"evidence backend mismatch: {model_id}/{command}/{scope_key}/{evidence_id}")
+        if command not in evidence.accepted_commands:
+            raise ValueError(
+                f"evidence command mismatch: {model_id}/{command}/{scope_key}/{evidence_id}"
+            )
+        accepted_features = evidence.accepted_features_by_command.get(
+            command, frozenset()
+        )
+        for feature in scope.feature_scopes:
+            if (
+                feature.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+                and feature.inherits_parent_accepted_evidence
+                and (feature.feature_kind, feature.feature_value) not in accepted_features
+            ):
+                raise ValueError(
+                    "evidence feature mismatch: "
+                    f"{model_id}/{command}/{scope_key}/{evidence_id}/"
+                    f"{feature.feature_kind}/{feature.feature_value}"
+                )
     for evidence_id in scope.candidate_basis_evidence_ids:
         evidence = evidence_registry.get(evidence_id)
         if evidence is None:
@@ -714,6 +784,11 @@ def _validate_scope_evidence_references(
         if evidence.transport_scope != scope.transport_scope:
             raise ValueError(
                 f"candidate-basis evidence transport mismatch: {model_id}/{command}/{scope_key}/{evidence_id}"
+            )
+        if command not in evidence.accepted_commands:
+            raise ValueError(
+                "candidate-basis evidence command mismatch: "
+                f"{model_id}/{command}/{scope_key}/{evidence_id}"
             )
         if (
             scope.validation_status != VALIDATION_STATUS_TRANSPORT_PENDING
@@ -755,6 +830,11 @@ def _validate_public_projection_privacy(
 
     for model_id in ACTIVE_LIVE_POLICY_MODEL_IDS:
         visit(live_support_policy_metadata(model_id, registry=registry))
+    visit(
+        unevaluated_live_support_policy_metadata(
+            reason="Privacy validation for an unevaluated nonphysical projection."
+        )
+    )
 
 
 def expected_live_feature_inventory(

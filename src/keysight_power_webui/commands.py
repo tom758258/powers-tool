@@ -27,12 +27,14 @@ from powers_tool_core.model_resolution import validate_live_expected_model
 from powers_tool_core.models import parse_idn
 from powers_tool_core.readonly import run_live_panel_read
 from powers_tool_core.support_policy import (
+    EXEMPT_LIVE_DIAGNOSTIC_COMMANDS,
     LiveSupportPolicyError,
     SUPPORT_POLICY_MODE_PRODUCT,
     exact_live_support_metadata,
     live_support_policy_metadata,
     normalize_backend,
     normalize_transport,
+    unevaluated_live_support_policy_metadata,
 )
 from powers_tool_core.testing.simulator import SimulatedResourceManager
 
@@ -101,9 +103,6 @@ WEBUI_UNSUPPORTED_COMMANDS = {
     "log",
 }
 
-MODEL_INDEPENDENT_DIAGNOSTICS = {"verify", "clear", "error"}
-
-
 def channel_capabilities_by_model() -> dict[str, dict[str, Any]]:
     """Return WebUI model-to-channel metadata from driver capabilities."""
 
@@ -143,29 +142,10 @@ def live_support_by_model(command_names: set[str]) -> dict[str, dict[str, Any]]:
             "E3646A": "keysight-e3646a",
         }.items()
     }
-    generic_commands: dict[str, dict[str, Any]] = {}
-    generic_capabilities = core_capabilities.command_support(None)
-    for command in command_names:
-        capability = generic_capabilities.get(command, {})
-        reason = "GENERIC is no-hardware/fallback-only; live exact scopes are unavailable."
-        generic_commands[command] = {
-            "profile_validation_status": None,
-            "profile_supported": bool(capability.get("simulate") or capability.get("dry_run")),
-            "metadata_available": False,
-            "policy_exempt": command in MODEL_INDEPENDENT_DIAGNOSTICS,
-            "offline_only": False,
-            "disabled_reason": reason,
-            "support_reason": reason,
-            "scopes": [],
-        }
-    projections["GENERIC"] = {
-        "schema_version": 2,
-        "evaluated": False,
-        "model_id": None,
-        "live_capable": False,
-        "fallback_only": True,
-        "commands": generic_commands,
-    }
+    projections["GENERIC"] = unevaluated_live_support_policy_metadata(
+        commands=command_names,
+        reason="GENERIC is no-hardware/fallback-only; live exact scopes are unavailable.",
+    )
     return projections
 
 
@@ -533,7 +513,7 @@ def _filtered_command_support(model: str | None, command_names: set[str]) -> dic
                 command,
                 model or "GENERIC",
             )
-    for command in sorted(command_names & MODEL_INDEPENDENT_DIAGNOSTICS):
+    for command in sorted(command_names & EXEMPT_LIVE_DIAGNOSTIC_COMMANDS):
         filtered[command] = {
             "real": True,
             "simulate": True,

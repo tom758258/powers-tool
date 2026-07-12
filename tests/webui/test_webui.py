@@ -1678,7 +1678,16 @@ def test_commands_metadata_includes_safe_exact_live_support_projection(
     ]
     assert live_support["E3646A"]["commands"]["trigger-list"]["profile_supported"] is False
     assert live_support["GENERIC"]["live_capable"] is False
+    assert live_support["GENERIC"]["schema_version"] == 2
+    assert live_support["GENERIC"]["evaluated"] is False
+    assert live_support["GENERIC"]["model_id"] is None
     assert live_support["GENERIC"]["commands"]["set"]["scopes"] == []
+    for command in {"list-resources", "verify", "identify", "error", "clear"}:
+        entry = live_support["GENERIC"]["commands"][command]
+        assert entry["policy_exempt"] is True
+        assert entry["offline_only"] is False
+        assert entry["scopes"] == []
+    assert live_support["GENERIC"]["commands"]["identify"]["profile_supported"] is True
     assert live_support["E36312A"]["commands"]["clear"]["policy_exempt"] is True
     assert live_support["E36312A"]["commands"]["clear"]["scopes"] == []
     sequence_scope = next(
