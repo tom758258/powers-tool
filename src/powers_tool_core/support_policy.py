@@ -26,7 +26,7 @@ from powers_tool_core.models import (
 from powers_tool_core.support_evidence import (
     SUPPORT_EVIDENCE_BY_ID,
     SupportEvidenceRecord,
-    validate_support_evidence_metadata,
+    validate_support_evidence_registry,
 )
 from powers_tool_core.support_features import (
     FEATURE_KIND_SEQUENCE_ACTION,
@@ -622,7 +622,7 @@ def validate_live_support_metadata(
     selected_evidence_registry = (
         SUPPORT_EVIDENCE_BY_ID if evidence_registry is None else evidence_registry
     )
-    validate_support_evidence_metadata(tuple(selected_evidence_registry.values()))
+    validate_support_evidence_registry(selected_evidence_registry)
     expected_commands = (
         _policy_governed_command_inventory()
         if command_inventory is None
@@ -747,6 +747,11 @@ def _validate_scope_evidence_references(
         evidence = evidence_registry.get(evidence_id)
         if evidence is None:
             raise ValueError(f"missing evidence registry entry: {evidence_id}")
+        if evidence.evidence_id != evidence_id:
+            raise ValueError(
+                "evidence reference identity mismatch: "
+                f"reference={evidence_id!r}, record={evidence.evidence_id!r}"
+            )
         if evidence.model_id != model_id:
             raise ValueError(f"evidence model mismatch: {model_id}/{command}/{scope_key}/{evidence_id}")
         if evidence.transport_scope != scope.transport_scope:
@@ -777,6 +782,11 @@ def _validate_scope_evidence_references(
         evidence = evidence_registry.get(evidence_id)
         if evidence is None:
             raise ValueError(f"missing candidate-basis evidence registry entry: {evidence_id}")
+        if evidence.evidence_id != evidence_id:
+            raise ValueError(
+                "candidate-basis evidence reference identity mismatch: "
+                f"reference={evidence_id!r}, record={evidence.evidence_id!r}"
+            )
         if evidence.model_id != model_id:
             raise ValueError(
                 f"candidate-basis evidence model mismatch: {model_id}/{command}/{scope_key}/{evidence_id}"

@@ -272,6 +272,20 @@ def validate_support_evidence_metadata(
         _validate_non_sensitive_record(record)
 
 
+def validate_support_evidence_registry(
+    registry: Mapping[str, SupportEvidenceRecord],
+) -> None:
+    """Fail closed when registry keys do not exactly identify their records."""
+
+    validate_support_evidence_metadata(tuple(registry.values()))
+    for registry_key, record in registry.items():
+        if registry_key != record.evidence_id:
+            raise ValueError(
+                "evidence registry key mismatch: "
+                f"key={registry_key!r}, evidence_id={record.evidence_id!r}"
+            )
+
+
 def _validate_accepted_inventory(record: SupportEvidenceRecord) -> None:
     if not isinstance(record.accepted_commands, frozenset) or not record.accepted_commands:
         raise ValueError(f"evidence accepted commands must be a non-empty frozenset: {record.evidence_id}")
@@ -327,4 +341,4 @@ def _validate_non_sensitive_record(record: SupportEvidenceRecord) -> None:
             raise ValueError(f"evidence metadata contains private resource data: {record.evidence_id}")
 
 
-validate_support_evidence_metadata()
+validate_support_evidence_registry(SUPPORT_EVIDENCE_BY_ID)

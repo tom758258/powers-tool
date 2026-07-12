@@ -127,6 +127,51 @@ def test_historical_evidence_inventories_are_frozen_and_exact() -> None:
             record.accepted_features_by_command["sequence"] = frozenset()  # type: ignore[index]
 
 
+def test_evidence_registry_alias_is_rejected() -> None:
+    record = SUPPORT_EVIDENCE_RECORDS[0]
+    malformed_registry = {
+        key: value
+        for key, value in SUPPORT_EVIDENCE_BY_ID.items()
+        if key != record.evidence_id
+    }
+    malformed_registry["incorrect-alias"] = record
+
+    with pytest.raises(ValueError, match="evidence registry key mismatch"):
+        validate_live_support_metadata(evidence_registry=malformed_registry)
+
+
+def test_accepted_evidence_reference_identity_mismatch_is_rejected() -> None:
+    reference_id = "keysight-e36312a-usb-system-visa-20260709-full"
+    mismatched = replace(
+        SUPPORT_EVIDENCE_BY_ID[reference_id],
+        evidence_id="keysight-e36312a-usb-system-visa-20260709-alternate",
+    )
+    malformed_registry = {**SUPPORT_EVIDENCE_BY_ID, reference_id: mismatched}
+
+    with pytest.raises(ValueError, match="evidence registry key mismatch"):
+        validate_live_support_metadata(evidence_registry=malformed_registry)
+
+
+def test_candidate_basis_evidence_reference_identity_mismatch_is_rejected() -> None:
+    reference_id = "keysight-e36312a-tcpip-system-visa-20260709-full"
+    mismatched = replace(
+        SUPPORT_EVIDENCE_BY_ID[reference_id],
+        evidence_id="keysight-e36312a-tcpip-system-visa-20260709-alternate",
+    )
+    malformed_registry = {**SUPPORT_EVIDENCE_BY_ID, reference_id: mismatched}
+
+    with pytest.raises(ValueError, match="evidence registry key mismatch"):
+        validate_live_support_metadata(evidence_registry=malformed_registry)
+
+
+def test_production_evidence_registry_keys_are_exact() -> None:
+    for evidence_id, record in SUPPORT_EVIDENCE_BY_ID.items():
+        assert evidence_id == record.evidence_id
+
+    validate_support_evidence_metadata()
+    validate_live_support_metadata()
+
+
 def test_unrecorded_command_cannot_inherit_accepted_evidence() -> None:
     evidence = SUPPORT_EVIDENCE_RECORDS[0]
     mismatched = replace(
