@@ -35,17 +35,24 @@ The request body is a strict JSON object:
 
 ```json
 {
+  "schema_version": 2,
   "command": "read-status",
   "arguments": { "channel": "all", "dry_run": true },
   "job_id": "optional-orchestrator-id"
 }
 ```
 
-Allowed top-level fields are `command`, `arguments`, and `job_id`. Unknown fields, malformed JSON, a non-object body, a missing/non-string command, non-object `arguments`, non-string `job_id`, unknown command names, and invalid Power arguments return `400` before any VISA I/O or queue mutation.
+Allowed top-level fields are `schema_version`, `command`, `arguments`, and
+`job_id`. `schema_version` is required and must be the exact integer `2`;
+booleans, strings, floats, missing versions, and unsupported integers are
+rejected. Unknown fields, malformed JSON, a non-object body, a
+missing/non-string command, non-object `arguments`, non-string `job_id`,
+unknown command names, and invalid Power arguments return `400` before any
+VISA I/O, queue mutation, or artifact creation.
 
-Every `/command` response is a JSON object with `status`, `command`, and
-`job_id`. In the HTTP response, `command` is the submitted command string, for
-example `"read-status"`.
+Every `/command` response is a JSON object with integer `schema_version: 2`,
+`status`, `command`, and `job_id`. In the HTTP response, `command` is the
+submitted command string, for example `"read-status"`.
 
 - Accepted commands return `202` with `status: "accepted"`, `worker_job_id`, and `artifact_path`.
 - Validation failures return `400` with `status: "error"`.
@@ -82,6 +89,7 @@ command, mutate the queue, request stop, or create artifacts.
 The response includes `schema_version`, `service`, `run_id`, Worker
 `status`, `command_url`, `status_url`, `stop_url`, `queue_size`,
 `active_job`, `last_job`, `fatal_error`, and `timestamp_utc`.
+Its `schema_version` is the integer `2`.
 
 `active_job` and `last_job`, when present, include at least `worker_job_id`,
 `job_id`, `command`, `status`, and `artifact_path`. Top-level `job_id` is not
@@ -179,6 +187,8 @@ Worker dry-run/simulate requests that need model-specific planning must pass
 Worker settings. Fake or live-looking resource strings do not imply a model.
 If an explicit physical planning ID and SIM resource are present, they must
 match.
+Core-owned command admission validates these requirements and command support
+before HTTP `202`, job-directory creation, `request.json`, or queue mutation.
 
 Worker runtime settings may include optional ASRL serial fields under
 `settings.serial_options`: `baud_rate`, `data_bits`, `parity`, `stop_bits`,
@@ -240,9 +250,9 @@ Rejected commands do not open VISA, enqueue work, write artifacts, or issue part
 
 Accepted jobs create:
 
-- `request.json`: `command` and `arguments` only.
+- `request.json`: integer `schema_version: 2`, `command`, and `arguments`.
 - `result.json`: final-only CLI-style result envelope with
-  `schema_version: 1`, `run_id`, `worker_job_id`, `ok`, terminal `status`,
+  integer `schema_version: 2`, `run_id`, `worker_job_id`, `ok`, terminal `status`,
   `command`, `execution`, `request`, `data`, `warnings`, `error`, and
   `metadata`.
 

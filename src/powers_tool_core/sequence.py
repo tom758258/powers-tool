@@ -46,7 +46,14 @@ def run_sequence(
 ) -> dict[str, Any]:
     """Lint, plan, or execute a sequence request."""
 
-    request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
+    planning_resolved = False
+    if request.runtime.dry_run or request.runtime.simulate:
+        try:
+            request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
+            planning_resolved = True
+        except CoreValidationError as exc:
+            if "planning require planning_model_id" not in str(exc):
+                raise
     document = request.parameters.get("document")
     if document is None:
         file_path = request.parameters.get("file")
@@ -55,6 +62,9 @@ def run_sequence(
         document = load_sequence_document(str(file_path))
 
     plan = sequence_plan(request, document)
+    if sequence_feature_requirements(plan) and not planning_resolved:
+        request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
+        plan = sequence_plan(request, document)
 
     if request.parameters.get("lint", False):
         return {

@@ -14,6 +14,57 @@ from powers_tool_cli.worker import WorkerState, _run_job_impl, _write_json_artif
 from powers_tool_cli.cli import build_parser
 
 
+def _worker_validation_state(tmp_path: Path, *, mode: str = "simulate") -> WorkerState:
+    return WorkerState(
+        {
+            "id": "test",
+            "type": "power",
+            "enabled": True,
+            "mode": mode,
+            "control_host": "127.0.0.1",
+            "control_port": 0,
+            "artifacts_dir": str(tmp_path),
+            "events_jsonl": None,
+            "settings": {},
+        },
+        0,
+    )
+
+
+@pytest.mark.parametrize("schema_version", [None, 1, 3, "2", 2.0, True, False])
+def test_worker_command_requires_exact_integer_schema_2(tmp_path: Path, schema_version: object) -> None:
+    state = _worker_validation_state(tmp_path)
+    body = {"command": "read-status", "arguments": {}}
+    if schema_version is not None:
+        body["schema_version"] = schema_version
+
+    status, payload = worker_mod._validate_command_body(body, state)
+
+    assert status == 400
+    assert payload["schema_version"] == 2
+    assert payload["error"]["code"] == "unsupported_schema_version"
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
+def test_worker_missing_planning_identity_fails_before_admission(tmp_path: Path) -> None:
+    state = _worker_validation_state(tmp_path)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "set",
+            "arguments": {"channel": 1, "voltage": 1.0, "dry_run": True},
+        },
+        state,
+    )
+
+    assert status == 400
+    assert "require planning_model_id" in payload["error"]["message"]
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
 @pytest.mark.parametrize("field", ["support_policy_mode", "validation_allow_pending_live_support"])
 def test_worker_rejects_validation_mode_request_arguments(field: str) -> None:
     state = WorkerState(
@@ -31,7 +82,7 @@ def test_worker_rejects_validation_mode_request_arguments(field: str) -> None:
         0,
     )
     status, payload = worker_mod._validate_command_body(
-        {"command": "measure", "arguments": {"channel": 1, field: "validation"}},
+        {"schema_version": 2, "command": "measure", "arguments": {"channel": 1, field: "validation"}},
         state,
     )
     assert status == 400
@@ -93,7 +144,7 @@ def test_worker_rejects_legacy_identity_arguments_before_queue_mutation(field: s
     )
 
     status, payload = worker_mod._validate_command_body(
-        {"command": "measure", "arguments": {"channel": 1, field: "E36312A"}},
+        {"schema_version": 2, "command": "measure", "arguments": {"channel": 1, field: "E36312A"}},
         state,
     )
 
@@ -351,6 +402,7 @@ def test_worker_status_endpoint(running_worker):
     with urllib.request.urlopen(url) as response:
         assert response.status == 200
         data = json.loads(response.read().decode("utf-8"))
+        assert data["schema_version"] == 2
         assert data["service"] == "powers-tool"
         assert data["status"] == "ready"
         assert data["queue_size"] == 0
@@ -365,6 +417,7 @@ def test_worker_command_execution(running_worker):
     
     url = f"http://127.0.0.1:{port}/command"
     payload = {
+        "schema_version": 2,
         "command": "read-status",
         "arguments": {"channel": "1"}
     }
@@ -377,6 +430,7 @@ def test_worker_command_execution(running_worker):
     with urllib.request.urlopen(req) as response:
         assert response.status == 202
         data = json.loads(response.read().decode("utf-8"))
+        assert data["schema_version"] == 2
         assert data["status"] == "accepted"
         job_id = data["worker_job_id"]
         assert Path(data["artifact_path"]).name == job_id
@@ -386,12 +440,22 @@ def test_worker_command_execution(running_worker):
     request_file = artifacts_dir / "jobs" / job_id / "request.json"
     
     assert request_file.exists()
-    assert "job_id" not in json.loads(request_file.read_text(encoding="utf-8"))
+    request_data = json.loads(request_file.read_text(encoding="utf-8"))
+    assert request_data["schema_version"] == 2
+    assert "job_id" not in request_data
     result_data = _wait_for_json_file(result_file)
+    assert result_data["schema_version"] == 2
     assert result_data["ok"] is True
     assert result_data["worker_job_id"] == job_id
     assert result_data["command"]["name"] == "read-status"
     assert result_data["status"] == "succeeded"
+    events = [
+        json.loads(line)
+        for line in events_jsonl.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert events
+    assert all(event["schema_version"] == 2 for event in events)
 
 
 def test_worker_trigger_endpoint_removed(running_worker):
@@ -411,6 +475,7 @@ def test_worker_invalid_command(running_worker):
     port = running_worker["port"]
     url = f"http://127.0.0.1:{port}/command"
     payload = {
+        "schema_version": 2,
         "command": "invalid_command_name"
     }
     req = urllib.request.Request(
@@ -427,6 +492,7 @@ def test_worker_invalid_command(running_worker):
 def test_worker_rejects_removed_ramp_native_fields_before_artifact(running_worker, field):
     url = f"http://127.0.0.1:{running_worker['port']}/command"
     payload = {
+        "schema_version": 2,
         "command": "ramp",
         "arguments": {
             "dry_run": True,
@@ -530,7 +596,7 @@ def test_worker_readonly_dry_run_does_not_open_live_resource(tmp_path, monkeypat
         assert actual_port is not None
         req = urllib.request.Request(
             f"http://127.0.0.1:{actual_port}/command",
-            data=json.dumps({"command": "read-status", "arguments": {"dry_run": True, "planning_model_id": "keysight-e36312a"}}).encode("utf-8"),
+            data=json.dumps({"schema_version": 2, "command": "read-status", "arguments": {"dry_run": True, "planning_model_id": "keysight-e36312a"}}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(req) as res:
@@ -557,7 +623,7 @@ def test_worker_measure_all_rejects_channel_filter(running_worker):
     artifacts_dir = running_worker["artifacts_dir"]
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/command",
-        data=json.dumps({"command": "measure-all", "arguments": {"channel": 1}}).encode("utf-8"),
+        data=json.dumps({"schema_version": 2, "command": "measure-all", "arguments": {"channel": 1}}).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
     with pytest.raises(urllib.error.HTTPError) as exc_info:
@@ -577,7 +643,7 @@ def test_worker_output_commands_accept_all_channel_dry_run(running_worker, comma
         arguments["duration_ms"] = 250
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/command",
-        data=json.dumps({"command": command, "arguments": arguments}).encode("utf-8"),
+        data=json.dumps({"schema_version": 2, "command": command, "arguments": arguments}).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
 
@@ -649,6 +715,7 @@ def test_worker_simulate_planning_model_id_resource_mismatch_fails(tmp_path):
 
     status, payload = worker_mod._validate_command_body(
         {
+            "schema_version": 2,
             "command": "output-on",
             "arguments": {
                 "channel": 1,
@@ -760,6 +827,7 @@ def test_worker_live_output_sequence_validation(tmp_path):
     try:
         url = f"http://127.0.0.1:{actual_port}/command"
         payload = {
+            "schema_version": 2,
             "command": "sequence",
             "arguments": {
                 "document": {
@@ -796,6 +864,7 @@ def test_worker_simulate_numeric_parity(running_worker):
     
     url = f"http://127.0.0.1:{port}/command"
     payload = {
+        "schema_version": 2,
         "command": "measure-all"
     }
     req = urllib.request.Request(
@@ -866,21 +935,20 @@ def test_worker_model_unsupported_error_mapping(running_worker):
         
     try:
         url = f"http://127.0.0.1:{edu_port}/command"
-        payload = {"command": "measure-all"}
+        payload = {"schema_version": 2, "command": "measure-all"}
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req) as res:
-            job_id = json.loads(res.read().decode("utf-8"))["worker_job_id"]
-            
-        result_file = edu_art_dir / "jobs" / job_id / "result.json"
-        result_data = _wait_for_json_file(result_file)
-        assert result_data["ok"] is False
-        assert result_data["status"] == "failed"
-        assert result_data["error"]["type"] == "validation"
-        assert result_data["error"]["code"] == "unsupported_model_for_measure_all"
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(req)
+        assert exc_info.value.code == 400
+        response = json.loads(exc_info.value.read().decode("utf-8"))
+        assert response["schema_version"] == 2
+        assert response["error"]["code"] == "argument_error"
+        assert "not supported" in response["error"]["message"]
+        assert not (edu_art_dir / "jobs").exists()
         
     finally:
         try:
@@ -962,6 +1030,7 @@ def test_sequence_stop_wait_interrupt(running_worker):
     
     url = f"http://127.0.0.1:{port}/command"
     payload = {
+        "schema_version": 2,
         "command": "sequence",
         "arguments": {
             "document": {
@@ -1007,7 +1076,7 @@ def test_worker_ramp_list_requires_document_or_file():
     state = WorkerState(config, 0)
 
     status, payload = worker_mod._validate_command_body(
-        {"command": "ramp-list", "arguments": {}},
+        {"schema_version": 2, "command": "ramp-list", "arguments": {}},
         state,
     )
 
@@ -1020,7 +1089,7 @@ def test_worker_rejects_invalid_static_parameter_before_enqueue():
     state = WorkerState(config, 0)
 
     status, payload = worker_mod._validate_command_body(
-        {"command": "set", "arguments": {"channel": 1, "voltage": -1, "current": 0.1}},
+        {"schema_version": 2, "command": "set", "arguments": {"channel": 1, "voltage": -1, "current": 0.1}},
         state,
     )
 
@@ -1034,7 +1103,7 @@ def test_worker_accepts_partial_set_before_enqueue():
     state = WorkerState(config, 0)
 
     status, payload = worker_mod._validate_command_body(
-        {"command": "set", "arguments": {"channel": 1, "voltage": 1.0, "dry_run": True}},
+        {"schema_version": 2, "command": "set", "arguments": {"channel": 1, "voltage": 1.0, "dry_run": True, "planning_model_id": "keysight-e36312a"}},
         state,
     )
 
@@ -1048,7 +1117,7 @@ def test_worker_rejects_empty_set_before_enqueue():
     state = WorkerState(config, 0)
 
     status, payload = worker_mod._validate_command_body(
-        {"command": "set", "arguments": {"channel": 1, "dry_run": True}},
+        {"schema_version": 2, "command": "set", "arguments": {"channel": 1, "dry_run": True}},
         state,
     )
 
@@ -1062,7 +1131,7 @@ def test_worker_rejects_arm_only_trigger_list_before_enqueue():
     state = WorkerState(config, 0)
 
     status, payload = worker_mod._validate_command_body(
-        {"command": "trigger-list", "arguments": {"channel": 1, "source": "bus"}},
+        {"schema_version": 2, "command": "trigger-list", "arguments": {"channel": 1, "source": "bus"}},
         state,
     )
 
@@ -1088,7 +1157,7 @@ def test_worker_rejects_invalid_trigger_control_before_enqueue(command, argument
     state = WorkerState(config, 0)
 
     status, payload = worker_mod._validate_command_body(
-        {"command": command, "arguments": {"channel": 1, **arguments}},
+        {"schema_version": 2, "command": command, "arguments": {"channel": 1, **arguments}},
         state,
     )
 
@@ -1103,7 +1172,7 @@ def test_worker_rejects_trigger_fire_wait_without_abort_target_before_enqueue():
     state = WorkerState(config, 0)
 
     status, payload = worker_mod._validate_command_body(
-        {"command": "trigger-fire", "arguments": {"wait_complete": True}},
+        {"schema_version": 2, "command": "trigger-fire", "arguments": {"wait_complete": True}},
         state,
     )
 
@@ -1119,6 +1188,7 @@ def test_worker_rejects_trigger_list_pulse_without_output_pins_before_enqueue():
 
     status, payload = worker_mod._validate_command_body(
         {
+            "schema_version": 2,
             "command": "trigger-list",
             "arguments": {
                 "channel": 1, "source": "immediate", "wait_complete": True,
@@ -1141,6 +1211,7 @@ def test_worker_ramp_list_rejects_invalid_document_before_enqueue():
 
     status, payload = worker_mod._validate_command_body(
         {
+            "schema_version": 2,
             "command": "ramp-list",
             "arguments": {
                 "document": {
@@ -1168,6 +1239,7 @@ def test_worker_live_ramp_list_requires_output_confirmation():
     state = WorkerState(config, 0)
     status, payload = worker_mod._validate_command_body(
         {
+            "schema_version": 2,
             "command": "ramp-list",
             "arguments": {
                 "document": {
@@ -1191,6 +1263,7 @@ def test_worker_live_ramp_list_requires_output_confirmation():
     )
 
     assert status == 409
+    assert payload["schema_version"] == 2
     assert payload["reason"] == "output_confirmation_required"
 
 
@@ -1201,6 +1274,7 @@ def test_worker_simulate_ramp_list_document(running_worker):
         f"http://127.0.0.1:{port}/command",
         data=json.dumps(
             {
+                "schema_version": 2,
                 "command": "ramp-list",
                 "arguments": {
                     "document": {

@@ -149,6 +149,10 @@ def validate_model_enablement(
 ) -> None:
     """Fail when lifecycle stages and runtime prerequisites drift apart."""
 
+    if inventory is None:
+        from powers_tool_core.model_metadata import validate_product_active_model_metadata
+
+        validate_product_active_model_metadata()
     selected = inventory or current_model_enablement_inventory()
     stage_sets = {
         stage: frozenset(

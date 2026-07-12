@@ -70,24 +70,28 @@ def _write_snapshot(
     path.write_text(
         json.dumps(
             {
-                "ok": True,
-                "data": {
-                    "resource": "USB0::FAKE::E36312A::INSTR",
-                    "idn": {
-                        "raw": "KEYSIGHT,E36312A,SERIAL0000,1.0",
-                        "manufacturer": "KEYSIGHT",
-                        "model": "E36312A",
-                        "serial": "SERIAL0000",
-                        "firmware": "1.0",
-                        "parse_ok": True,
-                    },
-                    "errors": errors or [],
-                    "outputs": [{"channel": 1, "enabled": enabled}],
-                    "readback": [{"channel": 1, "setpoints": {"voltage": voltage, "current": current}}],
-                    "measurements": [{"channel": 1, "measurements": {"voltage": voltage + 0.1, "current": current + 0.01}}],
-                    "protection": {"over_voltage_tripped": False, "over_current_tripped": False},
-                    "protection_settings": [{"channel": 1, "protection": protection}],
+                "schema_version": 2,
+                "kind": "powers-tool-snapshot",
+                "resource": "USB0::FAKE::E36312A::INSTR",
+                "reported_identity": {
+                    "manufacturer": "KEYSIGHT",
+                    "model": "E36312A",
+                    "serial": "SERIAL0000",
+                    "firmware": "1.0",
+                    "parse_ok": True,
                 },
+                "resolved_identity": {
+                    "vendor_id": "keysight",
+                    "model_id": "keysight-e36312a",
+                    "model_name": "E36312A",
+                    "display_name": "Keysight E36312A",
+                },
+                "errors": errors or [],
+                "outputs": [{"channel": 1, "enabled": enabled}],
+                "readback": [{"channel": 1, "setpoints": {"voltage": voltage, "current": current}}],
+                "measurements": [{"channel": 1, "measurements": {"voltage": voltage + 0.1, "current": current + 0.01}}],
+                "protection": {"over_voltage_tripped": False, "over_current_tripped": False},
+                "protection_settings": [{"channel": 1, "protection": protection}],
             }
         ),
         encoding="utf-8",
@@ -763,8 +767,9 @@ def test_snapshot_redact_resource_keeps_identity(capsys):
     data = _payload(capsys)["data"]
     assert data["resource"] == "<redacted>"
     assert data["resource_redacted"] is True
-    assert data["idn"]["model"] == "E36312A"
-    assert data["idn"]["serial"]
+    assert data["reported_identity"]["model"] == "E36312A"
+    assert data["reported_identity"]["serial"]
+    assert data["resolved_identity"]["model_id"] == "keysight-e36312a"
 
 
 def test_doctor_json_environment(capsys):

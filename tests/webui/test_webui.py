@@ -1396,14 +1396,26 @@ def assert_direct_job_rejected(client: TestClient, payload: dict[str, Any], *mes
 
 
 def policy_snapshot_document(model: str) -> dict[str, Any]:
+    model_ids = {
+        "E36312A": "keysight-e36312a",
+        "EDU36311A": "keysight-edu36311a",
+        "E3646A": "keysight-e3646a",
+    }
     return {
-        "idn": {
-            "raw": f"KEYSIGHT,{model},SERIAL0000,1.0",
+        "schema_version": 2,
+        "kind": "powers-tool-snapshot",
+        "reported_identity": {
             "manufacturer": "KEYSIGHT",
             "model": model,
             "serial": "SERIAL0000",
             "firmware": "1.0",
             "parse_ok": True,
+        },
+        "resolved_identity": {
+            "vendor_id": "keysight",
+            "model_id": model_ids[model],
+            "model_name": model,
+            "display_name": f"Keysight {model}",
         },
         "outputs": [{"channel": 1, "enabled": False}],
         "readback": [{"channel": 1, "setpoints": {"voltage": 1.0, "current": 0.05}}],
@@ -1844,19 +1856,8 @@ def test_trigger_dry_run_with_fake_resource_requires_model_profile(client: TestC
         },
     }
     response = client.post("/api/jobs", json=payload)
-    assert response.status_code == 200
-
-    job_id = response.json()["job_id"]
-    for _ in range(20):
-        res = client.get(f"/api/jobs/{job_id}")
-        if res.json()["status"] in ("finished", "failed"):
-            break
-        time.sleep(0.05)
-
-    job_data = client.get(f"/api/jobs/{job_id}").json()
-    assert job_data["status"] == "failed"
-    error = job_data.get("error") or ""
-    assert "require --model" in error or "known deterministic SIM resource" in error
+    assert response.status_code == 400
+    assert "require planning_model_id" in response.json()["detail"]
 
 
 def test_trigger_dry_run_with_e36312a_sim_resource_infers_model(client: TestClient):
@@ -2730,10 +2731,8 @@ def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestC
             "parameters": {"channel": 1},
         },
     )
-    assert missing.status_code == 200
-    missing_job = wait_for_job(client, missing.json()["job_id"])
-    assert missing_job["status"] == "failed"
-    assert "require planning_model_id" in missing_job["error"]
+    assert missing.status_code == 400
+    assert "require planning_model_id" in missing.json()["detail"]
 
     missing_simulate = client.post(
         "/api/jobs",
@@ -2745,10 +2744,8 @@ def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestC
             "parameters": {"channel": 1},
         },
     )
-    assert missing_simulate.status_code == 200
-    missing_simulate_job = wait_for_job(client, missing_simulate.json()["job_id"])
-    assert missing_simulate_job["status"] == "failed"
-    assert "require planning_model_id" in missing_simulate_job["error"]
+    assert missing_simulate.status_code == 400
+    assert "require planning_model_id" in missing_simulate.json()["detail"]
 
 
 @pytest.mark.parametrize("model", ["keysight-e36103b", "keysight-e36232a"])
@@ -2902,7 +2899,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
                 "runtime": {"dry_run": True, "planning_model_id": "keysight-e3646a"},
                 "parameters": {"document": policy_snapshot_document("E3646A"), "channel": 1},
             },
-            ("E3646A", "snapshot/restore workflows are disabled"),
+            ("E36312A",),
         ),
         (
             {
@@ -3109,7 +3106,7 @@ def test_hardware_lock_allows_simulate_jobs(client: TestClient):
     payload = {
         "command": "set",
         "runtime": {
-            "resource": "USB0::SIM::INSTR",
+            "resource": "USB0::SIM::E36312A::INSTR",
             "simulate": True,  # Simulate mode should bypass lock
             "confirm": False
         },
@@ -3202,7 +3199,11 @@ def test_ramp_list_lint_dry_run(client: TestClient):
 def test_api_accepts_zero_delay_ramp_list_step_pulse(client: TestClient):
     payload = {
         "command": "ramp-list",
-        "runtime": {"simulate": True, "dry_run": True},
+        "runtime": {
+            "simulate": True,
+            "dry_run": True,
+            "planning_model_id": "keysight-e36312a",
+        },
         "parameters": {
             "document": {
                 "kind": "keysight-power-ramp-list",
@@ -4016,7 +4017,9 @@ def test_static_snapshot_save_validator_is_independent_from_restore_validator():
 
     assert "validateRestoreSnapshot" not in snapshot_validator
     assert "Array.isArray(doc)" in snapshot_validator
-    assert "doc.idn" in snapshot_validator
+    assert "doc.schema_version !== 2" in snapshot_validator
+    assert "doc.reported_identity" in snapshot_validator
+    assert "doc.resolved_identity" in snapshot_validator
     assert "doc.readback" in snapshot_validator
     assert "doc.outputs" in snapshot_validator
     assert "setpoints" not in snapshot_validator
@@ -4024,7 +4027,7 @@ def test_static_snapshot_save_validator_is_independent_from_restore_validator():
 
     assert "validateSnapshotDocument(doc);" in restore_validator
     assert "setpoints" in restore_validator
-    assert "E36312A" in restore_validator
+    assert "keysight-e36312a" in restore_validator
     assert "JSON.stringify(state.latestSnapshotDocument, null, 2)" in save_snapshot
 
 
@@ -4113,21 +4116,15 @@ def test_static_safe_off_channel_documents_behavior():
     assert 'value: "all"' in safe_off_block
 
 
-def test_static_restore_load_unwrap_contract():
+def test_static_restore_load_rejects_legacy_envelope_contract():
     _index_html, app_js, _styles_css = read_static_texts()
 
     load_restore = extract_js_function(app_js, "loadRestoreSnapshot")
-    unwrap_snapshot = extract_js_function(app_js, "unwrapSnapshot")
-
     assert "extensions: SNAPSHOT_JSON_EXTENSIONS" in load_restore
     assert "const rawDoc = JSON.parse(text);" in load_restore
-    assert "const unwrapped = unwrapSnapshot(rawDoc);" in load_restore
-    assert "validateRestoreSnapshot(unwrapped);" in load_restore
-    assert 'doc.command === "snapshot"' in unwrap_snapshot
-    assert "doc.result" in unwrap_snapshot
-    assert "!Array.isArray(doc.result)" in unwrap_snapshot
-    assert "doc.data" in unwrap_snapshot
-    assert "!Array.isArray(doc.data)" in unwrap_snapshot
+    assert "validateRestoreSnapshot(rawDoc);" in load_restore
+    assert "state.loadedSnapshotDocument = rawDoc;" in load_restore
+    assert "unwrapSnapshot" not in app_js
 
 
 def test_static_sequence_json_artifact_flow_contracts():
@@ -4182,14 +4179,21 @@ def test_api_restore_from_snapshot_dry_run(client: TestClient):
     """Test restore preview dry-run produces the complete plan without taking the hardware lock."""
 
     snapshot_doc = {
+        "schema_version": 2,
+        "kind": "powers-tool-snapshot",
         "resource": "USB0::SIM::E36312A::INSTR",
-        "idn": {
-            "raw": "KEYSIGHT,E36312A,MY12345678,3.0.0",
+        "reported_identity": {
             "manufacturer": "KEYSIGHT",
             "model": "E36312A",
             "serial": "MY12345678",
             "firmware": "3.0.0",
             "parse_ok": True
+        },
+        "resolved_identity": {
+            "vendor_id": "keysight",
+            "model_id": "keysight-e36312a",
+            "model_name": "E36312A",
+            "display_name": "Keysight E36312A",
         },
         "outputs": [
             {"channel": 1, "enabled": True},
@@ -4346,14 +4350,21 @@ def test_api_sequence_rejects_delay_action(client: TestClient):
 def test_api_restore_from_snapshot_rejects_missing_setpoints(client: TestClient):
     """Verify that restore rejects snapshot document missing required setpoints on the API level."""
     invalid_snapshot = {
+        "schema_version": 2,
+        "kind": "powers-tool-snapshot",
         "resource": "USB0::SIM::E36312A::INSTR",
-        "idn": {
-            "raw": "KEYSIGHT,E36312A,MY12345678,3.0.0",
+        "reported_identity": {
             "manufacturer": "KEYSIGHT",
             "model": "E36312A",
             "serial": "MY12345678",
             "firmware": "3.0.0",
-            "parse_ok": True
+            "parse_ok": True,
+        },
+        "resolved_identity": {
+            "vendor_id": "keysight",
+            "model_id": "keysight-e36312a",
+            "model_name": "E36312A",
+            "display_name": "Keysight E36312A",
         },
         "outputs": [
             {"channel": 1, "enabled": True}
@@ -4379,16 +4390,120 @@ def test_api_restore_from_snapshot_rejects_missing_setpoints(client: TestClient)
         }
     }
     response = client.post("/api/jobs", json=payload)
-    assert response.status_code == 200
-    job_id = response.json()["job_id"]
+    assert response.status_code == 400
+    assert "setpoints" in response.json()["detail"].lower()
 
-    import time
-    for _ in range(20):
-        res = client.get(f"/api/jobs/{job_id}").json()
-        if res["status"] in ("finished", "failed"):
-            break
-        time.sleep(0.05)
 
-    job_data = client.get(f"/api/jobs/{job_id}").json()
-    assert job_data["status"] == "failed"
-    assert "setpoints" in job_data["error"].lower()
+@pytest.mark.parametrize("value", ["false", "true", 1, 0, "", [], {}])
+def test_api_rejects_non_boolean_confirmation_before_submission(
+    client: TestClient,
+    value: object,
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = set(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "set",
+            "runtime": {
+                "resource": "USB0::FAKE::INSTR",
+                "confirm": value,
+            },
+            "parameters": {"channel": 1, "voltage": 1.0},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "runtime.confirm must be a boolean" in response.json()["detail"]
+    assert set(job_manager.jobs) == jobs_before
+
+
+def test_api_rejects_missing_planning_identity_before_submission(
+    client: TestClient,
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = set(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "set",
+            "runtime": {"dry_run": True},
+            "parameters": {"channel": 1, "voltage": 1.0},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "require planning_model_id" in response.json()["detail"]
+    assert set(job_manager.jobs) == jobs_before
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("simulate", "true"),
+        ("dry_run", 1),
+        ("log_scpi", []),
+        ("serial_remote", {}),
+        ("serial_local_on_close", "false"),
+        ("timeout_ms", True),
+        ("resource", 123),
+        ("serial_options", []),
+    ],
+)
+def test_api_rejects_invalid_runtime_field_types_before_submission(
+    client: TestClient,
+    field: str,
+    value: object,
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = set(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "read-status",
+            "runtime": {field: value},
+            "parameters": {},
+        },
+    )
+
+    assert response.status_code == 400
+    assert set(job_manager.jobs) == jobs_before
+
+
+def test_api_commands_accepts_complete_synthetic_future_vendor_metadata(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import powers_tool_webui.app as app_module
+    from powers_tool_core.model_metadata import product_active_model_metadata
+
+    metadata = product_active_model_metadata(set(app_module.COMMAND_METADATA))
+    metadata["acme-x1"] = {
+        "model_id": "acme-x1",
+        "vendor_id": "acme",
+        "vendor_display_name": "Acme",
+        "model_name": "X1",
+        "display_name": "Acme X1",
+        "channels": [1],
+        "output_control_scope": "per_channel",
+        "command_support": {},
+        "live_support": {"schema_version": 2, "model_id": "acme-x1", "commands": {}},
+        "electrical_ratings": {"channels": []},
+        "setpoint_ranges": {"channels": []},
+    }
+    monkeypatch.setattr(app_module, "product_active_model_metadata", lambda commands: metadata)
+
+    payload = client.get("/api/commands").json()
+
+    assert any(model["model_id"] == "acme-x1" for model in payload["physical_models"])
+    for field in (
+        "command_support_by_model_id",
+        "live_support_by_model_id",
+        "channel_capabilities_by_model_id",
+        "electrical_ratings_by_model_id",
+        "setpoint_ranges_by_model_id",
+    ):
+        assert "acme-x1" in payload[field]

@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, TextIO
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = 2
 JSON_SAVE_PATH: str | None = None
 JSON_START_TIME: float | None = None
 

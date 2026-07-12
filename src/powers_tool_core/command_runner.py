@@ -23,6 +23,49 @@ from powers_tool_core.stop_cleanup import CleanupReporter, stop_aware_opener
 from powers_tool_core.workflow_validation import validate_general_workflow_parameters
 
 
+def validate_request_admission(
+    request: OperationRequest | TriggerRequest | SequenceRequest,
+) -> OperationRequest | TriggerRequest | SequenceRequest:
+    """Validate one command request without hardware I/O or state mutation."""
+
+    validate_request_parameters(request)
+    if isinstance(request, OperationRequest):
+        validate_general_workflow_parameters(request)
+    if isinstance(request, TriggerRequest) or request.command.startswith("trigger-"):
+        from powers_tool_core.trigger import validate_trigger_request
+
+        validate_trigger_request(request)
+
+    if isinstance(request, SequenceRequest) or request.command == "sequence":
+        from powers_tool_core.sequence import load_sequence_document, sequence_plan
+        from powers_tool_core.support_features import sequence_feature_requirements
+
+        document = request.parameters.get("document")
+        if document is None and request.parameters.get("file") is not None:
+            document = load_sequence_document(str(request.parameters["file"]))
+        if document is None:
+            raise CoreValidationError("sequence requires file or document")
+        plan = sequence_plan(request, document)
+        if (request.runtime.dry_run or request.runtime.simulate) and sequence_feature_requirements(plan):
+            request = _apply_no_hardware_support_gate(request)
+            sequence_plan(request, document)
+        return request
+
+    if request.command == "restore-from-snapshot":
+        from powers_tool_core.restore import validate_restore_admission
+
+        assert isinstance(request, OperationRequest)
+        request = validate_restore_admission(request)
+    else:
+        request = _apply_no_hardware_support_gate(request)
+
+    if request.command == "ramp-list":
+        from powers_tool_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
+
+        ramp_list_plan(request, ramp_list_document_for_request(request))
+    return request
+
+
 def run_core_command(
     request: OperationRequest | TriggerRequest | SequenceRequest,
     *,
@@ -32,11 +75,8 @@ def run_core_command(
     scpi_logger: Callable[[str, str, str], None] | None = None,
     cleanup_reporter: CleanupReporter | None = None,
 ) -> dict[str, Any]:
-    request = _apply_no_hardware_support_gate(request)
+    request = validate_request_admission(request)
     command = request.command
-    validate_request_parameters(request)
-    if isinstance(request, OperationRequest):
-        validate_general_workflow_parameters(request)
     if stop_requested is not None:
         opener = stop_aware_opener(
             opener or _default_opener,

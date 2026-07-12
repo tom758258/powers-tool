@@ -7,14 +7,26 @@ from powers_tool_core.core import CoreValidationError, OperationRequest, Runtime
 
 
 def _snapshot_document(model: str) -> dict[str, object]:
+    model_ids = {
+        "E36312A": "keysight-e36312a",
+        "EDU36311A": "keysight-edu36311a",
+        "E3646A": "keysight-e3646a",
+    }
     return {
-        "idn": {
-            "raw": f"KEYSIGHT,{model},SERIAL0000,1.0",
+        "schema_version": 2,
+        "kind": "powers-tool-snapshot",
+        "reported_identity": {
             "manufacturer": "KEYSIGHT",
             "model": model,
             "serial": "SERIAL0000",
             "firmware": "1.0",
             "parse_ok": True,
+        },
+        "resolved_identity": {
+            "vendor_id": "keysight",
+            "model_id": model_ids[model],
+            "model_name": model,
+            "display_name": f"Keysight {model}",
         },
         "outputs": [{"channel": 1, "enabled": False}],
         "readback": [{"channel": 1, "setpoints": {"voltage": 1.0, "current": 0.05}}],

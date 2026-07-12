@@ -231,6 +231,13 @@ model. Browser disabled or hidden state is not the safety boundary; direct
 `/api/jobs` submissions are still rejected by the WebUI backend and Core when
 the model, command, or mode is unsupported.
 
+Raw runtime JSON is type-strict: boolean fields require JSON booleans, and a
+string such as `"false"` is rejected rather than treated as confirmation.
+Model-specific dry-run/simulator requests are rejected before job creation if
+no explicit or deterministic-SIM planning identity is available. Snapshot
+restore accepts only `schema_version: 2`, `kind: "powers-tool-snapshot"`
+documents with separate reported and canonical resolved identity.
+
 ## Stop And Cancel
 
 If a job has not started, cancel can finish quickly. If a real hardware job is

@@ -441,8 +441,15 @@ execute through shared core runners. The CLI still owns argparse handling,
 human text output, JSON success/error envelopes, `--save-json`, and exit-code
 mapping.
 
-`snapshot --compare PATH` compares the current E36312A snapshot with either a
-saved JSON envelope or raw snapshot `data`. It ignores `resource` and
+`snapshot` produces a schema-2 `powers-tool-snapshot` document with raw
+manufacturer/model/serial/firmware under `reported_identity` and canonical
+`vendor_id`/`model_id` under `resolved_identity`. `restore-from-snapshot`
+accepts only that versioned document; legacy, unversioned, and arbitrary
+CLI-envelope documents are rejected. No model identity is recovered from a
+bare reported model string.
+
+`snapshot --compare PATH` compares the current E36312A snapshot with a
+schema-2 snapshot document (directly or as saved CLI envelope data). It ignores `resource` and
 `read_count`, uses default tolerances of 0.001 V/A for programmed setpoints,
 0.05 V measured voltage, and 0.01 A measured current, and exits `3` when
 differences are found.

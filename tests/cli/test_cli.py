@@ -600,7 +600,7 @@ def test_list_resources_json_prints_machine_readable_payload(monkeypatch, capsys
     assert payload["metadata"]["duration_ms"] >= 0
     payload["metadata"] = {}
     assert payload == {
-        "schema_version": "1.0",
+        "schema_version": 2,
         "ok": True,
         "status": "ok",
         "command": {"name": "list-resources"},
@@ -635,7 +635,7 @@ def test_list_resources_json_failure_uses_stable_error_code(monkeypatch, capsys)
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == 2
     assert payload["ok"] is False
     assert payload["status"] == "error"
     assert payload["command"] == {"name": "list-resources"}
@@ -674,7 +674,7 @@ def test_verify_json_prints_machine_readable_payload(monkeypatch, capsys) -> Non
     assert payload["metadata"]["duration_ms"] >= 0
     payload["metadata"] = {}
     assert payload == {
-        "schema_version": "1.0",
+        "schema_version": 2,
         "ok": True,
         "status": "ok",
         "command": {"name": "verify"},
@@ -712,7 +712,7 @@ def test_verify_json_failure_prints_error_payload(monkeypatch, capsys) -> None:
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == 2
     assert payload["ok"] is False
     assert payload["status"] == "error"
     assert payload["command"] == {"name": "verify"}
@@ -744,7 +744,7 @@ def test_verify_json_missing_resource_returns_validation_payload(capsys) -> None
     assert payload["metadata"]["duration_ms"] >= 0
     payload["metadata"] = {}
     assert payload == {
-        "schema_version": "1.0",
+        "schema_version": 2,
         "ok": False,
         "status": "error",
         "command": {"name": "verify"},
@@ -798,7 +798,7 @@ def test_list_resources_simulate_live_only_json_logs_scpi_to_stderr(monkeypatch,
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == 2
     assert payload["ok"] is True
     assert payload["status"] == "ok"
     assert payload["command"] == {"name": "list-resources"}
@@ -862,7 +862,7 @@ def test_verify_simulate_json_does_not_create_real_resource_manager(monkeypatch,
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == 2
     assert payload["command"] == {"name": "verify"}
     assert payload["execution"] == {
         "mode": "simulate",
@@ -1653,7 +1653,7 @@ def test_output_commands_dry_run_json_emit_logical_plans(
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == 2
     assert payload["ok"] is True
     assert payload["status"] == "ok"
     assert payload["execution"] == {
@@ -7251,7 +7251,6 @@ def test_identify_real_reads_identity_queries(monkeypatch, capsys) -> None:
 
     payload = json.loads(capsys.readouterr().out)
     assert session.queries == ["*IDN?", "*OPT?", "SYST:VERS?", "SYST:COMM:RLST?"]
-    assert payload["data"]["idn"]["model"] == "E36312A"
     assert payload["data"]["options"] == "0"
     assert payload["data"]["scpi_version"] == "1999.0"
     assert payload["data"]["remote_lockout_state"] == "RWLock"
@@ -7349,7 +7348,10 @@ def test_snapshot_real_reads_full_state(monkeypatch, capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert session.queries[0:2] == ["*IDN?", "SYST:ERR?"]
     assert payload["data"]["read_count"] == 1
-    assert payload["data"]["idn"]["model"] == "E36312A"
+    assert payload["data"]["schema_version"] == 2
+    assert payload["data"]["kind"] == "powers-tool-snapshot"
+    assert payload["data"]["reported_identity"]["model"] == "E36312A"
+    assert payload["data"]["resolved_identity"]["model_id"] == "keysight-e36312a"
     assert payload["data"]["outputs"][2] == {"channel": 3, "enabled": True}
     assert payload["data"]["readback"][1] == {
         "channel": 2,
@@ -7395,7 +7397,7 @@ def test_snapshot_compare_accepts_envelope_and_exits_3_on_mismatch(tmp_path, cap
 
     assert cli.main(["snapshot", "--simulate", "--json", "--resource", resource]) == 0
     envelope = json.loads(capsys.readouterr().out)
-    envelope["data"]["idn"]["serial"] = "DIFFERENT"
+    envelope["data"]["reported_identity"]["serial"] = "DIFFERENT"
     baseline_path = tmp_path / "snapshot-envelope.json"
     baseline_path.write_text(json.dumps(envelope), encoding="utf-8")
 
@@ -7404,7 +7406,7 @@ def test_snapshot_compare_accepts_envelope_and_exits_3_on_mismatch(tmp_path, cap
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True
     assert payload["data"]["comparison"]["passed"] is False
-    assert payload["data"]["comparison"]["differences"][0]["path"] == "idn"
+    assert payload["data"]["comparison"]["differences"][0]["path"] == "reported_identity"
 
 
 def test_snapshot_compare_tolerance_override_allows_measurement_delta(tmp_path, capsys) -> None:

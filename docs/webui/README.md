@@ -145,6 +145,15 @@ use a V2 planning field or a deterministic SIM resource such as
 scan/job IDN metadata. The browser UI remains live-oriented and does not
 provide general dry-run or simulate controls.
 
+Raw runtime values are type-strict. Boolean fields accept only JSON `true` or
+`false`; strings such as `"false"` never satisfy confirmation or enable a
+mode. Integer, string, identity, and serial-option fields are likewise
+validated before job submission. Core-owned command admission rejects missing
+or conflicting planning identity before creating a WebUI job. Physical model
+options and every model-keyed support/rating map are generated from the same
+Core Product-active metadata inventory; `generic-scpi` remains a separate
+nonphysical planning profile.
+
 The browser and raw WebUI jobs always use the product support-policy mode.
 Validation-policy runtime fields are rejected, not ignored. Frontend enabled
 state is UX only: Core remains the final IDN-selected exact-scope authority,

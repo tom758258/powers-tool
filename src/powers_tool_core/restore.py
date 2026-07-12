@@ -14,13 +14,14 @@ from powers_tool_core.core import ConfirmationRequiredError, CoreIoError, CoreVa
 from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.errors import VisaConnectionError
 from powers_tool_core.factory import create_power_supply
-from powers_tool_core.identity import IdentityResolutionError, resolve_physical_model_identity
+from powers_tool_core.identity import IDENTITY_INDEXES, IdentityResolutionError, resolve_physical_model_identity
 from powers_tool_core.models import parse_idn
 from powers_tool_core.model_resolution import resolve_no_hardware_runtime
 from powers_tool_core.live_support import enforce_live_support_for_idn
 from powers_tool_core.operations import IDN_QUERY, ScpiLoggingSession
 from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.testing.simulator import SimulatedResourceManager
+from powers_tool_core.snapshot import SNAPSHOT_KIND, SNAPSHOT_SCHEMA_VERSION
 
 
 def run_restore(
@@ -32,30 +33,8 @@ def run_restore(
 ) -> dict[str, Any]:
     if request.command != "restore-from-snapshot":
         raise CoreValidationError(f"unsupported restore command {request.command!r}")
-    snapshot = _snapshot_document(request)
+    request, snapshot = prepare_restore_request(request)
     if request.runtime.dry_run or request.runtime.simulate:
-        if request.runtime.planning_model_id is None:
-            snapshot_idn = snapshot.get("idn") if isinstance(snapshot.get("idn"), dict) else {}
-            snapshot_manufacturer = snapshot_idn.get("manufacturer")
-            snapshot_model = snapshot_idn.get("model")
-            if isinstance(snapshot_manufacturer, str) and isinstance(snapshot_model, str):
-                try:
-                    identity = resolve_physical_model_identity(
-                        snapshot_manufacturer,
-                        snapshot_model,
-                    )
-                except IdentityResolutionError as exc:
-                    raise CoreValidationError(
-                        "snapshot manufacturer and model do not resolve to a canonical physical identity"
-                    ) from exc
-                request = replace(
-                    request,
-                    runtime=replace(
-                        request.runtime,
-                        planning_model_id=identity.model_id,
-                    ),
-                )
-        request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
         mode = "dry_run" if request.runtime.dry_run else "simulate"
         capabilities.ensure_command_supported(
             request.command,
@@ -90,7 +69,7 @@ def run_restore(
             opened = True
             session = ScpiLoggingSession(resource, instrument, scpi_logger) if request.runtime.log_scpi and scpi_logger is not None else instrument
             idn_raw = session.query(IDN_QUERY)
-            _validate_restore_identity(parse_idn(idn_raw), snapshot.get("idn") if isinstance(snapshot.get("idn"), dict) else {})
+            _validate_restore_identity(parse_idn(idn_raw), snapshot)
             enforce_live_support_for_idn(request, idn_raw)
             power_supply = create_power_supply(session, idn_raw)
             if not isinstance(power_supply, E36312APowerSupply):
@@ -156,10 +135,54 @@ def restore_plan(
     }
 
 
-def _snapshot_document(request: OperationRequest) -> dict[str, Any]:
+def prepare_restore_request(
+    request: OperationRequest,
+) -> tuple[OperationRequest, dict[str, Any]]:
+    """Validate snapshot identity and resolve no-hardware restore planning."""
+
+    snapshot = snapshot_document_for_request(request)
+    snapshot_model_id = snapshot["resolved_identity"]["model_id"]
+    if request.runtime.planning_profile_id is not None:
+        raise CoreValidationError("planning_profile_id is invalid for restore-from-snapshot")
+    if request.runtime.dry_run or request.runtime.simulate:
+        explicit_model_id = request.runtime.planning_model_id
+        if explicit_model_id is not None and explicit_model_id != snapshot_model_id:
+            raise CoreValidationError(
+                f"planning_model_id {explicit_model_id!r} does not match snapshot "
+                f"model_id {snapshot_model_id!r}"
+            )
+        request = replace(
+            request,
+            runtime=replace(
+                request.runtime,
+                planning_model_id=snapshot_model_id,
+            ),
+        )
+        request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
+    return request, snapshot
+
+
+def validate_restore_admission(request: OperationRequest) -> OperationRequest:
+    """Validate restore document, identity, channels, and plan without I/O."""
+
+    request, snapshot = prepare_restore_request(request)
+    channels = _restore_channels(request, snapshot)
+    restore_plan(
+        snapshot,
+        resource=str(request.runtime.resource),
+        channels=channels,
+        restore_output_state=bool(request.parameters.get("restore_output_state", False)),
+        allow_output_on=False,
+    )
+    return request
+
+
+def snapshot_document_for_request(request: OperationRequest) -> dict[str, Any]:
+    """Load and strictly validate one schema-2 snapshot document."""
+
     document = request.parameters.get("document")
     if isinstance(document, dict):
-        return document
+        return validate_snapshot_document(document)
     path = request.parameters.get("snapshot")
     if path is None:
         path = request.parameters.get("file")
@@ -169,11 +192,59 @@ def _snapshot_document(request: OperationRequest) -> dict[str, Any]:
         loaded = json.loads(Path(str(path)).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise CoreValidationError(str(exc)) from exc
-    if isinstance(loaded, dict) and isinstance(loaded.get("data"), dict):
-        return loaded["data"]
     if not isinstance(loaded, dict):
         raise CoreValidationError("snapshot document must be a JSON object")
-    return loaded
+    return validate_snapshot_document(loaded)
+
+
+def validate_snapshot_document(document: dict[str, Any]) -> dict[str, Any]:
+    """Require the canonical schema-2 snapshot identity contract."""
+
+    schema_version = document.get("schema_version")
+    if type(schema_version) is not int or schema_version != SNAPSHOT_SCHEMA_VERSION:
+        raise CoreValidationError("snapshot requires integer schema_version=2")
+    if document.get("kind") != SNAPSHOT_KIND:
+        raise CoreValidationError(f"snapshot kind must be {SNAPSHOT_KIND!r}")
+    reported = document.get("reported_identity")
+    resolved = document.get("resolved_identity")
+    if not isinstance(reported, dict):
+        raise CoreValidationError("snapshot reported_identity must be an object")
+    if not isinstance(resolved, dict):
+        raise CoreValidationError("snapshot resolved_identity must be an object")
+    if reported.get("parse_ok") is not True:
+        raise CoreValidationError("snapshot reported_identity.parse_ok must be true")
+    for field in ("manufacturer", "model", "serial", "firmware"):
+        value = reported.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise CoreValidationError(
+                f"snapshot reported_identity.{field} must be a non-empty string"
+            )
+    try:
+        identity = resolve_physical_model_identity(
+            reported["manufacturer"],
+            reported["model"],
+        )
+    except IdentityResolutionError as exc:
+        raise CoreValidationError(
+            "snapshot reported manufacturer and model do not resolve to a canonical physical identity"
+        ) from exc
+    model_info = IDENTITY_INDEXES.models_by_id[identity.model_id]
+    expected_resolved = {
+        "vendor_id": identity.vendor_id,
+        "model_id": identity.model_id,
+        "model_name": identity.canonical_model,
+        "display_name": model_info.display_name,
+    }
+    if resolved != expected_resolved:
+        raise CoreValidationError(
+            "snapshot reported_identity conflicts with resolved_identity"
+        )
+    if identity.model_id != "keysight-e36312a":
+        raise CoreValidationError(
+            "snapshot model must be E36312A (model_id keysight-e36312a) "
+            "for restore-from-snapshot"
+        )
+    return document
 
 
 def _restore_channels(request: OperationRequest, snapshot: dict[str, Any]) -> tuple[int, ...]:
@@ -259,13 +330,20 @@ def _validate_restore_setpoints(power_supply: E36312APowerSupply, plan: dict[str
         )
 
 
-def _validate_restore_identity(idn: Any, expected_idn: dict[str, Any]) -> None:
-    expected_model = expected_idn.get("model")
-    expected_serial = expected_idn.get("serial")
-    if expected_model != "E36312A":
-        raise CoreValidationError(f"snapshot model must be E36312A for real restore; found {expected_model!r}")
-    if idn.model != expected_model:
-        raise CoreValidationError(f"connected model {idn.model!r} does not match snapshot model {expected_model!r}")
+def _validate_restore_identity(idn: Any, snapshot: dict[str, Any]) -> None:
+    expected_model_id = snapshot["resolved_identity"]["model_id"]
+    expected_serial = snapshot["reported_identity"]["serial"]
+    try:
+        connected = resolve_physical_model_identity(idn.manufacturer, idn.model)
+    except IdentityResolutionError as exc:
+        raise CoreValidationError(
+            "connected manufacturer and model do not resolve to a canonical physical identity"
+        ) from exc
+    if connected.model_id != expected_model_id:
+        raise CoreValidationError(
+            f"connected model_id {connected.model_id!r} does not match snapshot "
+            f"model_id {expected_model_id!r}"
+        )
     if idn.serial != expected_serial:
         raise CoreValidationError(f"connected serial {idn.serial!r} does not match snapshot serial {expected_serial!r}")
 

@@ -14,11 +14,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from powers_tool_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, StopCleanupError, TriggerRequest
 from powers_tool_core.identity import IdentityResolutionError, resolve_physical_model_identity
-from powers_tool_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
-from powers_tool_core.parameter_constraints import parameter_constraints_metadata, validate_request_parameters
-from powers_tool_core.sequence import load_sequence_document, sequence_plan
-from powers_tool_core.trigger import validate_trigger_request
-from powers_tool_core.workflow_validation import validate_general_workflow_parameters
+from powers_tool_core.parameter_constraints import parameter_constraints_metadata
+from powers_tool_core.sequence import load_sequence_document
+from powers_tool_core.command_runner import validate_request_admission
+from powers_tool_core.model_metadata import product_active_model_metadata
 
 from . import __version__ as WEBUI_VERSION
 from .jobs import job_manager, JobStatus
@@ -175,18 +174,23 @@ async def get_commands():
         for name, metadata in COMMAND_METADATA.items()
         if name not in WEBUI_UNSUPPORTED_COMMANDS and name not in WEBUI_HIDDEN_COMMANDS
     }
-    from powers_tool_core.electrical_ratings import electrical_ratings_by_model_metadata
-    from powers_tool_core.setpoint_ranges import setpoint_ranges_by_model_metadata
+    model_metadata = product_active_model_metadata(set(commands))
 
     return {
         "commands": commands,
-        "physical_models": selectable_physical_models(),
+        "physical_models": selectable_physical_models(model_metadata),
         "planning_profiles": planning_profile_metadata(set(commands)),
-        "command_support_by_model_id": webui_command_support_by_model_id(set(commands)),
-        "live_support_by_model_id": live_support_by_model_id(set(commands)),
-        "channel_capabilities_by_model_id": channel_capabilities_by_model_id(),
-        "electrical_ratings_by_model_id": electrical_ratings_by_model_metadata(),
-        "setpoint_ranges_by_model_id": setpoint_ranges_by_model_metadata(),
+        "command_support_by_model_id": webui_command_support_by_model_id(set(commands), model_metadata),
+        "live_support_by_model_id": live_support_by_model_id(set(commands), model_metadata),
+        "channel_capabilities_by_model_id": channel_capabilities_by_model_id(model_metadata),
+        "electrical_ratings_by_model_id": {
+            model_id: entry["electrical_ratings"]
+            for model_id, entry in model_metadata.items()
+        },
+        "setpoint_ranges_by_model_id": {
+            model_id: entry["setpoint_ranges"]
+            for model_id, entry in model_metadata.items()
+        },
         "parameter_constraints": parameter_constraints_metadata(),
         "output_affecting_commands": list(MUTATING_COMMANDS),
     }
@@ -200,6 +204,60 @@ async def create_job(request: Request):
     runtime = payload.get("runtime", {})
     parameters = payload.get("parameters", {})
     artifacts = payload.get("artifacts")
+    if not isinstance(command, str) or not command:
+        raise HTTPException(status_code=400, detail="command must be a non-empty string")
+    if not isinstance(parameters, dict):
+        raise HTTPException(status_code=400, detail="parameters must be an object")
+    validation_runtime = _validated_webui_runtime(runtime)
+    try:
+        request_type = (
+            SequenceRequest
+            if command == "sequence"
+            else TriggerRequest
+            if command.startswith("trigger-")
+            else OperationRequest
+        )
+        validation_request = request_type(
+            command=command,
+            runtime=validation_runtime,
+            parameters=parameters,
+        )
+        if command == "sequence":
+            _validate_webui_sequence_size(parameters)
+        validate_request_admission(validation_request)
+    except (CoreValidationError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Hardware lock check at submission time for jobs that touch real hardware.
+    if not validation_runtime.simulate and not validation_runtime.dry_run and command != "live-data":
+        if job_manager.is_hardware_locked():
+            raise HTTPException(
+                status_code=409,
+                detail="Hardware is currently locked by another job. Please wait for it to complete.",
+            )
+
+    job_id = await job_manager.submit_job(
+        command=command,
+        runtime=runtime,
+        parameters=parameters,
+        artifacts=artifacts,
+    )
+
+    job = job_manager.jobs.get(job_id)
+    if job is not None and not job.requires_hardware_lock:
+        await _execute_job_background(job_id)
+    else:
+        asyncio.create_task(_execute_job_background(job_id))
+
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "status_url": f"/api/jobs/{job_id}",
+        "events_url": f"/api/events?job_id={job_id}",
+    }
+
+
+def _validated_webui_runtime(runtime: Any) -> RuntimeOptions:
     if not isinstance(runtime, dict):
         raise HTTPException(status_code=400, detail="runtime must be an object")
     legacy_identity_fields = sorted(LEGACY_RUNTIME_IDENTITY_FIELDS & set(runtime))
@@ -226,77 +284,9 @@ async def create_job(request: Request):
             detail=f"unknown runtime field(s): {', '.join(unknown_runtime_fields)}",
         )
     try:
-        validation_runtime = build_runtime_options(runtime)
+        return build_runtime_options(runtime)
     except (CoreValidationError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    try:
-        request_type = TriggerRequest if isinstance(command, str) and command.startswith("trigger-") else OperationRequest
-        validation_request = request_type(command=command, parameters=parameters)
-        validate_general_workflow_parameters(validation_request)
-        validate_request_parameters(validation_request)
-        if isinstance(validation_request, TriggerRequest):
-            validate_trigger_request(validation_request)
-    except CoreValidationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if command == "sequence":
-        _validate_webui_sequence_size(parameters)
-        try:
-            document = parameters.get("document")
-            if document is None and parameters.get("file"):
-                document = load_sequence_document(str(parameters["file"]))
-            if document is None:
-                raise CoreValidationError("sequence requires file or document")
-            sequence_plan(
-                SequenceRequest(
-                    runtime=validation_runtime,
-                    parameters=parameters,
-                ),
-                document,
-            )
-        except (CoreValidationError, OSError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if command == "ramp-list":
-        try:
-            validation_request = OperationRequest(
-                command="ramp-list",
-                runtime=validation_runtime,
-                parameters=parameters,
-            )
-            ramp_list_plan(validation_request, ramp_list_document_for_request(validation_request))
-        except (CoreValidationError, OSError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    # Hardware lock check at submission time for non-simulate/dry-run jobs
-    # Only lock jobs that touch real hardware
-    simulate = bool(runtime.get("simulate", False))
-    dry_run = bool(runtime.get("dry_run", False))
-    if not simulate and not dry_run and command != "live-data":
-        # Check lock before even submitting the job
-        if job_manager.is_hardware_locked():
-            raise HTTPException(
-                status_code=409,
-                detail="Hardware is currently locked by another job. Please wait for it to complete.",
-            )
-
-    job_id = await job_manager.submit_job(
-        command=command,
-        runtime=runtime,
-        parameters=parameters,
-        artifacts=artifacts,
-    )
-
-    job = job_manager.jobs.get(job_id)
-    if job is not None and not job.requires_hardware_lock:
-        await _execute_job_background(job_id)
-    else:
-        asyncio.create_task(_execute_job_background(job_id))
-
-    return {
-        "ok": True,
-        "job_id": job_id,
-        "status_url": f"/api/jobs/{job_id}",
-        "events_url": f"/api/events?job_id={job_id}",
-    }
 
 
 async def _execute_job_background(job_id: str):
@@ -376,9 +366,10 @@ async def start_live_data(request: Request):
     """Start live data monitoring."""
     payload = await request.json()
     runtime = payload.get("runtime", {})
-    if bool(runtime.get("simulate", False)):
+    validation_runtime = _validated_webui_runtime(runtime)
+    if validation_runtime.simulate:
         raise HTTPException(status_code=400, detail="Live Data requires a real hardware resource; simulate mode is not supported.")
-    if not str(runtime.get("resource") or "").strip():
+    if not (validation_runtime.resource or "").strip():
         raise HTTPException(status_code=400, detail="Live Data requires a selected hardware resource.")
 
     runtime = {**runtime, "simulate": False}
@@ -619,14 +610,24 @@ def _records_by_channel(records: Any) -> dict[int, dict[str, Any]]:
 
 
 def _model_from_reading(reading: dict[str, Any]) -> str | None:
+    reported = reading.get("reported_identity")
     idn = reading.get("idn")
-    model = idn.get("model") if isinstance(idn, dict) else reading.get("model")
+    model = (
+        reported.get("model")
+        if isinstance(reported, dict)
+        else idn.get("model")
+        if isinstance(idn, dict)
+        else reading.get("model")
+    )
     if not isinstance(model, str) or not model.strip():
         return None
     return model.strip()
 
 
 def _model_id_from_reading(reading: dict[str, Any]) -> str | None:
+    resolved = reading.get("resolved_identity")
+    if isinstance(resolved, dict) and isinstance(resolved.get("model_id"), str):
+        return resolved["model_id"]
     idn = reading.get("idn")
     if not isinstance(idn, dict):
         resource = reading.get("resource")

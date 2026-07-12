@@ -33,6 +33,7 @@ import powers_tool_core.trigger as trigger_core
 import powers_tool_core.validation as validation
 from powers_tool_cli.cli_io import (
     JsonSaveError,
+    SCHEMA_VERSION,
     emit_json_error,
     emit_json_success,
     set_json_save_path,
@@ -3869,7 +3870,13 @@ def _run_send_command(args: argparse.Namespace) -> int:
         return _lifecycle_error(args, 2, "argument_error", f"--arguments-json must be a JSON object: {exc}")
     if not isinstance(arguments, dict):
         return _lifecycle_error(args, 2, "argument_error", "--arguments-json must be a JSON object")
-    payload: dict[str, Any] = {"command": args.worker_command, "arguments": arguments}
+    from powers_tool_cli.worker import WORKER_SCHEMA_VERSION
+
+    payload: dict[str, Any] = {
+        "schema_version": WORKER_SCHEMA_VERSION,
+        "command": args.worker_command,
+        "arguments": arguments,
+    }
     if args.job_id is not None:
         payload["job_id"] = args.job_id
     if args.dry_run:
@@ -5532,8 +5539,20 @@ def _compare_snapshot_data(
     baseline = baseline_document.get("data", baseline_document) if isinstance(baseline_document, dict) else baseline_document
     if not isinstance(baseline, dict):
         raise ValueError("baseline must be a JSON object or an envelope containing object data")
+    restore_core.validate_snapshot_document(baseline)
     differences: list[dict[str, Any]] = []
-    _compare_exact(differences, "idn", baseline.get("idn"), current.get("idn"))
+    _compare_exact(
+        differences,
+        "reported_identity",
+        baseline.get("reported_identity"),
+        current.get("reported_identity"),
+    )
+    _compare_exact(
+        differences,
+        "resolved_identity",
+        baseline.get("resolved_identity"),
+        current.get("resolved_identity"),
+    )
     _compare_exact(differences, "errors", baseline.get("errors"), current.get("errors"))
     _compare_exact(differences, "outputs", baseline.get("outputs"), current.get("outputs"))
     _compare_exact(differences, "protection", baseline.get("protection"), current.get("protection"))
@@ -5673,9 +5692,10 @@ def _load_snapshot_document(path: str) -> dict[str, Any]:
     data = document.get("data") if isinstance(document.get("data"), dict) else document
     if not isinstance(data, dict):
         raise ValueError(f"snapshot JSON must contain an object: {path}")
-    if "idn" not in data and "outputs" not in data:
-        raise ValueError(f"snapshot JSON does not look like a snapshot: {path}")
-    return data
+    try:
+        return restore_core.validate_snapshot_document(data)
+    except CoreValidationError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _load_json_document(path: str) -> dict[str, Any]:
@@ -5861,7 +5881,7 @@ def _build_hardware_report(args: argparse.Namespace) -> dict[str, Any]:
             "differences": differences,
         }
     return {
-        "schema_version": "1.0",
+        "schema_version": SCHEMA_VERSION,
         "kind": "hardware_report",
         "target": args.target,
         "connection": args.connection,

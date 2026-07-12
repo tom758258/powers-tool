@@ -68,7 +68,8 @@ Worker stream. Every non-empty stdout line from the Worker is a JSON object
 line. Human-readable diagnostics, warnings, and logging must be written to
 stderr so stdout remains directly parseable as JSONL.
 
-Power runtime JSONL events use `schema_version: 1` and include
+Power CLI JSON success/error envelopes and Worker runtime JSONL events use
+integer `schema_version: 2` and include
 `timestamp_utc`. The runtime event names are:
 
 - `ready`
@@ -85,7 +86,7 @@ Each non-dry-run Worker session creates one `run_id`. Runtime events,
 `run_id`.
 
 The Worker emits `ready` only after `POST /command`, `GET /status`, and
-`POST /stop` can accept requests. `ready` contains `schema_version: 1`,
+`POST /stop` can accept requests. `ready` contains `schema_version: 2`,
 `timestamp_utc`, `run_id`, `service`, `host`, `port`, `command_url`,
 `status_url`, and `stop_url`. It never contains `trigger_url`.
 
@@ -166,7 +167,9 @@ Selected data mappings:
   `duration_ms`, then disables all channels.
 - `protection-status`: aggregate protection flags calculated as the OR of the
   selected channels, true per-channel protection flags, and output state.
-- `snapshot`: errors, outputs, readback, measurements, and protection settings.
+- `snapshot`: a `schema_version: 2`, `kind: "powers-tool-snapshot"` document
+  with separate `reported_identity` and canonical `resolved_identity`, plus
+  errors, outputs, readback, measurements, and protection settings.
 - `sequence`: lint/plan/execution status, step results, and stop/failure details.
 - `ramp-list`: version, segment count, completed segment count, ordered segment
   plans/results, and failed segment details when execution stops or fails.
@@ -178,7 +181,10 @@ Selected data mappings:
   `completion_pulse_channel`, `leave_trigger_configured`, and
   `completion_pulse_timing`. Removed Native LIST/trigger-wait options are
   argparse errors. Completion pulse results report `native: false`.
-- `restore-from-snapshot`: restored channels and restore plan.
+- `restore-from-snapshot`: accepts only the schema-2 snapshot document,
+  validates canonical model identity and serial before writes, and returns
+  restored channels and the restore plan. Legacy and unversioned snapshots
+  are rejected rather than converted.
 - `trigger-list`: selected channel, step count, completion state, and
   `restored`; `restored: true` means the pre-run Trigger configuration and LIST
   table were written back after completion.

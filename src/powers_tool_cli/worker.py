@@ -28,14 +28,10 @@ from powers_tool_core.core import (
     CoreIoError,
     StopCleanupError,
 )
-from powers_tool_core.command_runner import run_core_command
-from powers_tool_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
-from powers_tool_core.parameter_constraints import validate_request_parameters
-from powers_tool_core.trigger import validate_trigger_request
+from powers_tool_core.command_runner import run_core_command, validate_request_admission
 from powers_tool_core.sequence import load_sequence_document, sequence_plan
 from powers_tool_core.stop_cleanup import StopCleanupResult
 from powers_tool_core.support_policy import LiveSupportPolicyError
-from powers_tool_core.workflow_validation import validate_general_workflow_parameters
 
 READ_ONLY_COMMANDS = {
     "identify",
@@ -70,7 +66,8 @@ TRIGGER_COMMANDS = {
 }
 ALLOWED_COMMANDS = READ_ONLY_COMMANDS | OUTPUT_COMMANDS | PROTECTION_COMMANDS | TRIGGER_COMMANDS
 OUTPUT_AFFECTING_COMMANDS = OUTPUT_COMMANDS | {"protection-set", "clear-protection", "restore-from-snapshot", "sequence"}
-REQUEST_KEYS = {"command", "arguments", "job_id"}
+WORKER_SCHEMA_VERSION = 2
+REQUEST_KEYS = {"schema_version", "command", "arguments", "job_id"}
 RUNTIME_ARGUMENT_KEYS = {
     "dry_run",
     "confirm_output",
@@ -106,7 +103,7 @@ def emit_event(config: dict[str, Any], event_name: str, extra: dict[str, Any] | 
     with _event_lock:
         timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
         payload = {
-            "schema_version": 1,
+            "schema_version": WORKER_SCHEMA_VERSION,
             "event": event_name,
             "worker_id": config["id"],
             "type": "power",
@@ -150,7 +147,12 @@ def _write_json_artifact_atomic(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _command_response(status: str, command: Any, job_id: Any, **extra: Any) -> dict[str, Any]:
-    payload = {"status": status, "command": command, "job_id": job_id}
+    payload = {
+        "schema_version": WORKER_SCHEMA_VERSION,
+        "status": status,
+        "command": command,
+        "job_id": job_id,
+    }
     payload.update(extra)
     return payload
 
@@ -162,6 +164,17 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
             None,
             None,
             error={"code": "invalid_request", "message": "POST /command body must be a JSON object"},
+        )
+    schema_version = body.get("schema_version")
+    if type(schema_version) is not int or schema_version != WORKER_SCHEMA_VERSION:
+        return 400, _command_response(
+            "error",
+            body.get("command") if isinstance(body.get("command"), str) else None,
+            body.get("job_id") if isinstance(body.get("job_id"), str) else None,
+            error={
+                "code": "unsupported_schema_version",
+                "message": "POST /command requires integer schema_version=2",
+            },
         )
     unknown = sorted(set(body) - REQUEST_KEYS)
     command = body.get("command")
@@ -279,48 +292,22 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
             arguments = {**arguments, "channel": parsed}
     if command == "measure-all" and "channel" in arguments:
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "measure-all always reads all channels and does not accept channel"})
-    if command == "sequence" and "file" not in arguments and "document" not in arguments:
-        return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "sequence requires file or document argument"})
-    if command == "sequence":
-        try:
-            document = arguments.get("document")
-            if document is None:
-                document = load_sequence_document(str(arguments["file"]))
-            sequence_plan(
-                SequenceRequest(
-                    runtime=validation_runtime,
-                    parameters=_command_parameters(arguments),
-                ),
-                document,
-            )
-        except (CoreValidationError, OSError, ValueError) as exc:
-            return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": str(exc)})
-    if command == "ramp-list" and "file" not in arguments and "document" not in arguments:
-        return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "ramp-list requires file or document argument"})
-    if command == "ramp-list":
-        validation_request = OperationRequest(
-            command="ramp-list",
+    try:
+        request_type = (
+            SequenceRequest
+            if command == "sequence"
+            else TriggerRequest
+            if command.startswith("trigger-")
+            else OperationRequest
+        )
+        validation_request = request_type(
+            command=command,
             runtime=validation_runtime,
             parameters=_command_parameters(arguments),
         )
-        try:
-            ramp_list_plan(validation_request, ramp_list_document_for_request(validation_request))
-        except (CoreValidationError, OSError, ValueError) as exc:
-            return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": str(exc)})
-    try:
-        request_type = TriggerRequest if command.startswith("trigger-") else OperationRequest
-        validation_request = request_type(
-            command=command,
-            parameters=_command_parameters(arguments),
-        )
-        validate_general_workflow_parameters(validation_request)
-        validate_request_parameters(validation_request)
-        if isinstance(validation_request, TriggerRequest):
-            validate_trigger_request(validation_request)
-    except CoreValidationError as exc:
+        validate_request_admission(validation_request)
+    except (CoreValidationError, OSError, ValueError) as exc:
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": str(exc)})
-    if command == "restore-from-snapshot" and "snapshot" not in arguments and "document" not in arguments:
-        return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "restore-from-snapshot requires snapshot or document argument"})
     dry_run = bool(arguments.get("dry_run", False))
     confirm_output = bool(arguments.get("confirm_output", False))
     if command in OUTPUT_AFFECTING_COMMANDS and state.config["mode"] == "live" and not dry_run:
@@ -389,7 +376,7 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
             with state.lock:
                 now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
                 res = {
-                    "schema_version": 1,
+                    "schema_version": WORKER_SCHEMA_VERSION,
                     "service": "powers-tool",
                     "run_id": state.run_id,
                     "status": state.status,
@@ -414,7 +401,15 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
             try:
                 body_data = json.loads(self.rfile.read(content_length).decode("utf-8"))
             except Exception as exc:
-                self._send_json(400, {"ok": False, "error": {"code": "invalid_json", "message": f"Invalid JSON body: {exc}"}})
+                if self.path == "/command":
+                    self._send_json(400, _command_response(
+                        "error",
+                        None,
+                        None,
+                        error={"code": "invalid_json", "message": f"Invalid JSON body: {exc}"},
+                    ))
+                else:
+                    self._send_json(400, {"ok": False, "error": {"code": "invalid_json", "message": f"Invalid JSON body: {exc}"}})
                 return
 
         if self.path == "/stop":
@@ -440,14 +435,14 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
 
             with state.lock:
                 if state.status != "ready":
-                    self._send_json(409, {
-                        "status": "rejected",
-                        "command": cmd,
-                        "job_id": client_job_id,
-                        "reason": "busy",
-                        "error": {"code": "busy", "message": "Worker is currently busy processing a job"},
-                        "active_job": state.active_job
-                    })
+                    self._send_json(409, _command_response(
+                        "rejected",
+                        cmd,
+                        client_job_id,
+                        reason="busy",
+                        error={"code": "busy", "message": "Worker is currently busy processing a job"},
+                        active_job=state.active_job,
+                    ))
                     return
 
                 # Save request artifact immediately (strictly block if fails)
@@ -455,10 +450,22 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                 job_dir = Path(state.config["artifacts_dir"]) / "jobs" / worker_job_id
                 try:
                     job_dir.mkdir(parents=True, exist_ok=True)
-                    artifact_request = {"command": cmd, "arguments": arguments}
+                    artifact_request = {
+                        "schema_version": WORKER_SCHEMA_VERSION,
+                        "command": cmd,
+                        "arguments": arguments,
+                    }
                     (job_dir / "request.json").write_text(json.dumps(artifact_request, indent=2, sort_keys=True), encoding="utf-8")
                 except Exception as exc:
-                    self._send_json(500, {"status": "error", "command": cmd, "job_id": client_job_id, "error": {"code": "artifact_error", "message": f"Could not create job directory or request artifact: {exc}"}})
+                    self._send_json(500, _command_response(
+                        "error",
+                        cmd,
+                        client_job_id,
+                        error={
+                            "code": "artifact_error",
+                            "message": f"Could not create job directory or request artifact: {exc}",
+                        },
+                    ))
                     return
 
                 # Transition to busy
@@ -484,13 +491,13 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                 state.lock.notify_all()
 
             emit_event(state.config, "job_accepted", {"job_id": client_job_id, "worker_job_id": worker_job_id, "command": cmd, "run_id": state.run_id})
-            self._send_json(202, {
-                "status": "accepted",
-                "command": cmd,
-                "job_id": client_job_id,
-                "worker_job_id": worker_job_id,
-                "artifact_path": str(job_dir.resolve()),
-            })
+            self._send_json(202, _command_response(
+                "accepted",
+                cmd,
+                client_job_id,
+                worker_job_id=worker_job_id,
+                artifact_path=str(job_dir.resolve()),
+            ))
         else:
             self._send_json(404, {"ok": False, "error": {"code": "not_found", "message": "Endpoint not found"}})
 
@@ -787,7 +794,7 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
 
     # Compile CLI JSON contract compliant envelope
     envelope = {
-        "schema_version": 1,
+        "schema_version": WORKER_SCHEMA_VERSION,
         "run_id": state.run_id,
         "worker_job_id": worker_job_id,
         "ok": ok,

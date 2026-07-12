@@ -24,6 +24,7 @@ from powers_tool_core.factory import select_driver
 from powers_tool_core.identity import IdentityResolutionError, resolve_physical_model_identity
 from powers_tool_core.live_support import enforce_product_live_support_for_idn
 from powers_tool_core.model_resolution import validate_live_expected_model
+from powers_tool_core.model_metadata import product_active_model_metadata
 from powers_tool_core.models import parse_idn
 from powers_tool_core.readonly import run_live_panel_read
 from powers_tool_core.support_policy import (
@@ -31,7 +32,6 @@ from powers_tool_core.support_policy import (
     LiveSupportPolicyError,
     SUPPORT_POLICY_MODE_PRODUCT,
     exact_live_support_metadata,
-    live_support_policy_metadata,
     normalize_backend,
     normalize_transport,
     unevaluated_live_support_policy_metadata,
@@ -104,63 +104,48 @@ WEBUI_UNSUPPORTED_COMMANDS = {
 }
 
 
-def selectable_physical_models() -> list[dict[str, Any]]:
+def selectable_physical_models(
+    metadata: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """Return frontend-safe selectable model metadata from Core registries."""
 
-    from powers_tool_core.identity import IDENTITY_INDEXES
-    from powers_tool_core.models import PRODUCT_ACTIVE_MODEL_IDS
-
-    channel_metadata = channel_capabilities_by_model_id()
-    models = []
-    for model_id in sorted(PRODUCT_ACTIVE_MODEL_IDS):
-        identity = IDENTITY_INDEXES.models_by_id[model_id]
-        vendor = IDENTITY_INDEXES.vendors_by_id[identity.vendor_id]
-        models.append(
-            {
-                "model_id": identity.model_id,
-                "vendor_id": identity.vendor_id,
-                "vendor_display_name": vendor.display_name,
-                "model_name": identity.canonical_model,
-                "display_name": identity.display_name,
-                **channel_metadata[model_id],
+    return [
+        {
+            key: value
+            for key, value in entry.items()
+            if key not in {
+                "command_support", "live_support", "electrical_ratings", "setpoint_ranges",
             }
-        )
-    return models
+        }
+        for entry in (metadata or product_active_model_metadata(())).values()
+    ]
 
-def channel_capabilities_by_model_id() -> dict[str, dict[str, Any]]:
+def channel_capabilities_by_model_id(
+    metadata: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Return WebUI model-to-channel metadata from driver capabilities."""
 
-    from powers_tool_core.drivers.e36312a import E36312APowerSupply
-    from powers_tool_core.drivers.e3646a import E3646APowerSupply
-    from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
     return {
-        "keysight-e36312a": {
-            "channels": list(E36312APowerSupply.capabilities.channels),
-            "output_control_scope": "per_channel",
-        },
-        "keysight-edu36311a": {
-            "channels": list(EDU36311APowerSupply.capabilities.channels),
-            "output_control_scope": "per_channel",
-        },
-        "keysight-e3646a": {
-            "channels": list(E3646APowerSupply.capabilities.channels),
-            "output_control_scope": "global",
-        },
+        model_id: {
+            "channels": entry["channels"],
+            "output_control_scope": entry["output_control_scope"],
+        }
+        for model_id, entry in (metadata or product_active_model_metadata(())).items()
     }
 
 
-def live_support_by_model_id(command_names: set[str]) -> dict[str, dict[str, Any]]:
+def live_support_by_model_id(
+    command_names: set[str],
+    metadata: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Return safe Core-owned live-support projections for WebUI commands."""
 
-    projections = {
-        model_id: live_support_policy_metadata(model_id, command_names)
-        for model_id in (
-            "keysight-e36312a",
-            "keysight-edu36311a",
-            "keysight-e3646a",
-        )
+    return {
+        model_id: entry["live_support"]
+        for model_id, entry in (
+            metadata or product_active_model_metadata(command_names)
+        ).items()
     }
-    return projections
 
 
 def planning_profile_metadata(command_names: set[str]) -> dict[str, dict[str, Any]]:
@@ -186,24 +171,24 @@ def planning_profile_metadata(command_names: set[str]) -> dict[str, dict[str, An
 
 
 def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
-    simulate = bool(runtime_dict.get("simulate", False))
-    resource = runtime_dict.get("resource")
     return RuntimeOptions(
-        resource=resource,
-        resource_alias=runtime_dict.get("resource_alias"),
-        safety_config=runtime_dict.get("safety_config"),
-        simulate=simulate,
-        dry_run=bool(runtime_dict.get("dry_run", False)),
-        backend=runtime_dict.get("backend"),
-        planning_model_id=runtime_dict.get("planning_model_id"),
-        expected_model_id=runtime_dict.get("expected_model_id"),
-        planning_profile_id=runtime_dict.get("planning_profile_id"),
-        timeout_ms=int(runtime_dict.get("timeout_ms", 5000)),
-        log_scpi=bool(runtime_dict.get("log_scpi", False)),
-        confirm=bool(runtime_dict.get("confirm", False)),
+        resource=_optional_runtime_string(runtime_dict, "resource"),
+        resource_alias=_optional_runtime_string(runtime_dict, "resource_alias"),
+        safety_config=_optional_runtime_string(runtime_dict, "safety_config"),
+        simulate=_optional_runtime_bool(runtime_dict, "simulate", False),
+        dry_run=_optional_runtime_bool(runtime_dict, "dry_run", False),
+        backend=_optional_runtime_string(runtime_dict, "backend"),
+        planning_model_id=_optional_identity_string(runtime_dict, "planning_model_id"),
+        expected_model_id=_optional_identity_string(runtime_dict, "expected_model_id"),
+        planning_profile_id=_optional_identity_string(runtime_dict, "planning_profile_id"),
+        timeout_ms=_runtime_timeout_ms(runtime_dict),
+        log_scpi=_optional_runtime_bool(runtime_dict, "log_scpi", False),
+        confirm=_optional_runtime_bool(runtime_dict, "confirm", False),
         serial_options=_serial_options_from_runtime(runtime_dict),
-        serial_remote=bool(runtime_dict.get("serial_remote", False)),
-        serial_local_on_close=bool(runtime_dict.get("serial_local_on_close", False)),
+        serial_remote=_optional_runtime_bool(runtime_dict, "serial_remote", False),
+        serial_local_on_close=_optional_runtime_bool(
+            runtime_dict, "serial_local_on_close", False
+        ),
         # WebUI is deliberately product-only; P4 mode selection is CLI-only.
         support_policy_mode="product",
     )
@@ -371,46 +356,143 @@ def _request_for_job(command: str, runtime: RuntimeOptions, parameters: dict[str
     return OperationRequest(command=command, runtime=runtime, parameters=normalized_parameters)
 
 
-def webui_command_support_by_model_id(command_names: set[str]) -> dict[str, dict[str, dict[str, Any]]]:
+def webui_command_support_by_model_id(
+    command_names: set[str],
+    metadata: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, dict[str, Any]]]:
     """Return model-aware support metadata for visible WebUI commands."""
 
     return {
-        model_id: _filtered_command_support(model_id, command_names)
-        for model_id in (
-            "keysight-e36312a",
-            "keysight-edu36311a",
-            "keysight-e3646a",
-        )
+        model_id: _webui_support_from_core_metadata(model_id, entry, command_names)
+        for model_id, entry in (
+            metadata or product_active_model_metadata(command_names)
+        ).items()
     }
+
+
+def _webui_support_from_core_metadata(
+    model_id: str,
+    metadata: dict[str, Any],
+    command_names: set[str],
+) -> dict[str, dict[str, Any]]:
+    support = {
+        command: dict(entry)
+        for command, entry in metadata["command_support"].items()
+        if command in command_names
+    }
+    for command, entry in support.items():
+        if entry.get("real") is False:
+            entry["disabled_reason"] = core_capabilities.unsupported_command_reason(
+                command, model_id
+            )
+    for command in sorted(command_names & EXEMPT_LIVE_DIAGNOSTIC_COMMANDS):
+        support[command] = {
+            "real": True,
+            "simulate": True,
+            "dry_run": False,
+            "requires_confirm": False,
+            "hardware_validation": "model_independent",
+        }
+    return support
 
 
 def _serial_options_from_runtime(runtime_dict: dict[str, Any]) -> SerialOptions | None:
     serial = runtime_dict.get("serial_options")
-    if not isinstance(serial, dict):
+    if serial is None:
         return None
+    if not isinstance(serial, dict):
+        raise TypeError("runtime.serial_options must be an object or null")
+    supported = {
+        "baud_rate", "data_bits", "parity", "stop_bits", "flow_control",
+        "read_termination", "write_termination",
+    }
+    unknown = sorted(set(serial) - supported)
+    if unknown:
+        raise ValueError(f"unknown runtime.serial_options field(s): {', '.join(unknown)}")
+    baud_rate = _strict_optional_int(serial, "baud_rate")
+    data_bits = _strict_optional_int(serial, "data_bits")
+    if baud_rate is not None and baud_rate < 1:
+        raise ValueError("runtime.serial_options.baud_rate must be positive")
+    if data_bits is not None and data_bits not in {5, 6, 7, 8}:
+        raise ValueError("runtime.serial_options.data_bits must be 5, 6, 7, or 8")
+    parity = _strict_serial_string(serial, "parity")
+    flow_control = _strict_serial_string(serial, "flow_control")
+    read_termination = _strict_serial_string(serial, "read_termination")
+    write_termination = _strict_serial_string(serial, "write_termination")
+    stop_bits = serial.get("stop_bits")
+    if stop_bits is not None:
+        if isinstance(stop_bits, bool) or not isinstance(stop_bits, (int, float, str)):
+            raise TypeError("runtime.serial_options.stop_bits must be a number, string, or null")
+        if str(stop_bits).strip() not in {"1", "1.0", "1.5", "2", "2.0"}:
+            raise ValueError("serial stop bits must be 1, 1.5, or 2")
+    if parity is not None and parity.strip().lower() not in {
+        "none", "n", "odd", "o", "even", "e", "mark", "m", "space", "s",
+    }:
+        raise ValueError("serial parity must be none, odd, even, mark, or space")
+    if flow_control is not None and flow_control.strip().lower().replace("-", "_") not in {
+        "none", "xon_xoff", "xonxoff", "rts_cts", "rtscts", "dtr_dsr", "dtrdsr",
+    }:
+        raise ValueError("serial flow control must be none, xon_xoff, rts_cts, or dtr_dsr")
     options = SerialOptions(
-        baud_rate=_optional_int(serial.get("baud_rate")),
-        data_bits=_optional_int(serial.get("data_bits")),
-        parity=_optional_str(serial.get("parity")),
-        stop_bits=serial.get("stop_bits"),
-        flow_control=_optional_str(serial.get("flow_control")),
-        read_termination=normalize_serial_termination(serial.get("read_termination")),
-        write_termination=normalize_serial_termination(serial.get("write_termination")),
+        baud_rate=baud_rate,
+        data_bits=data_bits,
+        parity=parity,
+        stop_bits=stop_bits,
+        flow_control=flow_control,
+        read_termination=normalize_serial_termination(read_termination),
+        write_termination=normalize_serial_termination(write_termination),
     )
     return options if options.has_explicit_values() else None
 
 
-def _optional_int(value: Any) -> int | None:
-    if value is None or value == "":
-        return None
-    return int(value)
+def _optional_runtime_bool(runtime: dict[str, Any], field: str, default: bool) -> bool:
+    if field not in runtime:
+        return default
+    value = runtime[field]
+    if not isinstance(value, bool):
+        raise TypeError(f"runtime.{field} must be a boolean")
+    return value
 
 
-def _optional_str(value: Any) -> str | None:
+def _optional_runtime_string(runtime: dict[str, Any], field: str) -> str | None:
+    value = runtime.get(field)
     if value is None:
         return None
-    text = str(value)
-    return text if text != "" else None
+    if not isinstance(value, str):
+        raise TypeError(f"runtime.{field} must be a string or null")
+    return value
+
+
+def _optional_identity_string(runtime: dict[str, Any], field: str) -> str | None:
+    value = _optional_runtime_string(runtime, field)
+    if value is not None and not value.strip():
+        raise ValueError(f"runtime.{field} must be a non-empty string")
+    return value
+
+
+def _runtime_timeout_ms(runtime: dict[str, Any]) -> int:
+    value = runtime.get("timeout_ms", 5000)
+    if type(value) is not int or not 1 <= value <= 600000:
+        raise ValueError("runtime.timeout_ms must be an integer from 1 to 600000")
+    return value
+
+
+def _strict_optional_int(values: dict[str, Any], field: str) -> int | None:
+    value = values.get(field)
+    if value is None:
+        return None
+    if type(value) is not int:
+        raise TypeError(f"runtime.serial_options.{field} must be an integer or null")
+    return value
+
+
+def _strict_serial_string(values: dict[str, Any], field: str) -> str | None:
+    value = values.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError(f"runtime.serial_options.{field} must be a string or null")
+    return value
 
 
 def _normalize_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
@@ -436,9 +518,6 @@ def _requires_real_confirmation(command: str, runtime: RuntimeOptions) -> bool:
 
 
 def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
-    from powers_tool_core.drivers.e36312a import E36312APowerSupply
-    from powers_tool_core.drivers.e3646a import E3646APowerSupply
-    from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
     from powers_tool_core.setpoint_ranges import (
         setpoint_ranges_for_model_id,
     )
@@ -517,21 +596,12 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
 
     return {
         "models": {
-            "keysight-e36312a": {
-                "channels": list(E36312APowerSupply.capabilities.channels),
-                "electrical_ratings": E36312APowerSupply.capabilities.electrical_ratings.to_dict(),
-                "setpoint_ranges": setpoint_ranges_for_model_id("keysight-e36312a").to_dict(),
-            },
-            "keysight-edu36311a": {
-                "channels": list(EDU36311APowerSupply.capabilities.channels),
-                "electrical_ratings": EDU36311APowerSupply.capabilities.electrical_ratings.to_dict(),
-                "setpoint_ranges": setpoint_ranges_for_model_id("keysight-edu36311a").to_dict(),
-            },
-            "keysight-e3646a": {
-                "channels": list(E3646APowerSupply.capabilities.channels),
-                "electrical_ratings": None,
-                "setpoint_ranges": setpoint_ranges_for_model_id("keysight-e3646a").to_dict(),
-            },
+            model_id: {
+                "channels": entry["channels"],
+                "electrical_ratings": entry["electrical_ratings"],
+                "setpoint_ranges": entry["setpoint_ranges"],
+            }
+            for model_id, entry in product_active_model_metadata(()).items()
         }
     }
 

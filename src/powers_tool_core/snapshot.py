@@ -10,7 +10,7 @@ from powers_tool_core.connection import open_resource
 from powers_tool_core.core import CoreIoError, CoreValidationError, OperationRequest, UnsupportedModelError
 from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.errors import VisaConnectionError
-from powers_tool_core.factory import create_power_supply
+from powers_tool_core.factory import create_power_supply, select_driver
 from powers_tool_core.models import parse_idn
 from powers_tool_core.model_resolution import resolve_no_hardware_runtime
 from powers_tool_core.live_support import enforce_live_support_for_idn
@@ -18,6 +18,8 @@ from powers_tool_core.operations import ScpiLoggingSession
 from powers_tool_core.testing.simulator import SimulatedResourceManager
 
 IDN_QUERY = "*IDN?"
+SNAPSHOT_SCHEMA_VERSION = 2
+SNAPSHOT_KIND = "powers-tool-snapshot"
 
 
 def run_snapshot(
@@ -57,9 +59,29 @@ def run_snapshot(
             }
             for channel in channels
         ]
+        selection = select_driver(idn)
+        if selection.physical_identity is None or selection.model_info is None:
+            raise CoreValidationError(
+                "snapshot manufacturer and model do not resolve to a canonical physical identity"
+            )
+        parsed_idn = selection.idn
         return {
+            "schema_version": SNAPSHOT_SCHEMA_VERSION,
+            "kind": SNAPSHOT_KIND,
             "resource": request.runtime.resource,
-            "idn": parse_idn(idn).to_dict(),
+            "reported_identity": {
+                "manufacturer": parsed_idn.manufacturer,
+                "model": parsed_idn.model,
+                "serial": parsed_idn.serial,
+                "firmware": parsed_idn.firmware,
+                "parse_ok": parsed_idn.parse_ok,
+            },
+            "resolved_identity": {
+                "vendor_id": selection.physical_identity.vendor_id,
+                "model_id": selection.physical_identity.model_id,
+                "model_name": selection.physical_identity.canonical_model,
+                "display_name": selection.model_info.display_name,
+            },
             "errors": errors,
             "read_count": read_count,
             "outputs": [

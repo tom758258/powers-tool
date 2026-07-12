@@ -455,7 +455,21 @@ def _restore_document(
     *, model: str = "E36312A", serial: str = "SN", voltage: float = 1.0
 ) -> dict[str, object]:
     return {
-        "idn": {"model": model, "serial": serial},
+        "schema_version": 2,
+        "kind": "powers-tool-snapshot",
+        "reported_identity": {
+            "manufacturer": "KEYSIGHT",
+            "model": model,
+            "serial": serial,
+            "firmware": "1.0",
+            "parse_ok": True,
+        },
+        "resolved_identity": {
+            "vendor_id": "keysight",
+            "model_id": "keysight-e36312a",
+            "model_name": "E36312A",
+            "display_name": "Keysight E36312A",
+        },
         "outputs": [{"channel": 1, "enabled": False}],
         "readback": [{"channel": 1, "setpoints": {"voltage": voltage, "current": 0.1}}],
         "protection_settings": [],

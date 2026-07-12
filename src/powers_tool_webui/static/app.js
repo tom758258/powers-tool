@@ -1382,8 +1382,8 @@ function getSnapshotSuggestedName() {
   const pad = (n) => String(n).padStart(2, "0");
   const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 
-  let model = meta?.model || doc?.idn?.model;
-  let serial = meta?.serial || doc?.idn?.serial;
+  let model = meta?.model || doc?.reported_identity?.model;
+  let serial = meta?.serial || doc?.reported_identity?.serial;
 
   const clean = (str) => {
     if (!str) return "";
@@ -1394,17 +1394,23 @@ function getSnapshotSuggestedName() {
   serial = clean(serial);
 
   if (model && serial) {
-    return `keysight-power-${model}-${serial}-${timestamp}.snapshot.json`;
+    return `powers-tool-${model}-${serial}-${timestamp}.snapshot.json`;
   }
-  return `keysight-power-snapshot-${timestamp}.snapshot.json`;
+  return `powers-tool-snapshot-${timestamp}.snapshot.json`;
 }
 
 function validateSnapshotDocument(doc) {
   if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
     throw new Error("Snapshot document must be a JSON object.");
   }
-  if (!doc.idn || typeof doc.idn !== "object" || Array.isArray(doc.idn)) {
-    throw new Error("Snapshot must contain a valid 'idn' object.");
+  if (doc.schema_version !== 2 || doc.kind !== "powers-tool-snapshot") {
+    throw new Error("Snapshot must use schema_version 2 and kind 'powers-tool-snapshot'.");
+  }
+  if (!doc.reported_identity || typeof doc.reported_identity !== "object" || Array.isArray(doc.reported_identity)) {
+    throw new Error("Snapshot must contain a valid 'reported_identity' object.");
+  }
+  if (!doc.resolved_identity || typeof doc.resolved_identity !== "object" || Array.isArray(doc.resolved_identity)) {
+    throw new Error("Snapshot must contain a valid 'resolved_identity' object.");
   }
   if (!Array.isArray(doc.readback)) {
     throw new Error("Snapshot 'readback' must be an array.");
@@ -1518,10 +1524,9 @@ async function loadRestoreSnapshot() {
       extensions: SNAPSHOT_JSON_EXTENSIONS
     });
     const rawDoc = JSON.parse(text);
-    const unwrapped = unwrapSnapshot(rawDoc);
-    validateRestoreSnapshot(unwrapped);
+    validateRestoreSnapshot(rawDoc);
 
-    state.loadedSnapshotDocument = unwrapped;
+    state.loadedSnapshotDocument = rawDoc;
     state.loadedSnapshotFilename = filename;
     clearRestorePlanPreview();
 
@@ -1624,23 +1629,10 @@ function isLoadedRestoreSnapshotValid() {
   }
 }
 
-function unwrapSnapshot(doc) {
-  if (!doc || typeof doc !== "object") {
-    throw new Error("Invalid Snapshot format.");
-  }
-  if (doc.command === "snapshot" && doc.result && typeof doc.result === "object" && !Array.isArray(doc.result)) {
-    return doc.result;
-  }
-  if (doc.data && typeof doc.data === "object" && !Array.isArray(doc.data)) {
-    return doc.data;
-  }
-  return doc;
-}
-
 function validateRestoreSnapshot(doc) {
   validateSnapshotDocument(doc);
-  if (!doc.idn.model) {
-    throw new Error("Snapshot must contain a valid 'idn' object with 'model'.");
+  if (!doc.reported_identity.model || !doc.resolved_identity.model_id) {
+    throw new Error("Snapshot must contain reported and resolved model identity.");
   }
   if (doc.readback.length === 0) {
     throw new Error("Snapshot must contain at least one channel in readback.");
@@ -1696,8 +1688,8 @@ function validateRestoreSnapshot(doc) {
     }
   });
 
-  if (doc.idn.model !== "E36312A") {
-    throw new Error(`Snapshot model '${doc.idn.model}' is not supported. Only 'E36312A' is supported for restore.`);
+  if (doc.resolved_identity.model_id !== "keysight-e36312a") {
+    throw new Error(`Snapshot model_id '${doc.resolved_identity.model_id}' is not supported. Only 'keysight-e36312a' is supported for restore.`);
   }
 }
 

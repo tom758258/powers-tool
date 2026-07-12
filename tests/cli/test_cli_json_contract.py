@@ -29,7 +29,7 @@ def parse_json_result(args: list[str], capsys) -> tuple[int, dict[str, object]]:
 
 def assert_contract_envelope(payload: dict[str, object], *, command: str, ok: bool) -> None:
     assert set(payload) == ENVELOPE_KEYS
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == 2
     assert payload["ok"] is ok
     assert payload["status"] == ("ok" if ok else "error")
     assert payload["command"] == {"name": command}
