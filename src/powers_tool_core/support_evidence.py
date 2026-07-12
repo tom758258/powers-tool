@@ -150,6 +150,15 @@ class SupportEvidenceRecord:
     accepted_features_by_command: Mapping[str, frozenset[tuple[str, str]]]
 
 
+@dataclass(frozen=True)
+class SupportEvidenceManifest:
+    """Schema contract for the non-promoting V2 evidence migration manifest."""
+
+    schema_version: int
+    promotes_support: bool
+    records: tuple[SupportEvidenceRecord, ...]
+
+
 def _historical_record(
     evidence_id: str,
     model_id: str,
@@ -218,8 +227,14 @@ SUPPORT_EVIDENCE_RECORDS = (
     ),
 )
 
+SUPPORT_EVIDENCE_MANIFEST = SupportEvidenceManifest(
+    schema_version=2,
+    promotes_support=False,
+    records=SUPPORT_EVIDENCE_RECORDS,
+)
+
 SUPPORT_EVIDENCE_BY_ID: Mapping[str, SupportEvidenceRecord] = MappingProxyType(
-    {record.evidence_id: record for record in SUPPORT_EVIDENCE_RECORDS}
+    {record.evidence_id: record for record in SUPPORT_EVIDENCE_MANIFEST.records}
 )
 
 
@@ -228,7 +243,7 @@ def validate_support_evidence_metadata(
 ) -> None:
     """Fail closed when evidence identities or availability claims are inconsistent."""
 
-    selected = SUPPORT_EVIDENCE_RECORDS if records is None else records
+    selected = SUPPORT_EVIDENCE_MANIFEST.records if records is None else records
     seen_ids: set[str] = set()
     for record in selected:
         if not _EVIDENCE_ID_PATTERN.fullmatch(record.evidence_id):
@@ -270,6 +285,23 @@ def validate_support_evidence_metadata(
             raise ValueError(f"unexpected evidence summary path: {record.evidence_id}")
         _validate_accepted_inventory(record)
         _validate_non_sensitive_record(record)
+
+
+def validate_support_evidence_manifest(manifest: SupportEvidenceManifest) -> None:
+    """Fail closed when the V2 evidence manifest contract is inconsistent."""
+
+    if type(manifest.schema_version) is not int or manifest.schema_version != 2:
+        raise ValueError(
+            "unsupported evidence manifest schema version: "
+            f"{manifest.schema_version!r}"
+        )
+    if manifest.promotes_support is not False:
+        raise ValueError("evidence manifest must be explicitly non-promoting")
+    if not isinstance(manifest.records, tuple) or not manifest.records:
+        raise ValueError(
+            "evidence manifest records must be an immutable non-empty tuple"
+        )
+    validate_support_evidence_metadata(manifest.records)
 
 
 def validate_support_evidence_registry(
@@ -341,4 +373,5 @@ def _validate_non_sensitive_record(record: SupportEvidenceRecord) -> None:
             raise ValueError(f"evidence metadata contains private resource data: {record.evidence_id}")
 
 
+validate_support_evidence_manifest(SUPPORT_EVIDENCE_MANIFEST)
 validate_support_evidence_registry(SUPPORT_EVIDENCE_BY_ID)

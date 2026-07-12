@@ -10,7 +10,9 @@ from powers_tool_core.support_evidence import (
     SOURCE_AVAILABILITY_HISTORICAL_REFERENCE_ONLY,
     SOURCE_AVAILABILITY_VERIFIED_LOCAL,
     SUPPORT_EVIDENCE_BY_ID,
+    SUPPORT_EVIDENCE_MANIFEST,
     SUPPORT_EVIDENCE_RECORDS,
+    validate_support_evidence_manifest,
     validate_support_evidence_metadata,
 )
 from powers_tool_core.support_policy import (
@@ -93,6 +95,54 @@ EXPECTED_FEATURES_BY_MODEL = {
         ),
     },
 }
+
+
+def test_production_evidence_manifest_contract() -> None:
+    assert SUPPORT_EVIDENCE_MANIFEST.schema_version == 2
+    assert type(SUPPORT_EVIDENCE_MANIFEST.schema_version) is int
+    assert SUPPORT_EVIDENCE_MANIFEST.promotes_support is False
+    assert isinstance(SUPPORT_EVIDENCE_MANIFEST.records, tuple)
+    assert SUPPORT_EVIDENCE_MANIFEST.records == SUPPORT_EVIDENCE_RECORDS
+
+    validate_support_evidence_manifest(SUPPORT_EVIDENCE_MANIFEST)
+
+
+@pytest.mark.parametrize("schema_version", [1, 3, "2", 2.0, True, False])
+def test_evidence_manifest_rejects_wrong_schema_versions(schema_version: object) -> None:
+    malformed = replace(SUPPORT_EVIDENCE_MANIFEST, schema_version=schema_version)
+
+    with pytest.raises(ValueError, match="unsupported evidence manifest schema version"):
+        validate_support_evidence_manifest(malformed)
+
+
+@pytest.mark.parametrize("promotes_support", [True, 0, None])
+def test_evidence_manifest_rejects_promotion(promotes_support: object) -> None:
+    malformed = replace(SUPPORT_EVIDENCE_MANIFEST, promotes_support=promotes_support)
+
+    with pytest.raises(ValueError, match="evidence manifest must be explicitly non-promoting"):
+        validate_support_evidence_manifest(malformed)
+
+
+@pytest.mark.parametrize("records", [(), list(SUPPORT_EVIDENCE_RECORDS)])
+def test_evidence_manifest_requires_immutable_non_empty_records(records: object) -> None:
+    malformed = replace(SUPPORT_EVIDENCE_MANIFEST, records=records)
+
+    with pytest.raises(
+        ValueError,
+        match="evidence manifest records must be an immutable non-empty tuple",
+    ):
+        validate_support_evidence_manifest(malformed)
+
+
+def test_evidence_manifest_and_registry_cannot_drift() -> None:
+    manifest_ids = {
+        record.evidence_id
+        for record in SUPPORT_EVIDENCE_MANIFEST.records
+    }
+
+    assert set(SUPPORT_EVIDENCE_BY_ID) == manifest_ids
+    for record in SUPPORT_EVIDENCE_MANIFEST.records:
+        assert SUPPORT_EVIDENCE_BY_ID[record.evidence_id] is record
 
 
 def test_exactly_five_immutable_historical_evidence_identities_exist() -> None:
