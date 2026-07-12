@@ -176,7 +176,7 @@ def validate_model_enablement(
         raise ValueError("product model IDs do not match product_active lifecycle models")
     if stage_sets[MODEL_ENABLEMENT_CANDIDATE] != selected.candidate_model_ids:
         raise ValueError("candidate model IDs do not match candidate lifecycle models")
-    if selected.planning_profiles != frozenset({"GENERIC"}):
+    if selected.planning_profiles != frozenset({"generic-scpi"}):
         raise ValueError("generic planning profile inventory must remain separate")
 
     physical_registries = {

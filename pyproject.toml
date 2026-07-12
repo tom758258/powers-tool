@@ -36,20 +36,20 @@ all = [
 ]
 
 [project.scripts]
-keysight-power = "keysight_power_cli.cli:main"
-keysight-power-webui = "keysight_power_webui.server:main"
-keysight-power-webui-launcher = "keysight_power_webui.launcher:main"
+powers-tool = "powers_tool_cli.cli:main"
+powers-tool-webui = "powers_tool_webui.server:main"
+powers-tool-webui-launcher = "powers_tool_webui.launcher:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 include = [
   "powers_tool_core*",
-  "keysight_power_cli*",
-  "keysight_power_webui*",
+  "powers_tool_cli*",
+  "powers_tool_webui*",
 ]
 
 [tool.setuptools.package-data]
-keysight_power_webui = [
+powers_tool_webui = [
   "static/*.html",
   "static/*.css",
   "static/*.js",

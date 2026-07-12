@@ -27,7 +27,7 @@ from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.support_features import (
     SEQUENCE_ACTIONS,
     sequence_feature_requirements,
-    supported_sequence_actions,
+    supported_sequence_actions_for_model_id,
 )
 from powers_tool_core.trigger import run_post_action_completion_pulse, trigger_pulse_scpi
 
@@ -158,7 +158,8 @@ def sequence_plan(request: SequenceRequest, document: dict[str, Any]) -> dict[st
         "target": {
             "resource": request.runtime.resource,
             "resource_alias": request.runtime.resource_alias,
-            "model_profile": request.runtime.model_profile,
+            "planning_model_id": request.runtime.planning_model_id,
+            "planning_profile_id": request.runtime.planning_profile_id,
         },
         "steps": steps,
         "hardware_touched": False,
@@ -167,12 +168,21 @@ def sequence_plan(request: SequenceRequest, document: dict[str, Any]) -> dict[st
 
 def add_sequence_scpi_previews(plan: dict[str, Any]) -> None:
     for step in plan["steps"]:
-        preview = sequence_step_preview(step, model_profile=plan["target"].get("model_profile"))
+        preview = sequence_step_preview(
+            step,
+            planning_model_id=plan["target"].get("planning_model_id"),
+            planning_profile_id=plan["target"].get("planning_profile_id"),
+        )
         if preview:
             step["preview"] = preview
 
 
-def sequence_step_preview(step: dict[str, Any], *, model_profile: str | None = None) -> dict[str, Any] | None:
+def sequence_step_preview(
+    step: dict[str, Any],
+    *,
+    planning_model_id: str | None = None,
+    planning_profile_id: str | None = None,
+) -> dict[str, Any] | None:
     action = step["action"]
     parameters = step["parameters"]
     if action == "set":
@@ -185,7 +195,7 @@ def sequence_step_preview(step: dict[str, Any], *, model_profile: str | None = N
         voltage = _format_text_value(float(parameters["voltage"]))
         current = _format_text_value(float(parameters["current"]))
         commands: list[str] = []
-        for selected_channel in sequence_preview_channels(channel, model_profile=model_profile):
+        for selected_channel in sequence_preview_channels(channel, planning_model_id=planning_model_id, planning_profile_id=planning_profile_id):
             commands.append(f"CURR {current},(@{selected_channel})")
             commands.append(f"VOLT {voltage},(@{selected_channel})")
             if not parameters.get("no_output", False):
@@ -193,21 +203,21 @@ def sequence_step_preview(step: dict[str, Any], *, model_profile: str | None = N
         return {"commands": commands}
     if action == "output-on":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
-        return {"commands": [f"OUTP ON,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile)]}
+        return {"commands": [f"OUTP ON,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, planning_model_id=planning_model_id, planning_profile_id=planning_profile_id)]}
     if action == "output-off":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
-        return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile)]}
+        return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, planning_model_id=planning_model_id, planning_profile_id=planning_profile_id)]}
     if action == "output-state":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
-        return {"commands": [f"OUTP? (@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile)]}
+        return {"commands": [f"OUTP? (@{selected_channel})" for selected_channel in sequence_preview_channels(channel, planning_model_id=planning_model_id, planning_profile_id=planning_profile_id)]}
     if action == "cycle-output":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
-        commands = [f"OUTP ON,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile)]
-        commands.extend(f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile))
+        commands = [f"OUTP ON,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, planning_model_id=planning_model_id, planning_profile_id=planning_profile_id)]
+        commands.extend(f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, planning_model_id=planning_model_id, planning_profile_id=planning_profile_id))
         return {"commands": commands, "duration_ms": int(parameters.get("duration_ms", 500))}
     if action == "safe-off":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
-        return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, model_profile=model_profile)]}
+        return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, planning_model_id=planning_model_id, planning_profile_id=planning_profile_id)]}
     if action == "trigger-pulse":
         channel = sequence_channel(parameters.get("channel", 1))
         pins = sequence_pulse_pins(parameters.get("pins"))
@@ -239,10 +249,12 @@ def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> No
     if (
         (request.runtime.dry_run or request.runtime.simulate)
         and action == "trigger-pulse"
-        and action not in supported_sequence_actions(request.runtime.model_profile)
+        and action not in supported_sequence_actions_for_model_id(
+            request.runtime.planning_model_id
+        )
     ):
-        model = request.runtime.model_profile or "GENERIC"
-        raise CoreValidationError(f"unsupported sequence trigger-pulse for {model}; E36312A supports this step")
+        identity = request.runtime.planning_profile_id or request.runtime.planning_model_id
+        raise CoreValidationError(f"unsupported sequence trigger-pulse for {identity}; E36312A supports this step")
     if action in {"measure", "readback", "output-state", "safe-off", "output-on", "output-off", "cycle-output"}:
         channel = sequence_channel(parameters.get("channel", 1), allow_all=(action in {"safe-off", "output-state", "output-on", "output-off", "cycle-output"}))
         _validate_no_hardware_sequence_channels(request, channel)
@@ -611,18 +623,31 @@ def _validate_read_only_channel(power_supply: Any, channel: int, *, command_labe
         raise CoreValidationError(f"channel {channel} is not supported for {command_label}; supported: {supported}")
 
 
-def sequence_preview_channels(channel: int | str, *, model_profile: str | None = None) -> tuple[int, ...]:
+def sequence_preview_channels(
+    channel: int | str,
+    *,
+    planning_model_id: str | None = None,
+    planning_profile_id: str | None = None,
+) -> tuple[int, ...]:
     if channel == "all":
-        return no_hardware_channels(model_profile) if model_profile else E36312APowerSupply.capabilities.channels
+        if planning_model_id is None and planning_profile_id is None:
+            return E36312APowerSupply.capabilities.channels
+        return no_hardware_channels(planning_model_id, planning_profile_id)
     return (int(channel),)
 
 
 def _validate_no_hardware_sequence_channels(request: SequenceRequest, channel: int | str) -> None:
     if not (request.runtime.dry_run or request.runtime.simulate):
         return
-    if request.runtime.model_profile is None:
+    if (
+        request.runtime.planning_model_id is None
+        and request.runtime.planning_profile_id is None
+    ):
         return
-    supported = no_hardware_channels(request.runtime.model_profile)
+    supported = no_hardware_channels(
+        request.runtime.planning_model_id,
+        request.runtime.planning_profile_id,
+    )
     if channel == "all":
         return
     if int(channel) not in supported:

@@ -11,15 +11,15 @@ The WebUI and CLI are parallel product interfaces over the shared Core
 runtime.
 
 The WebUI ships inside the single `keysight-powers` distribution while
-preserving the `keysight_power_webui` import boundary. It depends on the
+preserving the `powers_tool_webui` import boundary. It depends on the
 shared `powers_tool_core` runtime and the distribution's `webui` extra.
 Its frontend is static `index.html`, `styles.css`, and `app.js`; no Node
 toolchain is required.
 
 ## Package And Entry Point
 
-The WebUI exposes the `keysight-power-webui` console command for the local
-FastAPI server and the `keysight-power-webui-launcher` wrapper for the Windows
+The WebUI exposes the `powers-tool-webui` console command for the local
+FastAPI server and the `powers-tool-webui-launcher` wrapper for the Windows
 launcher.
 
 ## Purpose
@@ -29,9 +29,9 @@ shared Core runtime in `powers_tool_core`.
 
 The WebUI owns:
 
-- Browser interface and static assets under `src/keysight_power_webui/static/`.
-- FastAPI route shape in `src/keysight_power_webui/app.py`.
-- Local Tkinter launcher behavior in `src/keysight_power_webui/launcher.py`.
+- Browser interface and static assets under `src/powers_tool_webui/static/`.
+- FastAPI route shape in `src/powers_tool_webui/app.py`.
+- Local Tkinter launcher behavior in `src/powers_tool_webui/launcher.py`.
 - Browser-facing request and response serialization.
 - Job submission, job state display, and SSE event presentation.
 - Live Data display state derived from read-only Core operations.
@@ -53,7 +53,7 @@ reimplementing instrument behavior.
 From the repository root:
 
 ```powershell
-uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 7999
+uv run python -m powers_tool_webui.server --host 127.0.0.1 --port 7999
 ```
 
 Open `http://127.0.0.1:7999/`.
@@ -64,8 +64,8 @@ server beyond the local machine.
 The installed Windows GUI launcher wrapper is:
 
 ```powershell
-.\.venv\Scripts\keysight-power-webui.exe --version
-.\.venv\Scripts\keysight-power-webui-launcher.exe
+.\.venv\Scripts\powers-tool-webui.exe --version
+.\.venv\Scripts\powers-tool-webui-launcher.exe
 ```
 
 The launcher defaults to `127.0.0.1:7999`, opens the browser after Start, and
@@ -89,13 +89,20 @@ or cancel the command in the browser first and wait for cleanup.
 - `GET /api/live/{job_id}/events`: live-data SSE stream.
 - `POST /api/live/{job_id}/stop`: stop live-data polling.
 
-`/api/health` keeps the adapter identifier `keysight-power-webui` for the
+Physical metadata from `/api/commands` is keyed only by canonical `model_id`
+under `command_support_by_model_id`, `live_support_by_model_id`,
+`channel_capabilities_by_model_id`, `electrical_ratings_by_model_id`, and
+`setpoint_ranges_by_model_id`. The separate `planning_profiles` object carries
+nonphysical profiles such as `generic-scpi`; it is never mixed into a physical
+model map. Evidence and private support metadata are not exposed.
+
+`/api/health` reports the adapter identifier `powers-tool-webui` for the
 `package` field, while `version` is sourced from the single installed
 `keysight-powers` distribution.
 
 ## Runtime Boundary
 
-The WebUI does not import `keysight_power_cli` and does not perform direct
+The WebUI does not import `powers_tool_cli` and does not perform direct
 VISA or SCPI operations. It maps HTTP payloads to core `RuntimeOptions` and
 request objects, then calls `powers_tool_core.command_runner`.
 
@@ -104,12 +111,13 @@ dry-run, offline metadata commands, and live-data jobs do not occupy that lock.
 Synchronous core execution runs in a worker thread so FastAPI's event loop
 continues serving health, job status, cancellation, and SSE endpoints.
 
-Raw `/api/jobs` no-hardware payloads that need model-specific planning should
-send `runtime.model_profile`. In dry-run/simulate mode, this is the
-no-hardware model profile used for planning and channel validation. In live
-mode, the same field is an expected-model guard: Core queries `*IDN?`, fails
-before setup/write SCPI if the detected model differs, and never uses the
-selected model to override the IDN-selected driver.
+Raw `/api/jobs` payloads use the V2 runtime identity fields. Dry-run accepts
+exactly one of `runtime.planning_model_id` or
+`runtime.planning_profile_id`; simulator mode accepts only the physical
+planning ID. Live execution accepts only optional `runtime.expected_model_id`.
+Core queries `*IDN?`, resolves manufacturer plus model, fails before
+command-specific SCPI if the expected canonical model differs, and never lets
+the guard override the IDN-selected driver.
 
 Dry-run example:
 
@@ -120,7 +128,7 @@ Dry-run example:
     "resource": "USB0::FAKE::E36312A::INSTR",
     "dry_run": true,
     "simulate": false,
-    "model_profile": "E36312A"
+    "planning_model_id": "keysight-e36312a"
   },
   "parameters": {
     "channel": 1,
@@ -130,10 +138,9 @@ Dry-run example:
 }
 ```
 
-`runtime.model_profile` is the canonical WebUI/API runtime field.
-`runtime.model` is accepted as a simple compatibility alias. The WebUI does
-not infer a dry-run/simulate model from fake or live-looking resource strings;
-use `model_profile` or a deterministic SIM resource such as
+Legacy `runtime.model_profile` and `runtime.model` fields are rejected. The
+WebUI does not infer a dry-run/simulate model from fake or live-looking resource strings;
+use a V2 planning field or a deterministic SIM resource such as
 `USB0::SIM::E36312A::INSTR`. WebUI live resource support is learned from
 scan/job IDN metadata. The browser UI remains live-oriented and does not
 provide general dry-run or simulate controls.
@@ -165,9 +172,9 @@ Machine-facing command IDs remain kebab-case. Human-facing WebUI command names
 use spaces and sentence case.
 
 The connection area includes advanced device options. `Expected model`
-defaults to `Auto-detect`, which omits `runtime.model_profile`. Auto-detect
+defaults to `Auto-detect`, which omits `runtime.expected_model_id`. Auto-detect
 uses the connected instrument IDN for live operation. Selecting `Require
-<model>` sends `runtime.model_profile` as a live expected-model guard and may
+<model>` sends the canonical `runtime.expected_model_id` as a live safety guard and may
 drive frontend command, channel, and rating planning when metadata exists. The
 Device / Resource summary shows the detected live model separately from the
 expected model selection, such as `live E3646A / Auto-detect` or `live E3646A /
@@ -397,10 +404,10 @@ Focused launcher and package validation:
 .\.venv\Scripts\python.exe -m pytest tests\webui\test_launcher.py tests\webui\test_webui_import.py tests\core\test_distribution_metadata.py -q -p no:cacheprovider
 ```
 
-After editing `src/keysight_power_webui/static/app.js`, also run:
+After editing `src/powers_tool_webui/static/app.js`, also run:
 
 ```powershell
-node --check src\keysight_power_webui\static\app.js
+node --check src\powers_tool_webui\static\app.js
 ```
 
 Broader no-hardware validation when practical:

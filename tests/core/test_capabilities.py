@@ -267,8 +267,13 @@ def test_capabilities_static_groups_preserve_json_lists() -> None:
 
 
 def _unsupported_message(command: str, model: str, mode: str) -> str:
+    model_id = {
+        "E36312A": "keysight-e36312a",
+        "EDU36311A": "keysight-edu36311a",
+        "E3646A": "keysight-e3646a",
+    }.get(model, model)
     with pytest.raises(Exception) as exc:
-        capabilities.ensure_command_supported(command, model, mode)
+        capabilities.ensure_command_supported(command, model_id, None, mode)
     return str(exc.value)
 
 

@@ -148,12 +148,6 @@ def _run_identify(
     with instrument:
         session = instrument.session
         idn_info = parse_idn(idn)
-        if not request.runtime.simulate:
-            validate_live_expected_model(
-                request.runtime.model_profile,
-                idn_info.model,
-                command=request.command,
-            )
         data = {
             "resource": resource,
             "idn": idn_info.to_dict(),
@@ -170,8 +164,16 @@ def _run_identify(
             except IdentityResolutionError:
                 identity = None
             model_id = identity.model_id if identity is not None else None
+            if not request.runtime.simulate:
+                validate_live_expected_model(
+                    request.runtime.expected_model_id,
+                    model_id,
+                    command=request.command,
+                )
             for field, query in _identity_queries_for_model_id(model_id).items():
                 data[field] = session.query(query).strip()
+        except CoreValidationError:
+            raise
         except (VisaConnectionError, ValueError, TypeError) as exc:
             raise CoreIoError(f"{request.command} failed: {exc}", opened=True) from exc
         return data

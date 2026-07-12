@@ -70,10 +70,10 @@ feature.
 | --- | --- | --- |
 | Product-active | E36312A, EDU36311A, E3646A | Model-specific profiles/drivers with accepted exact Product scopes. |
 | Candidate | None | Complete contributor model eligible only for explicitly pending Validation-mode scopes. |
-| Catalog-only | E36313A, E36233A, E36441A, E36155A | Identity/catalog metadata only; not a planning or live expected-model profile. |
+| Catalog-only | E36313A, E36233A, E36441A, E36155A | Identity/catalog metadata only; not an active planning or live expected-model identity. |
 | De-scoped | E36103B, E36232A | Blocked from Product, Validation, driver fallback, and live metadata. |
 
-`GENERIC` remains no-hardware/fallback-only and is not a physical model stage.
+`generic-scpi` remains no-hardware/fallback-only and is not a physical model stage.
 Adding the candidate lifecycle does not enable a new model. A candidate must
 have complete driver, channel, simulator, capability, safety, electrical
 rating, setpoint range/limit, test, and exact pending policy metadata before
@@ -167,30 +167,29 @@ checks only. EDU36311A `protection-set` and
 `clear-protection` require `--confirm` for real execution and report
 `hardware_validation=validated`.
 
-Trigger workflows are E36312A-only. EDU36311A, E3646A, and GENERIC do not
+Trigger workflows are E36312A-only. EDU36311A, E3646A, and `generic-scpi` do not
 expose trigger dry-run or simulator behavior; their trigger commands report
 `real=false`, `simulate=false`, and `dry_run=false`.
 
-## No-Hardware Model-Profile Matrix
+## No-Hardware Planning Identity Matrix
 
 Dry-run and simulate planning do not open real VISA hardware. Model-specific
-no-hardware commands require an explicit model profile or a known
+no-hardware commands require an explicit planning identity or a known
 deterministic SIM resource. Fake or live-looking resource strings are
 placeholders and must not imply a model.
 
-| Model profile | Deterministic SIM resource | No-hardware channels | Output control scope | Trigger / LIST / protection notes |
+| Planning identity | Deterministic SIM resource | No-hardware channels | Output control scope | Trigger / LIST / protection notes |
 | --- | --- | --- | --- | --- |
-| E36312A | `USB0::SIM::E36312A::INSTR` | CH1, CH2, CH3 | Per-channel output control; `all` expands to CH1-CH3 | Trigger workflows and native LIST are E36312A-only and validated for live E36312A paths. Protection read/write paths are supported. |
-| EDU36311A | `USB0::SIM::EDU36311A::INSTR` | CH1, CH2, CH3 | Per-channel output control; `all` expands to CH1-CH3 | Protection read/write paths are supported. Trigger workflows and native LIST are not exposed in dry-run, simulate, or real mode. |
-| E3646A | `ASRL1::SIM::E3646A::INSTR` | CH1, CH2 | Global output enable/disable; channel selection is used for setpoints and readback | RS-232 / ASRL output workflows are live validated. Protection writes, trigger workflows, snapshot restore, completion pulses, and native LIST are disabled. |
-| GENERIC | None; use explicit `--model GENERIC` / `model_profile="GENERIC"` | CH1 | Unknown | Conservative no-hardware planning only. Trigger workflows, native LIST, and protection writes are not exposed. |
+| `keysight-e36312a` | `USB0::SIM::E36312A::INSTR` | CH1, CH2, CH3 | Per-channel output control; `all` expands to CH1-CH3 | Trigger workflows and native LIST are E36312A-only and validated for live E36312A paths. Protection read/write paths are supported. |
+| `keysight-edu36311a` | `USB0::SIM::EDU36311A::INSTR` | CH1, CH2, CH3 | Per-channel output control; `all` expands to CH1-CH3 | Protection read/write paths are supported. Trigger workflows and native LIST are not exposed in dry-run, simulate, or real mode. |
+| `keysight-e3646a` | `ASRL1::SIM::E3646A::INSTR` | CH1, CH2 | Global output enable/disable; channel selection is used for setpoints and readback | RS-232 / ASRL output workflows are live validated. Protection writes, trigger workflows, snapshot restore, completion pulses, and native LIST are disabled. |
+| `generic-scpi` planning profile | None; use explicit `--profile generic-scpi` in dry-run | CH1 | Unknown | Conservative no-hardware planning only. Trigger workflows, native LIST, and protection writes are not exposed. |
 
-Live hardware uses the IDN-detected model. In live mode, `--model` and
-`RuntimeOptions.model_profile` are expected-model guards: Core queries
-`*IDN?`, requires the detected model to match, and fails before setup/write
-SCPI on mismatch. The selected model never overrides the IDN-selected driver.
-`GENERIC` is a conservative no-hardware profile and is not a live expected
-model.
+Live hardware uses manufacturer-plus-model IDN resolution. In live mode,
+`--model` maps to `RuntimeOptions.expected_model_id`: Core requires the
+detected canonical identity to match and fails before command-specific SCPI on
+mismatch. The guard never overrides the IDN-selected driver. `generic-scpi`
+is a conservative nonphysical dry-run profile and is not a live expected model.
 
 For model-aware live execution, Core makes the final product decision using the
 detected `*IDN?` model plus the exact command, transport, and VISA backend.
@@ -228,7 +227,7 @@ range-dependent and are not flattened into a single voltage/current maximum.
 At *RST, the E3646A low voltage range is selected.
 
 E36103B and E36232A are not active supported models. They are rejected as
-no-hardware model profiles, live expected-model guards, WebUI model selections,
+no-hardware planning identities, live expected-model guards, WebUI model selections,
 `scripts/live-cli-check.ps1` targets, and live `*IDN?`-detected model-aware
 operations. They must not fall back to `GenericScpiPowerSupply`. Additional
 Keysight E36xxx / E36000-series models may be evaluated later after
@@ -245,11 +244,11 @@ command-level facts:
 - Unsupported model, command, and mode combinations fail intentionally. These
   feature-lock failures mean the workflow is not enabled for that model yet,
   not that `--model` or the WebUI selector can unlock it.
-- CLI `--model` and WebUI `runtime.model_profile` are no-hardware planning
-  profiles in dry-run/simulate mode. In live mode they are expected-model
-  guards only: live driver selection always follows the connected `*IDN?`
-  response. `GENERIC` is no-hardware only and is not accepted as a live
-  expected model.
+- CLI `--model` and WebUI `runtime.planning_model_id` select canonical physical
+  planning models in dry-run/simulate mode. Live requests instead use
+  `expected_model_id`; driver selection always follows manufacturer-plus-model
+  IDN resolution. `generic-scpi` uses the separate dry-run planning-profile
+  field and is never a live expected model.
 - E36312A full-suite artifacts provide evidence only for the exact commands
   listed in the product matrix above. A suite or feature-family label does not
   open every command in that family.
@@ -303,10 +302,11 @@ command-level facts:
   They are sent only when `--serial-remote` or `--serial-local-on-close` is
   explicitly requested for an ASRL resource.
 - No-hardware output-family, Ramp List, Sequence, `protection-set`,
-  `clear-protection`, and trigger plans use a strict model profile.
-  `--dry-run` and `--simulate` require either an explicit `--model` or a known
+  `clear-protection`, and trigger plans use strict planning identity.
+  `--dry-run` and `--simulate` require either an explicit physical `--model`
+  or a known
   deterministic SIM resource. Trigger no-hardware plans accept only
-  `--model E36312A` or a known deterministic E36312A SIM resource such as
+  `--model keysight-e36312a` or a known deterministic E36312A SIM resource such as
   `USB0::SIM::E36312A::INSTR`; an EDU36311A SIM resource is resolved and then
   rejected for trigger workflows. E3646A no-hardware `--channel all` plans
   expand to CH1 and CH2; CH3 is rejected.

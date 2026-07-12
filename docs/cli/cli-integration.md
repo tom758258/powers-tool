@@ -1,6 +1,6 @@
 # CLI Integration
 
-`keysight_power_cli` owns argparse handling, command-line text output, JSON
+`powers_tool_cli` owns argparse handling, command-line text output, JSON
 envelope wrapping, `--save-json`, `--log-scpi`, and the local worker daemon.
 
 The CLI does not own the core runtime schema. CLI-only fields such as

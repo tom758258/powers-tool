@@ -4,7 +4,7 @@ import csv
 import pytest
 
 import powers_tool_core.connection as connection
-import keysight_power_cli.cli as cli
+import powers_tool_cli.cli as cli
 from powers_tool_core.errors import VisaConnectionError
 
 
@@ -30,7 +30,7 @@ def test_root_version_prints_package_version(capsys) -> None:
 
     captured = capsys.readouterr()
 
-    assert captured.out.strip() == f"keysight-power {cli._package_version()}"
+    assert captured.out.strip() == f"powers-tool {cli._package_version()}"
     assert captured.err == ""
 
 
@@ -188,7 +188,7 @@ def test_hidden_validation_mode_keeps_no_hardware_feature_locks(monkeypatch, cap
                 "trigger-step",
                 "--dry-run",
                 "--model",
-                "EDU36311A",
+                "keysight-edu36311a",
                 "--resource",
                 OUTPUT_RESOURCE,
                 "--channel",
@@ -302,12 +302,21 @@ def expected_resource(
     reachable: bool | None = None,
     idn: str | None = None,
 ) -> dict[str, object]:
+    identity_by_model = {
+        "E36312A": ("keysight", "keysight-e36312a"),
+        "EDU36311A": ("keysight", "keysight-edu36311a"),
+        "E3646A": ("keysight", "keysight-e3646a"),
+    }
+    reported_model = idn.split(",")[1] if idn is not None else None
+    vendor_id, model_id = identity_by_model.get(reported_model, (None, None))
     return {
         "name": name,
         "interface": interface,
         "simulated": simulated,
         "reachable": reachable,
         "idn": expected_idn(idn) if idn is not None else None,
+        "vendor_id": vendor_id,
+        "model_id": model_id,
     }
 
 
@@ -1657,7 +1666,8 @@ def test_output_commands_dry_run_json_emit_logical_plans(
     assert payload["data"]["plan"]["operation"] == {"name": args[0]}
     assert payload["data"]["plan"]["target"] == {
         "resource": OUTPUT_RESOURCE,
-        "model_profile": "E36312A",
+        "planning_model_id": "keysight-e36312a",
+        "planning_profile_id": None,
         "channel": 1,
     }
     assert payload["data"]["plan"]["hardware_touched"] is False
@@ -1673,14 +1683,14 @@ def test_dry_run_without_model_or_sim_resource_fails(capsys) -> None:
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["code"] == "argument_error"
-    assert "require --model" in payload["error"]["message"]
+    assert "require planning_model_id" in payload["error"]["message"]
 
 
 def test_simulate_model_derives_resource_and_rejects_mismatch(capsys) -> None:
-    assert cli.main(["output-on", "--simulate", "--json", "--model", "E36312A", "--channel", "1"]) == 0
+    assert cli.main(["output-on", "--simulate", "--json", "--model", "keysight-e36312a", "--channel", "1"]) == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["data"]["plan"]["target"]["model_profile"] == "E36312A"
+    assert payload["data"]["plan"]["target"]["planning_model_id"] == "keysight-e36312a"
     assert payload["data"]["plan"]["target"]["resource"] == "USB0::SIM::E36312A::INSTR"
 
     assert (
@@ -1690,7 +1700,7 @@ def test_simulate_model_derives_resource_and_rejects_mismatch(capsys) -> None:
                 "--simulate",
                 "--json",
                 "--model",
-                "E3646A",
+                "keysight-e3646a",
                 "--resource",
                 "USB0::SIM::E36312A::INSTR",
                 "--channel",
@@ -1716,7 +1726,7 @@ def test_apply_simulate_rejects_explicit_non_sim_resource_before_hardware_io(mon
                 "--simulate",
                 "--json",
                 "--model",
-                "E3646A",
+                "keysight-e3646a",
                 "--resource",
                 "ASRL7::INSTR",
                 "--channel",
@@ -1756,17 +1766,17 @@ def test_live_generic_expected_model_fails_before_hardware_io(monkeypatch, capsy
         == 2
     )
     payload = json.loads(capsys.readouterr().out)
-    assert "GENERIC is no-hardware only" in payload["error"]["message"]
+    assert "invalid expected_model_id" in payload["error"]["message"]
 
 
 def test_e3646a_dry_run_all_expands_two_channels_and_rejects_three(capsys) -> None:
-    assert cli.main(["output-on", "--dry-run", "--json", "--model", "E3646A", "--channel", "all"]) == 0
+    assert cli.main(["output-on", "--dry-run", "--json", "--model", "keysight-e3646a", "--channel", "all"]) == 0
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["data"]["plan"]["target"]["model_profile"] == "E3646A"
+    assert payload["data"]["plan"]["target"]["planning_model_id"] == "keysight-e3646a"
     assert [step["parameters"]["channel"] for step in payload["data"]["plan"]["steps"]] == [1, 2]
 
-    assert cli.main(["output-on", "--dry-run", "--json", "--model", "E3646A", "--channel", "3"]) == 2
+    assert cli.main(["output-on", "--dry-run", "--json", "--model", "keysight-e3646a", "--channel", "3"]) == 2
     payload = json.loads(capsys.readouterr().out)
     assert "channel 3" in payload["error"]["message"]
 
@@ -1776,7 +1786,7 @@ def test_invalid_model_fails_as_argument_error(capsys) -> None:
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["code"] == "argument_error"
-    assert "unsupported model profile" in payload["error"]["message"]
+    assert "invalid planning_model_id" in payload["error"]["message"]
 
 
 def test_cycle_output_dry_run_json_includes_duration(capsys) -> None:
@@ -4634,7 +4644,7 @@ def test_trigger_pulse_dry_run_json_does_not_open_resource(monkeypatch, capsys) 
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--pin",
                 "1",
             ]
@@ -4682,7 +4692,7 @@ def test_trigger_dry_run_without_model_or_e36312a_sim_resource_fails(monkeypatch
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["code"] == "argument_error"
-    assert "require --model" in payload["error"]["message"]
+    assert "require planning_model_id" in payload["error"]["message"]
 
 
 def test_trigger_pulse_dry_run_json_accepts_multiple_pins(monkeypatch, capsys) -> None:
@@ -4698,7 +4708,7 @@ def test_trigger_pulse_dry_run_json_accepts_multiple_pins(monkeypatch, capsys) -
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--pins",
                 "1,2",
             ]
@@ -4809,7 +4819,7 @@ def test_trigger_pulse_exclusive_pin_dry_run_lists_clear_steps(monkeypatch, caps
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--pin",
                 "3",
                 "--exclusive-pin",
@@ -5213,7 +5223,7 @@ def test_trigger_status_dry_run_model_plans_without_opening(monkeypatch, capsys)
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "all",
             ]
@@ -5222,7 +5232,7 @@ def test_trigger_status_dry_run_model_plans_without_opening(monkeypatch, capsys)
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["data"]["plan"]["target"]["model_profile"] == "E36312A"
+    assert payload["data"]["plan"]["target"]["planning_model_id"] == "keysight-e36312a"
     commands = [step["command"] for step in payload["data"]["plan"]["steps"]]
     assert "TRIG:SOUR? (@1)" in commands
     assert "TRIG:SOUR? (@2)" in commands
@@ -5237,7 +5247,7 @@ def test_trigger_status_simulate_model_derives_e36312a_resource(capsys) -> None:
                 "--simulate",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "1",
             ]
@@ -5263,7 +5273,7 @@ def test_trigger_list_dry_run_json_plans_native_list_scpi(monkeypatch, capsys) -
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5316,7 +5326,7 @@ def test_trigger_list_rejects_more_than_100_steps(capsys) -> None:
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5340,7 +5350,7 @@ def test_trigger_step_bus_fire_is_explicit(capsys) -> None:
         "--dry-run",
         "--json",
         "--model",
-        "E36312A",
+        "keysight-e36312a",
         "--channel",
         "1",
         "--source",
@@ -5361,7 +5371,7 @@ def test_trigger_step_bus_fire_is_explicit(capsys) -> None:
 
 def test_trigger_list_dry_run_supports_explicit_bost_eost(capsys) -> None:
     assert cli.main([
-        "trigger-list", "--dry-run", "--json", "--model", "E36312A",
+        "trigger-list", "--dry-run", "--json", "--model", "keysight-e36312a",
         "--channel", "1", "--voltage-list", "0,1", "--current-list", "0.05",
         "--dwell-list", "0.01", "--bost-list", "on,off", "--eost-list", "off,on",
         "--trigger-output-pins", "1,3", "--trigger-output-polarity", "negative",
@@ -5383,7 +5393,7 @@ def test_trigger_step_rejects_completion_pulse_pins(capsys) -> None:
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "1",
                 "--completion-pulse-pins",
@@ -5406,7 +5416,7 @@ def test_trigger_step_bus_arm_only_keeps_existing_non_wait_behavior(capsys) -> N
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "1",
                 "--source",
@@ -5478,7 +5488,7 @@ def test_trigger_list_bus_arm_only_requires_leave_configured(capsys) -> None:
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5505,7 +5515,7 @@ def test_trigger_list_started_without_wait_requires_leave_configured(capsys) -> 
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5532,7 +5542,7 @@ def test_trigger_list_completion_pins_imply_final_eost(capsys) -> None:
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5580,7 +5590,7 @@ def test_trigger_list_file_steps_format(tmp_path, capsys) -> None:
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--file",
                 str(list_file),
                 "--leave-trigger-configured",
@@ -5610,7 +5620,7 @@ def test_trigger_list_file_array_format_still_supported(tmp_path, capsys) -> Non
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--file",
                 str(list_file),
                 "--leave-trigger-configured",
@@ -5642,7 +5652,7 @@ allowed_channels = [1]
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5672,7 +5682,7 @@ def test_trigger_list_exclusive_pins_clears_unselected_pins(capsys) -> None:
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "1",
                 "--voltage-list",
@@ -5706,7 +5716,7 @@ def test_trigger_fire_wait_complete_requires_channel(capsys) -> None:
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--wait-complete",
             ]
         )
@@ -5726,7 +5736,7 @@ def test_trigger_abort_all_plans_each_channel(capsys) -> None:
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "all",
             ]
@@ -6151,7 +6161,7 @@ def test_output_commands_accept_serial_options_in_json_request(capsys, command, 
                 *extra_args,
                 *SERIAL_TERMINATION_ARGS,
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--dry-run",
             ]
         )
@@ -7757,7 +7767,7 @@ def test_ramp_list_simulate_inline_does_not_open_resource(monkeypatch, capsys) -
                 "ramp-list",
                 "--simulate",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--json",
                 "--segment",
                 "1",

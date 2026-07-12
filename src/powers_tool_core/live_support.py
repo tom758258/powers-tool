@@ -95,7 +95,7 @@ def enforce_product_live_support_for_idn(
         _policy_model_id_from_idn(
             idn_raw,
             command or request.command,
-            request.runtime.model_profile,
+            request.runtime.expected_model_id,
         ),
         command=command,
         feature_requirements=feature_requirements,
@@ -116,7 +116,7 @@ def enforce_live_support_for_idn(
         _policy_model_id_from_idn(
             idn_raw,
             command or request.command,
-            request.runtime.model_profile,
+            request.runtime.expected_model_id,
         ),
         command=command,
         feature_requirements=feature_requirements,
@@ -126,21 +126,17 @@ def enforce_live_support_for_idn(
 def _policy_model_id_from_idn(
     idn_raw: str,
     command: str,
-    expected_model: str | None,
+    expected_model_id: str | None,
 ) -> str | None:
     """Resolve manufacturer plus model before entering the exact policy gate."""
 
     parsed = parse_idn(idn_raw)
-    if is_live_support_policy_exempt(command):
-        validate_live_expected_model(
-            expected_model,
-            parsed.model,
-            command=command,
-        )
-        return None
     try:
         resolved = resolve_physical_model_identity(parsed.manufacturer, parsed.model)
     except IdentityResolutionError as exc:
+        if is_live_support_policy_exempt(command):
+            validate_live_expected_model(expected_model_id, None, command=command)
+            return None
         if exc.reason == "unknown_model" and parsed.model:
             reported_model = parsed.model.strip()
             message = (
@@ -153,11 +149,13 @@ def _policy_model_id_from_idn(
                 "to a supported physical identity"
             )
         raise LiveSupportPolicyError(message) from exc
-    if resolved.model_id in DE_SCOPED_MODEL_IDS:
-        raise UnsupportedModelError(de_scoped_model_message(resolved.model_id))
     validate_live_expected_model(
-        expected_model,
-        resolved.canonical_model,
+        expected_model_id,
+        resolved.model_id,
         command=command,
     )
+    if is_live_support_policy_exempt(command):
+        return None
+    if resolved.model_id in DE_SCOPED_MODEL_IDS:
+        raise UnsupportedModelError(de_scoped_model_message(resolved.model_id))
     return resolved.model_id

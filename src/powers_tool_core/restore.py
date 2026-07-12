@@ -14,6 +14,7 @@ from powers_tool_core.core import ConfirmationRequiredError, CoreIoError, CoreVa
 from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.errors import VisaConnectionError
 from powers_tool_core.factory import create_power_supply
+from powers_tool_core.identity import IdentityResolutionError, resolve_physical_model_identity
 from powers_tool_core.models import parse_idn
 from powers_tool_core.model_resolution import resolve_no_hardware_runtime
 from powers_tool_core.live_support import enforce_live_support_for_idn
@@ -33,14 +34,35 @@ def run_restore(
         raise CoreValidationError(f"unsupported restore command {request.command!r}")
     snapshot = _snapshot_document(request)
     if request.runtime.dry_run or request.runtime.simulate:
-        if request.runtime.model_profile is None:
+        if request.runtime.planning_model_id is None:
             snapshot_idn = snapshot.get("idn") if isinstance(snapshot.get("idn"), dict) else {}
+            snapshot_manufacturer = snapshot_idn.get("manufacturer")
             snapshot_model = snapshot_idn.get("model")
-            if isinstance(snapshot_model, str) and snapshot_model:
-                request = replace(request, runtime=replace(request.runtime, model_profile=snapshot_model))
+            if isinstance(snapshot_manufacturer, str) and isinstance(snapshot_model, str):
+                try:
+                    identity = resolve_physical_model_identity(
+                        snapshot_manufacturer,
+                        snapshot_model,
+                    )
+                except IdentityResolutionError as exc:
+                    raise CoreValidationError(
+                        "snapshot manufacturer and model do not resolve to a canonical physical identity"
+                    ) from exc
+                request = replace(
+                    request,
+                    runtime=replace(
+                        request.runtime,
+                        planning_model_id=identity.model_id,
+                    ),
+                )
         request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
         mode = "dry_run" if request.runtime.dry_run else "simulate"
-        capabilities.ensure_command_supported(request.command, request.runtime.model_profile, mode)
+        capabilities.ensure_command_supported(
+            request.command,
+            request.runtime.planning_model_id,
+            request.runtime.planning_profile_id,
+            mode,
+        )
     channels = _restore_channels(request, snapshot)
     plan = restore_plan(
         snapshot,

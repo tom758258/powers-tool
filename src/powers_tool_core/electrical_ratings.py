@@ -102,16 +102,8 @@ def ratings_for_model_id(model_id: str | None) -> ModelElectricalRatings | None:
     return ELECTRICAL_RATINGS_BY_MODEL_ID.get(model_id)
 
 
-def ratings_for_model_profile(model_profile: str | None) -> ModelElectricalRatings | None:
-    """Bridge the staged P4 model-profile contract to canonical rating keys."""
-
-    from powers_tool_core.model_resolution import model_id_from_model_profile
-
-    return ratings_for_model_id(model_id_from_model_profile(model_profile))
-
-
 def electrical_ratings_by_model_metadata() -> dict[str, dict[str, object]]:
     return {
-        ratings.model: ratings.to_dict()
-        for ratings in ELECTRICAL_RATINGS_BY_MODEL_ID.values()
+        model_id: ratings.to_dict()
+        for model_id, ratings in ELECTRICAL_RATINGS_BY_MODEL_ID.items()
     }

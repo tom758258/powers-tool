@@ -4,7 +4,7 @@ This document extends `common-orchestrator-workflows.md` with Power-specific exa
 
 ## Startup
 
-Start the Worker with `keysight-power worker`. Wait for the `ready` event and use `command_url`, `status_url`, and `stop_url`. If `ready` is missed, poll `GET /status`. Do not expect `trigger_url` or `default_action`.
+Start the Worker with `powers-tool worker`. Wait for the `ready` event and use `command_url`, `status_url`, and `stop_url`. If `ready` is missed, poll `GET /status`. Do not expect `trigger_url` or `default_action`.
 
 ## Read-Only Check
 
@@ -89,7 +89,7 @@ def read_jsonl_until(proc, lines, event_name, timeout_s=10):
 
 def run_client(*args):
     completed = subprocess.run(
-        [sys.executable, "-m", "keysight_power_cli.cli", *args],
+        [sys.executable, "-m", "powers_tool_cli.cli", *args],
         text=True,
         capture_output=True,
         check=False,
@@ -104,7 +104,7 @@ proc = subprocess.Popen(
     [
         sys.executable,
         "-m",
-        "keysight_power_cli.cli",
+        "powers_tool_cli.cli",
         "worker",
         "--mode",
         "simulate",
@@ -121,7 +121,7 @@ proc = subprocess.Popen(
 stdout_lines = start_stdout_reader(proc)
 try:
     ready = read_jsonl_until(proc, stdout_lines, "ready")
-    assert ready["service"] == "keysight-power"
+    assert ready["service"] == "powers-tool"
     assert ready["run_id"]
     assert "trigger_url" not in ready
     port = str(ready["port"])

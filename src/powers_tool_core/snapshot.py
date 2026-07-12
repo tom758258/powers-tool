@@ -31,7 +31,12 @@ def run_snapshot(
     if request.runtime.dry_run or request.runtime.simulate:
         request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
         mode = "dry_run" if request.runtime.dry_run else "simulate"
-        capabilities.ensure_command_supported(request.command, request.runtime.model_profile, mode)
+        capabilities.ensure_command_supported(
+            request.command,
+            request.runtime.planning_model_id,
+            request.runtime.planning_profile_id,
+            mode,
+        )
     instrument, idn = _open(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
         if not request.runtime.simulate:

@@ -34,7 +34,8 @@ def dry_run_plan(
     *,
     command: str,
     resource: str | None = None,
-    model_profile: str | None = None,
+    planning_model_id: str | None = None,
+    planning_profile_id: str | None = None,
     scpi: tuple[str, ...] = (),
     description: str | None = None,
 ) -> dict[str, object]:
@@ -42,7 +43,11 @@ def dry_run_plan(
 
     return {
         "operation": {"name": command},
-        "target": {"resource": resource, "model_profile": model_profile},
+        "target": {
+            "resource": resource,
+            "planning_model_id": planning_model_id,
+            "planning_profile_id": planning_profile_id,
+        },
         "steps": [
             {
                 "index": index,

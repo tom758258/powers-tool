@@ -17,7 +17,9 @@ class RuntimeOptions:
     safety_config: str | None = None
     simulate: bool = False
     dry_run: bool = False
-    model_profile: str | None = None
+    planning_model_id: str | None = None
+    expected_model_id: str | None = None
+    planning_profile_id: str | None = None
     backend: str | None = None
     timeout_ms: int = DEFAULT_TIMEOUT_MS
     log_scpi: bool = False
@@ -27,6 +29,11 @@ class RuntimeOptions:
     serial_local_on_close: bool = False
     # Kept as a literal to avoid importing support_policy back into Core.
     support_policy_mode: str = "product"
+
+    def __post_init__(self) -> None:
+        from powers_tool_core.model_resolution import validate_runtime_identity
+
+        validate_runtime_identity(self)
 
 
 @dataclass(frozen=True)

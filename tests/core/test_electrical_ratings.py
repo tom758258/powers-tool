@@ -73,4 +73,7 @@ def test_safety_config_can_only_make_rating_more_restrictive() -> None:
 
 def test_unknown_model_has_no_invented_rating() -> None:
     assert ratings_for_model_id("UNKNOWN") is None
-    assert set(electrical_ratings_by_model_metadata()) == {"E36312A", "EDU36311A"}
+    assert set(electrical_ratings_by_model_metadata()) == {
+        "keysight-e36312a",
+        "keysight-edu36311a",
+    }

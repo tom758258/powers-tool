@@ -21,6 +21,7 @@ from powers_tool_core.core import (
 from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.errors import VisaConnectionError
 from powers_tool_core.factory import create_power_supply
+from powers_tool_core.identity import resolve_physical_model_identity
 from powers_tool_core.model_resolution import resolve_no_hardware_runtime, validate_live_expected_model
 from powers_tool_core.models import parse_idn
 from powers_tool_core.live_support import enforce_live_support_for_idn
@@ -109,18 +110,19 @@ def _resolve_trigger_runtime(request: TriggerRequest) -> TriggerRequest:
     runtime = resolve_no_hardware_runtime(request.runtime)
     request = replace(request, runtime=runtime)
     if request.runtime.dry_run or request.runtime.simulate:
-        _require_trigger_model_profile(request.command, request.runtime.model_profile)
+        _require_trigger_planning_model(request.command, request.runtime.planning_model_id)
     return request
 
 
-def _require_trigger_model_profile(command: str, model_profile: str | None) -> None:
-    if model_profile is None:
+def _require_trigger_planning_model(command: str, planning_model_id: str | None) -> None:
+    if planning_model_id is None:
         raise CoreValidationError(
-            "trigger no-hardware workflows require --model E36312A or a known deterministic E36312A SIM resource"
+            "trigger no-hardware workflows require planning_model_id "
+            "'keysight-e36312a' or its deterministic SIM resource"
         )
-    if model_profile != "E36312A":
+    if planning_model_id != "keysight-e36312a":
         raise UnsupportedModelError(
-            unsupported_command_message(command, model_profile, "dry-run")
+            unsupported_command_message(command, planning_model_id, "dry-run")
         )
 
 
@@ -193,7 +195,8 @@ def trigger_plan(request: TriggerRequest) -> dict[str, object]:
     return dry_run_plan(
         command=request.command,
         resource=request.runtime.resource,
-        model_profile=request.runtime.model_profile,
+        planning_model_id=request.runtime.planning_model_id,
+        planning_profile_id=request.runtime.planning_profile_id,
         scpi=scpi,
         description=description,
     )
@@ -1126,9 +1129,11 @@ def _trigger_power_supply(
 
 
 def _validate_trigger_expected_model(request: TriggerRequest, idn: str) -> None:
+    parsed = parse_idn(idn)
+    identity = resolve_physical_model_identity(parsed.manufacturer, parsed.model)
     validate_live_expected_model(
-        request.runtime.model_profile,
-        parse_idn(idn).model,
+        request.runtime.planning_model_id,
+        identity.model_id,
         command=request.command,
     )
 

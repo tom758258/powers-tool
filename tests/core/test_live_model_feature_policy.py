@@ -25,7 +25,7 @@ def _snapshot_document(model: str) -> dict[str, object]:
 @pytest.mark.parametrize(
     "runtime",
     [
-        RuntimeOptions(dry_run=True, model_profile="EDU36311A"),
+        RuntimeOptions(dry_run=True, planning_model_id="keysight-edu36311a"),
         RuntimeOptions(simulate=True, resource="USB0::SIM::EDU36311A::INSTR"),
     ],
 )
@@ -55,7 +55,7 @@ def test_edu36311a_trigger_step_no_hardware_rejected(runtime: RuntimeOptions) ->
             "restore-from-snapshot",
             OperationRequest(
                 command="restore-from-snapshot",
-                runtime=RuntimeOptions(dry_run=True, model_profile="EDU36311A"),
+                runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-edu36311a"),
                 parameters={"document": _snapshot_document("EDU36311A"), "channel": 1},
             ),
         ),
@@ -69,7 +69,7 @@ def test_edu36311a_snapshot_restore_rejected(command: str, core_request: Operati
 @pytest.mark.parametrize(
     "runtime",
     [
-        RuntimeOptions(dry_run=True, model_profile="EDU36311A"),
+        RuntimeOptions(dry_run=True, planning_model_id="keysight-edu36311a"),
         RuntimeOptions(simulate=True, resource="USB0::SIM::EDU36311A::INSTR"),
     ],
 )
@@ -88,7 +88,7 @@ def test_edu36311a_sequence_trigger_pulse_rejected(runtime: RuntimeOptions) -> N
     [
         OperationRequest(
             command="protection-set",
-            runtime=RuntimeOptions(dry_run=True, model_profile="E3646A"),
+            runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e3646a"),
             parameters={"channel": 1, "ovp_voltage": 5.0},
         ),
         OperationRequest(
@@ -98,17 +98,17 @@ def test_edu36311a_sequence_trigger_pulse_rejected(runtime: RuntimeOptions) -> N
         ),
         OperationRequest(
             command="restore-from-snapshot",
-            runtime=RuntimeOptions(dry_run=True, model_profile="E3646A"),
+            runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e3646a"),
             parameters={"document": _snapshot_document("E3646A"), "channel": 1},
         ),
         TriggerRequest(
             command="trigger-step",
-            runtime=RuntimeOptions(dry_run=True, model_profile="E3646A"),
+            runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e3646a"),
             parameters={"channel": 1, "source": "bus", "fire": True},
         ),
         TriggerRequest(
             command="trigger-list",
-            runtime=RuntimeOptions(dry_run=True, model_profile="E3646A"),
+            runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e3646a"),
             parameters={
                 "channel": 1,
                 "source": "bus",
@@ -141,7 +141,7 @@ def test_e3646a_unsupported_core_workflows_rejected(core_request: OperationReque
 )
 def test_e3646a_sequence_unsupported_step_types_fail(action: str) -> None:
     request = SequenceRequest(
-        runtime=RuntimeOptions(dry_run=True, model_profile="E3646A"),
+        runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e3646a"),
         parameters={"document": {"version": 1, "steps": [{"action": action, "channel": 1, "pins": [1]}]}},
     )
 
@@ -151,7 +151,7 @@ def test_e3646a_sequence_unsupported_step_types_fail(action: str) -> None:
 
 def test_e3646a_sequence_validated_read_only_and_output_steps_still_plan() -> None:
     request = SequenceRequest(
-        runtime=RuntimeOptions(dry_run=True, model_profile="E3646A"),
+        runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e3646a"),
         parameters={
             "document": {
                 "version": 1,
@@ -167,5 +167,5 @@ def test_e3646a_sequence_validated_read_only_and_output_steps_still_plan() -> No
     result = run_core_command(request)
 
     assert result["status"] == "planned"
-    assert result["plan"]["target"]["model_profile"] == "E3646A"
+    assert result["plan"]["target"]["planning_model_id"] == "keysight-e3646a"
     assert [step["action"] for step in result["plan"]["steps"]] == ["readback", "set", "output-off"]

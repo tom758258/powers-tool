@@ -58,26 +58,10 @@ def normalize_real_trigger_source(value: str) -> str:
     return normalized
 
 
-def supported_sequence_actions(model_profile: str | None) -> frozenset[str]:
-    """Return current profile-supported instrument-relevant sequence actions."""
-
-    from powers_tool_core.model_resolution import model_id_from_model_profile
-
-    return supported_sequence_actions_for_model_id(model_id_from_model_profile(model_profile))
-
-
 def supported_sequence_actions_for_model_id(model_id: str | None) -> frozenset[str]:
     """Return current actions for a canonical physical model ID."""
 
     return SUPPORTED_SEQUENCE_ACTIONS_BY_MODEL_ID.get(model_id, frozenset())
-
-
-def supported_real_trigger_sources(model_profile: str | None) -> frozenset[str]:
-    """Return current profile-supported real trigger sources."""
-
-    from powers_tool_core.model_resolution import model_id_from_model_profile
-
-    return supported_real_trigger_sources_for_model_id(model_id_from_model_profile(model_profile))
 
 
 def supported_real_trigger_sources_for_model_id(model_id: str | None) -> frozenset[str]:

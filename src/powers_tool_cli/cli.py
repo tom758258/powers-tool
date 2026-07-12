@@ -31,7 +31,7 @@ import powers_tool_core.sequence as sequence
 import powers_tool_core.snapshot as snapshot_core
 import powers_tool_core.trigger as trigger_core
 import powers_tool_core.validation as validation
-from keysight_power_cli.cli_io import (
+from powers_tool_cli.cli_io import (
     JsonSaveError,
     emit_json_error,
     emit_json_success,
@@ -60,6 +60,12 @@ from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
 from powers_tool_core.drivers.generic_scpi import GenericScpiPowerSupply
 from powers_tool_core.errors import VisaConnectionError
 from powers_tool_core.factory import create_power_supply, select_driver
+from powers_tool_core.identity import (
+    IDENTITY_INDEXES,
+    IdentityResolutionError,
+    canonical_physical_model_id,
+    resolve_physical_model_identity,
+)
 from powers_tool_core.live_support import enforce_live_support_for_idn
 from powers_tool_core.support_policy import (
     LiveSupportPolicyError,
@@ -205,13 +211,13 @@ class _ScpiLoggingSession:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = JsonCliArgumentParser(
-        prog="keysight-power",
-        description="Safe CLI tools for Keysight DC power supplies.",
+        prog="powers-tool",
+        description="Safe Powers Tool CLI for Keysight DC power supplies.",
     )
     parser.add_argument(
         "--version",
         action="version",
-        version=f"keysight-power {_package_version()}",
+        version=f"powers-tool {_package_version()}",
     )
     subparsers = parser.add_subparsers(
         dest="command",
@@ -342,8 +348,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     measure_all_parser.set_defaults(func=_run_measure_all)
 
-    from keysight_power_cli.commands import output as output_commands
-    from keysight_power_cli.commands import trigger as trigger_commands
+    from powers_tool_cli.commands import output as output_commands
+    from powers_tool_cli.commands import trigger as trigger_commands
 
     runtime = sys.modules[__name__]
     output_commands.register_commands(subparsers, runtime)
@@ -561,6 +567,7 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot_parser.add_argument("--redact-resource", action="store_true", help="Redact the VISA resource string in JSON snapshot data.")
     _add_json_argument(snapshot_parser)
     _add_simulate_argument(snapshot_parser)
+    _add_model_argument(snapshot_parser)
     _add_safety_config_argument(snapshot_parser)
     _add_backend_argument(snapshot_parser)
     _add_timeout_argument(snapshot_parser)
@@ -622,6 +629,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_simulate_argument(restore_parser)
     _add_dry_run_argument(restore_parser)
     _add_validation_support_policy_argument(restore_parser)
+    _add_model_argument(restore_parser)
     restore_parser.add_argument("--plan-json", help="Write the dry-run restore plan data to a JSON file. Requires --dry-run.")
     _add_backend_argument(restore_parser)
     _add_timeout_argument(restore_parser)
@@ -683,8 +691,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     log_parser.set_defaults(func=_run_log)
 
-    from keysight_power_cli.commands import sequence as sequence_command
-    from keysight_power_cli.commands import ramp_list as ramp_list_command
+    from powers_tool_cli.commands import sequence as sequence_command
+    from powers_tool_cli.commands import ramp_list as ramp_list_command
 
     sequence_command.register_commands(subparsers, sys.modules[__name__])
     ramp_list_command.register_commands(subparsers, sys.modules[__name__])
@@ -746,7 +754,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     worker_parser = subparsers.add_parser(
         "worker",
-        help="Run keysight-power worker daemon.",
+        help="Run the Powers Tool worker daemon.",
     )
     worker_parser.add_argument("--id", help="Worker ID.")
     worker_parser.add_argument("--mode", choices=["simulate", "live"], help="Execution mode.")
@@ -843,7 +851,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     finally:
         set_json_save_path(None)
         set_json_start_time(None)
-        sys.modules.pop("keysight_power_cli", None)
+        sys.modules.pop("powers_tool_cli", None)
 
 
 def _add_backend_argument(parser: argparse.ArgumentParser) -> None:
@@ -953,11 +961,39 @@ def _add_validation_support_policy_argument(parser: argparse.ArgumentParser) -> 
     )
 
 
-def _add_model_argument(parser: argparse.ArgumentParser) -> None:
+def _add_model_argument(
+    parser: argparse.ArgumentParser,
+    *,
+    allow_profile: bool = False,
+) -> None:
     parser.add_argument(
         "--model",
-        help="Model profile for --dry-run/--simulate, or expected model guard for live mode.",
+        help=(
+            "Canonical vendor-qualified physical model ID. Used as planning_model_id "
+            "for dry-run/simulator execution and expected_model_id for live execution."
+        ),
     )
+    if allow_profile:
+        parser.add_argument(
+            "--profile",
+            help="Nonphysical dry-run planning profile; currently generic-scpi.",
+        )
+
+
+def _runtime_identity_for_args(args: argparse.Namespace) -> dict[str, str | None]:
+    model_id = getattr(args, "model", None)
+    profile_id = getattr(args, "profile", None)
+    if getattr(args, "simulate", False) or getattr(args, "dry_run", False):
+        return {
+            "planning_model_id": model_id,
+            "expected_model_id": None,
+            "planning_profile_id": profile_id,
+        }
+    return {
+        "planning_model_id": None,
+        "expected_model_id": model_id,
+        "planning_profile_id": profile_id,
+    }
 
 
 def _add_write_verification_arguments(parser: argparse.ArgumentParser) -> None:
@@ -3506,6 +3542,7 @@ def _run_restore_from_snapshot(args: argparse.Namespace) -> int:
                     resource=args.resource,
                     simulate=args.simulate,
                     dry_run=args.dry_run,
+                    **_runtime_identity_for_args(args),
                     backend=args.backend,
                     timeout_ms=args.timeout_ms,
                     log_scpi=args.log_scpi,
@@ -3821,7 +3858,7 @@ def _run_ramp_list(args: argparse.Namespace) -> int:
 
 
 def _run_worker(args: argparse.Namespace) -> int:
-    from keysight_power_cli.worker import run_worker
+    from powers_tool_cli.worker import run_worker
     return run_worker(args)
 
 
@@ -4050,7 +4087,7 @@ def _run_doctor(args: argparse.Namespace) -> int:
             "executable": sys.executable,
             "platform": platform.platform(),
         },
-        "package": {"name": "keysight-power-cli", "version": _package_version()},
+        "package": {"name": "powers-tool-cli", "version": _package_version()},
         "pyvisa": {"available": pyvisa_available, "backend": args.backend},
         "simulator": {
             "available": True,
@@ -4212,14 +4249,20 @@ def _run_safety_inspect(args: argparse.Namespace) -> int:
     try:
         if args.safety_config is None:
             raise SafetyConfigError("safety inspect requires --safety-config")
+        model_id = canonical_physical_model_id(args.model)
+        model_name = (
+            IDENTITY_INDEXES.models_by_id[model_id].canonical_model
+            if model_id is not None
+            else None
+        )
         resolution = resolve_safety_config(
             args.safety_config,
             resource=args.resource,
             resource_alias=args.resource_alias,
-            model=args.model,
+            model=model_name,
             channel=args.channel,
         )
-    except SafetyConfigError as exc:
+    except (SafetyConfigError, IdentityResolutionError) as exc:
         return _emit_cli_error(
             args,
             request=request,
@@ -4232,16 +4275,16 @@ def _run_safety_inspect(args: argparse.Namespace) -> int:
     data = {
         "resource": resolution.resource,
         "resource_alias": resolution.resource_alias,
-        "model": args.model,
+        "model_id": model_id,
         "channel": args.channel,
         "limits": _safety_limits_payload(limits),
         "sources": resolution.sources or {},
         "output_affecting_allowed": _output_affecting_allowed(args.channel, limits),
     }
-    from powers_tool_core.electrical_ratings import ratings_for_model_profile
+    from powers_tool_core.electrical_ratings import ratings_for_model_id
     from powers_tool_core.setpoint_limits import effective_setpoint_limits
 
-    ratings = ratings_for_model_profile(args.model)
+    ratings = ratings_for_model_id(args.model)
     official = ratings.channel(args.channel) if ratings is not None and isinstance(args.channel, int) else None
     effective = (
         effective_setpoint_limits(
@@ -6107,12 +6150,21 @@ def _resource_payload(
     reachable: bool | None,
     idn_raw: str | None,
 ) -> dict[str, Any]:
+    idn = parse_idn(idn_raw) if idn_raw is not None else None
+    identity = None
+    if idn is not None:
+        try:
+            identity = resolve_physical_model_identity(idn.manufacturer, idn.model)
+        except IdentityResolutionError:
+            identity = None
     return {
         "name": name,
         "interface": resource_interface(name),
         "simulated": simulated,
         "reachable": reachable,
-        "idn": parse_idn(idn_raw).to_dict() if idn_raw is not None else None,
+        "idn": idn.to_dict() if idn is not None else None,
+        "vendor_id": identity.vendor_id if identity is not None else None,
+        "model_id": identity.model_id if identity is not None else None,
     }
 
 
@@ -6189,10 +6241,16 @@ def _safety_field_sources(args: argparse.Namespace) -> dict[str, str | None]:
         for field in fields:
             if getattr(config.global_limits, field) is not None:
                 sources[field] = "global:safety"
-    model_entry = config.model_limits_for(args.model)
-    if model_entry is not None and args.model is not None:
+    model_id = canonical_physical_model_id(args.model)
+    model_name = (
+        IDENTITY_INDEXES.models_by_id[model_id].canonical_model
+        if model_id is not None
+        else None
+    )
+    model_entry = config.model_limits_for(model_name)
+    if model_entry is not None and model_name is not None:
         for field in model_entry[1]:
-            sources[field] = f"model:{args.model.upper()}"
+            sources[field] = f"model:{model_name}"
     entry = None
     if args.resource_alias is not None:
         entry = config.entry_for_alias(args.resource_alias)
@@ -8291,11 +8349,11 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "lint": getattr(args, "lint", False),
         }
     if args.command == "sequence":
-        from keysight_power_cli.commands import sequence as sequence_command
+        from powers_tool_cli.commands import sequence as sequence_command
 
         return sequence_command.request_for_args(args, sys.modules[__name__])
     if args.command == "ramp-list":
-        from keysight_power_cli.commands import ramp_list as ramp_list_command
+        from powers_tool_cli.commands import ramp_list as ramp_list_command
 
         return ramp_list_command.request_for_args(args, sys.modules[__name__])
     if args.command == "doctor":
@@ -8681,11 +8739,11 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "lint": "--lint" in argv,
         }
     if command == "sequence":
-        from keysight_power_cli.commands import sequence as sequence_command
+        from powers_tool_cli.commands import sequence as sequence_command
 
         return sequence_command.request_from_argv(argv, sys.modules[__name__])
     if command == "ramp-list":
-        from keysight_power_cli.commands import ramp_list as ramp_list_command
+        from powers_tool_cli.commands import ramp_list as ramp_list_command
 
         return ramp_list_command.request_from_argv(argv, sys.modules[__name__])
     if command == "doctor":
@@ -9235,7 +9293,7 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
             safety_config=getattr(args, "safety_config", None),
             simulate=getattr(args, "simulate", False),
             dry_run=getattr(args, "dry_run", False),
-            model_profile=getattr(args, "model", None),
+            **_runtime_identity_for_args(args),
             backend=getattr(args, "backend", None),
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
@@ -9269,7 +9327,7 @@ def _target_core_request_for_args(args: argparse.Namespace) -> OperationRequest:
             safety_config=getattr(args, "safety_config", None),
             simulate=getattr(args, "simulate", False),
             dry_run=getattr(args, "dry_run", False),
-            model_profile=getattr(args, "model", None),
+            **_runtime_identity_for_args(args),
             backend=getattr(args, "backend", None),
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
@@ -9289,11 +9347,6 @@ def _enforce_live_cli_scope(args: argparse.Namespace, idn_raw: str, *, command: 
     if request.runtime.simulate:
         return
     effective_command = command or request.command
-    validate_live_expected_model(
-        request.runtime.model_profile,
-        parse_idn(idn_raw).model,
-        command=effective_command,
-    )
     enforce_live_support_for_idn(request, idn_raw, command=effective_command)
 
 
@@ -9367,13 +9420,13 @@ def _core_lister_for_args(args: argparse.Namespace):
 
 
 def _sequence_request_for_args(args: argparse.Namespace) -> SequenceRequest:
-    from keysight_power_cli.commands import sequence as sequence_command
+    from powers_tool_cli.commands import sequence as sequence_command
 
     return sequence_command.core_request_for_args(args, sys.modules[__name__])
 
 
 def _ramp_list_request_for_args(args: argparse.Namespace) -> OperationRequest:
-    from keysight_power_cli.commands import ramp_list as ramp_list_command
+    from powers_tool_cli.commands import ramp_list as ramp_list_command
 
     return ramp_list_command.core_request_for_args(args, sys.modules[__name__])
 
@@ -9426,7 +9479,7 @@ def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
             safety_config=getattr(args, "safety_config", None),
             simulate=getattr(args, "simulate", False),
             dry_run=getattr(args, "dry_run", False),
-            model_profile=getattr(args, "model", None),
+            **_runtime_identity_for_args(args),
             backend=getattr(args, "backend", None),
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),

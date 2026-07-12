@@ -1,4 +1,4 @@
-"""Server entry point for Keysight Power WebUI."""
+"""Server entry point for Powers Tool WebUI."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from . import __version__ as WEBUI_VERSION
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Keysight Power WebUI Server")
+    parser = argparse.ArgumentParser(description="Powers Tool WebUI Server")
     parser.add_argument(
         "--version",
         action="version",
-        version=f"keysight-power-webui {WEBUI_VERSION}",
+        version=f"powers-tool-webui {WEBUI_VERSION}",
     )
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
     parser.add_argument("--port", type=int, default=7999, help="Port to bind to")
@@ -34,7 +34,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         raise SystemExit(2) from exc
 
-    print(f"Starting Keysight Power WebUI on http://{args.host}:{args.port}")
+    print(f"Starting Powers Tool WebUI on http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, reload=args.reload)
     return 0
 

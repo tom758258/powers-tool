@@ -11,7 +11,11 @@ def test_dry_run_plan_is_data_only() -> None:
 
     assert plan == {
         "operation": {"name": "set"},
-        "target": {"resource": "USB0::SIM::E36312A::INSTR", "model_profile": None},
+        "target": {
+            "resource": "USB0::SIM::E36312A::INSTR",
+            "planning_model_id": None,
+            "planning_profile_id": None,
+        },
         "steps": [
             {
                 "index": 1,

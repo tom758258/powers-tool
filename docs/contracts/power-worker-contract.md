@@ -137,9 +137,9 @@ validation bypass. A command may remain useful in dry-run or simulator mode
 without an accepted real-hardware scope.
 
 Worker always operates in the product support-policy mode. Validation-policy
-request or settings fields are rejected rather than ignored, and
-`arguments.model_profile` remains a no-hardware planning profile or live
-expected-model guard, never a support unlock.
+request or settings fields are rejected rather than ignored. Runtime identity
+is selected per request with the three explicit V2 fields and is never a
+support unlock.
 
 ## Arguments
 
@@ -147,10 +147,17 @@ Common `arguments` keys:
 
 - `dry_run`: optional boolean, default `false`. When true, no VISA I/O is performed.
 - `confirm_output`: optional boolean, default `false`. Required with Worker config `settings.allow_output_writes: true` for live non-dry-run output-affecting commands.
-- `model_profile`: optional string. In Worker dry-run/simulate requests, this
-  is the explicit no-hardware model profile. In live requests, it is an
-  expected-model guard only; the IDN-detected model remains the runtime
-  driver. Worker does not provide a config-level model default.
+- `planning_model_id`: canonical physical model for dry-run planning or Worker
+  simulator mode.
+- `expected_model_id`: optional live-only safety guard; IDN resolution remains
+  authoritative and selects the driver.
+- `planning_profile_id`: nonphysical dry-run planning profile, currently only
+  `generic-scpi`.
+
+Worker live dry-run accepts exactly one planning field; live non-dry-run accepts
+only the optional expected field; simulator mode accepts only the physical
+planning field. Worker settings provide no identity default and reject all
+identity fields, including legacy `model_profile` and `model`.
 
 Command-specific fields match the CLI/core names, including `channel`,
 `voltage`, `current`, `max_errors`, `max_reads`, `file`, `document`,
@@ -167,9 +174,10 @@ with zero or readback-derived values. Requests with neither `voltage` nor
 `current` return HTTP 400 before artifact creation or queue mutation.
 
 Worker dry-run/simulate requests that need model-specific planning must pass
-`arguments.model_profile` or use a known deterministic SIM resource in Worker
-settings. Fake or live-looking resource strings do not imply a model. If both
-`arguments.model_profile` and a SIM resource are present, their models must
+`arguments.planning_model_id`, use dry-run
+`arguments.planning_profile_id`, or use a known deterministic SIM resource in
+Worker settings. Fake or live-looking resource strings do not imply a model.
+If an explicit physical planning ID and SIM resource are present, they must
 match.
 
 Worker runtime settings may include optional ASRL serial fields under

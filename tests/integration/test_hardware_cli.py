@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-import keysight_power_cli.cli as cli
+import powers_tool_cli.cli as cli
 
 
 pytestmark = [pytest.mark.hardware, pytest.mark.hardware_readonly]

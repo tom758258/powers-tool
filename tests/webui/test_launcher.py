@@ -6,7 +6,7 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-from keysight_power_webui import launcher
+from powers_tool_webui import launcher
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -45,7 +45,7 @@ def test_launcher_version_prints_without_opening_gui(monkeypatch, capsys) -> Non
     captured = capsys.readouterr()
 
     assert excinfo.value.code == 0
-    assert captured.out.strip() == f"keysight-power-webui-launcher {launcher.WEBUI_VERSION}"
+    assert captured.out.strip() == f"powers-tool-webui-launcher {launcher.WEBUI_VERSION}"
     assert captured.err == ""
 
 
@@ -60,13 +60,13 @@ def test_parse_port_rejects_invalid_port(value: str) -> None:
         launcher.parse_port(value)
 
 
-def test_server_is_ready_accepts_keysight_power_webui_health(monkeypatch) -> None:
+def test_server_is_ready_accepts_powers_tool_webui_health(monkeypatch) -> None:
     health_url = f"{launcher.build_local_url(launcher.DEFAULT_PORT)}/api/health"
 
     def fake_urlopen(url: str, timeout: float) -> FakeResponse:
         assert url == health_url
         assert timeout == 0.5
-        return FakeResponse({"status": "ok", "package": "keysight-power-webui"})
+        return FakeResponse({"status": "ok", "package": "powers-tool-webui"})
 
     monkeypatch.setattr(launcher, "urlopen", fake_urlopen)
 
@@ -118,15 +118,15 @@ def test_http_server_is_ready_rejects_connection_error(monkeypatch) -> None:
 
 
 def test_launcher_does_not_import_cli_adapter() -> None:
-    source = (REPO_ROOT / "src" / "keysight_power_webui" / "launcher.py").read_text(
+    source = (REPO_ROOT / "src" / "powers_tool_webui" / "launcher.py").read_text(
         encoding="utf-8"
     )
 
-    assert "keysight_power_cli" not in source
+    assert "powers_tool_cli" not in source
 
 
 def test_hardware_job_is_active_reads_webui_job_manager() -> None:
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
 
     previous = job_manager.active_job_id
     try:
@@ -148,4 +148,4 @@ def test_create_uvicorn_server_uses_loopback_and_selected_port() -> None:
 def test_pyproject_declares_launcher_script() -> None:
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-    assert 'keysight-power-webui-launcher = "keysight_power_webui.launcher:main"' in pyproject
+    assert 'powers-tool-webui-launcher = "powers_tool_webui.launcher:main"' in pyproject

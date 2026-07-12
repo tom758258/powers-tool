@@ -10,12 +10,6 @@ from powers_tool_core.model_enablement import (
     current_model_enablement_inventory,
     validate_model_enablement,
 )
-from powers_tool_core.model_resolution import (
-    CANDIDATE_MODEL_PROFILES,
-    CANONICAL_MODEL_PROFILES,
-    LIVE_EXPECTED_MODEL_PROFILES,
-    PRODUCT_MODEL_PROFILES,
-)
 from powers_tool_core.models import (
     CANDIDATE_MODEL_IDS,
     CATALOG_ONLY_MODEL_IDS,
@@ -164,10 +158,6 @@ def test_current_model_enablement_stage_sets_are_exact_and_disjoint() -> None:
     assert DE_SCOPED_MODEL_IDS == {"keysight-e36103b", "keysight-e36232a"}
     stage_sets = [PRODUCT_ACTIVE_MODEL_IDS, CANDIDATE_MODEL_IDS, CATALOG_ONLY_MODEL_IDS, DE_SCOPED_MODEL_IDS]
     assert all(not left & right for index, left in enumerate(stage_sets) for right in stage_sets[index + 1 :])
-    assert PRODUCT_MODEL_PROFILES == {"E36312A", "EDU36311A", "E3646A"}
-    assert CANDIDATE_MODEL_PROFILES == frozenset()
-    assert CANONICAL_MODEL_PROFILES == PRODUCT_MODEL_PROFILES | {"GENERIC"}
-    assert LIVE_EXPECTED_MODEL_PROFILES == PRODUCT_MODEL_PROFILES
 
 
 def test_current_model_enablement_inventory_is_consistent() -> None:
@@ -175,7 +165,7 @@ def test_current_model_enablement_inventory_is_consistent() -> None:
     assert "keysight-e3646a" not in inventory.electrical_rating_models
     assert "keysight-e3646a" in inventory.setpoint_range_models
     assert inventory.product_rating_compatibility_models == {"keysight-e3646a"}
-    assert inventory.planning_profiles == {"GENERIC"}
+    assert inventory.planning_profiles == {"generic-scpi"}
     validate_model_enablement(inventory)
 
 
@@ -412,13 +402,15 @@ def test_catalog_and_descoped_models_do_not_leak_into_active_registries() -> Non
 
 
 def test_product_ui_and_wrapper_targets_match_product_active_models() -> None:
-    index_html = Path("src/keysight_power_webui/static/index.html").read_text(encoding="utf-8")
-    webui_models = frozenset(
-        re.findall(r'<option value="([A-Z0-9]+)">Require ', index_html)
-    )
-    assert webui_models == PRODUCT_MODEL_PROFILES
+    index_html = Path("src/powers_tool_webui/static/index.html").read_text(encoding="utf-8")
+    assert '<option value="">Auto-detect</option>' in index_html
+    assert 'option value="keysight-' not in index_html
     wrapper = Path("scripts/live-cli-check.ps1").read_text(encoding="utf-8")
     target_line = next(
         line for line in wrapper.splitlines() if line.startswith("$SupportedTargets = @(")
     )
-    assert frozenset(re.findall(r'"([A-Z0-9]+)"', target_line)) == PRODUCT_MODEL_PROFILES
+    assert frozenset(re.findall(r'"([A-Z0-9]+)"', target_line)) == {
+        "E36312A",
+        "EDU36311A",
+        "E3646A",
+    }

@@ -128,7 +128,8 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
         "operation": {"name": command},
         "target": {
             "resource": request.runtime.resource,
-            "model_profile": request.runtime.model_profile,
+            "planning_model_id": request.runtime.planning_model_id,
+            "planning_profile_id": request.runtime.planning_profile_id,
             "channel": channel,
         },
         "steps": [],
@@ -611,7 +612,12 @@ def _validate_real_gate(request: OperationRequest) -> None:
 
 def _ensure_operation_supported(request: OperationRequest) -> None:
     mode = "dry_run" if request.runtime.dry_run else "simulate"
-    capabilities.ensure_command_supported(request.command, request.runtime.model_profile, mode)
+    capabilities.ensure_command_supported(
+        request.command,
+        request.runtime.planning_model_id,
+        request.runtime.planning_profile_id,
+        mode,
+    )
 
 
 def _validate_setpoint_for_request(
@@ -1011,7 +1017,10 @@ def _append_write_followup_steps(
 
 
 def _plan_channels(request: OperationRequest, channel: int | str) -> tuple[int, ...]:
-    supported = no_hardware_channels(str(request.runtime.model_profile))
+    supported = no_hardware_channels(
+        request.runtime.planning_model_id,
+        request.runtime.planning_profile_id,
+    )
     if channel == "all":
         return supported
     if int(channel) not in supported:

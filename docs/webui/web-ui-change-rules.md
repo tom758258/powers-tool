@@ -27,9 +27,9 @@ high risk.
 
 Preferred editable frontend files:
 
-- `src/keysight_power_webui/static/index.html`
-- `src/keysight_power_webui/static/styles.css`
-- `src/keysight_power_webui/static/app.js`
+- `src/powers_tool_webui/static/index.html`
+- `src/powers_tool_webui/static/styles.css`
+- `src/powers_tool_webui/static/app.js`
 
 Optional, only when a stable UI contract changes or a new public behavior needs
 coverage:
@@ -51,9 +51,9 @@ Do not change Core, CLI, package metadata, or WebUI backend behavior for a
 visual UI task:
 
 - `src/powers_tool_core/**`
-- `src/keysight_power_cli/**`
+- `src/powers_tool_cli/**`
 - `pyproject.toml`
-- Backend behavior in `src/keysight_power_webui/app.py`,
+- Backend behavior in `src/powers_tool_webui/app.py`,
   `commands.py`, `jobs.py`, or `server.py`
 
 Do not change any SCPI, VISA, output, trigger, protection, timeout, live-data,
@@ -78,7 +78,7 @@ backend/API change as a proposal instead of implementing it.
 Developer runtime entry point:
 
 ```powershell
-uv run python -m keysight_power_webui.server --host 127.0.0.1 --port 7999
+uv run python -m powers_tool_webui.server --host 127.0.0.1 --port 7999
 ```
 
 Local URL:
@@ -89,8 +89,8 @@ http://127.0.0.1:7999/
 
 The WebUI is an instrument control dashboard:
 
-- Backend: FastAPI/Uvicorn in `src/keysight_power_webui/app.py`.
-- Frontend: static HTML/CSS/JavaScript in `src/keysight_power_webui/static/`.
+- Backend: FastAPI/Uvicorn in `src/powers_tool_webui/app.py`.
+- Frontend: static HTML/CSS/JavaScript in `src/powers_tool_webui/static/`.
 - No Node build step.
 - No frontend package manager.
 - No external CDN dependency.
@@ -279,7 +279,7 @@ Run the narrowest relevant checks first:
 If `app.js` changed, also run:
 
 ```powershell
-node --check src\keysight_power_webui\static\app.js
+node --check src\powers_tool_webui\static\app.js
 ```
 
 When practical, run broader no-hardware checks:

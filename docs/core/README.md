@@ -13,7 +13,7 @@ transport helpers, simulator support, snapshot handling, and parser-neutral
 sequence runtime. It must stay independent from the CLI and WebUI packages.
 
 Use the core package when another Python package needs to call the power-supply
-runtime directly. End users should normally use the `keysight-power` console
+runtime directly. End users should normally use the `powers-tool` console
 script included in the same `keysight-powers` distribution.
 
 ## Physical Identity And Registry Boundary
@@ -24,10 +24,11 @@ driver, channel, simulator, capability, electrical-range, and safety-coverage
 registries use canonical vendor-qualified IDs such as
 `keysight-e36312a`. Vendor-specific driver class names remain unchanged.
 
-The existing CLI and adapter `model_profile` contract remains unchanged in
-this phase. Generic no-hardware planning metadata is kept separately;
-`generic-scpi` is a planning profile, not a physical model or live expected
-model, and it is not present in physical registries.
+`RuntimeOptions` keeps the physical and nonphysical identity domains separate:
+`planning_model_id` is a canonical physical planning identity,
+`expected_model_id` is an optional live safety guard, and
+`planning_profile_id` is a nonphysical dry-run profile. `generic-scpi` is not a
+physical model or live expected model and is absent from physical registries.
 
 ## Live Support Policy Modes
 
@@ -119,8 +120,8 @@ are never reported as Product-open exact live commands.
   and safe public display projections.
 - `powers_tool_core.support_evidence`: immutable accepted historical evidence
   identities and non-sensitive migration metadata.
-- `powers_tool_core.model_resolution`: strict no-hardware model profile
-  resolution for dry-run/simulator planning and live expected-model guards.
+- `powers_tool_core.model_resolution`: centralized runtime identity validation
+  for dry-run/simulator planning and live expected-model guards.
 - `powers_tool_core.model_enablement`: injectable consistency validation for
   Product-active, candidate, catalog-only, and de-scoped model inventories.
 - `powers_tool_core.testing`: no-hardware simulator used by tests and CLI
@@ -205,7 +206,7 @@ targets. Model-specific driver foundations are selected from valid `*IDN?`
 responses.
 They are the Product-active models. There are currently no candidate models;
 E36313A, E36233A, E36441A, and E36155A remain catalog-only, while E36103B and
-E36232A remain de-scoped. `GENERIC` is a no-hardware fallback profile, not a
+E36232A remain de-scoped. `generic-scpi` is a no-hardware planning profile, not a
 physical-model lifecycle stage.
 Channel-list SCPI, snapshot/readback parsing, protection state handling,
 sequence loading/planning, safety validation, simulator behavior, and
@@ -248,14 +249,16 @@ wrap returned `data` in their own transport envelopes.
 
 Dry-run and simulator planning does not guess a model from arbitrary resource
 strings. Output-family, Ramp List, Sequence, protection write, and trigger
-planners require `RuntimeOptions.model_profile` or a known deterministic
-simulator resource, and returned plans include `target.model_profile`.
+planners require `RuntimeOptions.planning_model_id`, an allowed dry-run
+`planning_profile_id`, or a known deterministic simulator resource. Returned
+plans identify physical and nonphysical planning identities separately.
 Fake or live-looking resources such as `USB0::FAKE::E36312A::INSTR` are test
 placeholders and must not imply a model. Deterministic SIM resources such as
 `USB0::SIM::E36312A::INSTR` are accepted because they map to known simulator
 IDN/model data. Trigger no-hardware planning accepts only E36312A. Live
-hardware uses the IDN-detected model. In live mode, `model_profile` is an
-expected-model guard: after `*IDN?`, Core requires the detected model to match
+hardware uses the manufacturer-plus-model IDN resolution. In live mode,
+`expected_model_id` is a safety guard: after `*IDN?`, Core requires the
+detected canonical `model_id` to match
 before setup/write SCPI. The selected model never overrides the IDN-selected
 driver.
 

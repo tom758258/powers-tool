@@ -6,13 +6,13 @@ import pytest
 
 
 def test_webui_import() -> None:
-    import keysight_power_webui
+    import powers_tool_webui
 
-    assert keysight_power_webui.__version__ == metadata.version("keysight-powers")
+    assert powers_tool_webui.__version__ == metadata.version("keysight-powers")
 
 
 def test_webui_server_version_prints_without_starting_server(monkeypatch, capsys) -> None:
-    from keysight_power_webui import server
+    from powers_tool_webui import server
 
     def fail_import(name: str, *args: object, **kwargs: object) -> object:
         if name == "uvicorn":
@@ -28,12 +28,12 @@ def test_webui_server_version_prints_without_starting_server(monkeypatch, capsys
     captured = capsys.readouterr()
 
     assert excinfo.value.code == 0
-    assert captured.out.strip() == f"keysight-power-webui {server.WEBUI_VERSION}"
+    assert captured.out.strip() == f"powers-tool-webui {server.WEBUI_VERSION}"
     assert captured.err == ""
 
 
 def test_webui_server_defaults_to_port_7999(monkeypatch, capsys) -> None:
-    from keysight_power_webui import app, server
+    from powers_tool_webui import app, server
 
     run_args: dict[str, object] = {}
 
@@ -51,7 +51,7 @@ def test_webui_server_defaults_to_port_7999(monkeypatch, capsys) -> None:
 
     captured = capsys.readouterr()
 
-    assert captured.out.strip() == "Starting Keysight Power WebUI on http://127.0.0.1:7999"
+    assert captured.out.strip() == "Starting Powers Tool WebUI on http://127.0.0.1:7999"
     assert run_args == {
         "args": (app.app,),
         "kwargs": {"host": "127.0.0.1", "port": 7999, "reload": False},

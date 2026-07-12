@@ -62,7 +62,7 @@ def _request(
         RuntimeOptions(
             resource=resource,
             backend=backend,
-            model_profile=model,
+            expected_model_id=model,
             support_policy_mode=support_policy_mode,
         ),
     )
@@ -75,13 +75,13 @@ def test_runtime_options_defaults_to_product_support_policy_mode() -> None:
 def test_identify_expected_model_mismatch_stops_after_idn() -> None:
     session = FakeSession("Agilent Technologies,E3646A,0,1.0")
 
-    with pytest.raises(CoreValidationError, match="Expected model E36312A"):
+    with pytest.raises(CoreValidationError, match="Expected model_id keysight-e36312a"):
         run_instrument_io(
             _request(
                 "identify",
                 "TCPIP0::192.0.2.1::INSTR",
                 backend="@py",
-                model="E36312A",
+                model="keysight-e36312a",
             ),
             opener=lambda *args, **kwargs: session,
         )
@@ -209,13 +209,13 @@ def test_unknown_runtime_policy_mode_rejects_after_idn_before_measurement() -> N
 
 def test_expected_model_mismatch_precedes_validation_pending_scope_authorization() -> None:
     session = FakeSession("KEYSIGHT,EDU36311A,SN,1.0")
-    with pytest.raises(CoreValidationError, match="Expected model E36312A"):
+    with pytest.raises(CoreValidationError, match="Expected model_id keysight-e36312a"):
         run_instrument_io(
             _request(
                 "measure",
                 "TCPIP0::192.0.2.1::INSTR",
                 backend="@py",
-                model="E36312A",
+                model="keysight-e36312a",
                 support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
             ),
             opener=lambda *args, **kwargs: session,
@@ -227,9 +227,9 @@ def test_expected_model_mismatch_precedes_validation_pending_scope_authorization
 
 def test_expected_model_mismatch_precedes_scope_rejection() -> None:
     session = FakeSession("KEYSIGHT,E3646A,SN,1.0")
-    with pytest.raises(CoreValidationError, match="Expected model E36312A"):
+    with pytest.raises(CoreValidationError, match="Expected model_id keysight-e36312a"):
         run_instrument_io(
-            _request("measure", "USB0::1::INSTR", model="E36312A"),
+            _request("measure", "USB0::1::INSTR", model="keysight-e36312a"),
             opener=lambda *args, **kwargs: session,
         )
     assert session.queries == ["*IDN?"]
@@ -245,7 +245,7 @@ def test_idn_resolves_to_canonical_model_id_before_exact_policy(
         return None
 
     monkeypatch.setattr(live_support_module, "ensure_live_scope_supported", capture_scope)
-    request = _request("measure", "USB0::1::INSTR", model="E36312A")
+    request = _request("measure", "USB0::1::INSTR", model="keysight-e36312a")
     live_support_module.enforce_live_support_for_idn(
         request,
         "KEYSIGHT TECHNOLOGIES,E36312A,SN,1.0",
@@ -421,12 +421,12 @@ def test_trigger_expected_model_mismatch_precedes_validation_pending_scope() -> 
         RuntimeOptions(
             resource="TCPIP0::192.0.2.1::INSTR",
             backend="@py",
-            model_profile="EDU36311A",
+            expected_model_id="keysight-edu36311a",
             support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
         ),
         {"channel": 1},
     )
-    with pytest.raises(CoreValidationError, match="Expected model EDU36311A"):
+    with pytest.raises(CoreValidationError, match="Expected model_id keysight-edu36311a"):
         run_trigger(request, opener=lambda *args, **kwargs: session)
     assert session.queries == ["*IDN?"]
     assert session.writes == []

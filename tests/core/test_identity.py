@@ -28,7 +28,6 @@ from powers_tool_core.identity import (
     validate_profile_id,
     validate_vendor_id,
 )
-from powers_tool_core.model_resolution import model_profile_from_sim_resource
 from powers_tool_core.models import (
     CANDIDATE_MODEL_IDS,
     CATALOG_ONLY_MODEL_IDS,
@@ -535,10 +534,10 @@ def test_explicit_and_inferred_sim_identity_must_agree() -> None:
     assert planning_model_id_from_sim_resource("USB0::SIM::GENERIC::INSTR") is None
 
 
-def test_existing_sim_resolution_remains_legacy_model_profile() -> None:
-    assert model_profile_from_sim_resource("USB0::SIM::E36312A::INSTR") == "E36312A"
-    assert model_profile_from_sim_resource("USB0::SIM::EDU36311A::INSTR") == "EDU36311A"
-    assert model_profile_from_sim_resource("ASRL1::SIM::E3646A::INSTR") == "E3646A"
+def test_existing_sim_resolution_remains_legacy_planning_model_id() -> None:
+    assert planning_model_id_from_sim_resource("USB0::SIM::E36312A::INSTR") == "keysight-e36312a"
+    assert planning_model_id_from_sim_resource("USB0::SIM::EDU36311A::INSTR") == "keysight-edu36311a"
+    assert planning_model_id_from_sim_resource("ASRL1::SIM::E3646A::INSTR") == "keysight-e3646a"
 
 
 def test_existing_factory_selection_and_public_idn_json_are_unchanged() -> None:

@@ -103,50 +103,86 @@ WEBUI_UNSUPPORTED_COMMANDS = {
     "log",
 }
 
-def channel_capabilities_by_model() -> dict[str, dict[str, Any]]:
+
+def selectable_physical_models() -> list[dict[str, Any]]:
+    """Return frontend-safe selectable model metadata from Core registries."""
+
+    from powers_tool_core.identity import IDENTITY_INDEXES
+    from powers_tool_core.models import PRODUCT_ACTIVE_MODEL_IDS
+
+    channel_metadata = channel_capabilities_by_model_id()
+    models = []
+    for model_id in sorted(PRODUCT_ACTIVE_MODEL_IDS):
+        identity = IDENTITY_INDEXES.models_by_id[model_id]
+        vendor = IDENTITY_INDEXES.vendors_by_id[identity.vendor_id]
+        models.append(
+            {
+                "model_id": identity.model_id,
+                "vendor_id": identity.vendor_id,
+                "vendor_display_name": vendor.display_name,
+                "model_name": identity.canonical_model,
+                "display_name": identity.display_name,
+                **channel_metadata[model_id],
+            }
+        )
+    return models
+
+def channel_capabilities_by_model_id() -> dict[str, dict[str, Any]]:
     """Return WebUI model-to-channel metadata from driver capabilities."""
 
     from powers_tool_core.drivers.e36312a import E36312APowerSupply
     from powers_tool_core.drivers.e3646a import E3646APowerSupply
     from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
-    from powers_tool_core.drivers.generic_scpi import GenericScpiPowerSupply
-
     return {
-        "E36312A": {
+        "keysight-e36312a": {
             "channels": list(E36312APowerSupply.capabilities.channels),
             "output_control_scope": "per_channel",
         },
-        "EDU36311A": {
+        "keysight-edu36311a": {
             "channels": list(EDU36311APowerSupply.capabilities.channels),
             "output_control_scope": "per_channel",
         },
-        "E3646A": {
+        "keysight-e3646a": {
             "channels": list(E3646APowerSupply.capabilities.channels),
             "output_control_scope": "global",
         },
-        "GENERIC": {
-            "channels": list(GenericScpiPowerSupply.capabilities.channels),
-            "output_control_scope": "unknown",
-        },
     }
 
 
-def live_support_by_model(command_names: set[str]) -> dict[str, dict[str, Any]]:
+def live_support_by_model_id(command_names: set[str]) -> dict[str, dict[str, Any]]:
     """Return safe Core-owned live-support projections for WebUI commands."""
 
     projections = {
-        model: live_support_policy_metadata(model_id, command_names)
-        for model, model_id in {
-            "E36312A": "keysight-e36312a",
-            "EDU36311A": "keysight-edu36311a",
-            "E3646A": "keysight-e3646a",
-        }.items()
+        model_id: live_support_policy_metadata(model_id, command_names)
+        for model_id in (
+            "keysight-e36312a",
+            "keysight-edu36311a",
+            "keysight-e3646a",
+        )
     }
-    projections["GENERIC"] = unevaluated_live_support_policy_metadata(
-        commands=command_names,
-        reason="GENERIC is no-hardware/fallback-only; live exact scopes are unavailable.",
-    )
     return projections
+
+
+def planning_profile_metadata(command_names: set[str]) -> dict[str, dict[str, Any]]:
+    """Return separate nonphysical planning-profile metadata."""
+
+    profile_id = "generic-scpi"
+    return {
+        profile_id: {
+            "profile_id": profile_id,
+            "channels": [1],
+            "output_control_scope": "unknown",
+            "command_support": _filtered_command_support(
+                None,
+                command_names,
+                planning_profile_id=profile_id,
+            ),
+            "live_support": unevaluated_live_support_policy_metadata(
+                commands=command_names,
+                reason="generic-scpi is a no-hardware planning profile.",
+            ),
+        }
+    }
 
 
 def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
@@ -159,7 +195,9 @@ def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
         simulate=simulate,
         dry_run=bool(runtime_dict.get("dry_run", False)),
         backend=runtime_dict.get("backend"),
-        model_profile=runtime_dict.get("model_profile") or runtime_dict.get("model"),
+        planning_model_id=runtime_dict.get("planning_model_id"),
+        expected_model_id=runtime_dict.get("expected_model_id"),
+        planning_profile_id=runtime_dict.get("planning_profile_id"),
         timeout_ms=int(runtime_dict.get("timeout_ms", 5000)),
         log_scpi=bool(runtime_dict.get("log_scpi", False)),
         confirm=bool(runtime_dict.get("confirm", False)),
@@ -227,8 +265,8 @@ def _with_diagnostic_live_support(
     except IdentityResolutionError:
         if not runtime.simulate:
             validate_live_expected_model(
-                runtime.model_profile,
-                model,
+                runtime.expected_model_id,
+                None,
                 command=command,
             )
         live_support = _unsupported_detected_model_live_support(
@@ -246,8 +284,8 @@ def _with_diagnostic_live_support(
         )
     else:
         validate_live_expected_model(
-            runtime.model_profile,
-            identity.canonical_model,
+            runtime.expected_model_id,
+            identity.model_id,
             command=command,
         )
         try:
@@ -333,17 +371,16 @@ def _request_for_job(command: str, runtime: RuntimeOptions, parameters: dict[str
     return OperationRequest(command=command, runtime=runtime, parameters=normalized_parameters)
 
 
-def webui_command_support(command_names: set[str]) -> dict[str, dict[str, dict[str, Any]]]:
+def webui_command_support_by_model_id(command_names: set[str]) -> dict[str, dict[str, dict[str, Any]]]:
     """Return model-aware support metadata for visible WebUI commands."""
 
     return {
-        model_key: _filtered_command_support(model, command_names)
-        for model_key, model in {
-            "E36312A": "E36312A",
-            "EDU36311A": "EDU36311A",
-            "E3646A": "E3646A",
-            "GENERIC": None,
-        }.items()
+        model_id: _filtered_command_support(model_id, command_names)
+        for model_id in (
+            "keysight-e36312a",
+            "keysight-edu36311a",
+            "keysight-e3646a",
+        )
     }
 
 
@@ -404,7 +441,6 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
     from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
     from powers_tool_core.setpoint_ranges import (
         setpoint_ranges_for_model_id,
-        setpoint_ranges_for_model_profile,
     )
 
     if runtime.resource:
@@ -481,27 +517,35 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
 
     return {
         "models": {
-            "E36312A": {
+            "keysight-e36312a": {
                 "channels": list(E36312APowerSupply.capabilities.channels),
                 "electrical_ratings": E36312APowerSupply.capabilities.electrical_ratings.to_dict(),
-                "setpoint_ranges": setpoint_ranges_for_model_profile("E36312A").to_dict(),
+                "setpoint_ranges": setpoint_ranges_for_model_id("keysight-e36312a").to_dict(),
             },
-            "EDU36311A": {
+            "keysight-edu36311a": {
                 "channels": list(EDU36311APowerSupply.capabilities.channels),
                 "electrical_ratings": EDU36311APowerSupply.capabilities.electrical_ratings.to_dict(),
-                "setpoint_ranges": setpoint_ranges_for_model_profile("EDU36311A").to_dict(),
+                "setpoint_ranges": setpoint_ranges_for_model_id("keysight-edu36311a").to_dict(),
             },
-            "E3646A": {
+            "keysight-e3646a": {
                 "channels": list(E3646APowerSupply.capabilities.channels),
                 "electrical_ratings": None,
-                "setpoint_ranges": setpoint_ranges_for_model_profile("E3646A").to_dict(),
+                "setpoint_ranges": setpoint_ranges_for_model_id("keysight-e3646a").to_dict(),
             },
         }
     }
 
 
-def _filtered_command_support(model: str | None, command_names: set[str]) -> dict[str, dict[str, Any]]:
-    support = core_capabilities.planning_profile_command_support(model)
+def _filtered_command_support(
+    model_id: str | None,
+    command_names: set[str],
+    *,
+    planning_profile_id: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    support = core_capabilities.planning_identity_command_support(
+        model_id,
+        planning_profile_id,
+    )
     filtered = {
         command: dict(support[command])
         for command in sorted(command_names)
@@ -511,7 +555,7 @@ def _filtered_command_support(model: str | None, command_names: set[str]) -> dic
         if entry.get("real") is False:
             entry["disabled_reason"] = core_capabilities.unsupported_command_reason(
                 command,
-                model or "GENERIC",
+                planning_profile_id or model_id,
             )
     for command in sorted(command_names & EXEMPT_LIVE_DIAGNOSTIC_COMMANDS):
         filtered[command] = {

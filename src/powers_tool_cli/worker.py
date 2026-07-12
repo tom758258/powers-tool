@@ -1,4 +1,4 @@
-"""keysight-power worker daemon implementation."""
+"""Powers Tool worker daemon implementation."""
 
 from __future__ import annotations
 
@@ -71,7 +71,20 @@ TRIGGER_COMMANDS = {
 ALLOWED_COMMANDS = READ_ONLY_COMMANDS | OUTPUT_COMMANDS | PROTECTION_COMMANDS | TRIGGER_COMMANDS
 OUTPUT_AFFECTING_COMMANDS = OUTPUT_COMMANDS | {"protection-set", "clear-protection", "restore-from-snapshot", "sequence"}
 REQUEST_KEYS = {"command", "arguments", "job_id"}
-RUNTIME_ARGUMENT_KEYS = {"dry_run", "confirm_output", "model_profile"}
+RUNTIME_ARGUMENT_KEYS = {
+    "dry_run",
+    "confirm_output",
+    "planning_model_id",
+    "expected_model_id",
+    "planning_profile_id",
+}
+_LEGACY_IDENTITY_ARGUMENTS = {"model_profile", "model"}
+_IDENTITY_SETTING_FIELDS = {
+    *_LEGACY_IDENTITY_ARGUMENTS,
+    "planning_model_id",
+    "expected_model_id",
+    "planning_profile_id",
+}
 _FORBIDDEN_VALIDATION_MODE_ARGUMENTS = {
     "support_policy_mode",
     "validation_allow_pending_live_support",
@@ -194,6 +207,18 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
                 f"{', '.join(attempted_runtime_modes)}",
             },
         )
+    legacy_identity_fields = sorted(_LEGACY_IDENTITY_ARGUMENTS & set(arguments))
+    if legacy_identity_fields:
+        return 400, _command_response(
+            "error",
+            command,
+            job_id if isinstance(job_id, str) else None,
+            error={
+                "code": "argument_error",
+                "message": "legacy identity fields are not accepted: "
+                f"{', '.join(legacy_identity_fields)}",
+            },
+        )
     if job_id is not None and not isinstance(job_id, str):
         return 400, _command_response(
             "error",
@@ -205,8 +230,43 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "arguments.dry_run must be boolean"})
     if "confirm_output" in arguments and not isinstance(arguments["confirm_output"], bool):
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "arguments.confirm_output must be boolean"})
-    if "model_profile" in arguments and (not isinstance(arguments["model_profile"], str) or not arguments["model_profile"].strip()):
-        return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "arguments.model_profile must be a non-empty string"})
+    for identity_field in (
+        "planning_model_id",
+        "expected_model_id",
+        "planning_profile_id",
+    ):
+        if identity_field in arguments and (
+            not isinstance(arguments[identity_field], str)
+            or not arguments[identity_field].strip()
+        ):
+            return 400, _command_response(
+                "error",
+                command,
+                job_id,
+                error={
+                    "code": "argument_error",
+                    "message": f"arguments.{identity_field} must be a non-empty string",
+                },
+            )
+    settings = state.config.get("settings", {})
+    try:
+        validation_runtime = RuntimeOptions(
+            resource=settings.get("resource"),
+            resource_alias=settings.get("resource_alias"),
+            safety_config=settings.get("safety_config"),
+            simulate=state.config["mode"] == "simulate",
+            dry_run=bool(arguments.get("dry_run", False)),
+            planning_model_id=arguments.get("planning_model_id"),
+            expected_model_id=arguments.get("expected_model_id"),
+            planning_profile_id=arguments.get("planning_profile_id"),
+        )
+    except CoreValidationError as exc:
+        return 400, _command_response(
+            "error",
+            command,
+            job_id,
+            error={"code": "argument_error", "message": str(exc)},
+        )
     if "channel" in arguments:
         channel = arguments["channel"]
         if channel != "all":
@@ -222,20 +282,13 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
     if command == "sequence" and "file" not in arguments and "document" not in arguments:
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "sequence requires file or document argument"})
     if command == "sequence":
-        settings = state.config.get("settings", {})
         try:
             document = arguments.get("document")
             if document is None:
                 document = load_sequence_document(str(arguments["file"]))
             sequence_plan(
                 SequenceRequest(
-                    runtime=RuntimeOptions(
-                        resource=settings.get("resource"),
-                        resource_alias=settings.get("resource_alias"),
-                        safety_config=settings.get("safety_config"),
-                        dry_run=True,
-                        model_profile=arguments.get("model_profile"),
-                    ),
+                    runtime=validation_runtime,
                     parameters=_command_parameters(arguments),
                 ),
                 document,
@@ -245,16 +298,9 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
     if command == "ramp-list" and "file" not in arguments and "document" not in arguments:
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": "ramp-list requires file or document argument"})
     if command == "ramp-list":
-        settings = state.config.get("settings", {})
         validation_request = OperationRequest(
             command="ramp-list",
-            runtime=RuntimeOptions(
-                resource=settings.get("resource"),
-                resource_alias=settings.get("resource_alias"),
-                safety_config=settings.get("safety_config"),
-                dry_run=True,
-                model_profile=arguments.get("model_profile"),
-            ),
+            runtime=validation_runtime,
             parameters=_command_parameters(arguments),
         )
         try:
@@ -344,7 +390,7 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                 now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
                 res = {
                     "schema_version": 1,
-                    "service": "keysight-power",
+                    "service": "powers-tool",
                     "run_id": state.run_id,
                     "status": state.status,
                     "command_url": f"http://127.0.0.1:{state.port}/command",
@@ -589,7 +635,6 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
     params = _command_parameters(arguments)
     confirm_req = bool(arguments.get("confirm_output", False))
     dry_run_req = bool(arguments.get("dry_run", False))
-    model_profile_req = arguments.get("model_profile")
 
     # Initialize RuntimeOptions
     runtime = RuntimeOptions(
@@ -598,7 +643,9 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
         safety_config=settings.get("safety_config"),
         simulate=(config["mode"] == "simulate"),
         dry_run=dry_run_req,
-        model_profile=model_profile_req,
+        planning_model_id=arguments.get("planning_model_id"),
+        expected_model_id=arguments.get("expected_model_id"),
+        planning_profile_id=arguments.get("planning_profile_id"),
         backend=settings.get("backend"),
         timeout_ms=settings.get("timeout_ms", 5000),
         confirm=confirm_req,
@@ -931,6 +978,12 @@ def _validate_worker_config(config: dict[str, Any]) -> None:
             "settings validation support policy mode is not available to Worker: "
             f"{', '.join(attempted_runtime_modes)}"
         )
+    identity_settings = sorted(_IDENTITY_SETTING_FIELDS & set(settings))
+    if identity_settings:
+        raise ValueError(
+            "Worker identity selection belongs to each request; settings fields are not allowed: "
+            f"{', '.join(identity_settings)}"
+        )
     serial_options = settings.get("serial_options")
     if serial_options is not None and not isinstance(serial_options, dict):
         raise ValueError("settings.serial_options must be an object")
@@ -1011,7 +1064,7 @@ def run_worker(args: argparse.Namespace) -> int:
 
     emit_event(config, "ready", {
         "run_id": state.run_id,
-        "service": "keysight-power",
+        "service": "powers-tool",
         "host": "127.0.0.1",
         "port": actual_port,
         "command_url": f"http://127.0.0.1:{actual_port}/command",

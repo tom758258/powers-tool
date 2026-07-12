@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-import keysight_power_cli.cli as cli
+import powers_tool_cli.cli as cli
 from powers_tool_core.errors import VisaConnectionError
 
 
@@ -563,7 +563,7 @@ max_current = 0.2
                 "--resource-alias",
                 "bench",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--channel",
                 "1",
             ]
@@ -708,7 +708,7 @@ steps:
                 "--dry-run",
                 "--json",
                 "--model",
-                "E36312A",
+                "keysight-e36312a",
                 "--resource",
                 "USB0::FAKE::E36312A::INSTR",
                 "--file",

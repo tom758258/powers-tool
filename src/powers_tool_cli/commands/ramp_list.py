@@ -34,7 +34,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     runtime._add_simulate_argument(parser)
     runtime._add_dry_run_argument(parser)
     runtime._add_validation_support_policy_argument(parser)
-    runtime._add_model_argument(parser)
+    runtime._add_model_argument(parser, allow_profile=True)
     parser.add_argument("--lint", action="store_true", help="Validate without opening VISA.")
     runtime._add_safety_config_argument(parser)
     runtime._add_backend_argument(parser)
@@ -98,7 +98,7 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRe
             safety_config=getattr(args, "safety_config", None),
             simulate=getattr(args, "simulate", False),
             dry_run=getattr(args, "dry_run", False),
-            model_profile=getattr(args, "model", None),
+            **runtime._runtime_identity_for_args(args),
             backend=getattr(args, "backend", None),
             timeout_ms=getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),

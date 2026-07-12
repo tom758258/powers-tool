@@ -32,7 +32,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     runtime._add_json_argument(sequence_parser)
     runtime._add_simulate_argument(sequence_parser)
     runtime._add_dry_run_argument(sequence_parser)
-    runtime._add_model_argument(sequence_parser)
+    runtime._add_model_argument(sequence_parser, allow_profile=True)
     sequence_parser.add_argument("--lint", action="store_true", help="Validate the sequence file without opening VISA or executing steps.")
     runtime._add_safety_config_argument(sequence_parser)
     runtime._add_backend_argument(sequence_parser)
@@ -76,7 +76,7 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> SequenceReq
             safety_config=getattr(args, "safety_config", None),
             simulate=getattr(args, "simulate", False),
             dry_run=getattr(args, "dry_run", False),
-            model_profile=getattr(args, "model", None),
+            **runtime._runtime_identity_for_args(args),
             backend=getattr(args, "backend", None),
             timeout_ms=getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),

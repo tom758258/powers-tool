@@ -7,9 +7,9 @@ Numeric command fields follow the shared
 
 ## CLI Commands
 
-The installed Python distribution is `keysight-powers`. CLI JSON payloads keep
-the adapter identifier `keysight-power-cli` for compatibility, but the reported
-version is sourced from the single `keysight-powers` distribution.
+The installed Python distribution is `keysight-powers`. CLI JSON payloads use
+the V2 adapter identifier `powers-tool-cli`, while the reported version is
+sourced from the single distribution.
 
 Lifecycle clients:
 
@@ -58,11 +58,11 @@ Dry-run/simulator availability also does not imply product LIVE support. The
 five explicit diagnostics are `list-resources`, `verify`, `identify`,
 `error`, and `clear`; their success does not promote another command.
 
-The former instrument `status` command is `read-status`. `keysight-power status` is reserved for Worker `GET /status`.
+The former instrument `status` command is `read-status`. `powers-tool status` is reserved for Worker `GET /status`.
 
 ## Runtime JSONL
 
-`keysight-power worker` writes runtime JSONL to stdout by default. No
+`powers-tool worker` writes runtime JSONL to stdout by default. No
 `--json`, `--jsonl`, or format flag is required for orchestrators to parse the
 Worker stream. Every non-empty stdout line from the Worker is a JSON object
 line. Human-readable diagnostics, warnings, and logging must be written to
@@ -124,31 +124,32 @@ means the request was accepted; it does not mean job execution succeeded.
 
 Power command success envelopes follow the common CLI contract. Command names use the public names above, including `read-status`.
 
-Runtime model fields:
+Runtime identity fields:
 
-- CLI `--model` maps to the Core no-hardware model profile for commands that
-  support dry-run or simulator model planning. In live mode, it maps to the
-  Core expected-model guard.
-- WebUI and worker-style raw payloads use `runtime.model_profile` as the
-  canonical model field. `runtime.model` is accepted only as a compatibility
-  alias where the adapter explicitly supports it.
-- `model_profile` is used for dry-run/simulate planning, channel validation,
-  and `channel: "all"` expansion. Fake or live-looking resources such as
+- CLI `--model` maps to `planning_model_id` in dry-run/simulator mode and to
+  `expected_model_id` in live mode. Values are canonical vendor-qualified
+  physical IDs such as `keysight-e36312a`.
+- CLI `--profile generic-scpi` maps to `planning_profile_id` and is dry-run
+  only. It is exposed only where Generic planning is already supported.
+- WebUI and Worker raw payloads use `planning_model_id`, `expected_model_id`,
+  and `planning_profile_id`. No legacy runtime identity aliases are accepted.
+- Physical planning identity is used for dry-run/simulator planning, channel
+  validation, and `channel: "all"` expansion. Fake or live-looking resources such as
   `USB0::FAKE::E36312A::INSTR` do not imply a model. Deterministic SIM
   resources such as `USB0::SIM::E36312A::INSTR` may infer the matching model
   because they map to known simulator IDN/model data.
-- Live hardware uses the IDN-detected model. `--model`/`model_profile` is an
-  expected-model guard in live mode: after `*IDN?`, Core requires the detected
-  model to match before setup/write SCPI. The selected model never overrides
+- Live hardware uses the manufacturer-plus-model resolved identity. `--model`
+  becomes an expected-model guard in live mode: after `*IDN?`, Core requires
+  canonical model IDs to match before setup/write SCPI. The guard never overrides
   the IDN-detected driver.
 
 Selected data mappings:
 
 - Dry-run and simulator plan payloads for output-family commands, `ramp-list`,
   `sequence`, `protection-set`, `clear-protection`, and trigger workflows
-  include `plan.target.model_profile`. The field is the canonical
-  no-hardware model profile used for channel validation and `channel: "all"`
-  expansion. Trigger no-hardware plans accept only `E36312A`; unsupported
+  identify `planning_model_id` and `planning_profile_id` separately. Physical
+  planning identity is used for channel validation and `channel: "all"`
+  expansion. Trigger no-hardware plans accept only `keysight-e36312a`; unsupported
   models do not expose trigger dry-run or simulator behavior.
 - `read-status`: `resource`, `errors`, `read_count`, and `outputs`.
 - `readback`: `resource`, `idn_raw`, and `channels[].setpoints`.

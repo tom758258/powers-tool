@@ -108,7 +108,12 @@ def _apply_no_hardware_support_gate(
         return request
     runtime = resolve_no_hardware_runtime(request.runtime)
     mode = "dry_run" if runtime.dry_run else "simulate"
-    capabilities.ensure_command_supported(request.command, runtime.model_profile, mode)
+    capabilities.ensure_command_supported(
+        request.command,
+        runtime.planning_model_id,
+        runtime.planning_profile_id,
+        mode,
+    )
     return replace(request, runtime=runtime)
 
 

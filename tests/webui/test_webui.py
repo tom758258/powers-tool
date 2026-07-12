@@ -33,7 +33,7 @@ WEBUI_HIDDEN_LIVE_DATA_COMMANDS = {
 WEBUI_HIDDEN_DIAGNOSTIC_COMMANDS = {"verify", "readback", "safety inspect"}
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-STATIC_DIR = REPO_ROOT / "src" / "keysight_power_webui" / "static"
+STATIC_DIR = REPO_ROOT / "src" / "powers_tool_webui" / "static"
 
 
 def read_static_texts() -> tuple[str, str, str]:
@@ -164,19 +164,19 @@ def extract_js_function(app_js: str, function_name: str) -> str:
     raise AssertionError(f"Could not extract function {function_name}")
 
 
-# Guard test: Ensure webui does not import keysight_power_cli
+# Guard test: Ensure webui does not import powers_tool_cli
 def test_guard_no_cli_import():
-    assert "keysight_power_cli" not in sys.modules
-    from keysight_power_webui import app, jobs, commands, server
-    assert "keysight_power_cli" not in sys.modules
+    assert "powers_tool_cli" not in sys.modules
+    from powers_tool_webui import app, jobs, commands, server
+    assert "powers_tool_cli" not in sys.modules
 
 
 def test_import_smoke():
     """Verify WebUI runtime is importable."""
-    from keysight_power_webui.app import app
-    from keysight_power_webui.jobs import job_manager, JobStatus
-    from keysight_power_webui.commands import execute_job_command
-    from keysight_power_webui.server import main
+    from powers_tool_webui.app import app
+    from powers_tool_webui.jobs import job_manager, JobStatus
+    from powers_tool_webui.commands import execute_job_command
+    from powers_tool_webui.server import main
     assert app is not None
     assert job_manager is not None
     assert JobStatus is not None
@@ -211,11 +211,11 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert_static_attr(html, "device-options-toggle", "aria-expanded", "false")
     assert_static_attr(html, "toggle-device-resource", "aria-controls", "device-resource-body")
     assert_static_attr(html, "toggle-device-resource", "aria-expanded", "true")
-    assert_static_id(html, "model-profile")
+    assert_static_id(html, "expected-model-id")
 
     panel_index = html.index('id="device-options-panel"')
     body_index = html.index('id="device-resource-body"')
-    assert panel_index < html.index('id="model-profile"') < body_index
+    assert panel_index < html.index('id="expected-model-id"') < body_index
     for element_id in serial_control_ids:
         assert_static_id(html, element_id)
         assert panel_index < html.index(f'id="{element_id}"') < body_index
@@ -225,8 +225,9 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "Auto-detect uses the connected instrument IDN" in html
     assert "Select a model only when you want to require a specific one" in html
     assert "detected IDN model remains the runtime driver" in html
-    for model in ("E36312A", "EDU36311A", "E3646A"):
-        assert f'<option value="{model}">Require {model}</option>' in html
+    assert 'option value="keysight-' not in html
+    assert "renderExpectedModelOptions" in app_js
+    assert 'model.model_id' in app_js
     for unvalidated_model in ("E36103B", "E36232A"):
         assert f'<option value="{unvalidated_model}">{unvalidated_model}</option>' not in html
     assert '<option value="GENERIC">GENERIC</option>' not in html
@@ -241,8 +242,8 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "Simulate" not in html
 
     runtime_block = extract_js_function(app_js, "runtimePayload")
-    assert 'const modelProfile = valueOrNull("model-profile");' in runtime_block
-    assert "if (modelProfile !== null) runtime.model_profile = modelProfile;" in runtime_block
+    assert 'const expectedModelId = valueOrNull("expected-model-id");' in runtime_block
+    assert "if (expectedModelId !== null) runtime.expected_model_id = expectedModelId;" in runtime_block
     assert "serialOptionsPayload()" in runtime_block
     assert "runtime.serial_options = serialOptions" in runtime_block
     assert "runtime.serial_remote = true" in runtime_block
@@ -251,12 +252,14 @@ def test_static_ui_exposes_advanced_serial_controls():
 
 
 def test_static_normal_model_dropdown_policy() -> None:
-    html, _app_js, _styles_css = read_static_texts()
-    model_select = html[html.index('id="model-profile"'):html.index("</select>", html.index('id="model-profile"'))]
+    html, app_js, _styles_css = read_static_texts()
+    model_select = html[html.index('id="expected-model-id"'):html.index("</select>", html.index('id="expected-model-id"'))]
 
     assert '<option value="">Auto-detect</option>' in model_select
-    for model in ("E36312A", "EDU36311A", "E3646A"):
-        assert f'<option value="{model}">Require {model}</option>' in model_select
+    assert 'option value="keysight-' not in model_select
+    renderer = extract_js_function(app_js, "renderExpectedModelOptions")
+    assert "state.physicalModels.forEach" in renderer
+    assert "model.model_id" in renderer
     for unvalidated_model in ("E36103B", "E36232A"):
         assert unvalidated_model not in model_select
     assert "Auto-detect uses the connected instrument IDN" in html
@@ -284,15 +287,15 @@ def test_static_device_resource_summary_uses_model_wording():
 def test_static_model_profile_change_refreshes_effective_ui_model():
     _html, app_js, _styles_css = read_static_texts()
     bind = extract_js_function(app_js, "bind")
-    handler = extract_js_function(app_js, "handleModelProfileChanged")
+    handler = extract_js_function(app_js, "handleExpectedModelChanged")
     selected_expected = extract_js_function(app_js, "selectedExpectedModel")
     selected_expected_label = extract_js_function(app_js, "selectedExpectedModelLabel")
     selected_command = extract_js_function(app_js, "selectedCommandModel")
     selected_channel = extract_js_function(app_js, "selectedChannelModel")
     runtime_block = extract_js_function(app_js, "runtimePayload")
 
-    assert 'document.getElementById("model-profile")?.addEventListener("change", handleModelProfileChanged);' in bind
-    assert 'return valueOrNull("model-profile");' in selected_expected
+    assert 'document.getElementById("expected-model-id")?.addEventListener("change", handleExpectedModelChanged);' in bind
+    assert 'return valueOrNull("expected-model-id");' in selected_expected
     assert 'return expected ? `Require ${expected}` : "Auto-detect";' in selected_expected_label
     assert "state.commandSupportByModel?.[expected]" in selected_command
     assert "return detectedCommandModelForResource(valueOrNull(\"resource\"));" in selected_command
@@ -307,9 +310,9 @@ def test_static_model_profile_change_refreshes_effective_ui_model():
     assert "resourceModels" not in handler
     assert "resourceChannelModels" not in handler
     assert "resourceDisplayModels" not in handler
-    assert 'const modelProfile = valueOrNull("model-profile");' in runtime_block
-    assert "if (modelProfile !== null) runtime.model_profile = modelProfile;" in runtime_block
-    assert 'runtime.model_profile = ""' not in runtime_block
+    assert 'const expectedModelId = valueOrNull("expected-model-id");' in runtime_block
+    assert "if (expectedModelId !== null) runtime.expected_model_id = expectedModelId;" in runtime_block
+    assert 'runtime.expected_model_id = ""' not in runtime_block
 
 
 def test_static_commands_payload_stores_setpoint_range_metadata():
@@ -317,7 +320,7 @@ def test_static_commands_payload_stores_setpoint_range_metadata():
     load_commands = extract_js_function(app_js, "loadCommands")
 
     assert "setpointRangesByModel: {}" in app_js
-    assert "state.setpointRangesByModel = payload.setpoint_ranges_by_model || {};" in load_commands
+    assert "state.setpointRangesByModel = payload.setpoint_ranges_by_model_id || {};" in load_commands
 
 
 def test_static_device_options_popover_behavior():
@@ -923,16 +926,16 @@ def test_static_commands_disable_by_selected_resource_model():
     assert "channelCapabilitiesByModel: {}" in app_js
     assert "resourceModels: {}" in app_js
     assert "resourceChannelModels: {}" in app_js
-    assert "state.commandSupportByModel = payload.command_support_by_model || {};" in app_js
-    assert "state.channelCapabilitiesByModel = payload.channel_capabilities_by_model || {};" in app_js
+    assert "state.commandSupportByModel = payload.command_support_by_model_id || {};" in app_js
+    assert "state.channelCapabilitiesByModel = payload.channel_capabilities_by_model_id || {};" in app_js
     assert "updateResourceModels(resources);" in app_js
-    assert "resource.idn?.model" in app_js
+    assert "resource.model_id" in app_js
     assert "function selectedCommandModel()" in app_js
     assert "function detectedCommandModelForResource(resource)" in app_js
     assert "state.commandSupportByModel?.[model]?.[name]" in app_js
     assert "const model = selectedCommandModel();" in extract_js_function(app_js, "selectedCommandSupport")
-    assert 'if (!resource || typeof model !== "string" || !model.trim()) return false;' in app_js
-    assert "!next.stale && updateResourceModel(next.resource, next.model)" in app_js
+    assert "const next = supportedModelKey(modelId);" in app_js
+    assert "!next.stale && updateResourceModel(next.resource, next.model_id, next.model)" in app_js
     assert "support?.real === false" in app_js
     assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
     assert "runButton.disabled = Boolean(meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard);" in app_js
@@ -947,7 +950,7 @@ def test_static_frontend_consumes_exact_live_support_without_exposing_validation
     capture_workspace = extract_js_function(app_js, "captureWorkspaceResult")
     clear_stale = extract_js_function(app_js, "clearStaleResourceLiveSupport")
     update_model = extract_js_function(app_js, "updateResourceModel")
-    model_changed = extract_js_function(app_js, "handleModelProfileChanged")
+    model_changed = extract_js_function(app_js, "handleExpectedModelChanged")
     runtime_payload = extract_js_function(app_js, "runtimePayload")
     render_basic = extract_js_function(app_js, "renderBasicChannelActionState")
     render_basic_output = extract_js_function(app_js, "renderBasicOutputControlState")
@@ -955,7 +958,7 @@ def test_static_frontend_consumes_exact_live_support_without_exposing_validation
     assert "liveSupportByModel: {}" in app_js
     assert "resourceLiveSupport: null" in app_js
     assert "resourceLiveSupportContext: null" in app_js
-    assert "state.liveSupportByModel = payload.live_support_by_model || {};" in load_commands
+    assert "state.liveSupportByModel = payload.live_support_by_model_id || {};" in load_commands
     assert '["capabilities", "identify", "verify"].includes(job.command)' in capture_workspace
     assert "captureResourceLiveSupport(job, resource);" in capture_workspace
     assert "liveSupport.evaluated !== true" in capture_support
@@ -964,12 +967,12 @@ def test_static_frontend_consumes_exact_live_support_without_exposing_validation
     assert "state.resourceLiveSupport = null;" in unevaluated_branch
     assert "state.resourceLiveSupportContext = null;" in unevaluated_branch
     assert unevaluated_branch.index("state.resourceLiveSupport = null;") < unevaluated_branch.rindex("return false;")
-    assert "model: liveSupport.model_name || null" in capture_support
+    assert "model_id: liveSupport.model_id || null" in capture_support
     assert "transport_scope: liveSupport.transport_scope" in capture_support
     assert "backend_scope: liveSupport.backend_scope" in capture_support
     assert "state.resourceLiveSupportContext.resource === resource" in clear_stale
     assert "state.resourceLiveSupport = null;" in clear_stale
-    assert "state.resourceLiveSupportContext.model !== detectedModel" in update_model
+    assert "state.resourceLiveSupportContext.model_id !== modelId" in update_model
     assert "state.resourceLiveSupport = null;" in update_model
     assert "exactCommand.product_open !== true" in command_meta
     assert "exactCommand.policy_exempt" in command_meta
@@ -1004,7 +1007,7 @@ def test_static_channel_capability_guards_use_metadata():
     assert "metadata.channels" in app_js
     assert "metadata.output_control_scope" in app_js
     assert "Array.isArray(metadata)" in app_js
-    assert 'return "GENERIC";' in extract_js_function(app_js, "supportedModelKey")
+    assert "? modelId : null" in extract_js_function(app_js, "supportedModelKey")
     assert "function currentChannelCapabilityModel()" in app_js
     assert "return selectedChannelModel();" in extract_js_function(app_js, "currentChannelCapabilityModel")
     assert "function channelModelKey(model)" in app_js
@@ -1317,8 +1320,8 @@ def test_static_trigger_list_documents_restore_and_pulse_pin_guard():
 
 @pytest.fixture
 def client():
-    from keysight_power_webui.app import app
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.app import app
+    from powers_tool_webui.jobs import job_manager
     job_manager.jobs.clear()
     job_manager.active_job_id = None
     return TestClient(app)
@@ -1365,7 +1368,7 @@ def wait_for_job(client: TestClient, job_id: str) -> dict[str, Any]:
 
 def patch_core_opener(monkeypatch: pytest.MonkeyPatch, session: FakeCoreSession) -> None:
     from powers_tool_core.command_runner import run_core_command as real_run_core_command
-    from keysight_power_webui import commands
+    from powers_tool_webui import commands
 
     def fake_opener(*args: Any, **kwargs: Any) -> FakeCoreSession:
         return session
@@ -1409,7 +1412,7 @@ def policy_snapshot_document(model: str) -> dict[str, Any]:
 
 
 def test_index_uses_cache_busted_assets_and_no_store(client: TestClient):
-    from keysight_power_webui import __version__
+    from powers_tool_webui import __version__
 
     response = client.get("/")
 
@@ -1430,13 +1433,13 @@ def test_static_assets_accept_query_string_and_no_store(client: TestClient):
 
 
 def test_health_check(client: TestClient):
-    from keysight_power_webui import __version__
+    from powers_tool_webui import __version__
 
     response = client.get("/api/health")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
-    assert data["package"] == "keysight-power-webui"
+    assert data["package"] == "powers-tool-webui"
     assert data["version"] == __version__
 
 
@@ -1445,25 +1448,29 @@ def test_commands_metadata(client: TestClient):
     assert response.status_code == 200
     data = response.json()
     assert "commands" in data
-    assert "command_support_by_model" in data
-    assert "live_support_by_model" in data
-    channel_capabilities = data["channel_capabilities_by_model"]
-    assert channel_capabilities["E36312A"]["channels"] == [1, 2, 3]
-    assert channel_capabilities["E36312A"]["output_control_scope"] == "per_channel"
-    assert channel_capabilities["EDU36311A"]["channels"] == [1, 2, 3]
-    assert channel_capabilities["EDU36311A"]["output_control_scope"] == "per_channel"
-    assert channel_capabilities["E3646A"]["channels"] == [1, 2]
-    assert channel_capabilities["E3646A"]["output_control_scope"] == "global"
-    assert channel_capabilities["GENERIC"]["channels"] == [1]
-    assert channel_capabilities["GENERIC"]["output_control_scope"] == "unknown"
-    assert data["electrical_ratings_by_model"]["E36312A"]["channels"][0] == {
+    assert "command_support_by_model_id" in data
+    assert "live_support_by_model_id" in data
+    channel_capabilities = data["channel_capabilities_by_model_id"]
+    assert channel_capabilities["keysight-e36312a"]["channels"] == [1, 2, 3]
+    assert channel_capabilities["keysight-e36312a"]["output_control_scope"] == "per_channel"
+    assert channel_capabilities["keysight-edu36311a"]["channels"] == [1, 2, 3]
+    assert channel_capabilities["keysight-edu36311a"]["output_control_scope"] == "per_channel"
+    assert channel_capabilities["keysight-e3646a"]["channels"] == [1, 2]
+    assert channel_capabilities["keysight-e3646a"]["output_control_scope"] == "global"
+    assert "generic-scpi" not in channel_capabilities
+    assert data["planning_profiles"]["generic-scpi"]["channels"] == [1]
+    assert data["electrical_ratings_by_model_id"]["keysight-e36312a"]["channels"][0] == {
         "channel": 1,
         "max_voltage": 6.0,
         "max_current": 5.0,
     }
-    setpoint_ranges = data["setpoint_ranges_by_model"]
-    assert set(setpoint_ranges) == {"E36312A", "EDU36311A", "E3646A"}
-    e3646a_ch1_ranges = setpoint_ranges["E3646A"]["channels"][0]["ranges"]
+    setpoint_ranges = data["setpoint_ranges_by_model_id"]
+    assert set(setpoint_ranges) == {
+        "keysight-e36312a",
+        "keysight-edu36311a",
+        "keysight-e3646a",
+    }
+    e3646a_ch1_ranges = setpoint_ranges["keysight-e3646a"]["channels"][0]["ranges"]
     assert e3646a_ch1_ranges[0]["name"] == "LOW"
     assert e3646a_ch1_ranges[0]["voltage_max"] == 8.24
     assert e3646a_ch1_ranges[0]["current_max"] == 3.09
@@ -1524,7 +1531,7 @@ def test_commands_metadata(client: TestClient):
 
 
 def test_api_rejects_invalid_static_parameter_before_creating_job(client: TestClient):
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
 
     jobs_before = len(job_manager.jobs)
     response = client.post(
@@ -1541,8 +1548,30 @@ def test_api_rejects_invalid_static_parameter_before_creating_job(client: TestCl
     assert len(job_manager.jobs) == jobs_before
 
 
+@pytest.mark.parametrize("field", ["model_profile", "model"])
+def test_api_rejects_legacy_runtime_identity_before_creating_job(
+    client: TestClient,
+    field: str,
+):
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = len(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "measure",
+            "runtime": {"simulate": True, field: "E36312A"},
+            "parameters": {"channel": 1},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "legacy runtime identity fields are not allowed" in response.json()["detail"]
+    assert len(job_manager.jobs) == jobs_before
+
+
 def test_api_rejects_arm_only_trigger_list_before_creating_job(client: TestClient):
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
 
     jobs_before = len(job_manager.jobs)
     response = client.post(
@@ -1576,7 +1605,7 @@ def test_api_rejects_invalid_trigger_control_before_creating_job(
     parameters: dict[str, object],
     message: str,
 ):
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
 
     jobs_before = len(job_manager.jobs)
     response = client.post(
@@ -1594,7 +1623,7 @@ def test_api_rejects_invalid_trigger_control_before_creating_job(
 
 
 def test_api_rejects_trigger_fire_wait_without_abort_target_before_creating_job(client: TestClient):
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
 
     jobs_before = len(job_manager.jobs)
     response = client.post(
@@ -1615,25 +1644,26 @@ def test_commands_metadata_includes_model_aware_support(client: TestClient):
     response = client.get("/api/commands")
     assert response.status_code == 200
     data = response.json()
-    support = data["command_support_by_model"]
+    support = data["command_support_by_model_id"]
 
-    assert set(support) == {"E36312A", "E3646A", "EDU36311A", "GENERIC"}
-    assert support["E36312A"]["trigger-list"]["real"] is True
-    assert support["EDU36311A"]["trigger-list"]["real"] is False
-    assert support["EDU36311A"]["trigger-list"]["hardware_validation"] == "not_supported_by_model"
-    assert "trigger/native LIST workflows are disabled in live, simulate, and dry-run" in support["EDU36311A"]["trigger-list"]["disabled_reason"]
-    assert "E36312A-only" in support["EDU36311A"]["snapshot"]["disabled_reason"]
-    assert support["E3646A"]["identify"]["real"] is True
-    assert support["E3646A"]["set"]["real"] is True
-    assert support["E3646A"]["set"]["hardware_validation"] == "validated"
-    assert "protection workflows are disabled until separately validated" in support["E3646A"]["protection-set"]["disabled_reason"]
-    assert "software workflows, not native LIST" in support["E3646A"]["trigger-list"]["disabled_reason"]
-    assert "snapshot/restore workflows are disabled until separately validated" in support["E3646A"]["restore-from-snapshot"]["disabled_reason"]
-    assert "completion-pulse workflows are disabled" in support["E3646A"]["trigger-pulse"]["disabled_reason"]
-    assert "disabled_reason" not in support["E3646A"]["ramp-list"]
-    assert "disabled_reason" not in support["E3646A"]["sequence"]
-    assert support["GENERIC"]["set"]["real"] is False
-    for model in ("E36312A", "E3646A", "EDU36311A", "GENERIC"):
+    assert set(support) == {"keysight-e36312a", "keysight-e3646a", "keysight-edu36311a"}
+    assert support["keysight-e36312a"]["trigger-list"]["real"] is True
+    assert support["keysight-edu36311a"]["trigger-list"]["real"] is False
+    assert support["keysight-edu36311a"]["trigger-list"]["hardware_validation"] == "not_supported_by_model"
+    assert "trigger/native LIST workflows are disabled in live, simulate, and dry-run" in support["keysight-edu36311a"]["trigger-list"]["disabled_reason"]
+    assert "E36312A-only" in support["keysight-edu36311a"]["snapshot"]["disabled_reason"]
+    assert support["keysight-e3646a"]["identify"]["real"] is True
+    assert support["keysight-e3646a"]["set"]["real"] is True
+    assert support["keysight-e3646a"]["set"]["hardware_validation"] == "validated"
+    assert "protection workflows are disabled until separately validated" in support["keysight-e3646a"]["protection-set"]["disabled_reason"]
+    assert "software workflows, not native LIST" in support["keysight-e3646a"]["trigger-list"]["disabled_reason"]
+    assert "snapshot/restore workflows are disabled until separately validated" in support["keysight-e3646a"]["restore-from-snapshot"]["disabled_reason"]
+    assert "completion-pulse workflows are disabled" in support["keysight-e3646a"]["trigger-pulse"]["disabled_reason"]
+    assert "disabled_reason" not in support["keysight-e3646a"]["ramp-list"]
+    assert "disabled_reason" not in support["keysight-e3646a"]["sequence"]
+    generic_support = data["planning_profiles"]["generic-scpi"]["command_support"]
+    assert generic_support["set"]["real"] is False
+    for model in support:
         assert support[model]["clear"]["real"] is True
         assert support[model]["error"]["real"] is True
         assert "verify" not in support[model]
@@ -1650,18 +1680,18 @@ def test_commands_metadata_includes_safe_exact_live_support_projection(
 
     assert {
         "commands",
-        "command_support_by_model",
-        "live_support_by_model",
-        "channel_capabilities_by_model",
-        "electrical_ratings_by_model",
-        "setpoint_ranges_by_model",
+        "command_support_by_model_id",
+        "live_support_by_model_id",
+        "channel_capabilities_by_model_id",
+        "electrical_ratings_by_model_id",
+        "setpoint_ranges_by_model_id",
         "parameter_constraints",
         "output_affecting_commands",
     } <= set(data)
-    live_support = data["live_support_by_model"]
-    assert set(live_support) == {"E36312A", "EDU36311A", "E3646A", "GENERIC"}
+    live_support = data["live_support_by_model_id"]
+    assert set(live_support) == {"keysight-e36312a", "keysight-edu36311a", "keysight-e3646a"}
 
-    e36312a_set = live_support["E36312A"]["commands"]["set"]
+    e36312a_set = live_support["keysight-e36312a"]["commands"]["set"]
     assert {
         (scope["transport_scope"], scope["backend_scope"], scope["validation_status"])
         for scope in e36312a_set["scopes"]
@@ -1670,29 +1700,30 @@ def test_commands_metadata_includes_safe_exact_live_support_projection(
         ("tcpip", "system_visa", "live_validated_full_suite"),
         ("tcpip", "pyvisa_py", "transport_pending"),
     }
-    assert live_support["EDU36311A"]["commands"]["trigger-list"]["profile_supported"] is False
-    assert live_support["EDU36311A"]["commands"]["trigger-list"]["scopes"] == []
-    e3646a_set = live_support["E3646A"]["commands"]["set"]
+    assert live_support["keysight-edu36311a"]["commands"]["trigger-list"]["profile_supported"] is False
+    assert live_support["keysight-edu36311a"]["commands"]["trigger-list"]["scopes"] == []
+    e3646a_set = live_support["keysight-e3646a"]["commands"]["set"]
     assert [(scope["transport_scope"], scope["backend_scope"]) for scope in e3646a_set["scopes"]] == [
         ("asrl", "system_visa")
     ]
-    assert live_support["E3646A"]["commands"]["trigger-list"]["profile_supported"] is False
-    assert live_support["GENERIC"]["live_capable"] is False
-    assert live_support["GENERIC"]["schema_version"] == 2
-    assert live_support["GENERIC"]["evaluated"] is False
-    assert live_support["GENERIC"]["model_id"] is None
-    assert live_support["GENERIC"]["commands"]["set"]["scopes"] == []
+    assert live_support["keysight-e3646a"]["commands"]["trigger-list"]["profile_supported"] is False
+    generic_live = data["planning_profiles"]["generic-scpi"]["live_support"]
+    assert generic_live["live_capable"] is False
+    assert generic_live["schema_version"] == 2
+    assert generic_live["evaluated"] is False
+    assert generic_live["model_id"] is None
+    assert generic_live["commands"]["set"]["scopes"] == []
     for command in {"list-resources", "verify", "identify", "error", "clear"}:
-        entry = live_support["GENERIC"]["commands"][command]
+        entry = generic_live["commands"][command]
         assert entry["policy_exempt"] is True
         assert entry["offline_only"] is False
         assert entry["scopes"] == []
-    assert live_support["GENERIC"]["commands"]["identify"]["profile_supported"] is True
-    assert live_support["E36312A"]["commands"]["clear"]["policy_exempt"] is True
-    assert live_support["E36312A"]["commands"]["clear"]["scopes"] == []
+    assert generic_live["commands"]["identify"]["profile_supported"] is True
+    assert live_support["keysight-e36312a"]["commands"]["clear"]["policy_exempt"] is True
+    assert live_support["keysight-e36312a"]["commands"]["clear"]["scopes"] == []
     sequence_scope = next(
         scope
-        for scope in live_support["E36312A"]["commands"]["sequence"]["scopes"]
+        for scope in live_support["keysight-e36312a"]["commands"]["sequence"]["scopes"]
         if scope["transport_scope"] == "usb"
     )
     assert {feature["feature_kind"] for feature in sequence_scope["features"]} == {
@@ -1701,7 +1732,7 @@ def test_commands_metadata_includes_safe_exact_live_support_projection(
     assert all(feature["product_open"] for feature in sequence_scope["features"])
     pending_sequence_scope = next(
         scope
-        for scope in live_support["E36312A"]["commands"]["sequence"]["scopes"]
+        for scope in live_support["keysight-e36312a"]["commands"]["sequence"]["scopes"]
         if scope["backend_scope"] == "pyvisa_py"
     )
     assert all(
@@ -1718,9 +1749,10 @@ def test_commands_metadata_includes_safe_exact_live_support_projection(
 
 
 def test_product_model_selector_excludes_catalog_candidate_and_descoped_models() -> None:
-    index_html, _app_js, _styles_css = read_static_texts()
-    for model in ("E36312A", "EDU36311A", "E3646A"):
-        assert f'<option value="{model}">' in index_html
+    index_html, app_js, _styles_css = read_static_texts()
+    assert '<option value="">Auto-detect</option>' in index_html
+    assert "payload.physical_models" in app_js
+    assert "model.model_id" in app_js
     for model in ("E36313A", "E36233A", "E36441A", "E36155A", "E36103B", "E36232A"):
         assert f'<option value="{model}">' not in index_html
 
@@ -1737,7 +1769,7 @@ def test_command_coverage(client: TestClient):
     assert not (WEBUI_HIDDEN_LIVE_DATA_COMMANDS & webui_commands)
     assert not (WEBUI_HIDDEN_DIAGNOSTIC_COMMANDS & webui_commands)
     assert not (WEBUI_HIDDEN_UNSUPPORTED_COMMANDS & webui_commands)
-    for model_support in data["command_support_by_model"].values():
+    for model_support in data["command_support_by_model_id"].values():
         assert set(model_support) <= webui_commands
 
 
@@ -1776,7 +1808,7 @@ def test_trigger_commands_submit_in_dry_run(client: TestClient, command: str, pa
             "resource": "USB0::FAKE::E36312A::INSTR",
             "dry_run": True,
             "simulate": False,
-            "model_profile": "E36312A",
+            "planning_model_id": "keysight-e36312a",
         },
         "parameters": parameters,
     }
@@ -1855,7 +1887,7 @@ def test_trigger_dry_run_with_e36312a_sim_resource_infers_model(client: TestClie
 
     job_data = client.get(f"/api/jobs/{job_id}").json()
     assert job_data["status"] == "finished", job_data.get("error")
-    assert job_data["result"]["plan"]["target"]["model_profile"] == "E36312A"
+    assert job_data["result"]["plan"]["target"]["planning_model_id"] == "keysight-e36312a"
 
 
 def test_hidden_list_resources_direct_submit_succeeds(client: TestClient):
@@ -1981,7 +2013,7 @@ def test_post_job_simulate_set_normalizes_string_channel(client: TestClient):
 
 
 def test_post_job_simulate_apply_preserves_all_channel(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    from keysight_power_webui import commands
+    from powers_tool_webui import commands
 
     captured: list[Any] = []
 
@@ -2020,8 +2052,8 @@ def test_post_job_simulate_apply_preserves_all_channel(client: TestClient, monke
 
 def test_adapter_normalizes_channel_for_core_requests(monkeypatch: pytest.MonkeyPatch):
     from powers_tool_core.core import RuntimeOptions
-    from keysight_power_webui import commands
-    from keysight_power_webui.jobs import Job
+    from powers_tool_webui import commands
+    from powers_tool_webui.jobs import Job
 
     captured: list[Any] = []
 
@@ -2060,7 +2092,7 @@ def test_webui_raw_live_expected_model_match_uses_idn_driver(
                 "simulate": False,
                 "dry_run": False,
                 "confirm": True,
-                "model_profile": "E3646A",
+                "expected_model_id": "keysight-e3646a",
             },
             "parameters": {"channel": 1, "voltage": 1, "current": 0.05},
         },
@@ -2081,8 +2113,8 @@ def test_webui_raw_live_expected_model_match_uses_idn_driver(
 def test_webui_resource_capabilities_enforces_exact_scope(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from keysight_power_webui import commands
-    from keysight_power_webui.jobs import Job
+    from powers_tool_webui import commands
+    from powers_tool_webui.jobs import Job
 
     session = FakeCoreSession("KEYSIGHT,E36312A,SERIAL0000,1.0")
     monkeypatch.setattr(commands, "open_resource", lambda *args, **kwargs: session)
@@ -2124,7 +2156,7 @@ def test_webui_resource_capabilities_rejects_pending_backend_after_idn(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from keysight_power_webui import commands
+    from powers_tool_webui import commands
 
     session = FakeCoreSession("KEYSIGHT,E36312A,SERIAL0000,1.0")
     monkeypatch.setattr(commands, "open_resource", lambda *args, **kwargs: session)
@@ -2156,8 +2188,8 @@ def test_webui_resource_capabilities_rejects_pending_backend_after_idn(
 def test_webui_identify_returns_pending_exact_metadata_without_opening_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from keysight_power_webui import commands
-    from keysight_power_webui.jobs import Job
+    from powers_tool_webui import commands
+    from powers_tool_webui.jobs import Job
 
     session = FakeCoreSession(
         "KEYSIGHT,E36312A,SERIAL0000,1.0",
@@ -2176,7 +2208,7 @@ def test_webui_identify_returns_pending_exact_metadata_without_opening_it(
             {
                 "resource": "TCPIP0::192.0.2.1::INSTR",
                 "backend": "@py",
-                "model_profile": "E36312A",
+                "expected_model_id": "keysight-e36312a",
                 "simulate": False,
                 "dry_run": False,
             },
@@ -2308,7 +2340,7 @@ def test_webui_diagnostic_expected_model_cannot_override_wrong_vendor(
             "command": "identify",
             "runtime": {
                 "resource": "USB0::FAKE::INSTR",
-                "model_profile": "E36312A",
+                "expected_model_id": "keysight-e36312a",
             },
             "parameters": {},
         },
@@ -2316,9 +2348,8 @@ def test_webui_diagnostic_expected_model_cannot_override_wrong_vendor(
 
     assert response.status_code == 200
     job_data = wait_for_job(client, response.json()["job_id"])
-    assert job_data["status"] == "finished", job_data.get("error")
-    assert job_data["result"]["live_support"]["evaluated"] is False
-    assert job_data["result"]["live_support"]["commands"] == {}
+    assert job_data["status"] == "failed"
+    assert "resolved to unknown" in job_data["error"]
     assert session.writes == []
 
 
@@ -2337,7 +2368,7 @@ def test_webui_diagnostic_wrong_vendor_different_model_preserves_expected_guard(
             "command": command,
             "runtime": {
                 "resource": "USB0::FAKE::INSTR",
-                "model_profile": "E3646A",
+                "expected_model_id": "keysight-e3646a",
             },
             "parameters": {},
         },
@@ -2346,8 +2377,8 @@ def test_webui_diagnostic_wrong_vendor_different_model_preserves_expected_guard(
     assert response.status_code == 200
     job_data = wait_for_job(client, response.json()["job_id"])
     assert job_data["status"] == "failed"
-    assert "Expected model E3646A" in job_data["error"]
-    assert "reported E36312A" in job_data["error"]
+    assert "Expected model_id keysight-e3646a" in job_data["error"]
+    assert "resolved to unknown" in job_data["error"]
     assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed is True
@@ -2435,7 +2466,7 @@ def test_webui_diagnostic_expected_model_mismatch_remains_a_failure(
             "command": command,
             "runtime": {
                 "resource": "USB0::FAKE::INSTR",
-                "model_profile": "E36312A",
+                "expected_model_id": "keysight-e36312a",
             },
             "parameters": {},
         },
@@ -2444,8 +2475,8 @@ def test_webui_diagnostic_expected_model_mismatch_remains_a_failure(
     assert response.status_code == 200
     job_data = wait_for_job(client, response.json()["job_id"])
     assert job_data["status"] == "failed"
-    assert "Expected model E36312A" in job_data["error"]
-    assert "reported E3646A" in job_data["error"]
+    assert "Expected model_id keysight-e36312a" in job_data["error"]
+    assert "keysight-e3646a" in job_data["error"]
     assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed is True
@@ -2490,7 +2521,7 @@ def test_webui_pending_command_remains_product_rejected_after_identify_metadata(
             "runtime": {
                 "resource": "TCPIP0::192.0.2.1::INSTR",
                 "backend": "@py",
-                "model_profile": "E36312A",
+                "expected_model_id": "keysight-e36312a",
                 "confirm": True,
             },
             "parameters": {"channel": 1, "voltage": 1.0, "current": 0.05},
@@ -2521,7 +2552,7 @@ def test_webui_identify_expected_model_mismatch_precedes_extended_identity_queri
             "runtime": {
                 "resource": "TCPIP0::192.0.2.1::INSTR",
                 "backend": "@py",
-                "model_profile": "E36312A",
+                "expected_model_id": "keysight-e36312a",
             },
             "parameters": {},
         },
@@ -2530,8 +2561,8 @@ def test_webui_identify_expected_model_mismatch_precedes_extended_identity_queri
     assert response.status_code == 200
     job_data = wait_for_job(client, response.json()["job_id"])
     assert job_data["status"] == "failed"
-    assert "Expected model E36312A" in job_data["error"]
-    assert "reported E3646A" in job_data["error"]
+    assert "Expected model_id keysight-e36312a" in job_data["error"]
+    assert "keysight-e3646a" in job_data["error"]
     assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed is True
@@ -2578,7 +2609,7 @@ def test_webui_rejects_forged_validation_mode_fields(client: TestClient, field: 
 
 
 def test_webui_runtime_options_are_always_product_mode() -> None:
-    from keysight_power_webui.commands import build_runtime_options
+    from powers_tool_webui.commands import build_runtime_options
 
     runtime = build_runtime_options(
         {"resource": "TCPIP0::192.0.2.1::INSTR", "support_policy_mode": "validation"}
@@ -2602,7 +2633,7 @@ def test_webui_raw_live_expected_model_mismatch_fails_before_output_writes(
                 "simulate": False,
                 "dry_run": False,
                 "confirm": True,
-                "model_profile": "E36312A",
+                "expected_model_id": "keysight-e36312a",
             },
             "parameters": {"channel": 1, "voltage": 1, "current": 0.05},
         },
@@ -2611,8 +2642,8 @@ def test_webui_raw_live_expected_model_mismatch_fails_before_output_writes(
     assert response.status_code == 200
     job_data = wait_for_job(client, response.json()["job_id"])
     assert job_data["status"] == "failed"
-    assert "Expected model E36312A" in job_data["error"]
-    assert "connected instrument reported E3646A" in job_data["error"]
+    assert "Expected model_id keysight-e36312a" in job_data["error"]
+    assert "resolved to keysight-e3646a" in job_data["error"]
     assert "does not override" in job_data["error"]
     assert session.queries == ["*IDN?"]
     assert session.writes == []
@@ -2659,7 +2690,7 @@ def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestC
                 "resource": "USB0::FAKE::E3646A::INSTR",
                 "dry_run": True,
                 "simulate": False,
-                "model_profile": "E3646A",
+                "planning_model_id": "keysight-e3646a",
             },
             "parameters": {"channel": "all"},
         },
@@ -2667,7 +2698,7 @@ def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestC
     assert explicit.status_code == 200
     explicit_job = wait_for_job(client, explicit.json()["job_id"])
     assert explicit_job["status"] == "finished", explicit_job.get("error")
-    assert explicit_job["result"]["target"]["model_profile"] == "E3646A"
+    assert explicit_job["result"]["target"]["planning_model_id"] == "keysight-e3646a"
     assert [step["parameters"]["channel"] for step in explicit_job["result"]["steps"]] == [1, 2]
 
     inferred = client.post(
@@ -2685,7 +2716,7 @@ def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestC
     assert inferred.status_code == 200
     inferred_job = wait_for_job(client, inferred.json()["job_id"])
     assert inferred_job["status"] == "finished", inferred_job.get("error")
-    assert inferred_job["result"]["target"]["model_profile"] == "E3646A"
+    assert inferred_job["result"]["target"]["planning_model_id"] == "keysight-e3646a"
 
     missing = client.post(
         "/api/jobs",
@@ -2702,7 +2733,7 @@ def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestC
     assert missing.status_code == 200
     missing_job = wait_for_job(client, missing.json()["job_id"])
     assert missing_job["status"] == "failed"
-    assert "require --model" in missing_job["error"]
+    assert "require planning_model_id" in missing_job["error"]
 
     missing_simulate = client.post(
         "/api/jobs",
@@ -2717,24 +2748,27 @@ def test_webui_raw_no_hardware_model_profile_behavior_is_unchanged(client: TestC
     assert missing_simulate.status_code == 200
     missing_simulate_job = wait_for_job(client, missing_simulate.json()["job_id"])
     assert missing_simulate_job["status"] == "failed"
-    assert "require --model" in missing_simulate_job["error"]
+    assert "require planning_model_id" in missing_simulate_job["error"]
 
 
-@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
+@pytest.mark.parametrize("model", ["keysight-e36103b", "keysight-e36232a"])
 @pytest.mark.parametrize("runtime_mode", ["dry_run", "simulate", "live"])
 def test_webui_direct_jobs_reject_descoped_model_profiles(
     client: TestClient,
     model: str,
     runtime_mode: str,
 ) -> None:
-    runtime: dict[str, Any] = {"model_profile": model}
+    runtime: dict[str, Any] = {}
     if runtime_mode == "dry_run":
         runtime["dry_run"] = True
+        runtime["planning_model_id"] = model
     elif runtime_mode == "simulate":
         runtime["simulate"] = True
+        runtime["planning_model_id"] = model
     else:
         runtime["resource"] = "USB0::FAKE::INSTR"
         runtime["confirm"] = True
+        runtime["expected_model_id"] = model
 
     response = client.post(
         "/api/jobs",
@@ -2745,11 +2779,9 @@ def test_webui_direct_jobs_reject_descoped_model_profiles(
         },
     )
 
-    assert response.status_code == 200
-    job_data = wait_for_job(client, response.json()["job_id"])
-    assert job_data["status"] == "failed"
-    assert "unsupported model profile" in job_data["error"]
-    assert model in job_data["error"]
+    assert response.status_code == 400
+    assert "not active or candidate" in response.json()["detail"]
+    assert model in response.json()["detail"]
 
 
 @pytest.mark.parametrize(
@@ -2758,7 +2790,7 @@ def test_webui_direct_jobs_reject_descoped_model_profiles(
         (
             {
                 "command": "trigger-step",
-                "runtime": {"dry_run": True, "model_profile": "EDU36311A"},
+                "runtime": {"dry_run": True, "planning_model_id": "keysight-edu36311a"},
                 "parameters": {"channel": 1, "source": "bus", "fire": True},
             },
             ("E36312A",),
@@ -2766,7 +2798,7 @@ def test_webui_direct_jobs_reject_descoped_model_profiles(
         (
             {
                 "command": "trigger-list",
-                "runtime": {"dry_run": True, "model_profile": "EDU36311A"},
+                "runtime": {"dry_run": True, "planning_model_id": "keysight-edu36311a"},
                 "parameters": {
                     "channel": 1,
                     "source": "bus",
@@ -2790,7 +2822,7 @@ def test_webui_direct_jobs_reject_descoped_model_profiles(
         (
             {
                 "command": "restore-from-snapshot",
-                "runtime": {"dry_run": True, "model_profile": "EDU36311A"},
+                "runtime": {"dry_run": True, "planning_model_id": "keysight-edu36311a"},
                 "parameters": {"document": policy_snapshot_document("EDU36311A"), "channel": 1},
             },
             ("E36312A",),
@@ -2811,7 +2843,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
         (
             {
                 "command": "protection-set",
-                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "runtime": {"dry_run": True, "planning_model_id": "keysight-e3646a"},
                 "parameters": {"channel": 1, "ovp_voltage": 5.0},
             },
             ("not",),
@@ -2819,7 +2851,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
         (
             {
                 "command": "clear-protection",
-                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "runtime": {"dry_run": True, "planning_model_id": "keysight-e3646a"},
                 "parameters": {"channel": 1},
             },
             ("E3646A", "protection workflows are disabled"),
@@ -2827,7 +2859,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
         (
             {
                 "command": "trigger-pulse",
-                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "runtime": {"dry_run": True, "planning_model_id": "keysight-e3646a"},
                 "parameters": {"channel": 1, "pins": [1], "polarity": "positive"},
             },
             ("E3646A", "completion-pulse workflows are disabled"),
@@ -2835,7 +2867,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
         (
             {
                 "command": "trigger-step",
-                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "runtime": {"dry_run": True, "planning_model_id": "keysight-e3646a"},
                 "parameters": {"channel": 1, "source": "bus", "fire": True},
             },
             ("E3646A", "native LIST and trigger workflows are disabled"),
@@ -2843,7 +2875,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
         (
             {
                 "command": "trigger-list",
-                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "runtime": {"dry_run": True, "planning_model_id": "keysight-e3646a"},
                 "parameters": {
                     "channel": 1,
                     "source": "bus",
@@ -2867,7 +2899,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
         (
             {
                 "command": "restore-from-snapshot",
-                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "runtime": {"dry_run": True, "planning_model_id": "keysight-e3646a"},
                 "parameters": {"document": policy_snapshot_document("E3646A"), "channel": 1},
             },
             ("E3646A", "snapshot/restore workflows are disabled"),
@@ -2875,7 +2907,7 @@ def test_webui_direct_jobs_reject_edu36311a_disabled_workflows(
         (
             {
                 "command": "sequence",
-                "runtime": {"dry_run": True, "model_profile": "E3646A"},
+                "runtime": {"dry_run": True, "planning_model_id": "keysight-e3646a"},
                 "parameters": {"document": {"version": 1, "steps": [{"action": "trigger-pulse", "channel": 1, "pins": [1]}]}},
             },
             ("E36312A",),
@@ -2895,7 +2927,7 @@ def test_webui_direct_jobs_reject_edu36311a_sequence_trigger_pulse(client: TestC
         client,
         {
             "command": "sequence",
-            "runtime": {"dry_run": True, "model_profile": "EDU36311A"},
+            "runtime": {"dry_run": True, "planning_model_id": "keysight-edu36311a"},
             "parameters": {
                 "document": {
                     "version": 1,
@@ -2903,7 +2935,7 @@ def test_webui_direct_jobs_reject_edu36311a_sequence_trigger_pulse(client: TestC
                 }
             },
         },
-        "EDU36311A",
+        "keysight-edu36311a",
         "E36312A",
     )
 
@@ -2929,7 +2961,7 @@ def test_webui_direct_jobs_reject_e3646a_unsupported_sequence_steps(
         client,
         {
             "command": "sequence",
-            "runtime": {"dry_run": True, "model_profile": "E3646A"},
+            "runtime": {"dry_run": True, "planning_model_id": "keysight-e3646a"},
             "parameters": {
                 "document": {
                     "version": 1,
@@ -2946,7 +2978,7 @@ def test_webui_direct_e3646a_sequence_validated_read_only_and_output_steps_allow
         "/api/jobs",
         json={
             "command": "sequence",
-            "runtime": {"dry_run": True, "model_profile": "E3646A"},
+            "runtime": {"dry_run": True, "planning_model_id": "keysight-e3646a"},
             "parameters": {
                 "document": {
                     "version": 1,
@@ -2963,7 +2995,7 @@ def test_webui_direct_e3646a_sequence_validated_read_only_and_output_steps_allow
     assert response.status_code == 200
     job_data = wait_for_job(client, response.json()["job_id"])
     assert job_data["status"] == "finished", job_data.get("error")
-    assert job_data["result"]["plan"]["target"]["model_profile"] == "E3646A"
+    assert job_data["result"]["plan"]["target"]["planning_model_id"] == "keysight-e3646a"
 
 
 def test_post_job_real_output_without_confirm_fails(client: TestClient):
@@ -3048,7 +3080,7 @@ def test_hidden_unsupported_command_direct_submit_fails(client: TestClient):
 
 def test_hardware_lock_prevents_concurrent_jobs(client: TestClient):
     """Test that non-simulate/non-dry-run jobs are rejected when hardware is locked."""
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
     job_manager.active_job_id = "fake-active-job"
 
     payload = {
@@ -3071,7 +3103,7 @@ def test_hardware_lock_prevents_concurrent_jobs(client: TestClient):
 
 def test_hardware_lock_allows_simulate_jobs(client: TestClient):
     """Test that simulate jobs can still run when hardware is locked."""
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
     job_manager.active_job_id = "fake-active-job"
 
     payload = {
@@ -3191,7 +3223,7 @@ def test_api_accepts_zero_delay_ramp_list_step_pulse(client: TestClient):
 
 @pytest.mark.parametrize("field", ["completion_pulse_mode", "completion_pulse_dwell_ms", "wait_timeout_ms", "poll_ms"])
 def test_api_rejects_removed_ramp_native_fields_before_creating_job(client: TestClient, field: str):
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
 
     jobs_before = len(job_manager.jobs)
     response = client.post(
@@ -3228,7 +3260,7 @@ def test_sse_event_order(client: TestClient):
     job_id = response.json()["job_id"]
 
     # Check job events array directly
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
     import asyncio
 
     async def check_events():
@@ -3289,7 +3321,7 @@ def test_live_data_start_and_stop(client: TestClient, monkeypatch: pytest.Monkey
     assert stop_response.status_code == 200
 
     # Verify it stopped
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
     job = job_manager.jobs.get(job_id)
     assert job.cancel_requested is True
 
@@ -3301,7 +3333,7 @@ def test_live_data_live_panel_emits_three_channel_panel_sample(client: TestClien
         calls.append((runtime, parameters))
         return _fake_live_panel(runtime.resource)
 
-    from keysight_power_webui import commands
+    from powers_tool_webui import commands
 
     monkeypatch.setattr(commands, "execute_live_panel_read", fake_live_panel)
     payload = {
@@ -3344,7 +3376,7 @@ def test_live_data_live_panel_emits_three_channel_panel_sample(client: TestClien
 
 @pytest.mark.parametrize("envelope_key", ["result", "data"])
 def test_live_data_live_panel_unwraps_envelope(envelope_key: str):
-    from keysight_power_webui.app import _live_panel_sample_from_reading
+    from powers_tool_webui.app import _live_panel_sample_from_reading
 
     sample = _live_panel_sample_from_reading(
         {envelope_key: _fake_e36312a_live_panel("USB0::FAKE::E36312A::INSTR")},
@@ -3372,7 +3404,7 @@ def test_live_data_live_panel_with_no_panel_records_is_stale_error(client: TestC
     def fake_live_panel(runtime: Any, parameters: dict[str, Any]) -> dict[str, Any]:
         return {"resource": runtime.resource, "model": "E36312A"}
 
-    from keysight_power_webui import commands
+    from powers_tool_webui import commands
 
     monkeypatch.setattr(commands, "execute_live_panel_read", fake_live_panel)
     response = client.post(
@@ -3401,7 +3433,7 @@ def test_live_data_live_panel_with_no_panel_records_is_stale_error(client: TestC
 
 
 def test_live_data_panel_sample_normalizes_numeric_values():
-    from keysight_power_webui.app import _live_panel_sample_from_reading
+    from powers_tool_webui.app import _live_panel_sample_from_reading
 
     sample = _live_panel_sample_from_reading(
         {
@@ -3466,8 +3498,8 @@ def test_live_data_panel_sample_normalizes_numeric_values():
 
 
 def test_live_data_real_mode_reports_busy_without_live_panel_call(client: TestClient, monkeypatch: pytest.MonkeyPatch):
-    from keysight_power_webui import commands
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui import commands
+    from powers_tool_webui.jobs import job_manager
 
     def fail_live_panel(*args, **kwargs):
         raise AssertionError("live data must not read hardware while another real job owns the lock")
@@ -3504,9 +3536,9 @@ def test_live_data_real_mode_reports_busy_without_live_panel_call(client: TestCl
 def test_real_command_waits_for_inflight_live_panel_without_overlap(monkeypatch: pytest.MonkeyPatch):
     import asyncio
 
-    from keysight_power_webui import app as web_app
-    from keysight_power_webui import commands
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui import app as web_app
+    from powers_tool_webui import commands
+    from powers_tool_webui.jobs import job_manager
 
     job_manager.jobs.clear()
     job_manager.active_job_id = None
@@ -3589,7 +3621,7 @@ def test_live_data_stop_terminates_progress_events(client: TestClient, monkeypat
     assert client.post(f"/api/live/{job_id}/stop").status_code == 200
     _wait_for_live_terminal_status(job_id)
 
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
     job = job_manager.jobs[job_id]
     progress_count = sum(1 for event in job.events if event["type"] == "progress")
     time.sleep(0.15)
@@ -3597,7 +3629,7 @@ def test_live_data_stop_terminates_progress_events(client: TestClient, monkeypat
 
 
 def _wait_for_live_progress(job_id: str) -> dict[str, Any]:
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
 
     for _ in range(30):
         job = job_manager.jobs[job_id]
@@ -3611,7 +3643,7 @@ def _wait_for_live_progress(job_id: str) -> dict[str, Any]:
 
 
 def _wait_for_live_terminal_status(job_id: str) -> None:
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
 
     for _ in range(30):
         if job_manager.jobs[job_id].status.value in {"finished", "failed", "cancelled"}:
@@ -3621,7 +3653,7 @@ def _wait_for_live_terminal_status(job_id: str) -> None:
 
 
 def _patch_live_panel(monkeypatch: pytest.MonkeyPatch) -> None:
-    from keysight_power_webui import commands
+    from powers_tool_webui import commands
 
     def fake_live_panel(runtime: Any, parameters: dict[str, Any]) -> dict[str, Any]:
         assert runtime.simulate is False
@@ -3779,45 +3811,19 @@ def test_hidden_diagnostic_commands_remain_directly_submittable(client: TestClie
     assert job_data["status"] == "finished", job_data.get("error")
 
 
-def test_webui_capabilities_uses_selected_resource_model(client: TestClient):
+def test_webui_capabilities_rejects_explicit_sim_resource_mismatch(client: TestClient):
     payload = {
         "command": "capabilities",
         "runtime": {
             "simulate": True,
             "resource": "USB0::SIM::EDU36311A::INSTR",
-            "model_profile": "E36312A",
+            "planning_model_id": "keysight-e36312a",
         },
         "parameters": {},
     }
     response = client.post("/api/jobs", json=payload)
-    assert response.status_code == 200
-
-    job_id = response.json()["job_id"]
-    for _ in range(20):
-        res = client.get(f"/api/jobs/{job_id}")
-        if res.json()["status"] in ("finished", "failed"):
-            break
-        time.sleep(0.05)
-
-    job_data = client.get(f"/api/jobs/{job_id}").json()
-    assert job_data["status"] == "finished", job_data.get("error")
-    result = job_data["result"]
-    assert result["resource"]["idn"]["model"] == "EDU36311A"
-    assert result["driver"]["class"] == "EDU36311APowerSupply"
-    assert result["command_support"]["trigger-list"]["real"] is False
-    assert result["command_support"]["protection-set"]["real"] is True
-    assert result["live_support"] == {
-        "schema_version": 2,
-        "evaluated": False,
-        "model_id": "keysight-edu36311a",
-        "reported_manufacturer": "KEYSIGHT",
-        "reported_model": "EDU36311A",
-        "transport_scope": "usb",
-        "backend_scope": "system_visa",
-        "policy_mode": "product",
-        "commands": {},
-        "reason": "Live exact-scope policy applies to real hardware only.",
-    }
+    assert response.status_code == 400
+    assert "does not match deterministic SIM" in response.json()["detail"]
 
 
 def test_readonly_commands_simulate_with_resource(client: TestClient):
@@ -3918,7 +3924,7 @@ def test_job_cancel_not_found(client: TestClient):
 def test_running_cancel_keeps_hardware_lock_until_cleanup_completes():
     import asyncio
 
-    from keysight_power_webui.jobs import JobManager, JobStatus
+    from powers_tool_webui.jobs import JobManager, JobStatus
 
     async def check_lifecycle() -> None:
         manager = JobManager()
@@ -4143,7 +4149,7 @@ def test_static_sequence_json_artifact_flow_contracts():
 
 
 def test_api_sequence_webui_step_limit(client: TestClient, tmp_path):
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
 
     steps_250 = [{"action": "wait", "seconds": 0}] * 250
     payload = {

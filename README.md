@@ -4,8 +4,8 @@
 
 Keysight Powers is a Python control toolkit for Keysight DC power supplies.
 It provides one installable distribution, `keysight-powers` `<version>`, while
-preserving three import packages: `powers_tool_core`,
-`keysight_power_cli`, and `keysight_power_webui`.
+preserving three V2 import packages: `powers_tool_core`, `powers_tool_cli`,
+and `powers_tool_webui`.
 
 The project supports USB, LAN, and explicit RS-232/ASRL communication through VISA, command-line
 operation, and a local browser WebUI. It is designed for power-supply workflows
@@ -16,7 +16,7 @@ matter.
 
 - Control supported Keysight DC power supplies over USB, LAN, or explicit
   RS-232/ASRL settings using VISA
-- Use either the `keysight-power` CLI or the local `keysight-power-webui`
+- Use either the `powers-tool` CLI or the local `powers-tool-webui`
   dashboard
 - Preview hardware-affecting commands with dry-run mode before opening VISA
 - Test workflows without hardware using the built-in simulator
@@ -28,19 +28,22 @@ matter.
 - Keep real hardware output opt-in; default tests and simulator flows do not
   enable instrument output
 
-## Model Profiles And Live Expected-Model Guards
+## Planning And Live Expected-Model Guards
 
 Dry-run and simulator flows do not open real VISA hardware. For commands that
-need model-specific planning, `--model` / `model_profile` is the no-hardware
-model profile used for planning, channel validation, capability selection, and
-SCPI preview unless the resource is a known deterministic SIM resource.
+need model-specific planning, `--model` maps to the canonical physical
+`planning_model_id`. `--profile generic-scpi` selects the separate nonphysical
+`planning_profile_id` for supported dry-run commands. The two are mutually
+exclusive, and simulator mode accepts only a physical planning model unless a
+known deterministic SIM resource supplies it.
 
-In live mode, `--model` / `model_profile` is an expected-model guard. The
+In live mode, `--model` maps to `expected_model_id` and is only a safety guard. The
 connected instrument is still identified with `*IDN?`, and Core requires the
 reported manufacturer and model to resolve to one canonical physical
 `model_id` before checking the selected model and before any setup or write
 SCPI. The selected model never overrides the IDN-detected driver.
-`GENERIC` is no-hardware only and is not accepted as a live expected model.
+`generic-scpi` is no-hardware planning only and is never a physical or live
+expected model. Bare model names and legacy runtime aliases are rejected.
 
 For model-aware live commands, Core makes the final product decision after
 `*IDN?` using canonical `model_id + command + transport + backend + required
@@ -60,15 +63,16 @@ the lifecycle framework without enabling a new model.
 Valid no-hardware examples:
 
 ```powershell
-uv run keysight-power set --dry-run --model E3646A --channel 1 --voltage 1 --current 0.05
-uv run keysight-power readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
-uv run keysight-power trigger-step --dry-run --model E36312A --channel 1 --source bus --fire
+uv run powers-tool set --dry-run --model keysight-e3646a --channel 1 --voltage 1 --current 0.05
+uv run powers-tool readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
+uv run powers-tool trigger-step --dry-run --model keysight-e36312a --channel 1 --source bus --fire
+uv run powers-tool set --dry-run --profile generic-scpi --channel 1 --voltage 1 --current 0.05
 ```
 
 Live guard example:
 
 ```powershell
-uv run keysight-power set --model E36312A --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
+uv run powers-tool set --model keysight-e36312a --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
 ```
 
 This command requires the connected `*IDN?` model to be `E36312A`; it does not
@@ -96,7 +100,7 @@ and does not round or truncate user setpoints before SCPI.
 This is intentionally rejected:
 
 ```powershell
-uv run keysight-power trigger-step --dry-run --resource USB0::FAKE::E36312A::INSTR --channel 1 --source bus --fire
+uv run powers-tool trigger-step --dry-run --resource USB0::FAKE::E36312A::INSTR --channel 1 --source bus --fire
 ```
 
 Fake or live-looking resource strings are placeholders and must not imply a
@@ -111,8 +115,8 @@ The repository has one distribution and one version number. In examples,
 
 - Distribution: `keysight-powers` `<version>`
 - Core import: `powers_tool_core`
-- CLI import: `keysight_power_cli`
-- WebUI import: `keysight_power_webui`
+- CLI import: `powers_tool_cli`
+- WebUI import: `powers_tool_webui`
 
 The import paths remain independent. Do not use a `keysight_power.*`
 namespace package.
@@ -120,8 +124,8 @@ namespace package.
 ```text
 src/
   powers_tool_core/
-  keysight_power_cli/
-  keysight_power_webui/
+  powers_tool_cli/
+  powers_tool_webui/
 tests/
   core/
   cli/
@@ -193,9 +197,9 @@ If you need pip directly, use the virtual environment's Python:
 ```
 
 Windows creates virtualenv console wrappers such as
-`.\.venv\Scripts\keysight-power.exe` and
-`.\.venv\Scripts\keysight-power-webui.exe`. The WebUI launcher wrapper is
-`.\.venv\Scripts\keysight-power-webui-launcher.exe`.
+`.\.venv\Scripts\powers-tool.exe` and
+`.\.venv\Scripts\powers-tool-webui.exe`. The WebUI launcher wrapper is
+`.\.venv\Scripts\powers-tool-webui-launcher.exe`.
 
 ## Build
 

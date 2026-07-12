@@ -8,10 +8,10 @@ import threading
 from pathlib import Path
 import pytest
 
-import keysight_power_cli.worker as worker_mod
-import keysight_power_cli.cli as cli
-from keysight_power_cli.worker import WorkerState, _run_job_impl, _write_json_artifact_atomic, load_worker_config, run_worker
-from keysight_power_cli.cli import build_parser
+import powers_tool_cli.worker as worker_mod
+import powers_tool_cli.cli as cli
+from powers_tool_cli.worker import WorkerState, _run_job_impl, _write_json_artifact_atomic, load_worker_config, run_worker
+from powers_tool_cli.cli import build_parser
 
 
 @pytest.mark.parametrize("field", ["support_policy_mode", "validation_allow_pending_live_support"])
@@ -53,6 +53,54 @@ def test_worker_rejects_validation_mode_setting(field: str) -> None:
     }
     with pytest.raises(ValueError, match="validation support policy mode"):
         worker_mod._validate_worker_config(config)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["model_profile", "model", "planning_model_id", "expected_model_id", "planning_profile_id"],
+)
+def test_worker_rejects_identity_settings(field: str) -> None:
+    config = {
+        "id": "test",
+        "type": "power",
+        "enabled": True,
+        "mode": "live",
+        "control_host": "127.0.0.1",
+        "control_port": 0,
+        "artifacts_dir": ".tmp_tests/worker",
+        "events_jsonl": None,
+        "settings": {"resource": "USB0::FAKE::E36312A::INSTR", field: "keysight-e36312a"},
+    }
+    with pytest.raises(ValueError, match="identity selection belongs to each request"):
+        worker_mod._validate_worker_config(config)
+
+
+@pytest.mark.parametrize("field", ["model_profile", "model"])
+def test_worker_rejects_legacy_identity_arguments_before_queue_mutation(field: str) -> None:
+    state = WorkerState(
+        {
+            "id": "test",
+            "type": "power",
+            "enabled": True,
+            "mode": "live",
+            "control_host": "127.0.0.1",
+            "control_port": 0,
+            "artifacts_dir": ".tmp_tests/worker",
+            "events_jsonl": None,
+            "settings": {"resource": "USB0::FAKE::E36312A::INSTR"},
+        },
+        0,
+    )
+
+    status, payload = worker_mod._validate_command_body(
+        {"command": "measure", "arguments": {"channel": 1, field: "E36312A"}},
+        state,
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "argument_error"
+    assert state.next_job is None
+    assert state.status == "ready"
 
 
 def _wait_for_json_file(path: Path, timeout: float = 3.0) -> dict:
@@ -303,7 +351,7 @@ def test_worker_status_endpoint(running_worker):
     with urllib.request.urlopen(url) as response:
         assert response.status == 200
         data = json.loads(response.read().decode("utf-8"))
-        assert data["service"] == "keysight-power"
+        assert data["service"] == "powers-tool"
         assert data["status"] == "ready"
         assert data["queue_size"] == 0
         assert "command_url" in data
@@ -413,7 +461,7 @@ def test_cli_lifecycle_status_reads_worker(running_worker, capsys):
     exit_code = cli.main(["status", "--port", port, "--json"])
     payload = _last_stdout_json(capsys)
     assert exit_code == 0
-    assert payload["service"] == "keysight-power"
+    assert payload["service"] == "powers-tool"
     assert payload["status"] == "ready"
     assert "command_url" in payload
     assert "trigger_url" not in payload
@@ -482,7 +530,7 @@ def test_worker_readonly_dry_run_does_not_open_live_resource(tmp_path, monkeypat
         assert actual_port is not None
         req = urllib.request.Request(
             f"http://127.0.0.1:{actual_port}/command",
-            data=json.dumps({"command": "read-status", "arguments": {"dry_run": True, "model_profile": "E36312A"}}).encode("utf-8"),
+            data=json.dumps({"command": "read-status", "arguments": {"dry_run": True, "planning_model_id": "keysight-e36312a"}}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
         with urllib.request.urlopen(req) as res:
@@ -524,7 +572,7 @@ def test_worker_measure_all_rejects_channel_filter(running_worker):
 def test_worker_output_commands_accept_all_channel_dry_run(running_worker, command):
     port = running_worker["port"]
     artifacts_dir = running_worker["artifacts_dir"]
-    arguments = {"channel": "all", "dry_run": True, "model_profile": "E36312A"}
+    arguments = {"channel": "all", "dry_run": True, "planning_model_id": "keysight-e36312a"}
     if command == "cycle-output":
         arguments["duration_ms"] = 250
     req = urllib.request.Request(
@@ -540,13 +588,13 @@ def test_worker_output_commands_accept_all_channel_dry_run(running_worker, comma
     result_data = _wait_for_json_file(artifacts_dir / "jobs" / job_id / "result.json")
     assert result_data["ok"] is True
     assert result_data["request"]["arguments"]["channel"] == "all"
-    assert result_data["request"]["arguments"]["model_profile"] == "E36312A"
+    assert result_data["request"]["arguments"]["planning_model_id"] == "keysight-e36312a"
     plan = result_data["data"].get("plan", result_data["data"])
     assert plan["target"]["channel"] == "all"
-    assert plan["target"]["model_profile"] == "E36312A"
+    assert plan["target"]["planning_model_id"] == "keysight-e36312a"
 
 
-def test_worker_dry_run_missing_model_profile_does_not_default_to_e36312a(tmp_path):
+def test_worker_dry_run_missing_planning_model_id_does_not_default_to_e36312a(tmp_path):
     result = _run_worker_job_for_test(
         tmp_path,
         command="output-on",
@@ -556,18 +604,18 @@ def test_worker_dry_run_missing_model_profile_does_not_default_to_e36312a(tmp_pa
     assert result["ok"] is False
     assert result["error"]["type"] == "validation"
     assert result["error"]["code"] == "argument_error"
-    assert "--dry-run and --simulate require --model or a known deterministic SIM resource" in result["error"]["message"]
+    assert "dry-run and simulator planning require planning_model_id, planning_profile_id, or a known deterministic SIM resource" in result["error"]["message"]
 
 
-def test_worker_dry_run_explicit_e36312a_model_profile_still_works(tmp_path):
+def test_worker_dry_run_explicit_e36312a_planning_model_id_still_works(tmp_path):
     result = _run_worker_job_for_test(
         tmp_path,
         command="output-on",
-        arguments={"channel": 1, "dry_run": True, "model_profile": "E36312A"},
+        arguments={"channel": 1, "dry_run": True, "planning_model_id": "keysight-e36312a"},
     )
 
     assert result["ok"] is True
-    assert result["data"]["target"]["model_profile"] == "E36312A"
+    assert result["data"]["target"]["planning_model_id"] == "keysight-e36312a"
     assert result["data"]["target"]["channel"] == 1
 
 
@@ -575,7 +623,7 @@ def test_worker_dry_run_explicit_e3646a_uses_e3646a_channel_rules(tmp_path):
     result = _run_worker_job_for_test(
         tmp_path,
         command="output-on",
-        arguments={"channel": 3, "dry_run": True, "model_profile": "E3646A"},
+        arguments={"channel": 3, "dry_run": True, "planning_model_id": "keysight-e3646a"},
     )
 
     assert result["ok"] is False
@@ -585,28 +633,35 @@ def test_worker_dry_run_explicit_e3646a_uses_e3646a_channel_rules(tmp_path):
     assert "(1, 2)" in result["error"]["message"]
 
 
-def test_worker_simulate_model_profile_resource_mismatch_fails(tmp_path):
-    result = _run_worker_job_for_test(
-        tmp_path,
-        command="output-on",
-        arguments={"channel": 1, "model_profile": "E3646A"},
-        config={
-            "id": "test",
-            "type": "power",
-            "enabled": True,
-            "mode": "simulate",
-            "control_host": "127.0.0.1",
-            "control_port": 0,
-            "artifacts_dir": str(tmp_path),
-            "events_jsonl": None,
-            "settings": {"resource": "USB0::SIM::E36312A::INSTR"},
+def test_worker_simulate_planning_model_id_resource_mismatch_fails(tmp_path):
+    config = {
+        "id": "test",
+        "type": "power",
+        "enabled": True,
+        "mode": "simulate",
+        "control_host": "127.0.0.1",
+        "control_port": 0,
+        "artifacts_dir": str(tmp_path),
+        "events_jsonl": None,
+        "settings": {"resource": "USB0::SIM::E36312A::INSTR"},
+    }
+    state = WorkerState(config, 0)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "command": "output-on",
+            "arguments": {
+                "channel": 1,
+                "planning_model_id": "keysight-e3646a",
+            },
         },
+        state,
     )
 
-    assert result["ok"] is False
-    assert result["error"]["type"] == "validation"
-    assert result["error"]["code"] == "argument_error"
-    assert "--model E3646A does not match SIM resource model E36312A" in result["error"]["message"]
+    assert status == 400
+    assert payload["error"]["code"] == "argument_error"
+    assert "does not match" in payload["error"]["message"]
+    assert state.next_job is None
 
 
 def test_worker_result_artifact_write_failure_reports_artifact_error_without_fake_path(tmp_path, monkeypatch):

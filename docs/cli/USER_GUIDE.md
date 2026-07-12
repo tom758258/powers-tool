@@ -1,7 +1,7 @@
 # Keysight Power CLI User Guide
 
 This guide is for operators who receive the built CLI executable or an
-already-installed `keysight-power` command to control supported Keysight DC
+already-installed `powers-tool` command to control supported Keysight DC
 power supplies. It focuses on normal live workflows, resource selection, and
 safe first checks. For developer setup, detailed command reference, and
 automation details, see the [CLI README](README.md).
@@ -26,10 +26,10 @@ versioned executable. Developers or source-checkout users should use the
 commands.
 
 For an already-installed command, replace `.\keysight-power.exe` with
-`keysight-power`:
+`powers-tool`:
 
 ```powershell
-keysight-power --version
+powers-tool --version
 ```
 
 ## First Live Check
@@ -134,14 +134,14 @@ $env:KEYSIGHT_POWER_ASRL_RESOURCE = "ASRL1::INSTR"
 Plain `list-resources` normally does not need serial settings:
 
 ```powershell
-keysight-power list-resources
+powers-tool list-resources
 ```
 
 If Keysight IO Libraries Suite / Connection Expert already has the ASRL
 resource configured, try a read-only check without overriding those settings:
 
 ```powershell
-keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE"
+powers-tool verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE"
 ```
 
 To explicitly apply serial settings for one command, pass only the fields you
@@ -150,7 +150,7 @@ parity, 2 stop bits, and DTR/DSR handshake, but the instrument front-panel
 settings may have been changed:
 
 ```powershell
-keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
+powers-tool verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
 ```
 
 `--serial-remote` sends `SYST:REM`. `--serial-local-on-close` best-effort
@@ -160,10 +160,10 @@ only when explicitly requested.
 Useful read/status examples:
 
 ```powershell
-keysight-power identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
-keysight-power readback --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
-keysight-power measure --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
-keysight-power output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+powers-tool identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
+powers-tool readback --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+powers-tool measure --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
+powers-tool output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
 ```
 
 For serial read/write termination in PowerShell, use aliases when possible:
@@ -205,7 +205,7 @@ Read back the programmed state:
 Preview the implemented output-enable plan without opening real hardware:
 
 ```powershell
-.\keysight-power.exe output-on --dry-run --model E36312A --channel 1 --json
+.\keysight-power.exe output-on --dry-run --model keysight-e36312a --channel 1 --json
 ```
 
 Turn output off when the check is complete:
@@ -237,27 +237,33 @@ against an unknown resource.
 ## No-Hardware Checks
 
 Dry-run and simulator commands do not open real VISA hardware. When a command
-needs model-specific planning, pass a simulation / dry-run model profile with
+needs model-specific planning, pass a canonical simulation/dry-run model ID with
 `--model`, or use a deterministic SIM resource such as
 `USB0::SIM::E36312A::INSTR`.
 
 ```powershell
-.\keysight-power.exe set --dry-run --model E3646A --channel 1 --voltage 1 --current 0.05
+.\keysight-power.exe set --dry-run --model keysight-e3646a --channel 1 --voltage 1 --current 0.05
 .\keysight-power.exe readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
-.\keysight-power.exe trigger-step --dry-run --model E36312A --channel 1 --source bus --fire
+.\keysight-power.exe trigger-step --dry-run --model keysight-e36312a --channel 1 --source bus --fire
+.\keysight-power.exe set --dry-run --profile generic-scpi --channel 1 --voltage 1 --current 0.05
 ```
+
+`--profile generic-scpi` is dry-run-only and is exposed only on commands whose
+existing support matrix permits Generic planning. It cannot be combined with
+`--model` and is invalid in simulator or live execution.
 
 Do not use fake or live-looking resource strings to imply a model in
 no-hardware mode. For example, `USB0::FAKE::E36312A::INSTR` is a placeholder,
 not model evidence.
 
-For live commands, `--model` is an expected-model guard. The CLI still queries
+For live commands, `--model` accepts a canonical ID such as
+`keysight-e36312a` and is an expected-model guard. The CLI still queries
 `*IDN?` and uses the detected model for driver selection. If the selected model
 does not match the connected IDN model, the command fails before setup or write
 SCPI:
 
 ```powershell
-.\keysight-power.exe set --model E36312A --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
+.\keysight-power.exe set --model keysight-e36312a --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
 ```
 
 This requires the connected model to be E36312A and does not force the E36312A

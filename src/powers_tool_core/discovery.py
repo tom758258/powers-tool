@@ -7,6 +7,7 @@ from typing import Any, Callable
 from powers_tool_core.connection import list_resources, open_resource, serial_open_kwargs
 from powers_tool_core.core import CoreIoError, CoreValidationError, OperationRequest
 from powers_tool_core.errors import VisaConnectionError
+from powers_tool_core.identity import IdentityResolutionError, resolve_physical_model_identity
 from powers_tool_core.models import parse_idn, resource_interface
 from powers_tool_core.operations import ScpiLoggingSession
 from powers_tool_core.testing.simulator import SimulatedResourceManager
@@ -117,10 +118,19 @@ def resource_payload(
     reachable: bool | None,
     idn_raw: str | None,
 ) -> dict[str, Any]:
+    idn = parse_idn(idn_raw) if idn_raw is not None else None
+    identity = None
+    if idn is not None:
+        try:
+            identity = resolve_physical_model_identity(idn.manufacturer, idn.model)
+        except IdentityResolutionError:
+            identity = None
     return {
         "name": name,
         "interface": resource_interface(name),
         "simulated": simulated,
         "reachable": reachable,
-        "idn": parse_idn(idn_raw).to_dict() if idn_raw is not None else None,
+        "idn": idn.to_dict() if idn is not None else None,
+        "vendor_id": identity.vendor_id if identity is not None else None,
+        "model_id": identity.model_id if identity is not None else None,
     }

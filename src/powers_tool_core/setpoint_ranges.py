@@ -237,16 +237,8 @@ def setpoint_ranges_for_model_id(model_id: str | None) -> ModelSetpointRanges | 
     return SETPOINT_RANGES_BY_MODEL_ID.get(model_id)
 
 
-def setpoint_ranges_for_model_profile(model_profile: str | None) -> ModelSetpointRanges | None:
-    """Bridge the staged P4 model-profile contract to canonical range keys."""
-
-    from powers_tool_core.model_resolution import model_id_from_model_profile
-
-    return setpoint_ranges_for_model_id(model_id_from_model_profile(model_profile))
-
-
 def setpoint_ranges_by_model_metadata() -> dict[str, dict[str, object]]:
     return {
-        ranges.model: ranges.to_dict()
-        for ranges in SETPOINT_RANGES_BY_MODEL_ID.values()
+        model_id: ranges.to_dict()
+        for model_id, ranges in SETPOINT_RANGES_BY_MODEL_ID.items()
     }

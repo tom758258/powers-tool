@@ -1,24 +1,21 @@
-"""Strict no-hardware model resolution helpers."""
+"""Strict runtime identity validation and no-hardware model resolution."""
 
 from __future__ import annotations
 
 from dataclasses import replace
 
 from powers_tool_core.core import CoreValidationError, RuntimeOptions
-from powers_tool_core.identity import IDENTITY_INDEXES, planning_model_id_from_sim_resource
+from powers_tool_core.identity import (
+    GENERIC_SCPI_PLANNING_PROFILE_ID,
+    IdentityResolutionError,
+    canonical_physical_model_id,
+    canonical_planning_profile_id,
+    planning_model_id_from_sim_resource,
+)
 from powers_tool_core.models import CANDIDATE_MODEL_IDS, PRODUCT_ACTIVE_MODEL_IDS
 
-PRODUCT_MODEL_PROFILES = frozenset(
-    IDENTITY_INDEXES.models_by_id[model_id].canonical_model
-    for model_id in PRODUCT_ACTIVE_MODEL_IDS
-)
-CANDIDATE_MODEL_PROFILES = frozenset(
-    IDENTITY_INDEXES.models_by_id[model_id].canonical_model
-    for model_id in CANDIDATE_MODEL_IDS
-)
-CANONICAL_MODEL_PROFILES = PRODUCT_MODEL_PROFILES | CANDIDATE_MODEL_PROFILES | {"GENERIC"}
 
-LIVE_EXPECTED_MODEL_PROFILES = PRODUCT_MODEL_PROFILES | CANDIDATE_MODEL_PROFILES
+RUNTIME_PHYSICAL_MODEL_IDS = PRODUCT_ACTIVE_MODEL_IDS | CANDIDATE_MODEL_IDS
 
 MODEL_CHANNELS_BY_ID = {
     "keysight-e36312a": (1, 2, 3),
@@ -26,7 +23,7 @@ MODEL_CHANNELS_BY_ID = {
     "keysight-e3646a": (1, 2),
 }
 PLANNING_PROFILE_CHANNELS = {
-    "GENERIC": (1,),
+    GENERIC_SCPI_PLANNING_PROFILE_ID: (1,),
 }
 
 SIMULATED_RESOURCE_FOR_MODEL_ID = {
@@ -35,134 +32,209 @@ SIMULATED_RESOURCE_FOR_MODEL_ID = {
     "keysight-e3646a": "ASRL1::SIM::E3646A::INSTR",
 }
 
-_MODEL_ID_BY_MODEL_PROFILE = {
-    IDENTITY_INDEXES.models_by_id[model_id].canonical_model: model_id
-    for model_id in PRODUCT_ACTIVE_MODEL_IDS | CANDIDATE_MODEL_IDS
-}
+
+def runtime_execution_mode(runtime: RuntimeOptions) -> str:
+    """Return the established resolved execution mode."""
+
+    if runtime.simulate:
+        return "simulate"
+    if runtime.dry_run:
+        return "dry_run"
+    return "live"
 
 
-def canonical_model_profile(model: str | None) -> str | None:
-    if model is None:
-        return None
-    normalized = model.strip().upper()
-    if normalized not in CANONICAL_MODEL_PROFILES:
-        supported = ", ".join(sorted(CANONICAL_MODEL_PROFILES))
-        raise CoreValidationError(f"unsupported model profile {model!r}; supported: {supported}")
-    return normalized
+def validate_runtime_identity(runtime: RuntimeOptions) -> None:
+    """Validate explicit runtime identity fields before any hardware I/O."""
 
+    planning_model_id = _canonical_runtime_model_id(
+        runtime.planning_model_id,
+        field="planning_model_id",
+    )
+    expected_model_id = _canonical_runtime_model_id(
+        runtime.expected_model_id,
+        field="expected_model_id",
+    )
+    planning_profile_id = _canonical_runtime_profile_id(runtime.planning_profile_id)
+    mode = runtime_execution_mode(runtime)
 
-def canonical_live_expected_model(model: str | None) -> str | None:
-    if model is None:
-        return None
-    normalized = canonical_model_profile(model)
-    if normalized not in LIVE_EXPECTED_MODEL_PROFILES:
-        if normalized == "GENERIC":
+    if mode == "dry_run":
+        if expected_model_id is not None:
+            raise CoreValidationError("expected_model_id is invalid in dry-run mode")
+        if planning_model_id is not None and planning_profile_id is not None:
             raise CoreValidationError(
-                "GENERIC is no-hardware only and cannot be used as a live expected model. "
-                "--model is an expected-model guard in live mode and does not override the IDN-detected driver."
+                "planning_model_id and planning_profile_id are mutually exclusive"
             )
-        supported = ", ".join(sorted(LIVE_EXPECTED_MODEL_PROFILES))
-        raise CoreValidationError(
-            f"unsupported live expected model {model!r}; supported: {supported}. "
-            "--model is an expected-model guard in live mode and does not override the IDN-detected driver."
+        inferred = _planning_model_id_from_resource(runtime.resource)
+        if planning_profile_id is not None and inferred is not None:
+            raise CoreValidationError(
+                "planning_profile_id conflicts with deterministic SIM physical identity"
+            )
+        _reconcile_planning_model_id(planning_model_id, inferred)
+        return
+
+    if mode == "simulate":
+        if expected_model_id is not None:
+            raise CoreValidationError("expected_model_id is invalid in simulator mode")
+        if planning_profile_id is not None:
+            raise CoreValidationError("planning_profile_id is invalid in simulator mode")
+        _reconcile_planning_model_id(
+            planning_model_id,
+            _planning_model_id_from_resource(runtime.resource),
         )
-    return normalized
+        return
+
+    if planning_model_id is not None:
+        raise CoreValidationError("planning_model_id is invalid in live mode")
+    if planning_profile_id is not None:
+        raise CoreValidationError("planning_profile_id is invalid in live mode")
 
 
 def validate_live_expected_model(
-    expected_model: str | None,
-    detected_model: str | None,
+    expected_model_id: str | None,
+    detected_model_id: str | None,
     *,
     command: str | None = None,
 ) -> str | None:
-    expected = canonical_live_expected_model(expected_model)
+    """Compare a live safety guard with the resolved detected model identity."""
+
+    expected = _canonical_runtime_model_id(
+        expected_model_id,
+        field="expected_model_id",
+    )
     if expected is None:
         return None
-    detected = _canonical_detected_model(detected_model)
+    detected = _canonical_detected_model_id(detected_model_id)
     if detected != expected:
         prefix = f"{command}: " if command else ""
-        reported = detected or "UNKNOWN"
+        reported = detected or "unknown"
         raise CoreValidationError(
-            f"{prefix}Expected model {expected} but connected instrument reported {reported}. "
-            "--model is an expected-model guard in live mode and does not override the IDN-detected driver."
+            f"{prefix}Expected model_id {expected} but connected instrument resolved to {reported}. "
+            "expected_model_id is a safety guard and does not override the IDN-selected driver."
         )
     return expected
 
 
-def model_profile_from_sim_resource(resource: str | None) -> str | None:
-    model_id = planning_model_id_from_sim_resource(resource)
-    if model_id is None:
-        return None
-    return IDENTITY_INDEXES.models_by_id[model_id].canonical_model
-
-
-def model_id_from_model_profile(model_profile: str | None) -> str | None:
-    """Project the staged legacy planning profile to a canonical physical model ID."""
-
-    profile = canonical_model_profile(model_profile)
-    if profile is None or profile == "GENERIC":
-        return None
-    return _MODEL_ID_BY_MODEL_PROFILE[profile]
-
-
 def resolve_no_hardware_runtime(runtime: RuntimeOptions) -> RuntimeOptions:
-    """Resolve no-hardware planning models and live expected-model guards."""
+    """Resolve one physical model or nonphysical dry-run planning profile."""
 
-    if not runtime.dry_run and not runtime.simulate:
-        expected = canonical_live_expected_model(runtime.model_profile)
-        return replace(runtime, model_profile=expected)
+    validate_runtime_identity(runtime)
+    mode = runtime_execution_mode(runtime)
+    if mode == "live":
+        return runtime
 
-    requested = canonical_model_profile(runtime.model_profile)
-    inferred = model_profile_from_sim_resource(runtime.resource)
+    inferred = _planning_model_id_from_resource(runtime.resource)
+    planning_model_id = _reconcile_planning_model_id(runtime.planning_model_id, inferred)
+    planning_profile_id = _canonical_runtime_profile_id(runtime.planning_profile_id)
 
-    if requested is None and inferred is None:
+    if planning_model_id is None and planning_profile_id is None:
         raise CoreValidationError(
-            "--dry-run and --simulate require --model or a known deterministic SIM resource"
+            "dry-run and simulator planning require planning_model_id, planning_profile_id, "
+            "or a known deterministic SIM resource"
         )
-    if requested is not None and inferred is not None and requested != inferred:
-        raise CoreValidationError(
-            f"--model {requested} does not match SIM resource model {inferred}"
-        )
+    if mode == "simulate" and planning_model_id is None:
+        raise CoreValidationError("simulator mode requires a canonical physical planning_model_id")
 
-    model = requested or inferred
-    assert model is not None
     resource = runtime.resource
-    if runtime.simulate:
-        resource = _simulate_resource_for_model(model, resource)
+    if mode == "simulate":
+        assert planning_model_id is not None
+        resource = _simulate_resource_for_model_id(planning_model_id, resource)
 
-    return replace(runtime, resource=resource, model_profile=model)
+    return replace(
+        runtime,
+        resource=resource,
+        planning_model_id=planning_model_id,
+        planning_profile_id=planning_profile_id,
+    )
 
 
-def no_hardware_channels(model_profile: str) -> tuple[int, ...]:
-    if model_profile in PLANNING_PROFILE_CHANNELS:
-        return PLANNING_PROFILE_CHANNELS[model_profile]
-    model_id = model_id_from_model_profile(model_profile)
+def no_hardware_channels(
+    planning_model_id: str | None,
+    planning_profile_id: str | None = None,
+) -> tuple[int, ...]:
+    """Return channels for one already-resolved planning identity."""
+
+    if planning_model_id is not None and planning_profile_id is not None:
+        raise CoreValidationError(
+            "planning_model_id and planning_profile_id are mutually exclusive"
+        )
+    if planning_profile_id is not None:
+        profile_id = _canonical_runtime_profile_id(planning_profile_id)
+        assert profile_id is not None
+        return PLANNING_PROFILE_CHANNELS[profile_id]
+    model_id = _canonical_runtime_model_id(planning_model_id, field="planning_model_id")
+    if model_id is None:
+        raise CoreValidationError("a planning identity is required")
     try:
-        assert model_id is not None
         return MODEL_CHANNELS_BY_ID[model_id]
     except KeyError as exc:
-        raise CoreValidationError(f"unsupported model profile {model_profile!r}") from exc
+        raise CoreValidationError(f"unsupported planning_model_id {model_id!r}") from exc
 
 
-def _simulate_resource_for_model(model: str, resource: str | None) -> str:
+def _canonical_runtime_model_id(value: str | None, *, field: str) -> str | None:
+    try:
+        model_id = canonical_physical_model_id(value)
+    except IdentityResolutionError as exc:
+        raise CoreValidationError(f"invalid {field}: {exc}") from exc
+    if model_id is not None and model_id not in RUNTIME_PHYSICAL_MODEL_IDS:
+        raise CoreValidationError(
+            f"invalid {field}: physical model_id {model_id!r} is not active or candidate"
+        )
+    return model_id
+
+
+def _canonical_runtime_profile_id(value: str | None) -> str | None:
+    try:
+        return canonical_planning_profile_id(value)
+    except IdentityResolutionError as exc:
+        raise CoreValidationError(f"invalid planning_profile_id: {exc}") from exc
+
+
+def _planning_model_id_from_resource(resource: str | None) -> str | None:
+    try:
+        inferred = planning_model_id_from_sim_resource(resource)
+    except IdentityResolutionError as exc:
+        raise CoreValidationError(f"invalid deterministic SIM identity: {exc}") from exc
+    if inferred is not None and inferred not in RUNTIME_PHYSICAL_MODEL_IDS:
+        raise CoreValidationError(
+            f"deterministic SIM model_id {inferred!r} is not active or candidate"
+        )
+    return inferred
+
+
+def _reconcile_planning_model_id(
+    explicit_model_id: str | None,
+    inferred_model_id: str | None,
+) -> str | None:
+    explicit = _canonical_runtime_model_id(
+        explicit_model_id,
+        field="planning_model_id",
+    )
+    if explicit is not None and inferred_model_id is not None and explicit != inferred_model_id:
+        raise CoreValidationError(
+            f"planning_model_id {explicit!r} does not match deterministic SIM "
+            f"model_id {inferred_model_id!r}"
+        )
+    return explicit or inferred_model_id
+
+
+def _simulate_resource_for_model_id(model_id: str, resource: str | None) -> str:
     if resource is not None:
-        if model_profile_from_sim_resource(resource) is None:
+        if _planning_model_id_from_resource(resource) is None:
             raise CoreValidationError(
-                "--simulate requires a deterministic SIM resource; "
-                "omit --resource to derive one from --model or pass a known SIM resource"
+                "simulator mode requires a deterministic SIM resource; omit resource to derive "
+                "one from planning_model_id or pass a known SIM resource"
             )
         return resource
     try:
-        model_id = model_id_from_model_profile(model)
-        if model_id is None:
-            raise KeyError(model)
         return SIMULATED_RESOURCE_FOR_MODEL_ID[model_id]
     except KeyError as exc:
-        raise CoreValidationError(f"--simulate --model {model} has no deterministic simulator resource") from exc
+        raise CoreValidationError(
+            f"planning_model_id {model_id!r} has no deterministic simulator resource"
+        ) from exc
 
 
-def _canonical_detected_model(model: str | None) -> str | None:
-    if model is None:
-        return None
-    normalized = model.strip().upper()
-    return normalized or None
+def _canonical_detected_model_id(model_id: str | None) -> str | None:
+    try:
+        return canonical_physical_model_id(model_id)
+    except IdentityResolutionError as exc:
+        raise CoreValidationError(f"invalid detected model_id: {exc}") from exc

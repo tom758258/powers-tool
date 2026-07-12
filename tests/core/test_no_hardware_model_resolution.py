@@ -3,7 +3,7 @@ import pytest
 from powers_tool_core.command_runner import run_core_command
 from powers_tool_core.connection import InstrumentSession
 from powers_tool_core.core import CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, TriggerRequest
-from powers_tool_core.model_resolution import canonical_live_expected_model, validate_live_expected_model
+from powers_tool_core.model_resolution import validate_live_expected_model
 from powers_tool_core.operations import output_plan, run_operation
 from powers_tool_core.protection import run_protection
 from powers_tool_core.ramp_list import RAMP_LIST_KIND, run_ramp_list
@@ -11,12 +11,12 @@ from powers_tool_core.sequence import run_sequence
 from powers_tool_core.testing.simulator import SimulatedResourceManager
 
 
-def test_runtime_options_model_profile_defaults_to_none() -> None:
-    assert RuntimeOptions().model_profile is None
+def test_runtime_options_planning_model_id_defaults_to_none() -> None:
+    assert RuntimeOptions().planning_model_id is None
 
 
 def test_dry_run_requires_model_or_known_sim_resource() -> None:
-    with pytest.raises(CoreValidationError, match="require --model"):
+    with pytest.raises(CoreValidationError, match="require planning_model_id"):
         output_plan(
             OperationRequest(
                 command="output-on",
@@ -26,16 +26,17 @@ def test_dry_run_requires_model_or_known_sim_resource() -> None:
         )
 
 
-def test_model_profile_is_case_insensitive_and_generic_dry_run_is_single_channel() -> None:
+def test_generic_dry_run_profile_is_single_channel() -> None:
     plan = output_plan(
         OperationRequest(
             command="output-on",
-            runtime=RuntimeOptions(dry_run=True, model_profile="generic"),
+            runtime=RuntimeOptions(dry_run=True, planning_profile_id="generic-scpi"),
             parameters={"channel": "all"},
         )
     )
 
-    assert plan["target"]["model_profile"] == "GENERIC"
+    assert plan["target"]["planning_profile_id"] == "generic-scpi"
+    assert plan["target"]["planning_model_id"] is None
     assert [step["parameters"]["channel"] for step in plan["steps"]] == [1]
 
 
@@ -43,17 +44,17 @@ def test_simulate_derives_resource_from_model_and_rejects_generic() -> None:
     plan = output_plan(
         OperationRequest(
             command="output-on",
-            runtime=RuntimeOptions(simulate=True, model_profile="E36312A"),
+            runtime=RuntimeOptions(simulate=True, planning_model_id="keysight-e36312a"),
             parameters={"channel": 1},
         )
     )
 
     assert plan["target"]["resource"] == "USB0::SIM::E36312A::INSTR"
-    with pytest.raises(CoreValidationError, match="no deterministic simulator"):
+    with pytest.raises(CoreValidationError, match="invalid in simulator"):
         output_plan(
             OperationRequest(
                 command="output-on",
-                runtime=RuntimeOptions(simulate=True, model_profile="GENERIC"),
+                runtime=RuntimeOptions(simulate=True, planning_profile_id="generic-scpi"),
                 parameters={"channel": 1},
             )
         )
@@ -67,7 +68,7 @@ def test_simulate_rejects_explicit_non_sim_resource() -> None:
                 runtime=RuntimeOptions(
                     resource="ASRL7::INSTR",
                     simulate=True,
-                    model_profile="E3646A",
+                    planning_model_id="keysight-e3646a",
                 ),
                 parameters={"channel": 1},
             )
@@ -83,7 +84,7 @@ def test_sim_resource_infers_model_and_mismatch_is_rejected() -> None:
         )
     )
 
-    assert plan["target"]["model_profile"] == "E3646A"
+    assert plan["target"]["planning_model_id"] == "keysight-e3646a"
     assert [step["parameters"]["channel"] for step in plan["steps"]] == [1, 2]
     with pytest.raises(CoreValidationError, match="does not match"):
         output_plan(
@@ -92,44 +93,40 @@ def test_sim_resource_infers_model_and_mismatch_is_rejected() -> None:
                 runtime=RuntimeOptions(
                     resource="USB0::SIM::E36312A::INSTR",
                     simulate=True,
-                    model_profile="E3646A",
+                    planning_model_id="keysight-e3646a",
                 ),
                 parameters={"channel": 1},
             )
         )
 
 
-@pytest.mark.parametrize(
-    ("requested", "expected"),
-    [
-        ("e36312a", "E36312A"),
-        ("edu36311a", "EDU36311A"),
-        ("e3646a", "E3646A"),
-    ],
-)
-def test_live_expected_model_normalization_is_case_insensitive(requested: str, expected: str) -> None:
-    assert canonical_live_expected_model(requested) == expected
-    assert validate_live_expected_model(requested, expected.lower()) == expected
+def test_live_expected_model_requires_canonical_model_id() -> None:
+    assert (
+        validate_live_expected_model("keysight-e36312a", "keysight-e36312a")
+        == "keysight-e36312a"
+    )
+    with pytest.raises(CoreValidationError, match="invalid expected_model_id"):
+        validate_live_expected_model("E36312A", "keysight-e36312a")
 
 
 def test_live_expected_model_rejects_generic() -> None:
-    with pytest.raises(CoreValidationError, match="GENERIC is no-hardware only"):
-        canonical_live_expected_model("GENERIC")
+    with pytest.raises(CoreValidationError, match="invalid expected_model_id"):
+        validate_live_expected_model("generic-scpi", "keysight-e36312a")
 
 
-@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
+@pytest.mark.parametrize("model", ["keysight-e36103b", "keysight-e36232a"])
 def test_descoped_models_are_rejected_as_live_expected_models(model: str) -> None:
-    with pytest.raises(CoreValidationError, match="unsupported model profile"):
-        canonical_live_expected_model(model)
+    with pytest.raises(CoreValidationError, match="not active or candidate"):
+        validate_live_expected_model(model, model)
 
 
-@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
-def test_descoped_models_are_rejected_as_no_hardware_model_profiles(model: str) -> None:
-    with pytest.raises(CoreValidationError, match="unsupported model profile"):
+@pytest.mark.parametrize("model", ["keysight-e36103b", "keysight-e36232a"])
+def test_descoped_models_are_rejected_as_no_hardware_planning_model_ids(model: str) -> None:
+    with pytest.raises(CoreValidationError, match="not active or candidate"):
         output_plan(
             OperationRequest(
                 command="output-on",
-                runtime=RuntimeOptions(dry_run=True, model_profile=model),
+                runtime=RuntimeOptions(dry_run=True, planning_model_id=model),
                 parameters={"channel": 1},
             )
         )
@@ -137,15 +134,15 @@ def test_descoped_models_are_rejected_as_no_hardware_model_profiles(model: str) 
 
 def test_live_expected_model_mismatch_message_is_explicit() -> None:
     with pytest.raises(CoreValidationError) as exc:
-        validate_live_expected_model("E36312A", "E3646A", command="set")
+        validate_live_expected_model("keysight-e36312a", "keysight-e3646a", command="set")
 
     message = str(exc.value)
-    assert "Expected model E36312A" in message
-    assert "connected instrument reported E3646A" in message
-    assert "does not override the IDN-detected driver" in message
+    assert "Expected model_id keysight-e36312a" in message
+    assert "resolved to keysight-e3646a" in message
+    assert "does not override the IDN-selected driver" in message
 
 
-def test_live_unsupported_model_profile_is_rejected_before_opening() -> None:
+def test_live_unsupported_planning_model_id_is_rejected_before_opening() -> None:
     opened = False
 
     def opener(*args, **kwargs):
@@ -153,11 +150,11 @@ def test_live_unsupported_model_profile_is_rejected_before_opening() -> None:
         opened = True
         raise AssertionError("must not open")
 
-    with pytest.raises(CoreValidationError, match="unsupported model profile"):
+    with pytest.raises(CoreValidationError, match="invalid expected_model_id"):
         run_operation(
             OperationRequest(
                 command="output-on",
-                runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", model_profile="FUTURE123"),
+                runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", expected_model_id="FUTURE123"),
                 parameters={"channel": 1},
             ),
             opener=opener,
@@ -167,7 +164,7 @@ def test_live_unsupported_model_profile_is_rejected_before_opening() -> None:
 
 
 def test_e3646a_no_hardware_channel_three_is_rejected_across_planners() -> None:
-    runtime = RuntimeOptions(dry_run=True, model_profile="E3646A")
+    runtime = RuntimeOptions(dry_run=True, planning_model_id="keysight-e3646a")
 
     with pytest.raises(CoreValidationError, match="channel 3"):
         output_plan(OperationRequest(command="output-on", runtime=runtime, parameters={"channel": 3}))
@@ -205,7 +202,7 @@ def test_e3646a_no_hardware_channel_three_is_rejected_across_planners() -> None:
 
 
 def test_sequence_e3646a_all_expands_to_two_channels_and_protection_is_policy_disabled() -> None:
-    runtime = RuntimeOptions(dry_run=True, model_profile="E3646A")
+    runtime = RuntimeOptions(dry_run=True, planning_model_id="keysight-e3646a")
 
     sequence_data = run_sequence(
         SequenceRequest(
@@ -213,7 +210,7 @@ def test_sequence_e3646a_all_expands_to_two_channels_and_protection_is_policy_di
             parameters={"document": {"version": 1, "steps": [{"action": "output-off", "channel": "all"}]}},
         )
     )
-    assert sequence_data["plan"]["target"]["model_profile"] == "E3646A"
+    assert sequence_data["plan"]["target"]["planning_model_id"] == "keysight-e3646a"
     assert sequence_data["plan"]["steps"][0]["preview"]["commands"] == ["OUTP OFF,(@1)", "OUTP OFF,(@2)"]
 
     with pytest.raises(CoreValidationError, match="not supported for E3646A"):
@@ -227,7 +224,7 @@ def test_sequence_e3646a_all_expands_to_two_channels_and_protection_is_policy_di
 
 
 def test_trigger_dry_run_requires_e36312a_model_or_known_sim_resource() -> None:
-    with pytest.raises(CoreValidationError, match="require --model"):
+    with pytest.raises(CoreValidationError, match="require planning_model_id"):
         run_core_command(
             TriggerRequest(
                 command="trigger-fire",
@@ -238,26 +235,28 @@ def test_trigger_dry_run_requires_e36312a_model_or_known_sim_resource() -> None:
     data = run_core_command(
         TriggerRequest(
             command="trigger-fire",
-            runtime=RuntimeOptions(dry_run=True, model_profile="E36312A"),
+            runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
         )
     )
-    assert data["plan"]["target"]["model_profile"] == "E36312A"
+    assert data["plan"]["target"]["planning_model_id"] == "keysight-e36312a"
 
 
-@pytest.mark.parametrize("model", ["EDU36311A", "E3646A", "E36103B", "E36232A", "GENERIC"])
+@pytest.mark.parametrize("model", ["keysight-edu36311a", "keysight-e3646a", "keysight-e36103b", "keysight-e36232a", "generic-scpi"])
 @pytest.mark.parametrize("mode", ["dry_run", "simulate"])
 def test_trigger_no_hardware_rejects_unsupported_models(model: str, mode: str) -> None:
-    runtime = RuntimeOptions(
-        dry_run=mode == "dry_run",
-        simulate=mode == "simulate",
-        model_profile=model,
-    )
+    runtime_fields = {
+        "planning_profile_id": model,
+    } if model == "generic-scpi" else {"planning_model_id": model}
 
-    with pytest.raises(CoreValidationError, match="not supported|deterministic simulator|unsupported model profile"):
+    with pytest.raises(CoreValidationError, match="not supported|invalid in simulator|not active or candidate"):
         run_core_command(
             TriggerRequest(
                 command="trigger-fire",
-                runtime=runtime,
+                runtime=RuntimeOptions(
+                    dry_run=mode == "dry_run",
+                    simulate=mode == "simulate",
+                    **runtime_fields,
+                ),
             )
         )
 
@@ -271,7 +270,7 @@ def test_trigger_sim_resource_infers_e36312a_and_rejects_edu36311a() -> None:
         )
     )
 
-    assert data["plan"]["target"]["model_profile"] == "E36312A"
+    assert data["plan"]["target"]["planning_model_id"] == "keysight-e36312a"
 
     with pytest.raises(CoreValidationError, match="trigger/native LIST workflows are disabled"):
         run_core_command(
@@ -294,7 +293,7 @@ def test_trigger_simulate_model_derives_e36312a_resource() -> None:
     data = run_core_command(
         TriggerRequest(
             command="trigger-status",
-            runtime=RuntimeOptions(simulate=True, model_profile="E36312A"),
+            runtime=RuntimeOptions(simulate=True, planning_model_id="keysight-e36312a"),
             parameters={"channel": 1},
         ),
         opener=opener,
@@ -304,7 +303,7 @@ def test_trigger_simulate_model_derives_e36312a_resource() -> None:
     assert data["idn"].split(",")[1] == "E36312A"
 
 
-def test_trigger_live_unsupported_model_profile_is_rejected_before_opening() -> None:
+def test_trigger_live_unsupported_planning_model_id_is_rejected_before_opening() -> None:
     opened = False
 
     def opener(*args, **kwargs):
@@ -312,11 +311,11 @@ def test_trigger_live_unsupported_model_profile_is_rejected_before_opening() -> 
         opened = True
         raise AssertionError("must not open")
 
-    with pytest.raises(CoreValidationError, match="unsupported model profile"):
+    with pytest.raises(CoreValidationError, match="invalid expected_model_id"):
         run_core_command(
             TriggerRequest(
                 command="trigger-status",
-                runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", model_profile="FUTURE123"),
+                runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", expected_model_id="FUTURE123"),
                 parameters={"channel": 1},
             ),
             opener=opener,
@@ -329,7 +328,7 @@ def test_trigger_status_and_abort_all_dry_run_expand_e36312a_channels() -> None:
     status_data = run_core_command(
         TriggerRequest(
             command="trigger-status",
-            runtime=RuntimeOptions(dry_run=True, model_profile="E36312A"),
+            runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
             parameters={"channel": "all"},
         )
     )
@@ -341,7 +340,7 @@ def test_trigger_status_and_abort_all_dry_run_expand_e36312a_channels() -> None:
     abort_data = run_core_command(
         TriggerRequest(
             command="trigger-abort",
-            runtime=RuntimeOptions(dry_run=True, model_profile="E36312A"),
+            runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
             parameters={"channel": "all"},
         )
     )

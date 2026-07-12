@@ -249,49 +249,54 @@ def command_support(model_id: str | None) -> dict[str, dict[str, Any]]:
     return support
 
 
-def planning_profile_command_support(model_profile: str | None) -> dict[str, dict[str, Any]]:
-    """Bridge the staged P4 model-profile contract to canonical Core capability keys."""
+def planning_identity_command_support(
+    planning_model_id: str | None,
+    planning_profile_id: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Return support for one explicit physical or nonphysical planning identity."""
 
-    from powers_tool_core.model_resolution import (
-        CANONICAL_MODEL_PROFILES,
-        model_id_from_model_profile,
-    )
-
-    profile = (model_profile or "").strip().upper() or None
-    if profile == "GENERIC":
-        return command_support(GENERIC_SCPI_PLANNING_PROFILE_ID)
-    if profile not in CANONICAL_MODEL_PROFILES:
-        return command_support(None)
-    return command_support(model_id_from_model_profile(profile))
+    if planning_model_id is not None and planning_profile_id is not None:
+        raise CoreValidationError(
+            "planning_model_id and planning_profile_id are mutually exclusive"
+        )
+    return command_support(planning_profile_id or planning_model_id)
 
 
-def planning_profile_hardware_validation_status(model_profile: str | None) -> dict[str, Any]:
-    """Bridge the staged P4 model-profile contract to canonical Core status keys."""
+def planning_identity_hardware_validation_status(
+    planning_model_id: str | None,
+) -> dict[str, Any]:
+    """Return hardware status for a canonical physical planning identity."""
 
-    from powers_tool_core.model_resolution import model_id_from_model_profile
-
-    return hardware_validation_status(model_id_from_model_profile(model_profile))
+    return hardware_validation_status(planning_model_id)
 
 
-def ensure_command_supported(command: str, model: str | None, mode: str) -> None:
+def ensure_command_supported(
+    command: str,
+    planning_model_id: str | None,
+    planning_profile_id: str | None,
+    mode: str,
+) -> None:
     """Raise if the command is disabled for the selected model and runtime mode."""
 
     mode_key = "dry_run" if mode == "dry-run" else mode
-    support = planning_profile_command_support(model).get(command)
+    support = planning_identity_command_support(
+        planning_model_id,
+        planning_profile_id,
+    ).get(command)
     if support is None:
         raise CoreValidationError(f"unsupported core command {command!r}")
     if support.get(mode_key) is True:
         return
-    model_label = model or "GENERIC"
+    identity_label = planning_profile_id or planning_model_id
     mode_label = "dry-run" if mode_key == "dry_run" else mode_key
-    detail = unsupported_command_message(command, model_label, mode_label)
+    detail = unsupported_command_message(command, identity_label, mode_label)
     raise UnsupportedModelError(detail)
 
 
-def unsupported_command_message(command: str, model: str | None, mode: str) -> str:
+def unsupported_command_message(command: str, identity: str | None, mode: str) -> str:
     """Return a user-facing unsupported command message."""
 
-    model_label = (model or "GENERIC").upper()
+    model_label = _identity_display_label(identity)
     mode_label = "dry-run" if mode == "dry_run" else mode
     reason = unsupported_command_reason(command, model_label)
     detail = f"{command} is not supported for {model_label} in {mode_label} mode."
@@ -305,12 +310,12 @@ def unsupported_command_message(command: str, model: str | None, mode: str) -> s
     return detail
 
 
-def unsupported_command_reason(command: str, model: str | None) -> str:
+def unsupported_command_reason(command: str, identity: str | None) -> str:
     """Return the policy reason for an unsupported model/command pair."""
 
-    model_label = (model or "GENERIC").upper()
-    if model_label == "GENERIC":
-        return "GENERIC is no-hardware only and cannot be used as a live expected model."
+    model_label = _identity_display_label(identity)
+    if identity == GENERIC_SCPI_PLANNING_PROFILE_ID or identity is None:
+        return "generic-scpi is a no-hardware planning profile, not a live expected model."
     if model_label == "EDU36311A":
         if command in TRIGGER_COMMANDS:
             return (
@@ -346,6 +351,15 @@ def unsupported_command_reason(command: str, model: str | None) -> str:
     if any(e36312a_support.get(key) is True for key in ("real", "simulate", "dry_run")):
         return "This workflow is currently E36312A-only for supported modes."
     return "This command is intentionally disabled by the model feature-lock policy."
+
+
+def _identity_display_label(identity: str | None) -> str:
+    if identity is None or identity == GENERIC_SCPI_PLANNING_PROFILE_ID:
+        return identity or GENERIC_SCPI_PLANNING_PROFILE_ID
+    from powers_tool_core.identity import IDENTITY_INDEXES
+
+    model = IDENTITY_INDEXES.models_by_id.get(identity)
+    return model.canonical_model if model is not None else identity
 
 
 def known_capability_commands() -> set[str]:

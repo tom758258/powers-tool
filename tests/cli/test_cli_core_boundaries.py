@@ -4,7 +4,7 @@ import ast
 import inspect
 from pathlib import Path
 
-import keysight_power_cli.cli as cli
+import powers_tool_cli.cli as cli
 
 
 CLI_SOURCE = Path(cli.__file__).read_text(encoding="utf-8")

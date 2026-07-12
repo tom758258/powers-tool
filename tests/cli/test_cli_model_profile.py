@@ -1,11 +1,12 @@
 import json
+from pathlib import Path
 
 import pytest
 
-import keysight_power_cli.cli as cli
+import powers_tool_cli.cli as cli
 
 
-MODEL_PROFILE_COMMANDS = [
+GENERIC_PLANNING_COMMANDS = (
     "set",
     "output-on",
     "output-off",
@@ -17,34 +18,12 @@ MODEL_PROFILE_COMMANDS = [
     "ramp-list",
     "smoke-output",
     "sequence",
-    "trigger-pulse",
-    "trigger-status",
-    "trigger-step",
-    "trigger-list",
-    "trigger-fire",
-    "trigger-abort",
-    "protection-set",
-    "clear-protection",
-]
-
-NON_MODEL_PROFILE_COMMANDS = [
-    "list-resources",
-    "verify",
-    "measure",
-    "readback",
-    "protection-status",
-    "identify",
-    "snapshot",
-    "log",
-    "doctor",
-    "capabilities",
-]
+)
 
 
 class FakeLiveSession:
-    def __init__(self, idn: str, *, query_responses: dict[str, str] | None = None) -> None:
+    def __init__(self, idn: str) -> None:
         self.idn = idn
-        self.query_responses = query_responses or {}
         self.queries: list[str] = []
         self.writes: list[str] = []
         self.closed = False
@@ -52,540 +31,216 @@ class FakeLiveSession:
     def __enter__(self) -> "FakeLiveSession":
         return self
 
-    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+    def __exit__(self, *args: object) -> None:
         self.closed = True
-
-    def write(self, command: str) -> None:
-        self.writes.append(command)
 
     def query(self, command: str) -> str:
         self.queries.append(command)
         if command == "*IDN?":
             return self.idn
         if command == "INST:NSEL?":
-            return self.query_responses.get(command, "1")
+            return "1"
         if command == "SYST:ERR?":
-            return self.query_responses.get(command, '0,"No error"')
-        if command in self.query_responses:
-            return self.query_responses[command]
+            return '0,"No error"'
         raise AssertionError(f"unexpected query {command!r}")
 
+    def write(self, command: str) -> None:
+        self.writes.append(command)
 
-def _parse_args(argv: list[str]):
+
+def _parse(argv: list[str]):
     return cli.build_parser().parse_args(argv)
 
 
-def _write_snapshot(path, model: str) -> None:
-    path.write_text(
-        json.dumps(
-            {
-                "idn": {
-                    "raw": f"KEYSIGHT,{model},SERIAL0000,1.0",
-                    "manufacturer": "KEYSIGHT",
-                    "model": model,
-                    "serial": "SERIAL0000",
-                    "firmware": "1.0",
-                    "parse_ok": True,
-                },
-                "outputs": [{"channel": 1, "enabled": False}],
-                "readback": [{"channel": 1, "setpoints": {"voltage": 1.0, "current": 0.05}}],
-                "protection_settings": [{"channel": 1, "protection": {"ovp_voltage": 5.0, "ocp_enabled": True}}],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-
-@pytest.mark.parametrize("command", MODEL_PROFILE_COMMANDS)
-def test_model_profile_commands_expose_model_help(command: str, capsys) -> None:
-    parser = cli.build_parser()
-
+@pytest.mark.parametrize("command", GENERIC_PLANNING_COMMANDS)
+def test_generic_planning_commands_expose_profile_help(command: str, capsys) -> None:
     with pytest.raises(SystemExit) as exc:
-        parser.parse_args([command, "--help"])
+        _parse([command, "--help"])
 
     assert exc.value.code == 0
-    out = capsys.readouterr().out
-    assert "--model" in out
-    assert "model" in out.lower()
-    assert "expected" in out.lower() or "dry-run" in out.lower()
-
-
-@pytest.mark.parametrize("command", NON_MODEL_PROFILE_COMMANDS)
-def test_selected_commands_do_not_expose_model_help(command: str, capsys) -> None:
-    parser = cli.build_parser()
-
-    with pytest.raises(SystemExit) as exc:
-        parser.parse_args([command, "--help"])
-
-    assert exc.value.code == 0
-    assert "--model" not in capsys.readouterr().out
+    help_text = capsys.readouterr().out
+    assert "--model" in help_text
+    assert "--profile" in help_text
+    assert "generic-scpi" in help_text
 
 
 @pytest.mark.parametrize(
-    "argv",
+    "command",
+    ("trigger-step", "trigger-list", "protection-set", "clear-protection"),
+)
+def test_model_specific_commands_do_not_expose_generic_profile(command: str, capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        _parse([command, "--help"])
+
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--model" in help_text
+    assert "--profile" not in help_text
+
+
+@pytest.mark.parametrize(
+    ("argv", "builder"),
     [
-        [
-            "set",
-            "--dry-run",
-            "--model",
-            "FUTURE123",
-            "--channel",
-            "1",
-            "--voltage",
-            "1",
-            "--current",
-            "0.05",
-        ],
-        [
-            "trigger-step",
-            "--dry-run",
-            "--model",
-            "FUTURE123",
-            "--channel",
-            "1",
-            "--source",
-            "bus",
-            "--fire",
-        ],
-        [
-            "sequence",
-            "--dry-run",
-            "--model",
-            "FUTURE123",
-            "--file",
-            "examples/sequence-readonly.yaml",
-        ],
-        [
-            "ramp-list",
-            "--dry-run",
-            "--model",
-            "FUTURE123",
-            "--file",
-            "examples/ramp-list",
-        ],
+        (
+            ["set", "--dry-run", "--model", "keysight-e3646a", "--channel", "1", "--voltage", "1"],
+            cli._operation_request_for_args,
+        ),
+        (
+            ["sequence", "--dry-run", "--model", "keysight-e36312a", "--file", "sequence.json"],
+            cli._sequence_request_for_args,
+        ),
+        (
+            ["ramp-list", "--dry-run", "--model", "keysight-e3646a", "--file", "ramp.json"],
+            cli._ramp_list_request_for_args,
+        ),
+        (
+            ["trigger-step", "--dry-run", "--model", "keysight-e36312a", "--channel", "1", "--source", "bus", "--fire"],
+            cli._trigger_request_for_args,
+        ),
     ],
 )
-def test_model_profile_is_not_argparse_choices(argv: list[str]) -> None:
-    args = _parse_args(argv)
+def test_dry_run_model_maps_to_planning_model_id(argv, builder) -> None:
+    request = builder(_parse(argv))
 
-    assert args.model == "FUTURE123"
+    assert request.runtime.planning_model_id == argv[argv.index("--model") + 1]
+    assert request.runtime.expected_model_id is None
+    assert request.runtime.planning_profile_id is None
 
 
-@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
-def test_descoped_models_are_parser_neutral_for_model_profile_commands(model: str) -> None:
-    args = _parse_args(
+def test_simulator_model_maps_to_planning_model_id() -> None:
+    args = _parse(
         [
             "set",
-            "--dry-run",
+            "--simulate",
             "--model",
-            model,
+            "keysight-e36312a",
             "--channel",
             "1",
             "--voltage",
             "1",
-            "--current",
-            "0.05",
         ]
     )
 
-    assert args.model == model
+    runtime = cli._operation_request_for_args(args).runtime
+    assert runtime.planning_model_id == "keysight-e36312a"
+    assert runtime.expected_model_id is None
 
 
-@pytest.mark.parametrize(
-    ("argv", "request_builder", "expected_model"),
-    [
-        (
-            [
-                "ramp-list",
-                "--dry-run",
-                "--model",
-                "E3646A",
-                "--file",
-                "examples/ramp-list",
-            ],
-            cli._ramp_list_request_for_args,
-            "E3646A",
-        ),
-        (
-            [
-                "sequence",
-                "--dry-run",
-                "--model",
-                "E36312A",
-                "--file",
-                "examples/sequence-readonly.yaml",
-            ],
-            cli._sequence_request_for_args,
-            "E36312A",
-        ),
-        (
-            [
-                "set",
-                "--dry-run",
-                "--model",
-                "E3646A",
-                "--channel",
-                "1",
-                "--voltage",
-                "1",
-                "--current",
-                "0.05",
-            ],
-            cli._operation_request_for_args,
-            "E3646A",
-        ),
-        (
-            [
-                "trigger-step",
-                "--dry-run",
-                "--model",
-                "E36312A",
-                "--channel",
-                "1",
-                "--source",
-                "bus",
-                "--fire",
-            ],
-            cli._trigger_request_for_args,
-            "E36312A",
-        ),
-    ],
-)
-def test_model_profile_maps_to_runtime_options(argv, request_builder, expected_model: str) -> None:
-    args = _parse_args(argv)
-    request = request_builder(args)
-
-    assert request.runtime.model_profile == expected_model
-
-
-def test_live_output_expected_model_match_keeps_idn_selected_e3646a_driver(monkeypatch, capsys) -> None:
-    session = FakeLiveSession("Agilent Technologies,E3646A,0,1.0")
-    monkeypatch.setattr(cli, "_open_resource", lambda *args, **kwargs: session)
-
-    assert (
-        cli.main(
-            [
-                "set",
-                "--json",
-                "--model",
-                "E3646A",
-                "--resource",
-                "ASRL1::INSTR",
-                "--channel",
-                "1",
-                "--voltage",
-                "1",
-                "--current",
-                "0.05",
-            ]
-        )
-        == 0
+def test_live_model_maps_to_expected_model_id() -> None:
+    args = _parse(
+        [
+            "set",
+            "--model",
+            "keysight-e36312a",
+            "--resource",
+            "USB0::FAKE::INSTR",
+            "--channel",
+            "1",
+            "--voltage",
+            "1",
+        ]
     )
 
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["ok"] is True
-    assert payload["data"]["resource"]["idn"]["model"] == "E3646A"
-    assert session.queries[0] == "*IDN?"
-    assert "INST:NSEL 1" in session.writes
-    assert "CURR 0.05" in session.writes
-    assert "VOLT 1" in session.writes
-    assert "CURR 0.05,(@1)" not in session.writes
-    assert "VOLT 1,(@1)" not in session.writes
+    runtime = cli._operation_request_for_args(args).runtime
+    assert runtime.expected_model_id == "keysight-e36312a"
+    assert runtime.planning_model_id is None
+    assert runtime.planning_profile_id is None
 
 
-def test_live_output_expected_model_mismatch_fails_before_setup_writes(monkeypatch, capsys) -> None:
-    session = FakeLiveSession("Agilent Technologies,E3646A,0,1.0")
-    monkeypatch.setattr(cli, "_open_resource", lambda *args, **kwargs: session)
-
-    assert (
-        cli.main(
-            [
-                "set",
-                "--json",
-                "--model",
-                "E36312A",
-                "--resource",
-                "USB0::FAKE::INSTR",
-                "--channel",
-                "1",
-                "--voltage",
-                "1",
-                "--current",
-                "0.05",
-            ]
-        )
-        == 2
+def test_dry_run_profile_maps_to_planning_profile_id() -> None:
+    args = _parse(
+        [
+            "set",
+            "--dry-run",
+            "--profile",
+            "generic-scpi",
+            "--channel",
+            "1",
+            "--voltage",
+            "1",
+        ]
     )
 
-    payload = json.loads(capsys.readouterr().out)
-    message = payload["error"]["message"]
-    assert "Expected model E36312A" in message
-    assert "connected instrument reported E3646A" in message
-    assert "does not override" in message
-    assert session.queries == ["*IDN?"]
-    assert session.writes == []
-
-
-def test_live_trigger_expected_model_mismatch_fails_before_trigger_setup(monkeypatch, capsys) -> None:
-    session = FakeLiveSession("Keysight Technologies,E36312A,0,1.0")
-    monkeypatch.setattr(cli, "_open_resource", lambda *args, **kwargs: session)
-
-    assert (
-        cli.main(
-            [
-                "trigger-step",
-                "--json",
-                "--model",
-                "E3646A",
-                "--resource",
-                "USB0::FAKE::INSTR",
-                "--channel",
-                "1",
-                "--source",
-                "bus",
-                "--fire",
-            ]
-        )
-        == 2
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    message = payload["error"]["message"]
-    assert "Expected model E3646A" in message
-    assert "connected instrument reported E36312A" in message
-    assert session.queries == ["*IDN?"]
-    assert session.writes == []
-    blocked = ("INIT", "TRIG", "DIG", "LIST", "OUTP", "CURR", "VOLT", "ABOR")
-    assert not any(command.startswith(blocked) or command == "*TRG" for command in session.writes)
-
-
-def test_live_unsupported_expected_model_fails_before_opening(monkeypatch, capsys) -> None:
-    opened: list[str] = []
-
-    def fake_open_resource(resource: str, *args, **kwargs):
-        opened.append(resource)
-        return FakeLiveSession("Agilent Technologies,E3646A,0,1.0")
-
-    monkeypatch.setattr(cli, "_open_resource", fake_open_resource)
-
-    assert (
-        cli.main(
-            [
-                "set",
-                "--json",
-                "--model",
-                "FUTURE123",
-                "--resource",
-                "USB0::FAKE::INSTR",
-                "--channel",
-                "1",
-                "--voltage",
-                "1",
-                "--current",
-                "0.05",
-            ]
-        )
-        == 2
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    assert "unsupported model profile" in payload["error"]["message"]
-    assert opened == []
-
-
-def test_live_without_model_remains_idn_driven(monkeypatch, capsys) -> None:
-    session = FakeLiveSession("Agilent Technologies,E3646A,0,1.0")
-    monkeypatch.setattr(cli, "_open_resource", lambda *args, **kwargs: session)
-
-    assert (
-        cli.main(
-            [
-                "set",
-                "--json",
-                "--resource",
-                "ASRL1::INSTR",
-                "--channel",
-                "1",
-                "--voltage",
-                "1",
-                "--current",
-                "0.05",
-            ]
-        )
-        == 0
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["data"]["resource"]["idn"]["model"] == "E3646A"
-    assert "INST:NSEL 1" in session.writes
-
-
-@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
-@pytest.mark.parametrize("mode_flag", ["--dry-run", "--simulate"])
-def test_descoped_model_profile_is_rejected_in_no_hardware_paths(capsys, model: str, mode_flag: str) -> None:
-    assert (
-        cli.main(
-            [
-                "set",
-                mode_flag,
-                "--json",
-                "--model",
-                model,
-                "--channel",
-                "1",
-                "--voltage",
-                "1",
-                "--current",
-                "0.05",
-            ]
-        )
-        == 2
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    message = payload["error"]["message"]
-    assert model in message
-    assert "unsupported model profile" in message
-
-
-@pytest.mark.parametrize("model", ["E36103B", "E36232A"])
-def test_descoped_live_expected_model_fails_before_opening(monkeypatch, capsys, model: str) -> None:
-    opened: list[str] = []
-
-    def fake_open_resource(resource: str, *args, **kwargs):
-        opened.append(resource)
-        return FakeLiveSession("Keysight Technologies,E36312A,0,1.0")
-
-    monkeypatch.setattr(cli, "_open_resource", fake_open_resource)
-
-    assert (
-        cli.main(
-            [
-                "set",
-                "--json",
-                "--model",
-                model,
-                "--resource",
-                "USB0::FAKE::INSTR",
-                "--channel",
-                "1",
-                "--voltage",
-                "1",
-                "--current",
-                "0.05",
-            ]
-        )
-        == 2
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    assert "unsupported model profile" in payload["error"]["message"]
-    assert opened == []
+    runtime = cli._operation_request_for_args(args).runtime
+    assert runtime.planning_profile_id == "generic-scpi"
+    assert runtime.planning_model_id is None
+    assert runtime.expected_model_id is None
 
 
 @pytest.mark.parametrize(
     "argv",
     [
-        ["trigger-step", "--dry-run", "--json", "--model", "EDU36311A", "--channel", "1", "--source", "bus", "--fire"],
-        ["trigger-step", "--simulate", "--json", "--resource", "USB0::SIM::EDU36311A::INSTR", "--channel", "1", "--source", "bus", "--fire"],
+        ["set", "--model", "E36312A", "--resource", "USB0::FAKE::INSTR", "--channel", "1", "--voltage", "1"],
+        ["set", "--dry-run", "--model", "E36312A", "--channel", "1", "--voltage", "1"],
+        ["set", "--dry-run", "--model", "GENERIC", "--channel", "1", "--voltage", "1"],
+        ["set", "--profile", "generic-scpi", "--resource", "USB0::FAKE::INSTR", "--channel", "1", "--voltage", "1"],
+        ["set", "--simulate", "--profile", "generic-scpi", "--channel", "1", "--voltage", "1"],
+        ["set", "--dry-run", "--model", "keysight-e36312a", "--profile", "generic-scpi", "--channel", "1", "--voltage", "1"],
     ],
 )
-def test_edu36311a_trigger_step_no_hardware_cli_exits_nonzero(capsys, argv: list[str]) -> None:
-    assert cli.main(argv) == 2
+def test_invalid_cli_identity_combinations_fail_as_validation(capsys, argv) -> None:
+    assert cli.main([*argv, "--json"]) == 2
 
     payload = json.loads(capsys.readouterr().out)
-    message = payload["error"]["message"]
-    assert "trigger-step" in message
-    assert "EDU36311A" in message
-    assert "disabled in live, simulate, and dry-run" in message
-    assert "E36312A" in message
+    assert payload["error"]["type"] == "validation"
+    assert payload["error"]["code"] == "argument_error"
 
 
-def test_edu36311a_snapshot_cli_exits_nonzero(capsys) -> None:
-    assert cli.main(["snapshot", "--simulate", "--json", "--resource", "USB0::SIM::EDU36311A::INSTR"]) == 2
+def test_live_expected_model_mismatch_stops_after_idn(monkeypatch, capsys) -> None:
+    session = FakeLiveSession("Agilent Technologies,E3646A,SERIAL0000,1.0")
+    monkeypatch.setattr(cli, "_open_resource", lambda *args, **kwargs: session)
 
-    payload = json.loads(capsys.readouterr().out)
-    message = payload["error"]["message"]
-    assert "snapshot" in message
-    assert "E36312A-only" in message
-    assert "hardware validated" in message
-
-
-def test_edu36311a_restore_from_snapshot_cli_exits_nonzero(tmp_path, capsys) -> None:
-    snapshot = tmp_path / "edu-snapshot.json"
-    _write_snapshot(snapshot, "EDU36311A")
-
-    assert (
-        cli.main(
-            [
-                "restore-from-snapshot",
-                "--dry-run",
-                "--simulate",
-                "--json",
-                "--snapshot",
-                str(snapshot),
-                "--resource",
-                "USB0::SIM::EDU36311A::INSTR",
-                "--channel",
-                "1",
-            ]
-        )
-        == 2
-    )
-
-    payload = json.loads(capsys.readouterr().out)
-    message = payload["error"]["message"]
-    assert "restore-from-snapshot" in message
-    assert "E36312A-only" in message
-    assert "hardware validated" in message
-
-
-@pytest.mark.parametrize(
-    ("argv", "fragments"),
-    [
-        (
-            ["protection-set", "--dry-run", "--json", "--model", "E3646A", "--channel", "1", "--ovp-voltage", "5"],
-            ("protection-set", "E3646A", "disabled until separately validated"),
-        ),
-        (
-            ["trigger-list", "--dry-run", "--json", "--model", "E3646A", "--channel", "1", "--source", "bus", "--fire", "--wait-complete", "--voltage-list", "0,1", "--current-list", "0.05,0.05", "--dwell-list", "0.01,0.01"],
-            ("trigger-list", "E3646A", "native LIST", "software workflows, not native LIST"),
-        ),
-        (
-            ["snapshot", "--simulate", "--json", "--resource", "ASRL1::SIM::E3646A::INSTR"],
-            ("snapshot", "E3646A", "snapshot/restore workflows are disabled"),
-        ),
-    ],
-)
-def test_e3646a_unsupported_cli_errors_are_policy_explanations(capsys, argv: list[str], fragments: tuple[str, ...]) -> None:
-    assert cli.main(argv) == 2
-
-    payload = json.loads(capsys.readouterr().out)
-    message = payload["error"]["message"]
-    for fragment in fragments:
-        assert fragment in message
-
-
-def test_generic_live_expected_model_error_is_no_hardware_only(capsys) -> None:
     assert (
         cli.main(
             [
                 "set",
                 "--json",
                 "--model",
-                "GENERIC",
+                "keysight-e36312a",
                 "--resource",
                 "USB0::FAKE::INSTR",
                 "--channel",
                 "1",
                 "--voltage",
                 "1",
-                "--current",
-                "0.05",
             ]
         )
         == 2
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["error"]["message"].startswith("GENERIC is no-hardware only")
+    assert "Expected model_id keysight-e36312a" in payload["error"]["message"]
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+
+
+def test_validation_switch_remains_hidden_and_orthogonal(capsys) -> None:
+    with pytest.raises(SystemExit):
+        _parse(["set", "--help"])
+    assert "validation-allow-pending-live-support" not in capsys.readouterr().out
+
+    args = _parse(
+        [
+            "set",
+            "--dry-run",
+            "--model",
+            "keysight-e36312a",
+            "--validation-allow-pending-live-support",
+            "--channel",
+            "1",
+            "--voltage",
+            "1",
+        ]
+    )
+    request = cli._operation_request_for_args(args)
+    assert request.runtime.planning_model_id == "keysight-e36312a"
+    assert request.runtime.support_policy_mode == "validation"
+
+
+def test_only_v2_console_entry_points_are_declared() -> None:
+    pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+
+    assert 'powers-tool = "powers_tool_cli.cli:main"' in pyproject
+    assert 'powers-tool-webui = "powers_tool_webui.server:main"' in pyproject
+    assert 'powers-tool-webui-launcher = "powers_tool_webui.launcher:main"' in pyproject
+    assert "keysight-power =" not in pyproject

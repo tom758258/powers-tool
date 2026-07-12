@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-import keysight_power_cli.cli as cli
+import powers_tool_cli.cli as cli
 
 
 def _capabilities(resource: str, capsys) -> dict[str, object]:
@@ -71,15 +71,18 @@ def test_public_docs_describe_strict_no_hardware_model_profiles():
     }
     combined = "\n".join(docs.values())
 
-    assert "No-Hardware Model-Profile Matrix" in docs["docs/core/supported-models.md"]
+    assert "No-Hardware Planning Identity Matrix" in docs["docs/core/supported-models.md"]
     assert "suite validates only" in "\n".join(docs.values())
-    assert "runtime.model_profile" in docs["docs/contracts/power-cli-jsonl-contract.md"]
-    assert "runtime.model" in docs["docs/contracts/power-cli-jsonl-contract.md"]
-    assert "runtime.model_profile" in docs["docs/webui/README.md"]
+    contract = docs["docs/contracts/power-cli-jsonl-contract.md"]
+    webui = docs["docs/webui/README.md"]
+    for field in ("planning_model_id", "expected_model_id", "planning_profile_id"):
+        assert field in contract
+        assert field in webui
+    assert "No legacy runtime identity aliases are accepted" in contract
     assert "deterministic SIM resource" in combined
     assert "USB0::FAKE::E36312A::INSTR" in combined
     assert "must not imply a model" in combined
-    assert "Live hardware uses the IDN-detected model" in combined
+    assert "Live hardware uses manufacturer-plus-model IDN resolution" in combined
 
 
 def test_public_docs_describe_p4_policy_boundary_without_publishing_hidden_switch():
@@ -210,6 +213,7 @@ def test_no_hardware_scripts_use_model_or_deterministic_sim_resources():
     assert "Test-DeterministicSimResource" in batch
     assert '"USB0::SIM::E36312A::INSTR"' in batch
     assert '"USB0::SIM::EDU36311A::INSTR"' in batch
+    # Script argument migration is intentionally assigned to V2-P5.
     assert '@("--model", "E36312A")' in batch
 
 

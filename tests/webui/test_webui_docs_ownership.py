@@ -41,9 +41,9 @@ def test_webui_docs_point_to_current_import_and_static_paths():
         )
     )
 
-    assert "keysight_power_webui" in text
+    assert "powers_tool_webui" in text
     assert "powers_tool_core" in text
-    assert "src/keysight_power_webui/static" in text
+    assert "src/powers_tool_webui/static" in text
 
 
 def test_webui_docs_describe_exact_support_as_product_only_ux():

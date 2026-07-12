@@ -8,6 +8,7 @@ const state = {
   parameterConstraints: {},
   electricalRatingsByModel: {},
   setpointRangesByModel: {},
+  physicalModels: [],
   resourceModels: {},
   resourceDisplayModels: {},
   resourceChannelModels: {},
@@ -262,7 +263,7 @@ function bind() {
   document.getElementById("resource").addEventListener("input", updateDeviceResourceSummary);
   document.getElementById("resource").addEventListener("change", updateDeviceResourceSummary);
   document.getElementById("resource-select").addEventListener("change", updateDeviceResourceSummary);
-  document.getElementById("model-profile")?.addEventListener("change", handleModelProfileChanged);
+  document.getElementById("expected-model-id")?.addEventListener("change", handleExpectedModelChanged);
   document.getElementById("device-options-toggle").addEventListener("click", (event) => {
     event.stopPropagation();
     setDeviceOptionsExpanded(document.getElementById("device-options-toggle").getAttribute("aria-expanded") !== "true");
@@ -365,7 +366,7 @@ function expectedModelSummary() {
 }
 
 function selectedExpectedModel() {
-  return valueOrNull("model-profile");
+  return valueOrNull("expected-model-id");
 }
 
 function selectedExpectedModelLabel() {
@@ -406,7 +407,7 @@ function selectedElectricalRatingModel() {
   return currentResourceModel();
 }
 
-function handleModelProfileChanged() {
+function handleExpectedModelChanged() {
   updateDeviceResourceSummary();
   refreshBasicInputConstraints();
   syncBasicFromLivePanel(state.livePanel);
@@ -483,14 +484,31 @@ function setStateIndicator(elementId, text, stateClass = "state-idle", title = "
 async function loadCommands() {
   const payload = await fetchJson("/api/commands");
   state.commands = payload.commands || {};
-  state.commandSupportByModel = payload.command_support_by_model || {};
-  state.liveSupportByModel = payload.live_support_by_model || {};
-  state.channelCapabilitiesByModel = payload.channel_capabilities_by_model || {};
+  state.commandSupportByModel = payload.command_support_by_model_id || {};
+  state.liveSupportByModel = payload.live_support_by_model_id || {};
+  state.channelCapabilitiesByModel = payload.channel_capabilities_by_model_id || {};
   state.parameterConstraints = payload.parameter_constraints || {};
-  state.electricalRatingsByModel = payload.electrical_ratings_by_model || {};
-  state.setpointRangesByModel = payload.setpoint_ranges_by_model || {};
+  state.electricalRatingsByModel = payload.electrical_ratings_by_model_id || {};
+  state.setpointRangesByModel = payload.setpoint_ranges_by_model_id || {};
+  state.physicalModels = Array.isArray(payload.physical_models) ? payload.physical_models : [];
+  renderExpectedModelOptions();
   refreshBasicInputConstraints();
   renderCommands();
+}
+
+function renderExpectedModelOptions() {
+  const select = document.getElementById("expected-model-id");
+  if (!select) return;
+  const selected = select.value;
+  select.replaceChildren(new Option("Auto-detect", ""));
+  state.physicalModels.forEach((model) => {
+    if (!model || typeof model.model_id !== "string") return;
+    const label = model.display_name || model.model_name || model.model_id;
+    select.appendChild(new Option(`Require ${label}`, model.model_id));
+  });
+  if ([...select.options].some((option) => option.value === selected)) {
+    select.value = selected;
+  }
 }
 
 function renderCommands() {
@@ -2293,8 +2311,8 @@ function runtimePayload() {
     confirm: document.getElementById("confirm").checked
   };
   const serialOptions = serialOptionsPayload();
-  const modelProfile = valueOrNull("model-profile");
-  if (modelProfile !== null) runtime.model_profile = modelProfile;
+  const expectedModelId = valueOrNull("expected-model-id");
+  if (expectedModelId !== null) runtime.expected_model_id = expectedModelId;
   if (Object.keys(serialOptions).length) runtime.serial_options = serialOptions;
   if (document.getElementById("serial-remote")?.checked) runtime.serial_remote = true;
   if (document.getElementById("serial-local-on-close")?.checked) runtime.serial_local_on_close = true;
@@ -2948,7 +2966,7 @@ function updateResourceModels(resources) {
     if (!resource || typeof resource === "string") return;
     const name = resource.name;
     if (!name) return;
-    updateResourceModel(name, resource.idn?.model);
+    updateResourceModel(name, resource.model_id, resource.idn?.model);
   });
 }
 
@@ -2956,8 +2974,9 @@ function updateResourceModelFromJob(job) {
   const result = job?.result || {};
   const resultResource = result.resource;
   const resourceName = resultResource?.name || (typeof resultResource === "string" ? resultResource : job?.runtime?.resource);
-  const model = resultResource?.idn?.model || result.idn?.model || result.model || result.driver?.model;
-  const updated = updateResourceModel(resourceName, model);
+  const reportedModel = resultResource?.idn?.model || result.idn?.model || result.model || result.driver?.model;
+  const modelId = resultResource?.model_id || result.live_support?.model_id || null;
+  const updated = updateResourceModel(resourceName, modelId, reportedModel);
   if (resourceName && resourceName === valueOrNull("resource")) updateDeviceResourceSummary();
   if (updated) {
     refreshBasicInputConstraints();
@@ -2966,14 +2985,15 @@ function updateResourceModelFromJob(job) {
   }
 }
 
-function updateResourceModel(resource, model) {
-  if (!resource || typeof model !== "string" || !model.trim()) return false;
-  const next = supportedModelKey(model);
-  const nextChannelModel = channelModelKey(model);
-  const detectedModel = String(model).trim().toUpperCase();
-  state.resourceDisplayModels[resource] = detectedModel;
+function updateResourceModel(resource, modelId, reportedModel = null) {
+  if (!resource) return false;
+  const next = supportedModelKey(modelId);
+  const nextChannelModel = channelModelKey(modelId);
+  const detectedModel = typeof reportedModel === "string" ? reportedModel.trim() : null;
+  if (detectedModel) state.resourceDisplayModels[resource] = detectedModel;
   if (state.resourceLiveSupportContext?.resource === resource
-    && state.resourceLiveSupportContext.model !== detectedModel) {
+    && modelId
+    && state.resourceLiveSupportContext.model_id !== modelId) {
     state.resourceLiveSupport = null;
     state.resourceLiveSupportContext = null;
   }
@@ -2995,7 +3015,7 @@ function captureResourceLiveSupport(job, resource) {
   state.resourceLiveSupport = liveSupport;
   state.resourceLiveSupportContext = {
     resource,
-    model: liveSupport.model_name || null,
+    model_id: liveSupport.model_id || null,
     transport_scope: liveSupport.transport_scope || "unknown",
     backend_scope: liveSupport.backend_scope || "system_visa"
   };
@@ -3094,9 +3114,8 @@ function currentResourceModel() {
 }
 
 function supportedModelKey(model) {
-  const normalized = String(model || "").trim().toUpperCase();
-  if (state.commandSupportByModel[normalized]) return normalized;
-  return "GENERIC";
+  const modelId = String(model || "").trim();
+  return state.commandSupportByModel[modelId] ? modelId : null;
 }
 
 function commandDisabledReason(support, model) {
@@ -3157,9 +3176,9 @@ function channelCapabilityForCurrentModel() {
 }
 
 function channelCapabilityForModel(model) {
-  const normalized = String(model || "").trim().toUpperCase();
-  if (!normalized) return null;
-  const metadata = state.channelCapabilitiesByModel?.[normalized];
+  const modelId = String(model || "").trim();
+  if (!modelId) return null;
+  const metadata = state.channelCapabilitiesByModel?.[modelId];
   if (Array.isArray(metadata)) {
     return {
       channels: metadata.map(Number).filter(Number.isInteger),
@@ -3181,8 +3200,8 @@ function currentChannelCapabilityModel() {
 }
 
 function channelModelKey(model) {
-  const normalized = String(model || "").trim().toUpperCase();
-  return channelCapabilityForModel(normalized) ? normalized : null;
+  const modelId = String(model || "").trim();
+  return channelCapabilityForModel(modelId) ? modelId : null;
 }
 
 function channelAvailabilityGuardReason(command, parameters = {}) {
@@ -3654,6 +3673,7 @@ function renderLivePanel(data) {
     timestamp: data.timestamp || previous?.timestamp || Date.now() / 1000,
     resource,
     model: data.model || (sameResource ? previous?.model : null),
+    model_id: data.model_id || (sameResource ? previous?.model_id : null),
     stale: Boolean(data.stale),
     status: data.status || "ok",
     message: data.message || data.error || "",
@@ -3666,7 +3686,7 @@ function renderLivePanel(data) {
   state.livePanel = next;
   state.samples.push({ timestamp: next.timestamp, data: next });
   state.samples = state.samples.slice(-60);
-  const modelChanged = !next.stale && updateResourceModel(next.resource, next.model);
+  const modelChanged = !next.stale && updateResourceModel(next.resource, next.model_id, next.model);
 
   setLiveState(liveStateText(next.status, next.timestamp, next.message, next.stale), liveStateClass(next.status, next.stale), next.message);
 
@@ -3699,6 +3719,7 @@ function renderBlankLivePanel(status = "ok", message = "") {
     timestamp: Date.now() / 1000,
     resource: valueOrNull("resource") || "",
     model: null,
+    model_id: null,
     stale: false,
     status,
     message,

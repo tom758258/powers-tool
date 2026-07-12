@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-import keysight_power_cli.cli as cli
+import powers_tool_cli.cli as cli
 
 
 SIM_RESOURCE = "USB0::SIM::E36312A::INSTR"

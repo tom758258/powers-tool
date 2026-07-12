@@ -17,15 +17,15 @@ import webbrowser
 try:
     from . import __version__ as WEBUI_VERSION
 except ImportError:  # pragma: no cover - PyInstaller script entry point
-    from keysight_power_webui import __version__ as WEBUI_VERSION
+    from powers_tool_webui import __version__ as WEBUI_VERSION
 
 try:
     from .jobs import job_manager
 except ImportError:  # pragma: no cover - PyInstaller script entry point
-    from keysight_power_webui.jobs import job_manager
+    from powers_tool_webui.jobs import job_manager
 
 
-PACKAGE_NAME = "keysight-power-webui"
+PACKAGE_NAME = "powers-tool-webui"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 7999
 
@@ -55,7 +55,7 @@ def create_uvicorn_server(port: int) -> Any:
         raise _missing_webui_dependency_error(exc) from exc
     except ImportError:  # pragma: no cover - PyInstaller script entry point
         try:
-            from keysight_power_webui.app import app
+            from powers_tool_webui.app import app
         except ModuleNotFoundError as exc:
             raise _missing_webui_dependency_error(exc) from exc
 
@@ -110,7 +110,7 @@ class LauncherApp:
         self._url_value = tk.StringVar(value=build_local_url(DEFAULT_PORT))
         self._status_value = tk.StringVar(value="Ready")
 
-        self._root.title("Keysight Power WebUI Launcher")
+        self._root.title("Powers Tool WebUI Launcher")
         self._root.protocol("WM_DELETE_WINDOW", self.quit)
 
         frame = tk.Frame(self._root, padx=16, pady=14)
@@ -201,14 +201,14 @@ class LauncherApp:
             self._server = self._server_factory(port)
             self._server_thread = threading.Thread(
                 target=self._run_server,
-                name="keysight-power-webui-launcher-server",
+                name="powers-tool-webui-launcher-server",
                 daemon=True,
             )
             self._server_thread.start()
             self._startup_thread = threading.Thread(
                 target=self._wait_for_startup,
                 args=(port,),
-                name="keysight-power-webui-launcher-startup",
+                name="powers-tool-webui-launcher-startup",
                 daemon=True,
             )
             self._startup_thread.start()
@@ -341,11 +341,11 @@ def _http_server_is_ready(url: str) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Keysight Power WebUI Launcher")
+    parser = argparse.ArgumentParser(description="Powers Tool WebUI Launcher")
     parser.add_argument(
         "--version",
         action="version",
-        version=f"keysight-power-webui-launcher {WEBUI_VERSION}",
+        version=f"powers-tool-webui-launcher {WEBUI_VERSION}",
     )
     parser.parse_args(argv)
 

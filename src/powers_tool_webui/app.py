@@ -1,4 +1,4 @@
-"""FastAPI application for Keysight Power WebUI."""
+"""FastAPI application for Powers Tool WebUI."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from powers_tool_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, StopCleanupError, TriggerRequest
+from powers_tool_core.identity import IdentityResolutionError, resolve_physical_model_identity
 from powers_tool_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
 from powers_tool_core.parameter_constraints import parameter_constraints_metadata, validate_request_parameters
 from powers_tool_core.sequence import load_sequence_document, sequence_plan
@@ -24,10 +25,13 @@ from .jobs import job_manager, JobStatus
 from .commands import (
     MUTATING_COMMANDS,
     WEBUI_UNSUPPORTED_COMMANDS,
-    channel_capabilities_by_model,
+    build_runtime_options,
+    channel_capabilities_by_model_id,
     execute_job_command,
-    live_support_by_model,
-    webui_command_support,
+    live_support_by_model_id,
+    planning_profile_metadata,
+    selectable_physical_models,
+    webui_command_support_by_model_id,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -43,7 +47,26 @@ class NoStoreStaticFiles(StaticFiles):
         response.headers["Cache-Control"] = CACHE_CONTROL_NO_STORE
         return response
 
-app = FastAPI(title="Keysight Power WebUI", version=WEBUI_VERSION)
+app = FastAPI(title="Powers Tool WebUI", version=WEBUI_VERSION)
+
+WEBUI_RUNTIME_FIELDS = {
+    "resource",
+    "resource_alias",
+    "safety_config",
+    "simulate",
+    "dry_run",
+    "backend",
+    "timeout_ms",
+    "log_scpi",
+    "confirm",
+    "serial_options",
+    "serial_remote",
+    "serial_local_on_close",
+    "planning_model_id",
+    "expected_model_id",
+    "planning_profile_id",
+}
+LEGACY_RUNTIME_IDENTITY_FIELDS = {"model_profile", "model"}
 
 # Mount static files if directory exists
 if STATIC_DIR.exists():
@@ -119,7 +142,7 @@ async def index():
         html = html.replace("/static/app.js", f"/static/app.js?v={_asset_version('app.js')}")
         html = html.replace("__WEBUI_VERSION__", WEBUI_VERSION)
         return HTMLResponse(html, headers={"Cache-Control": CACHE_CONTROL_NO_STORE})
-    return {"message": "Keysight Power WebUI - Static UI not found"}
+    return {"message": "Powers Tool WebUI - Static UI not found"}
 
 
 def _asset_version(filename: str) -> str:
@@ -134,7 +157,7 @@ async def health_check():
     """Server health and status check."""
     return {
         "status": "ok",
-        "package": "keysight-power-webui",
+        "package": "powers-tool-webui",
         "version": WEBUI_VERSION,
         "hardware_locked": job_manager.is_hardware_locked(),
         "active_job": job_manager.active_job_id,
@@ -157,11 +180,13 @@ async def get_commands():
 
     return {
         "commands": commands,
-        "command_support_by_model": webui_command_support(set(commands)),
-        "live_support_by_model": live_support_by_model(set(commands)),
-        "channel_capabilities_by_model": channel_capabilities_by_model(),
-        "electrical_ratings_by_model": electrical_ratings_by_model_metadata(),
-        "setpoint_ranges_by_model": setpoint_ranges_by_model_metadata(),
+        "physical_models": selectable_physical_models(),
+        "planning_profiles": planning_profile_metadata(set(commands)),
+        "command_support_by_model_id": webui_command_support_by_model_id(set(commands)),
+        "live_support_by_model_id": live_support_by_model_id(set(commands)),
+        "channel_capabilities_by_model_id": channel_capabilities_by_model_id(),
+        "electrical_ratings_by_model_id": electrical_ratings_by_model_metadata(),
+        "setpoint_ranges_by_model_id": setpoint_ranges_by_model_metadata(),
         "parameter_constraints": parameter_constraints_metadata(),
         "output_affecting_commands": list(MUTATING_COMMANDS),
     }
@@ -177,6 +202,12 @@ async def create_job(request: Request):
     artifacts = payload.get("artifacts")
     if not isinstance(runtime, dict):
         raise HTTPException(status_code=400, detail="runtime must be an object")
+    legacy_identity_fields = sorted(LEGACY_RUNTIME_IDENTITY_FIELDS & set(runtime))
+    if legacy_identity_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"legacy runtime identity fields are not allowed: {', '.join(legacy_identity_fields)}",
+        )
     forbidden_runtime_fields = {
         "support_policy_mode",
         "validation_allow_pending_live_support",
@@ -188,6 +219,16 @@ async def create_job(request: Request):
             status_code=400,
             detail=f"runtime validation support policy fields are not allowed: {', '.join(attempted)}",
         )
+    unknown_runtime_fields = sorted(set(runtime) - WEBUI_RUNTIME_FIELDS)
+    if unknown_runtime_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown runtime field(s): {', '.join(unknown_runtime_fields)}",
+        )
+    try:
+        validation_runtime = build_runtime_options(runtime)
+    except (CoreValidationError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         request_type = TriggerRequest if isinstance(command, str) and command.startswith("trigger-") else OperationRequest
         validation_request = request_type(command=command, parameters=parameters)
@@ -207,14 +248,7 @@ async def create_job(request: Request):
                 raise CoreValidationError("sequence requires file or document")
             sequence_plan(
                 SequenceRequest(
-                    runtime=RuntimeOptions(
-                        resource=runtime.get("resource"),
-                        resource_alias=runtime.get("resource_alias"),
-                        safety_config=runtime.get("safety_config"),
-                        simulate=bool(runtime.get("simulate", False)),
-                        dry_run=True,
-                        model_profile=runtime.get("model_profile") or runtime.get("model"),
-                    ),
+                    runtime=validation_runtime,
                     parameters=parameters,
                 ),
                 document,
@@ -225,14 +259,7 @@ async def create_job(request: Request):
         try:
             validation_request = OperationRequest(
                 command="ramp-list",
-                runtime=RuntimeOptions(
-                    resource=runtime.get("resource"),
-                    resource_alias=runtime.get("resource_alias"),
-                    safety_config=runtime.get("safety_config"),
-                    simulate=bool(runtime.get("simulate", False)),
-                    dry_run=True,
-                    model_profile=runtime.get("model_profile") or runtime.get("model"),
-                ),
+                runtime=validation_runtime,
                 parameters=parameters,
             )
             ramp_list_plan(validation_request, ramp_list_document_for_request(validation_request))
@@ -476,6 +503,7 @@ def _live_panel_sample_from_reading(reading: dict[str, Any], runtime: dict[str, 
         "timestamp": time.time(),
         "resource": reading.get("resource") or runtime.get("resource"),
         "model": _model_from_reading(reading),
+        "model_id": _model_id_from_reading(reading),
         "stale": not has_panel_records,
         "status": "ok" if has_panel_records else "error",
         "mode": "live",
@@ -529,6 +557,7 @@ def _stale_live_panel_sample(
         "timestamp": previous.get("timestamp") if previous else time.time(),
         "resource": (previous or {}).get("resource") or runtime.get("resource"),
         "model": (previous or {}).get("model"),
+        "model_id": (previous or {}).get("model_id"),
         "stale": True,
         "status": status,
         "message": message,
@@ -595,6 +624,23 @@ def _model_from_reading(reading: dict[str, Any]) -> str | None:
     if not isinstance(model, str) or not model.strip():
         return None
     return model.strip()
+
+
+def _model_id_from_reading(reading: dict[str, Any]) -> str | None:
+    idn = reading.get("idn")
+    if not isinstance(idn, dict):
+        resource = reading.get("resource")
+        if isinstance(resource, dict):
+            idn = resource.get("idn")
+    if not isinstance(idn, dict):
+        return None
+    try:
+        return resolve_physical_model_identity(
+            idn.get("manufacturer"),
+            idn.get("model"),
+        ).model_id
+    except IdentityResolutionError:
+        return None
 
 
 def _protection_fields(record: dict[str, Any]) -> dict[str, bool | float | int | None]:

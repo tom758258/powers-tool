@@ -79,8 +79,12 @@ def test_e3646a_programming_ranges_are_range_aware() -> None:
 
 def test_setpoint_ranges_metadata_lists_active_models_only() -> None:
     metadata = setpoint_ranges_by_model_metadata()
-    assert set(metadata) == {"E36312A", "EDU36311A", "E3646A"}
-    assert metadata["E3646A"]["source"]["pages"] == [
+    assert set(metadata) == {
+        "keysight-e36312a",
+        "keysight-edu36311a",
+        "keysight-e3646a",
+    }
+    assert metadata["keysight-e3646a"]["source"]["pages"] == [
         "printed page 82",
         "printed page 83",
         "printed page 84",

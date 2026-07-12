@@ -108,7 +108,8 @@ def _run_clear(request: OperationRequest, *, opener: Callable[..., Any], scpi_lo
             "plan": dry_run_plan(
                 command=request.command,
                 resource=request.runtime.resource,
-                model_profile=request.runtime.model_profile,
+                planning_model_id=request.runtime.planning_model_id,
+                planning_profile_id=request.runtime.planning_profile_id,
                 scpi=tuple(f"OUTP:PROT:CLE (@{channel})" for channel in channels),
                 description="Preview clearing output protection for selected channels.",
             )
@@ -147,7 +148,8 @@ def _run_set(request: OperationRequest, *, opener: Callable[..., Any], scpi_logg
             "plan": dry_run_plan(
                 command=request.command,
                 resource=request.runtime.resource,
-                model_profile=request.runtime.model_profile,
+                planning_model_id=request.runtime.planning_model_id,
+                planning_profile_id=request.runtime.planning_profile_id,
                 scpi=_protection_set_scpi(channels, p.get("ovp_voltage"), p.get("ocp"), ocp_delay, ocp_delay_trigger),
                 description="Preview setting output protection for selected channels.",
             )
@@ -229,7 +231,12 @@ def _ensure_protection_supported(request: OperationRequest) -> None:
     if not (request.runtime.dry_run or request.runtime.simulate):
         return
     mode = "dry_run" if request.runtime.dry_run else "simulate"
-    capabilities.ensure_command_supported(request.command, request.runtime.model_profile, mode)
+    capabilities.ensure_command_supported(
+        request.command,
+        request.runtime.planning_model_id,
+        request.runtime.planning_profile_id,
+        mode,
+    )
 
 
 def _selected_channel(request: OperationRequest) -> int | str:
@@ -246,8 +253,15 @@ def _channels(selected: int | str | None, supported: tuple[int, ...]) -> tuple[i
 
 
 def _plan_supported_channels(request: OperationRequest) -> tuple[int, ...]:
-    if (request.runtime.dry_run or request.runtime.simulate) and request.runtime.model_profile is not None:
-        return no_hardware_channels(request.runtime.model_profile)
+    if request.runtime.dry_run or request.runtime.simulate:
+        if (
+            request.runtime.planning_model_id is not None
+            or request.runtime.planning_profile_id is not None
+        ):
+            return no_hardware_channels(
+                request.runtime.planning_model_id,
+                request.runtime.planning_profile_id,
+            )
     return E36312APowerSupply.capabilities.channels
 
 

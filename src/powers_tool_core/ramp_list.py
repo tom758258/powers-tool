@@ -143,7 +143,8 @@ def ramp_list_plan(request: OperationRequest, document: dict[str, Any]) -> dict[
         "target": {
             "resource": request.runtime.resource,
             "resource_alias": request.runtime.resource_alias,
-            "model_profile": request.runtime.model_profile,
+            "planning_model_id": request.runtime.planning_model_id,
+            "planning_profile_id": request.runtime.planning_profile_id,
         },
         "segment_count": len(segments),
         "completion_pulse": completion_pulse,
@@ -199,10 +200,19 @@ def normalize_ramp_segment(request: OperationRequest, index: int, raw_segment: A
         raise CoreValidationError(f"ramp-list segment {index} channel must be a positive integer")
     if (
         (request.runtime.dry_run or request.runtime.simulate)
-        and request.runtime.model_profile is not None
-        and channel not in no_hardware_channels(request.runtime.model_profile)
+        and (
+            request.runtime.planning_model_id is not None
+            or request.runtime.planning_profile_id is not None
+        )
+        and channel not in no_hardware_channels(
+            request.runtime.planning_model_id,
+            request.runtime.planning_profile_id,
+        )
     ):
-        supported = no_hardware_channels(request.runtime.model_profile)
+        supported = no_hardware_channels(
+            request.runtime.planning_model_id,
+            request.runtime.planning_profile_id,
+        )
         raise CoreValidationError(
             f"ramp-list segment {index} channel {channel} is not supported; supported: {supported}"
         )

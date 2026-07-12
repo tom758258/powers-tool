@@ -219,10 +219,12 @@ result payload.
 
 The browser UI is live-oriented and does not provide general dry-run or
 simulate controls. When submitting raw WebUI API jobs instead of using the
-browser form, include `runtime.model_profile` for no-hardware
-dry-run/simulate jobs that need a model-specific plan, or use a deterministic
-SIM resource such as `USB0::SIM::E36312A::INSTR`. For live raw API jobs,
-`runtime.model_profile` is an expected-model guard checked against `*IDN?`;
+browser form, include `runtime.planning_model_id` for physical no-hardware
+planning, or use `runtime.planning_profile_id: "generic-scpi"` for a supported
+dry-run Generic plan. Simulator requests accept only physical planning IDs,
+and deterministic SIM resources such as `USB0::SIM::E36312A::INSTR` may infer
+one. For live raw API jobs, `runtime.expected_model_id` is an optional
+canonical safety guard checked after manufacturer-plus-model IDN resolution;
 mismatch fails before setup or write SCPI. The browser learns live model
 support from scan/job IDN metadata; fake resource strings do not imply a
 model. Browser disabled or hidden state is not the safety boundary; direct

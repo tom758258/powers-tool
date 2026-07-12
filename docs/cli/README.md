@@ -3,8 +3,8 @@
 CLI adapter for controlling Keysight DC power supplies.
 
 The CLI ships inside the single `keysight-powers` distribution while
-preserving the `keysight_power_cli` import boundary. It exposes the
-`keysight-power` console command and adapts operator commands to the shared
+preserving the `powers_tool_cli` import boundary. It exposes the
+`powers-tool` console command and adapts operator commands to the shared
 `powers_tool_core` runtime.
 
 ## Documentation Set
@@ -24,7 +24,7 @@ preserving the `keysight_power_cli` import boundary. It exposes the
 
 ## Purpose
 
-This package provides the `keysight-power` console script, command argument
+This package provides the `powers-tool` console script, command argument
 parsing, JSON envelope handling, SCPI logging, command adapters over
 `powers_tool_core`, and the local Power Worker daemon used by
 orchestrators/agents.
@@ -39,17 +39,17 @@ place.
 
 ## Package Contents
 
-- `keysight_power_cli.cli`: top-level argument parser, command dispatch, JSON
+- `powers_tool_cli.cli`: top-level argument parser, command dispatch, JSON
   envelope conversion, SCPI logging, and runtime adapters into core.
-- `keysight_power_cli.cli_io`: stable JSON success/error envelope helpers and
+- `powers_tool_cli.cli_io`: stable JSON success/error envelope helpers and
   optional `--save-json` output.
-- `keysight_power_cli.worker`: local async worker service, config validation,
+- `powers_tool_cli.worker`: local async worker service, config validation,
   event emission, job queueing, artifact writing, and `/command`/`/stop` HTTP
   endpoints.
-- `keysight_power_cli.commands.output`: output command registration helpers.
-- `keysight_power_cli.commands.sequence`: sequence command registration and CLI
+- `powers_tool_cli.commands.output`: output command registration helpers.
+- `powers_tool_cli.commands.sequence`: sequence command registration and CLI
   request conversion.
-- `keysight_power_cli.commands.trigger`: trigger command registration and CLI
+- `powers_tool_cli.commands.trigger`: trigger command registration and CLI
   request conversion.
 
 ## Install
@@ -69,17 +69,17 @@ pip install .
 The primary entry point is the installed console script:
 
 ```powershell
-uv run keysight-power --version
-uv run keysight-power doctor --simulate --json
+uv run powers-tool --version
+uv run powers-tool doctor --simulate --json
 ```
 
 The fallback module entry point is:
 
 ```powershell
-uv run python -m keysight_power_cli.cli doctor --simulate --json
+uv run python -m powers_tool_cli.cli doctor --simulate --json
 ```
 
-`--version` prints `keysight-power <package-version>` and exits without
+`--version` prints `powers-tool <package-version>` and exits without
 requiring a subcommand or opening VISA.
 
 ## Test
@@ -227,7 +227,7 @@ enable trigger/native LIST, snapshot, or restore-from-snapshot.
 
 Smoke preflight uses only `--dry-run` and `--simulate`; it does not open VISA
 or touch hardware. It uses deterministic SIM resources for the selected target
-so the no-hardware model profile is explicit:
+so the no-hardware planning identity is deterministic:
 
 ```powershell
 .\scripts\preflight-smoke-validation.ps1 -Target E36312A
@@ -245,7 +245,7 @@ resource, or read an environment default. Discover a live resource first, copy
 the exact value, then pass it explicitly:
 
 ```powershell
-.\.venv\Scripts\keysight-power.exe list-resources --live-only --json
+.\.venv\Scripts\powers-tool.exe list-resources --live-only --json
 ```
 
 Use `list-resources --verify --json` instead when you need to diagnose stale
@@ -322,67 +322,71 @@ valid `*IDN?` responses. Their channel-list SCPI is covered by no-hardware
 tests. Simulated CLI measurement supports channels 1, 2, and 3 for these
 models.
 
-### Model Profiles And Live Expected-Model Guards
+### Planning Identities And Live Expected-Model Guards
 
 Output-family commands, `ramp-list`, `sequence`, `protection-set`,
 `clear-protection`, and trigger workflows use strict model resolution in
 `--dry-run` and `--simulate` mode. In these no-hardware planning paths,
-`--model` is the model profile used for planning, channel validation,
-capability selection, and SCPI preview. They require either `--model` or a
-known deterministic simulator resource such as `USB0::SIM::E36312A::INSTR`.
-Trigger no-hardware paths are E36312A-only and require `--model E36312A` or a
+`--model` supplies a canonical physical planning ID such as
+`keysight-e36312a`. Supported dry-run commands also expose
+`--profile generic-scpi` for separate nonphysical planning. The fields are
+mutually exclusive. Simulator mode accepts only a physical planning model or
+a known deterministic simulator resource such as
+`USB0::SIM::E36312A::INSTR`.
+Trigger no-hardware paths are E36312A-only and require `--model keysight-e36312a` or a
 known deterministic E36312A SIM resource. The CLI does not infer a model from
 arbitrary fake, live-looking, or alias-only resource strings.
 
 Examples:
 
 ```powershell
-uv run keysight-power set --dry-run --model E3646A --channel 1 --voltage 1 --current 0.05
-uv run keysight-power readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
-uv run keysight-power trigger-step --dry-run --model E36312A --channel 1 --source bus --fire
+uv run powers-tool set --dry-run --model keysight-e3646a --channel 1 --voltage 1 --current 0.05
+uv run powers-tool readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
+uv run powers-tool trigger-step --dry-run --model keysight-e36312a --channel 1 --source bus --fire
 ```
 
 This is rejected because a fake resource is only a placeholder and must not
 imply a model:
 
 ```powershell
-uv run keysight-power trigger-step --dry-run --resource USB0::FAKE::E36312A::INSTR --channel 1 --source bus --fire
+uv run powers-tool trigger-step --dry-run --resource USB0::FAKE::E36312A::INSTR --channel 1 --source bus --fire
 ```
 
 Deterministic SIM resources are accepted because they map to known simulator
 IDN/model data.
 
 In live mode, `--model` is an expected-model guard. The CLI opens the explicit
-resource, queries `*IDN?`, and requires the reported model to match before any
-setup or write SCPI. The selected model never overrides the IDN-detected
-driver.
+resource, queries `*IDN?`, resolves manufacturer plus model, and requires the
+canonical detected `model_id` to match before command-specific SCPI. The
+selected model never overrides the IDN-detected driver.
 
 Unsupported model, command, and mode failures are intentional feature-lock
 behavior. `--model` is not a feature unlock: in dry-run/simulate mode it only
-selects the no-hardware planning profile, and in live mode it only checks that
-the connected `*IDN?` model is the expected one. `GENERIC` is no-hardware only
-and cannot be used as a live expected model.
+selects a physical planning identity, and in live mode it only checks that the
+connected canonical identity is expected. `generic-scpi` is available only
+through dry-run `--profile` where the existing support matrix permits it.
 
 Live guard example:
 
 ```powershell
-uv run keysight-power set --model E36312A --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
+uv run powers-tool set --model keysight-e36312a --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
 ```
 
 This requires the connected `*IDN?` model to be `E36312A`.
 
-Accepted no-hardware model profiles are `E36312A`, `EDU36311A`, `E3646A`,
-and `GENERIC`. In `--simulate` mode, `--model` can derive the matching
-deterministic simulator resource for active supported models except
-`GENERIC`. `GENERIC` is a conservative no-hardware profile and is not a live
-expected model. If both `--model` and a SIM resource are provided, their models
-must match. Unsupported models, including EDU36311A, do not expose trigger
+Accepted physical planning IDs are `keysight-e36312a`,
+`keysight-edu36311a`, and `keysight-e3646a`. In `--simulate` mode, `--model`
+can derive the matching deterministic simulator resource. The separate
+`generic-scpi` profile is dry-run-only and is not a live expected model. If
+both `--model` and a SIM resource are provided, their models must match.
+Unsupported models, including EDU36311A, do not expose trigger
 dry-run or simulator behavior.
 
-No-hardware plans include `data.plan.target.model_profile`. Channel validation
-and `--channel all` expansion use that profile: E3646A expands `all` to CH1
-and CH2 and rejects CH3; E36312A and EDU36311A expand to CH1, CH2, and CH3;
-GENERIC conservatively allows CH1 only.
+No-hardware plans distinguish `planning_model_id` from
+`planning_profile_id`. Channel validation and `--channel all` expansion use
+the resolved planning identity: E3646A expands `all` to CH1 and CH2 and
+rejects CH3; E36312A and EDU36311A expand to CH1, CH2, and CH3;
+`generic-scpi` conservatively allows CH1 only.
 
 Trigger/native LIST workflows are E36312A-only. EDU36311A supports validated
 read-only, output, and protection workflows, but trigger/native LIST,
@@ -392,7 +396,7 @@ validated RS-232 read-only/output workflows plus software `ramp-list` and
 step-limited software `sequence`; those workflows are not native LIST support
 and reject unsupported protection, trigger, snapshot, restore, native LIST,
 and completion-pulse sequence steps. E36103B and E36232A are not active
-supported models and are rejected as model profiles and live expected-model
+supported models and are rejected as planning models and live expected-model
 guards. If live `*IDN?` reports either model, model-aware commands reject the
 instrument instead of falling back to `GenericScpiPowerSupply`; `verify` and
 `list-resources --live-only` may still report the raw IDN as diagnostics.
@@ -469,9 +473,9 @@ the document is authoritative and CLI pulse overrides are rejected.
 
 ```powershell
 $env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
-uv run keysight-power ramp-list --lint --json --file example.ramp-list.json
-uv run keysight-power ramp-list --dry-run --json --model E36312A --file example.ramp-list.json
-uv run keysight-power ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
+uv run powers-tool ramp-list --lint --json --file example.ramp-list.json
+uv run powers-tool ramp-list --dry-run --json --model keysight-e36312a --file example.ramp-list.json
+uv run powers-tool ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
 ```
 
 ## Power Worker Daemon
@@ -489,13 +493,14 @@ result artifact polling, see the
 Start the worker in simulation mode on a dynamic port:
 
 ```powershell
-uv run keysight-power worker --id power_1 --mode simulate --control-port 0
+uv run powers-tool worker --id power_1 --mode simulate --control-port 0
 ```
 
-Worker dry-run/simulate requests that need model-specific planning must pass
-`arguments.model_profile` in the `/command` request, unless the configured
-resource is a known deterministic SIM resource. Worker does not provide a
-config-level model default.
+Worker requests use only `arguments.planning_model_id`,
+`arguments.expected_model_id`, and `arguments.planning_profile_id`. Their
+valid combinations follow the resolved Worker mode, and identity fields are
+rejected in settings. A deterministic SIM resource may infer a physical model;
+Worker provides no identity default.
 
 `POST /stop` is cooperative: the handler only sets stop state and wakes the
 runner. The Worker emits structured `power_cleanup` JSONL events and does not
@@ -517,7 +522,7 @@ Run the simulator-only orchestrator smoke example:
 List only VISA resources that can be opened and queried with `*IDN?`:
 
 ```powershell
-uv run keysight-power list-resources --live-only
+uv run powers-tool list-resources --live-only
 ```
 
 Use this for normal live operation. Text output includes each resource's raw
@@ -528,7 +533,7 @@ List VISA resource strings reported by the selected backend without opening
 them:
 
 ```powershell
-uv run keysight-power list-resources
+uv run powers-tool list-resources
 ```
 
 This is passive discovery only: a resource string can appear here even when the
@@ -545,20 +550,20 @@ $env:KEYSIGHT_POWER_RESOURCE = "USB0::...::INSTR"
 Verify that one resource can be opened and queried with `*IDN?`:
 
 ```powershell
-uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_RESOURCE"
-uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool verify --resource "$env:KEYSIGHT_POWER_RESOURCE"
+uv run powers-tool verify --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 Clear instrument status and the error queue with `*CLS`:
 
 ```powershell
-uv run keysight-power clear --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool clear --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 Read the instrument error queue without changing output state:
 
 ```powershell
-uv run keysight-power error --resource "$env:KEYSIGHT_POWER_RESOURCE" --max-reads 20 --log-scpi
+uv run powers-tool error --resource "$env:KEYSIGHT_POWER_RESOURCE" --max-reads 20 --log-scpi
 ```
 
 ### E3646A RS-232 / ASRL Examples
@@ -598,14 +603,14 @@ $Remote = @("--serial-remote", "--serial-local-on-close")
 Plain resource discovery does not need serial options:
 
 ```powershell
-uv run keysight-power list-resources
+uv run powers-tool list-resources
 ```
 
 If Connection Expert already has the ASRL resource configured and verified,
 you can let VISA use those settings:
 
 ```powershell
-uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE"
+uv run powers-tool verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE"
 ```
 
 Serial settings are explicit only. If omitted, the CLI does not overwrite
@@ -616,7 +621,7 @@ resources. The E3646A factory example is 9600 baud, 8 data bits, none parity,
 settings may differ:
 
 ```powershell
-uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
+uv run powers-tool verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-baud-rate 9600 --serial-data-bits 8 --serial-parity none --serial-stop-bits 2 --serial-flow-control dtr_dsr --serial-remote --serial-local-on-close
 ```
 
 `--serial-remote` sends `SYST:REM` after opening the ASRL resource.
@@ -627,20 +632,20 @@ explicitly requested.
 Read/status examples:
 
 ```powershell
-uv run keysight-power identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
-uv run keysight-power readback --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
-uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
-uv run keysight-power output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+uv run powers-tool identify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-remote --serial-local-on-close
+uv run powers-tool readback --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
+uv run powers-tool measure --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 2 --serial-remote --serial-local-on-close
+uv run powers-tool output-state --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --channel 1 --serial-remote --serial-local-on-close
 ```
 
 Validated output examples:
 
 ```powershell
-uv run keysight-power set @Base @Remote --channel 1 --voltage 1 --current 0.05 --json --log-scpi
-uv run keysight-power apply @Base @Remote --channel 1 --voltage 1 --current 0.05 --no-output --json --log-scpi
-uv run keysight-power output-off @Base @Remote --channel 1 --json --log-scpi
-uv run keysight-power safe-off @Base @Remote --channel 1 --json --log-scpi
-uv run keysight-power ramp @Base @Remote --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --json --log-scpi
+uv run powers-tool set @Base @Remote --channel 1 --voltage 1 --current 0.05 --json --log-scpi
+uv run powers-tool apply @Base @Remote --channel 1 --voltage 1 --current 0.05 --no-output --json --log-scpi
+uv run powers-tool output-off @Base @Remote --channel 1 --json --log-scpi
+uv run powers-tool safe-off @Base @Remote --channel 1 --json --log-scpi
+uv run powers-tool ramp @Base @Remote --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --json --log-scpi
 ```
 
 `cycle-output`, `smoke-output`, and `apply` without `--no-output`
@@ -651,7 +656,7 @@ confirmation threshold. `set`, `output-off`, `safe-off`, `ramp`, and
 For serial terminations, prefer aliases in PowerShell:
 
 ```powershell
-uv run keysight-power verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-read-termination CRLF --serial-write-termination LF
+uv run powers-tool verify --resource "$env:KEYSIGHT_POWER_ASRL_RESOURCE" --serial-read-termination CRLF --serial-write-termination LF
 ```
 
 Supported aliases are `CR`, `LF`, `CRLF`, and `NONE`/`none`. `NONE` means do
@@ -665,29 +670,29 @@ the aliases when you need actual control characters.
 Measure voltage and current:
 
 ```powershell
-uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
-uv run keysight-power measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 2 --log-scpi
+uv run powers-tool measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
+uv run powers-tool measure --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 2 --log-scpi
 ```
 
 Preview all-channel measurement without hardware, and read product-open live
 status:
 
 ```powershell
-uv run keysight-power measure-all --simulate --json --resource USB0::SIM::E36312A::INSTR
-uv run keysight-power read-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool measure-all --simulate --json --resource USB0::SIM::E36312A::INSTR
+uv run powers-tool read-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 Run a full read-only validation pass on E36312A or EDU36311A:
 
 ```powershell
-uv run keysight-power validate-readonly --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi --save-json logs\validate-readonly.json
+uv run powers-tool validate-readonly --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi --save-json logs\validate-readonly.json
 ```
 
 Read programmed E36312A setpoints and protection state:
 
 ```powershell
-uv run keysight-power readback --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
-uv run keysight-power protection-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool readback --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool protection-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
 ```
 
 For E36312A and EDU36311A, `protection-status` reads OVP/OCP trip flags per
@@ -699,16 +704,16 @@ the OR of the selected channel results.
 Capture and compare E36312A snapshots:
 
 ```powershell
-uv run keysight-power identify --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
-uv run keysight-power snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
-uv run keysight-power snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --compare logs\e36312a-baseline.json
-uv run keysight-power snapshot-diff --summary --json --before logs\before.json --after logs\after.json
+uv run powers-tool identify --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --log-scpi
+uv run powers-tool snapshot --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --compare logs\e36312a-baseline.json
+uv run powers-tool snapshot-diff --summary --json --before logs\before.json --after logs\after.json
 ```
 
 Preview a restore plan and save the plan data without opening VISA:
 
 ```powershell
-uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\before.json --resource USB0::SIM::E36312A::INSTR --channel all --plan-json logs\restore-plan.json
+uv run powers-tool restore-from-snapshot --dry-run --json --snapshot logs\before.json --resource USB0::SIM::E36312A::INSTR --channel all --plan-json logs\restore-plan.json
 ```
 
 ### Protection And Trigger Examples
@@ -716,21 +721,21 @@ uv run keysight-power restore-from-snapshot --dry-run --json --snapshot logs\bef
 Preview or confirm E36312A protection actions:
 
 ```powershell
-uv run keysight-power clear-protection --dry-run --json --model E36312A --all
-uv run keysight-power clear-protection --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --all --confirm --log-scpi
-uv run keysight-power protection-set --dry-run --json --model E36312A --channel all --ovp-voltage 5 --ocp on
-uv run keysight-power protection-set --dry-run --json --model E36312A --channel 1 --ocp-delay 0.5 --ocp-delay-trigger setting-change
-uv run keysight-power protection-set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
+uv run powers-tool clear-protection --dry-run --json --model keysight-e36312a --all
+uv run powers-tool clear-protection --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --all --confirm --log-scpi
+uv run powers-tool protection-set --dry-run --json --model keysight-e36312a --channel all --ovp-voltage 5 --ocp on
+uv run powers-tool protection-set --dry-run --json --model keysight-e36312a --channel 1 --ocp-delay 0.5 --ocp-delay-trigger setting-change
+uv run powers-tool protection-set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --ovp-voltage 5 --ocp on --confirm --log-scpi
 ```
 
 Configure an E36312A rear digital pin as trigger output, arm one output channel
 with a no-change STEP trigger sequence, and emit `*TRG`:
 
 ```powershell
-uv run keysight-power trigger-pulse --dry-run --json --model E36312A --pin 1 --channel 1 --polarity positive
+uv run powers-tool trigger-pulse --dry-run --json --model keysight-e36312a --pin 1 --channel 1 --polarity positive
 ```
 
-Use `--dry-run --model E36312A` or a deterministic E36312A SIM resource to
+Use `--dry-run --model keysight-e36312a` or a deterministic E36312A SIM resource to
 preview trigger SCPI without opening VISA. Trigger dry-run and simulator
 behavior is E36312A-only; unsupported models do not expose trigger
 no-hardware behavior. The final `*TRG` may also trigger any already armed
@@ -742,12 +747,12 @@ connected IDN model to match and never overrides connected hardware.
 Native E36312A trigger/LIST commands:
 
 ```powershell
-uv run keysight-power trigger-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all
-uv run keysight-power trigger-step --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --source bus --fire --wait-complete
-uv run keysight-power trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --completion-pulse-pins 1 --fire --wait-complete
-uv run keysight-power trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --bost-list on,off --eost-list off,on --trigger-output-pins 1 --source immediate --wait-complete
-uv run keysight-power trigger-fire --dry-run --json --model E36312A --channel 1 --wait-complete
-uv run keysight-power trigger-abort --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all
+uv run powers-tool trigger-status --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all
+uv run powers-tool trigger-step --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --source bus --fire --wait-complete
+uv run powers-tool trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --completion-pulse-pins 1 --fire --wait-complete
+uv run powers-tool trigger-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage-list 0,1 --current-list 0.05 --dwell-list 0.01 --bost-list on,off --eost-list off,on --trigger-output-pins 1 --source immediate --wait-complete
+uv run powers-tool trigger-fire --dry-run --json --model keysight-e36312a --channel 1 --wait-complete
+uv run powers-tool trigger-abort --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all
 ```
 
 For native BUS triggers, `trigger-step` and `trigger-list` only arm by default;
@@ -774,12 +779,12 @@ wait restores the pre-run Trigger settings and LIST table unless
 Set low E36312A, E3646A, or EDU36311A setpoints without enabling output:
 
 ```powershell
-uv run keysight-power set --model E36312A --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
-uv run keysight-power set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --log-scpi
-uv run keysight-power set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --log-scpi
+uv run powers-tool set --model keysight-e36312a --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
+uv run powers-tool set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --log-scpi
+uv run powers-tool set --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --log-scpi
 ```
 
-The first example uses `--model E36312A` as a live expected-model guard: it
+The first example uses `--model keysight-e36312a` as a live expected-model guard: it
 requires the connected `*IDN?` model to be E36312A before any setup/write SCPI.
 
 Real `set` first confirms the selected resource is an E36312A, E3646A, or
@@ -790,8 +795,8 @@ channels 1, 2, and 3.
 Preview the implemented `output-on` behavior without real hardware:
 
 ```powershell
-uv run keysight-power output-on --dry-run --json --model E36312A --channel 1
-uv run keysight-power output-on --simulate --json --resource USB0::SIM::E36312A::INSTR --channel all
+uv run powers-tool output-on --dry-run --json --model keysight-e36312a --channel 1
+uv run powers-tool output-on --simulate --json --resource USB0::SIM::E36312A::INSTR --channel all
 ```
 
 `output-on` has no accepted product LIVE exact scope. Normal real execution
@@ -801,9 +806,9 @@ exercise only dry-run/simulator planning.
 Read back and cycle output state:
 
 ```powershell
-uv run keysight-power output-state --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
-uv run keysight-power cycle-output --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --duration-ms 500 --confirm --log-scpi
-uv run keysight-power cycle-output --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --duration-ms 500 --confirm --log-scpi
+uv run powers-tool output-state --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --log-scpi
+uv run powers-tool cycle-output --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --duration-ms 500 --confirm --log-scpi
+uv run powers-tool cycle-output --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --duration-ms 500 --confirm --log-scpi
 ```
 
 For `cycle-output --channel all`, the CLI enables channels 1, 2, and 3 in
@@ -813,9 +818,9 @@ order.
 Apply low setpoints and enable output:
 
 ```powershell
-uv run keysight-power apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --confirm --log-scpi
-uv run keysight-power apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --voltage 1 --current 0.05 --confirm --log-scpi
-uv run keysight-power apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --voltage 1 --current 0.05 --no-output --log-scpi
+uv run powers-tool apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --voltage 1 --current 0.05 --confirm --log-scpi
+uv run powers-tool apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --voltage 1 --current 0.05 --confirm --log-scpi
+uv run powers-tool apply --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel all --voltage 1 --current 0.05 --no-output --log-scpi
 ```
 
 Add an explicit safety config to apply local global limits to output plans:
@@ -843,17 +848,17 @@ entry's resource-specific limits; otherwise the global `[safety]` limits apply.
 Ramp voltage setpoints without changing output state:
 
 ```powershell
-uv run keysight-power ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
-uv run keysight-power ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
+uv run powers-tool ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
+uv run powers-tool ramp --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
 ```
 
 Validate a sequence file or preview deterministic write SCPI without opening
 VISA:
 
 ```powershell
-uv run keysight-power sequence --lint --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
-uv run keysight-power sequence --dry-run --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
-uv run keysight-power sequence --dry-run --json --model E3646A --file examples\sequence-readonly.yaml
+uv run powers-tool sequence --lint --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
+uv run powers-tool sequence --dry-run --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
+uv run powers-tool sequence --dry-run --json --model keysight-e3646a --file examples\sequence-readonly.yaml
 ```
 
 Sequence YAML files are formally supported through the core package's PyYAML
@@ -869,10 +874,10 @@ pulse trigger armed, and enabling it may affect later steps or other BUS trigger
 Ramp List examples:
 
 ```powershell
-uv run keysight-power ramp-list --lint --json --file example.ramp-list.json
-uv run keysight-power ramp-list --dry-run --json --model E36312A --file example.ramp-list.json
-uv run keysight-power ramp-list --dry-run --json --model E3646A --file example.ramp-list.json
-uv run keysight-power ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
+uv run powers-tool ramp-list --lint --json --file example.ramp-list.json
+uv run powers-tool ramp-list --dry-run --json --model keysight-e36312a --file example.ramp-list.json
+uv run powers-tool ramp-list --dry-run --json --model keysight-e3646a --file example.ramp-list.json
+uv run powers-tool ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
 ```
 
 ### Simulator Examples
@@ -880,34 +885,34 @@ uv run keysight-power ramp-list --json --resource "$env:KEYSIGHT_POWER_RESOURCE"
 Clear instrument status and the error queue on a simulated resource:
 
 ```powershell
-uv run keysight-power clear --dry-run --json --resource "USB0::SIM::E36312A::INSTR"
+uv run powers-tool clear --dry-run --json --resource "USB0::SIM::E36312A::INSTR"
 ```
 
 Measure voltage and current on a simulated resource:
 
 ```powershell
-uv run keysight-power measure --simulate --json --resource "USB0::SIM::E36312A::INSTR" --channel 2
+uv run powers-tool measure --simulate --json --resource "USB0::SIM::E36312A::INSTR" --channel 2
 ```
 
 Capture a snapshot on a simulated resource with redacted resource details:
 
 ```powershell
-uv run keysight-power snapshot --simulate --json --redact-resource --resource "USB0::SIM::E36312A::INSTR"
+uv run powers-tool snapshot --simulate --json --redact-resource --resource "USB0::SIM::E36312A::INSTR"
 ```
 
 Preview output-affecting commands with no hardware writes:
 
 ```powershell
-uv run keysight-power set --dry-run --json --resource "USB0::SIM::E36312A::INSTR" --channel 1 --voltage 1 --current 0.05
-uv run keysight-power output-on --dry-run --json --model E3646A --channel all
+uv run powers-tool set --dry-run --json --resource "USB0::SIM::E36312A::INSTR" --channel 1 --voltage 1 --current 0.05
+uv run powers-tool output-on --dry-run --json --model keysight-e3646a --channel all
 ```
 
 Run offline diagnostics, capabilities, and safety inspect checks:
 
 ```powershell
-uv run keysight-power doctor --simulate --json
-uv run keysight-power capabilities --simulate --json --resource "USB0::SIM::EDU36311A::INSTR" --command protection-set
-uv run keysight-power safety inspect --json --explain --safety-config examples\safety-config.toml --resource-alias sim-e36312a --channel 1
+uv run powers-tool doctor --simulate --json
+uv run powers-tool capabilities --simulate --json --resource "USB0::SIM::EDU36311A::INSTR" --command protection-set
+uv run powers-tool safety inspect --json --explain --safety-config examples\safety-config.toml --resource-alias sim-e36312a --channel 1
 ```
 
 The early standalone examples provide the same passive discovery and identity
