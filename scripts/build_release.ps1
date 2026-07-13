@@ -32,6 +32,29 @@ function Write-Utf8NoBomFile {
     [System.IO.File]::WriteAllLines($LiteralPath, $Value, $encoding)
 }
 
+function Get-Sha256File {
+    param(
+        [Parameter(Mandatory = $true)][string]$LiteralPath
+    )
+
+    $stream = $null
+    $sha256 = $null
+    try {
+        $stream = [System.IO.File]::Open(
+            $LiteralPath,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::Read
+        )
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        $hash = $sha256.ComputeHash($stream)
+        return [System.BitConverter]::ToString($hash).Replace("-", "").ToLowerInvariant()
+    } finally {
+        if ($null -ne $sha256) { $sha256.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = Get-ProjectVersion
 }
@@ -72,8 +95,8 @@ Copy-Item -LiteralPath (Join-Path $RepoRoot "dist\powers_tool-$Version-py3-none-
 Copy-Item -LiteralPath (Join-Path $RepoRoot "dist\powers_tool-$Version.tar.gz") -Destination $versionDir -Force
 
 $checksums = foreach ($artifact in Get-ChildItem -LiteralPath $versionDir -File | Sort-Object Name) {
-    $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $artifact.FullName
-    "$($hash.Hash.ToLowerInvariant())  $($artifact.Name)"
+    $hash = Get-Sha256File -LiteralPath $artifact.FullName
+    "$hash  $($artifact.Name)"
 }
 Write-Utf8NoBomFile -LiteralPath (Join-Path $versionDir "checksums.txt") -Value $checksums
 

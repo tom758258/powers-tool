@@ -75,6 +75,29 @@ function Write-Utf8NoBomFile {
     [System.IO.File]::WriteAllText($LiteralPath, $Content, $encoding)
 }
 
+function Get-Sha256File {
+    param(
+        [Parameter(Mandatory = $true)][string]$LiteralPath
+    )
+
+    $stream = $null
+    $sha256 = $null
+    try {
+        $stream = [System.IO.File]::Open(
+            $LiteralPath,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::Read
+        )
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        $hash = $sha256.ComputeHash($stream)
+        return [System.BitConverter]::ToString($hash).Replace("-", "").ToLowerInvariant()
+    } finally {
+        if ($null -ne $sha256) { $sha256.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
 function Get-ContainedPath {
     param(
         [Parameter(Mandatory = $true)][string]$BasePath,
@@ -430,14 +453,14 @@ try {
             }
             $candidateFileHashes += ,([ordered]@{
                 path = $relative
-                sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourcePath).Hash.ToLowerInvariant()
+                sha256 = Get-Sha256File -LiteralPath $sourcePath
             })
         }
         $candidatePatchPath = Join-Path $script:RunRoot "working-tree.patch"
         Invoke-Recorded -Name "capture-working-tree-diff" -FilePath "git" `
             -Arguments @("-C", $script:RepoRoot, "-c", "core.autocrlf=false", "diff", "--binary", "--output=$candidatePatchPath") `
             -WorkingDirectory $script:RepoRoot | Out-Null
-        $candidatePatchSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidatePatchPath).Hash.ToLowerInvariant()
+        $candidatePatchSha256 = Get-Sha256File -LiteralPath $candidatePatchPath
     }
 
     $pyprojectPath = Join-Path $script:RepoRoot "pyproject.toml"
@@ -685,7 +708,7 @@ for filename in ("index.html", "styles.css", "app.js"):
     foreach ($line in $checksumLines) {
         if ($line -notmatch '^([0-9a-fA-F]{64})  (.+)$') { throw "Invalid checksum line: $line" }
         $checksumNames += $Matches[2]
-        $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $versionDir $Matches[2])).Hash.ToLowerInvariant()
+        $actual = Get-Sha256File -LiteralPath (Join-Path $versionDir $Matches[2])
         if ($actual -ne $Matches[1].ToLowerInvariant()) { throw "Checksum mismatch: $($Matches[2])" }
     }
     $expectedChecksumNames = @($expectedRelease | Where-Object { $_ -ne "checksums.txt" })

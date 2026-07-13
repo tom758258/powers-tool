@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -205,6 +206,17 @@ def test_v2_acceptance_script_uses_isolated_locked_workflows() -> None:
     assert "PythonVersions.Values | Where-Object" not in text
 
 
+def test_release_scripts_use_module_independent_sha256_helper() -> None:
+    for name in ("v2-release-acceptance.ps1", "build_release.ps1"):
+        text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+
+        assert "Get-FileHash" not in text
+        assert "function Get-Sha256File" in text
+        assert "[System.Security.Cryptography.SHA256]::Create()" in text
+        assert "[System.IO.FileAccess]::Read" in text
+        assert ".Dispose()" in text
+
+
 def test_preflight_rejects_non_310_python310(
     request: pytest.FixtureRequest,
     find_python: Callable[[str], Path],
@@ -328,7 +340,20 @@ def test_preflight_candidate_report_keeps_commit_and_patch_provenance_distinct(
     assert report["working_tree_overlay_applied"] is True
     assert report["source_commit"] == source_commit
     assert report["candidate_paths"] == ["README.md"]
-    assert len(report["candidate_patch_sha256"]) == 64
+    candidate_hashes = {
+        item["path"]: item["sha256"] for item in report["candidate_file_hashes"]
+    }
+    assert candidate_hashes == {
+        "README.md": hashlib.sha256(
+            (repository / "README.md").read_bytes()
+        ).hexdigest()
+    }
+    patch = next(
+        (repository / ".tmp_tests" / "preflight").glob("r_*/working-tree.patch")
+    )
+    assert report["candidate_patch_sha256"] == hashlib.sha256(
+        patch.read_bytes()
+    ).hexdigest()
     assert report["candidate_patch_sha256"] != report["source_commit"]
     summary = next(
         (repository / ".tmp_tests" / "preflight").glob("r_*/summary.md")
@@ -372,15 +397,15 @@ def test_v2_acceptance_candidate_overlay_has_an_exact_write_scope() -> None:
     assert not any(path.startswith(("Local/", "docs/")) for path in actual)
 
 
-def test_ci_push_triggers_and_safe_launcher_smoke_are_preserved() -> None:
+def test_ci_main_push_and_safe_launcher_smoke_are_preserved() -> None:
     text = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
         encoding="utf-8"
     )
 
     push_block = text.split("  push:\n", 1)[1].split("\n\njobs:", 1)[0]
     assert "      - main" in push_block
-    assert "      - master" in push_block
-    assert "      - Codex" in push_block
+    assert "      - master" not in push_block
+    assert "      - Codex" not in push_block
     assert "uv run powers-tool --help" in text
     assert "uv run powers-tool-webui --help" in text
     assert "uv run powers-tool-webui-launcher --version" in text
