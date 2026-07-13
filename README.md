@@ -303,20 +303,29 @@ release\<version>\checksums.txt
 ```
 
 Run the final no-hardware release acceptance from an isolated clean worktree.
-The script creates separate locked Python 3.10 and current-Python environments,
-builds and installs the wheel and sdist, checks all console entry points,
-builds both standalone executables, and writes `report.json` and `summary.md`
-under the ignored output root:
+The final acceptance uses separate locked Python 3.10 and Python 3.13
+environments, builds and installs the wheel and sdist, checks all console entry
+points, builds both standalone executables, and writes `report.json` and
+`summary.md` under the ignored output root:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
   .\scripts\v2-release-acceptance.ps1 `
   -Python310 (uv python find 3.10) `
-  -CurrentPython (uv python find 3.12)
+  -CurrentPython (uv python find 3.13)
 ```
 
 This acceptance script never performs VISA discovery, opens a resource, or
 sends SCPI. It does not publish a release or rename the repository.
+
+Before committing a release-tooling correction, maintainers may validate the
+working-tree candidate by adding `-IncludeWorkingTreeChanges`. That mode
+validates the recorded `source_commit` plus a candidate patch and labels its
+report as pre-commit candidate validation. It does not replace final release
+acceptance. After the corrective commit is created, rerun the command above
+from a clean working tree without `-IncludeWorkingTreeChanges`; the final
+report must identify the committed HEAD and show no overlay, candidate paths,
+or candidate patch hash.
 
 ## Test
 

@@ -3,7 +3,8 @@ param(
     [string]$CurrentPython = "",
     [string]$OutputRoot = ".tmp_tests\v2_release_acceptance",
     [switch]$KeepWorktree,
-    [switch]$IncludeWorkingTreeChanges
+    [switch]$IncludeWorkingTreeChanges,
+    [switch]$InterpreterPreflightOnly
 )
 
 Set-StrictMode -Version Latest
@@ -24,6 +25,7 @@ $script:WorktreePath = $null
 $script:RunRoot = $null
 $script:RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $script:PythonVersions = @{}
+$script:FullAcceptanceCompleted = $false
 $sourceCommit = $null
 $sourceBranch = $null
 $projectVersion = $null
@@ -33,6 +35,22 @@ $cleanStatusBeforeOverlay = @()
 $candidatePaths = @()
 $candidateFileHashes = @()
 $candidatePatchSha256 = $null
+$candidatePatchPath = $null
+$resolvedPython310 = $null
+$resolvedCurrent = $null
+$python310Metadata = $null
+$currentPythonMetadata = $null
+$interpretersDistinct = $null
+$acceptanceWorktreeState = "not-created"
+$acceptanceMode = if ($InterpreterPreflightOnly -and $IncludeWorkingTreeChanges) {
+    "candidate-interpreter-preflight"
+} elseif ($InterpreterPreflightOnly) {
+    "interpreter-preflight"
+} elseif ($IncludeWorkingTreeChanges) {
+    "candidate-working-tree"
+} else {
+    "final-committed-clean-head"
+}
 $allowedCandidatePaths = @(
     ".github/workflows/tests.yml",
     "README.md",
@@ -163,16 +181,43 @@ function Invoke-Recorded {
     return $output
 }
 
-function Get-PythonVersion {
-    param([Parameter(Mandatory = $true)][string]$Python)
-    $output = Invoke-Recorded -Name ("python-version-" + [IO.Path]::GetFileName($Python)) `
-        -FilePath $Python -Arguments @("--version") -WorkingDirectory $script:RunRoot -Interpreter $Python
-    $version = ($output -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -Last 1).Trim()
-    $script:PythonVersions[$Python] = $version
-    Invoke-Recorded -Name ("python-executable-" + [IO.Path]::GetFileName($Python)) `
-        -FilePath $Python -Arguments @("-c", "import sys; print(sys.executable)") `
-        -WorkingDirectory $script:RunRoot -Interpreter $Python | Out-Null
-    return $version
+function Get-PythonMetadata {
+    param(
+        [Parameter(Mandatory = $true)][string]$Python,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+
+    $metadataCode = 'import sys; print(sys.version_info.major); print(sys.version_info.minor); print(sys.version); print(sys.executable)'
+    $output = Invoke-Recorded -Name ("python-metadata-" + $Name) -FilePath $Python `
+        -Arguments @("-c", $metadataCode) -WorkingDirectory $script:RunRoot -Interpreter $Python
+    $lines = @($output -split "`r?`n")
+    if ($lines.Count -lt 4) {
+        throw "$Name interpreter returned invalid metadata: $Python"
+    }
+    $metadata = [pscustomobject]@{
+        major = [int]$lines[0]
+        minor = [int]$lines[1]
+        version = [string]$lines[2]
+        executable = [System.IO.Path]::GetFullPath([string]$lines[3])
+    }
+    $script:PythonVersions[$Python] = [string]$metadata.version
+    return $metadata
+}
+
+function Assert-PythonVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]$Metadata,
+        [Parameter(Mandatory = $true)][int]$ExpectedMajor,
+        [Parameter(Mandatory = $true)][int]$ExpectedMinor
+    )
+
+    if ([int]$Metadata.major -ne $ExpectedMajor -or [int]$Metadata.minor -ne $ExpectedMinor) {
+        $expected = "$ExpectedMajor.$ExpectedMinor"
+        $actual = "$($Metadata.major).$($Metadata.minor) ($($Metadata.version))"
+        throw "$Name interpreter version mismatch: path=$Path; expected Python $expected; actual Python $actual"
+    }
 }
 
 function Resolve-Python {
@@ -217,7 +262,7 @@ function Sync-ProjectEnvironment {
     if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
         throw "Environment did not produce Python: $pythonExe"
     }
-    Get-PythonVersion -Python $pythonExe | Out-Null
+    Get-PythonMetadata -Python $pythonExe -Name ("environment-" + $Name) | Out-Null
     return $pythonExe
 }
 
@@ -235,7 +280,7 @@ function New-ArtifactEnvironment {
     if (-not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
         throw "Artifact environment did not produce Python: $pythonExe"
     }
-    Get-PythonVersion -Python $pythonExe | Out-Null
+    Get-PythonMetadata -Python $pythonExe -Name ("artifact-environment-" + $Name) | Out-Null
     return $pythonExe
 }
 
@@ -364,16 +409,10 @@ try {
     New-Item -ItemType Directory -Force -Path $uvCache | Out-Null
     $env:UV_CACHE_DIR = $uvCache
     $env:PYTHONNOUSERSITE = "1"
-    if (Test-Path Env:PYTHONPATH) { Remove-Item Env:PYTHONPATH }
-
-    $script:CurrentStep = "create isolated worktree"
-    Invoke-Recorded -Name "worktree-add" -FilePath "git" `
-        -Arguments @("-C", $script:RepoRoot, "worktree", "add", "--detach", $script:WorktreePath, $sourceCommit) `
-        -WorkingDirectory $script:RepoRoot | Out-Null
-    $cleanStatusBeforeOverlay = @(& git -C $script:WorktreePath status --short --untracked-files=all 2>&1)
-    if ($cleanStatusBeforeOverlay.Count -ne 0) {
-        throw "Temporary worktree is not clean before overlay: $($cleanStatusBeforeOverlay -join '; ')"
+    foreach ($name in @("PYTHONPATH", "PYTHONHOME", "UV_INTERNAL__PYTHONHOME", "VIRTUAL_ENV")) {
+        if (Test-Path "Env:$name") { Remove-Item "Env:$name" }
     }
+
     if ($IncludeWorkingTreeChanges) {
         $candidatePaths = @($initialStatus | ForEach-Object { Get-StatusPath -StatusLine ([string]$_) } | Sort-Object -Unique)
         if ($candidatePaths.Count -eq 0) {
@@ -394,34 +433,14 @@ try {
                 sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourcePath).Hash.ToLowerInvariant()
             })
         }
-        $patchPath = Join-Path $script:RunRoot "working-tree.patch"
+        $candidatePatchPath = Join-Path $script:RunRoot "working-tree.patch"
         Invoke-Recorded -Name "capture-working-tree-diff" -FilePath "git" `
-            -Arguments @("-C", $script:RepoRoot, "-c", "core.autocrlf=false", "diff", "--binary", "--output=$patchPath") `
+            -Arguments @("-C", $script:RepoRoot, "-c", "core.autocrlf=false", "diff", "--binary", "--output=$candidatePatchPath") `
             -WorkingDirectory $script:RepoRoot | Out-Null
-        $candidatePatchSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $patchPath).Hash.ToLowerInvariant()
-        if ((Get-Item -LiteralPath $patchPath).Length -gt 0) {
-            Invoke-Recorded -Name "apply-working-tree-diff" -FilePath "git" `
-                -Arguments @("-C", $script:WorktreePath, "-c", "core.autocrlf=false", "apply", "--binary", "--whitespace=nowarn", "--ignore-space-change", $patchPath) `
-                -WorkingDirectory $script:WorktreePath | Out-Null
-        }
-        $untracked = @(& git -C $script:RepoRoot ls-files --others --exclude-standard)
-        foreach ($relative in $untracked) {
-            if (-not $relative) { continue }
-            $sourcePath = Join-Path $script:RepoRoot $relative
-            $targetPath = Join-Path $script:WorktreePath $relative
-            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $targetPath) | Out-Null
-            Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
-        }
-        $overlayStatus = @(& git -C $script:WorktreePath status --short --untracked-files=all)
-        $overlayPaths = @($overlayStatus | ForEach-Object { Get-StatusPath -StatusLine ([string]$_) } | Sort-Object -Unique)
-        if (@(Compare-Object -ReferenceObject $candidatePaths -DifferenceObject $overlayPaths).Count -ne 0) {
-            throw "Candidate overlay paths differ from the reviewed source paths"
-        }
+        $candidatePatchSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidatePatchPath).Hash.ToLowerInvariant()
     }
-    $worktreeTmp = Join-Path $script:WorktreePath ".tmp_tests\p7_release_acceptance"
-    New-Item -ItemType Directory -Force -Path $worktreeTmp | Out-Null
 
-    $pyprojectPath = Join-Path $script:WorktreePath "pyproject.toml"
+    $pyprojectPath = Join-Path $script:RepoRoot "pyproject.toml"
     $pyprojectText = Get-Content -LiteralPath $pyprojectPath -Raw
     $nameMatch = [regex]::Match($pyprojectText, '(?m)^name\s*=\s*"([^"]+)"')
     $versionMatch = [regex]::Match($pyprojectText, '(?m)^version\s*=\s*"([^"]+)"')
@@ -432,9 +451,69 @@ try {
         throw "Unexpected project identity: $distributionName $projectVersion"
     }
 
-    $script:CurrentStep = "resolve Python interpreters"
+    $script:CurrentStep = "interpreter preflight"
     $resolvedPython310 = Resolve-Python -Requested $Python310 -VersionSelector "3.10" -Name "python310"
-    $resolvedCurrent = Resolve-Python -Requested $CurrentPython -VersionSelector "3.12" -Name "current-python"
+    $resolvedCurrent = Resolve-Python -Requested $CurrentPython -VersionSelector "3.13" -Name "current-python"
+    $python310Metadata = Get-PythonMetadata -Python $resolvedPython310 -Name "python310"
+    $currentPythonMetadata = Get-PythonMetadata -Python $resolvedCurrent -Name "current-python"
+    $sameRequestedPath = $resolvedPython310.Equals($resolvedCurrent, [System.StringComparison]::OrdinalIgnoreCase)
+    $sameExecutable = ([string]$python310Metadata.executable).Equals(
+        [string]$currentPythonMetadata.executable,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )
+    $interpretersDistinct = -not ($sameRequestedPath -or $sameExecutable)
+    if (-not $interpretersDistinct) {
+        throw "Python interpreters must be distinct files: Python310=$resolvedPython310; CurrentPython=$resolvedCurrent"
+    }
+    Assert-PythonVersion -Name "Python310" -Path $resolvedPython310 -Metadata $python310Metadata `
+        -ExpectedMajor 3 -ExpectedMinor 10
+    Assert-PythonVersion -Name "CurrentPython" -Path $resolvedCurrent -Metadata $currentPythonMetadata `
+        -ExpectedMajor 3 -ExpectedMinor 13
+
+    if ($InterpreterPreflightOnly) {
+        $script:Ok = $true
+    } else {
+        $script:CurrentStep = "create isolated worktree"
+        Invoke-Recorded -Name "worktree-add" -FilePath "git" `
+            -Arguments @("-C", $script:RepoRoot, "worktree", "add", "--detach", $script:WorktreePath, $sourceCommit) `
+            -WorkingDirectory $script:RepoRoot | Out-Null
+        $acceptanceWorktreeState = "detached"
+        $cleanStatusBeforeOverlay = @(& git -C $script:WorktreePath status --short --untracked-files=all 2>&1)
+        if ($cleanStatusBeforeOverlay.Count -ne 0) {
+            throw "Temporary worktree is not clean before overlay: $($cleanStatusBeforeOverlay -join '; ')"
+        }
+        if ($IncludeWorkingTreeChanges) {
+            if ((Get-Item -LiteralPath $candidatePatchPath).Length -gt 0) {
+                Invoke-Recorded -Name "apply-working-tree-diff" -FilePath "git" `
+                    -Arguments @("-C", $script:WorktreePath, "-c", "core.autocrlf=false", "apply", "--binary", "--whitespace=nowarn", "--ignore-space-change", $candidatePatchPath) `
+                    -WorkingDirectory $script:WorktreePath | Out-Null
+            }
+            $untracked = @(& git -C $script:RepoRoot ls-files --others --exclude-standard)
+            foreach ($relative in $untracked) {
+                if (-not $relative) { continue }
+                $sourcePath = Join-Path $script:RepoRoot $relative
+                $targetPath = Join-Path $script:WorktreePath $relative
+                New-Item -ItemType Directory -Force -Path (Split-Path -Parent $targetPath) | Out-Null
+                Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
+            }
+            $overlayStatus = @(& git -C $script:WorktreePath status --short --untracked-files=all)
+            $overlayPaths = @($overlayStatus | ForEach-Object { Get-StatusPath -StatusLine ([string]$_) } | Sort-Object -Unique)
+            if (@(Compare-Object -ReferenceObject $candidatePaths -DifferenceObject $overlayPaths).Count -ne 0) {
+                throw "Candidate overlay paths differ from the reviewed source paths"
+            }
+        }
+        $pyprojectPath = Join-Path $script:WorktreePath "pyproject.toml"
+        $pyprojectText = Get-Content -LiteralPath $pyprojectPath -Raw
+        $nameMatch = [regex]::Match($pyprojectText, '(?m)^name\s*=\s*"([^"]+)"')
+        $versionMatch = [regex]::Match($pyprojectText, '(?m)^version\s*=\s*"([^"]+)"')
+        if (-not $nameMatch.Success -or -not $versionMatch.Success) { throw "Could not read project metadata" }
+        $distributionName = $nameMatch.Groups[1].Value
+        $projectVersion = $versionMatch.Groups[1].Value
+        if ($distributionName -ne "powers-tool" -or $projectVersion -ne "2.0.0") {
+            throw "Unexpected project identity: $distributionName $projectVersion"
+        }
+        $worktreeTmp = Join-Path $script:WorktreePath ".tmp_tests\p7_release_acceptance"
+        New-Item -ItemType Directory -Force -Path $worktreeTmp | Out-Null
 
     $script:CurrentStep = "locked source environments"
     $python310Env = Join-Path $script:RunRoot "envs\python310"
@@ -691,7 +770,9 @@ for filename in ("index.html", "styles.css", "app.js"):
         -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $script:WorktreePath "scripts\no-hardware-regression.ps1"), "-Python", $current, "-OutputDir", (Join-Path $worktreeTmp "no_hardware_wrapper")) `
         -WorkingDirectory $script:WorktreePath | Out-Null
 
-    $script:Ok = $true
+        $script:FullAcceptanceCompleted = $true
+        $script:Ok = $true
+    }
 }
 catch {
     $script:FailedStep = $script:CurrentStep
@@ -721,15 +802,36 @@ finally {
             schema_version = 1
             kind = "powers-tool-v2-release-acceptance"
             ok = $script:Ok
+            acceptance_mode = $acceptanceMode
+            full_acceptance_completed = $script:FullAcceptanceCompleted
             source_commit = if ($sourceCommit) { $sourceCommit } else { $null }
             source_branch = if ($sourceBranch) { $sourceBranch } else { $null }
-            acceptance_worktree_state = "detached"
+            acceptance_worktree_state = $acceptanceWorktreeState
             project_version = if ($projectVersion) { $projectVersion } else { $null }
             distribution_name = if ($distributionName) { $distributionName } else { $null }
-            python_310_version = if ($script:PythonVersions.Values | Where-Object { $_ -match "3\.10" } | Select-Object -First 1) { ($script:PythonVersions.Values | Where-Object { $_ -match "3\.10" } | Select-Object -First 1) } else { $null }
-            current_python_version = if ($script:PythonVersions.Values | Where-Object { $_ -notmatch "3\.10" } | Select-Object -First 1) { ($script:PythonVersions.Values | Where-Object { $_ -notmatch "3\.10" } | Select-Object -First 1) } else { $null }
+            python_310 = [ordered]@{
+                requested_interpreter = if ($Python310) { $Python310 } else { "uv python find 3.10" }
+                resolved_interpreter = if ($resolvedPython310) { $resolvedPython310 } else { $null }
+                expected_version = "3.10"
+                actual_version = if ($python310Metadata) { [string]$python310Metadata.version } else { $null }
+                actual_major = if ($python310Metadata) { [int]$python310Metadata.major } else { $null }
+                actual_minor = if ($python310Metadata) { [int]$python310Metadata.minor } else { $null }
+                actual_executable = if ($python310Metadata) { [string]$python310Metadata.executable } else { $null }
+            }
+            current_python = [ordered]@{
+                requested_interpreter = if ($CurrentPython) { $CurrentPython } else { "uv python find 3.13" }
+                resolved_interpreter = if ($resolvedCurrent) { $resolvedCurrent } else { $null }
+                expected_version = "3.13"
+                actual_version = if ($currentPythonMetadata) { [string]$currentPythonMetadata.version } else { $null }
+                actual_major = if ($currentPythonMetadata) { [int]$currentPythonMetadata.major } else { $null }
+                actual_minor = if ($currentPythonMetadata) { [int]$currentPythonMetadata.minor } else { $null }
+                actual_executable = if ($currentPythonMetadata) { [string]$currentPythonMetadata.executable } else { $null }
+            }
+            python_310_version = if ($python310Metadata) { [string]$python310Metadata.version } else { $null }
+            current_python_version = if ($currentPythonMetadata) { [string]$currentPythonMetadata.version } else { $null }
+            interpreters_distinct = $interpretersDistinct
             initial_worktree_status = @($initialStatus)
-            clean_worktree_before_overlay = (@($cleanStatusBeforeOverlay).Count -eq 0)
+            clean_worktree_before_overlay = if ($InterpreterPreflightOnly) { $null } else { (@($cleanStatusBeforeOverlay).Count -eq 0) }
             working_tree_overlay_applied = [bool]$IncludeWorkingTreeChanges
             candidate_paths = @($candidatePaths)
             candidate_file_hashes = @($candidateFileHashes)
@@ -750,12 +852,25 @@ finally {
         }
         $reportJson = $report | ConvertTo-Json -Depth 8
         Write-Utf8NoBomFile -LiteralPath (Join-Path $script:RunRoot "report.json") -Content $reportJson
+        $summaryTitle = if ($InterpreterPreflightOnly -and $IncludeWorkingTreeChanges) {
+            "Powers Tool v2 Candidate Working-Tree Interpreter Preflight"
+        } elseif ($InterpreterPreflightOnly) {
+            "Powers Tool v2 Interpreter Preflight"
+        } elseif ($IncludeWorkingTreeChanges) {
+            "Powers Tool v2 Candidate Working-Tree Validation"
+        } else {
+            "Powers Tool v2 Final Committed Clean-HEAD Acceptance"
+        }
         $summary = @(
-            "# Powers Tool v2 Release Acceptance",
+            "# $summaryTitle",
             "",
             "Result: **$(if ($script:Ok) { 'passed' } else { 'failed' })**",
             "",
+            "- Acceptance mode: ``$acceptanceMode``",
+            "- Full acceptance completed: ``$($script:FullAcceptanceCompleted.ToString().ToLowerInvariant())``",
             "- Source commit: ``$sourceCommit``",
+            "- Working-tree overlay applied: ``$([bool]$IncludeWorkingTreeChanges)``",
+            "- Candidate patch SHA-256: ``$(if ($candidatePatchSha256) { $candidatePatchSha256 } else { 'null' })``",
             "- Distribution: ``$distributionName`` $projectVersion",
             "- Hardware touched: ``false``",
             "- Support metadata changed: ``false``",
@@ -765,6 +880,16 @@ finally {
             "| Command | Exit code | Duration ms |",
             "| --- | ---: | ---: |"
         )
+        if ($InterpreterPreflightOnly) {
+            $summary += ""
+            $summary += "This report covers interpreter preflight only; it is not release acceptance."
+            if ($IncludeWorkingTreeChanges) {
+                $summary += "This preflight records a working-tree candidate overlay; it is not committed-HEAD provenance."
+            }
+        } elseif ($IncludeWorkingTreeChanges) {
+            $summary += ""
+            $summary += "This validates the working-tree candidate only. It is not the final committed clean-HEAD acceptance."
+        }
         foreach ($command in $script:Commands) {
             $summary += "| ``$($command.name)`` | $($command.exit_code) | $($command.duration_ms) |"
         }
