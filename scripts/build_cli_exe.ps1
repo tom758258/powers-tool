@@ -35,6 +35,7 @@ if (-not (
     --workpath (Join-Path $RepoRoot "build\pyinstaller-cli") `
     --specpath (Join-Path $RepoRoot "build\pyinstaller-specs") `
     --paths (Join-Path $RepoRoot "src") `
+    --copy-metadata powers-tool `
     (Join-Path $RepoRoot "src\powers_tool_cli\cli.py")
 
 if ($LASTEXITCODE -ne 0) {

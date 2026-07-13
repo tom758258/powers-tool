@@ -149,6 +149,13 @@ def test_public_docs_describe_feature_policy_and_model_enablement_lifecycle():
     assert "Product model selector contains Product-active models only" in webui
 
 
+def test_supported_models_uses_full_product_name_for_setpoint_policy() -> None:
+    text = Path("docs/core/supported-models.md").read_text(encoding="utf-8")
+
+    assert "Powers Tool does not currently enforce" in text
+    assert "Powers does not currently enforce" not in text
+
+
 def test_contributor_guide_documents_p5_validation_boundary_without_publishing_switch_elsewhere():
     public_paths = (
         "README.md",

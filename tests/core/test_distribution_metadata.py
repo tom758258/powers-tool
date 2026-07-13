@@ -3,7 +3,10 @@ from __future__ import annotations
 from importlib import metadata, resources
 from pathlib import Path
 
-import tomllib
+try:  # pragma: no cover - branch depends on Python version
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised on Python 3.10
+    import tomli as tomllib
 
 import powers_tool_cli
 import powers_tool_core

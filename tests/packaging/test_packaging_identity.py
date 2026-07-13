@@ -4,7 +4,10 @@ import importlib.util
 from pathlib import Path
 import subprocess
 
-import tomllib
+try:  # pragma: no cover - branch depends on Python version
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised on Python 3.10
+    import tomli as tomllib
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -130,6 +133,7 @@ def test_build_scripts_use_v2_names_and_preserve_path_guards() -> None:
     assert "src\\powers_tool_webui\\launcher.py" in webui
     assert "src\\powers_tool_webui\\static');powers_tool_webui\\static" in webui
     for script in (cli, webui):
+        assert "--copy-metadata powers-tool" in script
         assert "DistPath must stay under the repository" in script
         assert "StartsWith($repoPrefix" in script
         assert "src\\keysight_power_" not in script
@@ -149,6 +153,27 @@ def test_ci_uses_v2_distribution_and_console_commands() -> None:
     assert "uv run powers-tool-webui --help" in workflow
     assert "inspect_distribution.py dist" in workflow
     assert f"--reinstall-package {LEGACY_IDENTITY_TOKENS[0]}" not in workflow
+
+
+def test_active_runtime_identity_is_vendor_neutral_and_has_no_stale_fallback() -> None:
+    paths = (
+        ROOT / "src" / "powers_tool_core" / "__init__.py",
+        ROOT / "src" / "powers_tool_cli" / "__init__.py",
+        ROOT / "src" / "powers_tool_webui" / "__init__.py",
+        ROOT / "src" / "powers_tool_cli" / "cli.py",
+    )
+    stale_phrases = (
+        "Tools for controlling " + "Keysight DC power supplies safely.",
+        "CLI adapter for controlling " + "Keysight DC power supplies.",
+        "WebUI adapter for " + "Keysight DC power supplies.",
+        "Safe Powers Tool CLI for " + "Keysight DC power supplies.",
+    )
+
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        assert "1.0.0" not in text
+        for phrase in stale_phrases:
+            assert phrase not in text
 
 
 def _tracked_utf8_text() -> dict[str, str]:

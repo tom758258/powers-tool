@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import runpy
 
 
 def test_package_imports() -> None:
@@ -22,3 +23,19 @@ def test_package_discovery_uses_only_the_new_core_namespace() -> None:
 
     assert '"powers_tool_core*"' in metadata
     assert f'"{"keysight" + "_power_core"}*"' not in metadata
+
+
+def test_core_missing_distribution_metadata_uses_nonrelease_fallback(monkeypatch) -> None:
+    from importlib import metadata
+
+    def missing_distribution(_name: str) -> str:
+        raise metadata.PackageNotFoundError("powers-tool")
+
+    monkeypatch.setattr(metadata, "version", missing_distribution)
+    namespace = runpy.run_path("src/powers_tool_core/__init__.py")
+    source = Path("src/powers_tool_core/__init__.py").read_text(encoding="utf-8")
+
+    assert namespace["__version__"] == "0+unknown"
+    assert namespace["__version__"] not in {"1.0.0", "2.0.0"}
+    assert "powers_tool_cli" not in source
+    assert "powers_tool_webui" not in source

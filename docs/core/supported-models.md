@@ -201,7 +201,7 @@ identity diagnostics do not imply model or feature support.
 For output workflows, `voltage` means output voltage setpoint and `current`
 means output current limit/current setting. The values below are programming
 range metadata from the model manuals; they are separate from the existing DC
-output rating safety limits. Powers does not currently enforce a hard
+output rating safety limits. Powers Tool does not currently enforce a hard
 manual-derived decimal-place rule and does not round or truncate user
 setpoints before SCPI.
 

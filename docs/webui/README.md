@@ -23,10 +23,10 @@ toolchain is required.
 ## Package And Entry Point
 
 The WebUI exposes the `powers-tool-webui` console command for the local
-FastAPI server and the `powers-tool-webui-launcher` wrapper for the Windows
-launcher. The standalone PyInstaller launcher artifact is named
-`powers-tool-webui.exe`; this does not rename either installed console entry
-point.
+FastAPI server and the `powers-tool-webui-launcher` console command for the
+Windows GUI launcher. The standalone PyInstaller GUI artifact is named
+`dist\powers-tool-webui.exe`; it is separate from both installed console
+wrappers and does not rename either entry point.
 
 ## Purpose
 
@@ -67,10 +67,12 @@ Open `http://127.0.0.1:7999/`.
 Keep the host as `127.0.0.1` unless there is a deliberate reason to expose the
 server beyond the local machine.
 
-The installed Windows GUI launcher wrapper is:
+The installed Windows console wrappers are:
 
 ```powershell
+# FastAPI server console wrapper
 .\.venv\Scripts\powers-tool-webui.exe --version
+# GUI launcher console wrapper
 .\.venv\Scripts\powers-tool-webui-launcher.exe
 ```
 
@@ -80,6 +82,10 @@ selected port already hosts Powers Tool WebUI, the launcher opens that page
 instead of starting a second server. If the port is used by another service,
 startup is rejected. Quit is blocked while a hardware command is active; stop
 or cancel the command in the browser first and wait for cleanup.
+
+The standalone PyInstaller GUI artifact is a separate executable at
+`dist\powers-tool-webui.exe`; it is built from the same launcher implementation
+but is not the installed server wrapper above.
 
 ## API
 

@@ -1,4 +1,6 @@
 from importlib import metadata
+from pathlib import Path
+import runpy
 import sys
 import types
 
@@ -9,6 +11,18 @@ def test_webui_import() -> None:
     import powers_tool_webui
 
     assert powers_tool_webui.__version__ == metadata.version("powers-tool")
+
+
+def test_webui_missing_distribution_metadata_uses_nonrelease_fallback(monkeypatch) -> None:
+    def missing_distribution(_name: str) -> str:
+        raise metadata.PackageNotFoundError("powers-tool")
+
+    monkeypatch.setattr(metadata, "version", missing_distribution)
+    package_init = Path("src/powers_tool_webui/__init__.py")
+    namespace = runpy.run_path(str(package_init))
+
+    assert namespace["__version__"] == "0+unknown"
+    assert namespace["__version__"] not in {"1.0.0", "2.0.0"}
 
 
 def test_webui_server_version_prints_without_starting_server(monkeypatch, capsys) -> None:

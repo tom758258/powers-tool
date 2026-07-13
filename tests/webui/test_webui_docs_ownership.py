@@ -72,3 +72,12 @@ def test_webui_docs_describe_exact_support_as_product_only_ux():
     assert "not shown as Product-open live commands" in normalized_guide
     assert "--validation-allow-pending-live-support" not in text
     assert "Local/" not in text
+
+
+def test_webui_docs_distinguish_installed_wrappers_and_standalone_artifact() -> None:
+    readme = read_webui_doc("README.md")
+
+    assert "FastAPI server console wrapper" in readme
+    assert "GUI launcher console wrapper" in readme
+    assert "dist\\powers-tool-webui.exe" in readme
+    assert "separate from both installed console" in readme

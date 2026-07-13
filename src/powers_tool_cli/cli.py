@@ -1,4 +1,4 @@
-"""Safe command line interface for Keysight power supplies."""
+"""Safe command line interface for supported DC power supplies."""
 
 from __future__ import annotations
 
@@ -215,7 +215,7 @@ class _ScpiLoggingSession:
 def build_parser() -> argparse.ArgumentParser:
     parser = JsonCliArgumentParser(
         prog="powers-tool",
-        description="Safe Powers Tool CLI for Keysight DC power supplies.",
+        description="Safe Powers Tool CLI for supported DC power supplies.",
     )
     parser.add_argument(
         "--version",
@@ -6282,7 +6282,7 @@ def _package_version() -> str:
     try:
         return importlib.metadata.version("powers-tool")
     except importlib.metadata.PackageNotFoundError:
-        return "1.0.0"
+        return "0+unknown"
 
 
 def _safety_limits_payload(limits: SafetyLimits) -> dict[str, Any]:
