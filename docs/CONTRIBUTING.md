@@ -40,6 +40,10 @@ The dependency direction is `CLI -> Core` and `WebUI -> Core`. Core must not
 import either adapter. Frontend enabled/disabled state is UX only; Core is the
 final safety and exact-scope authority.
 
+Keep the Core architecture vendor-neutral. New vendor or model support still
+requires explicit manufacturer-plus-model identity metadata, a vendor/model
+driver, verified SCPI behavior, safety coverage, and exact support scopes.
+
 ## Testing expectations
 
 Default tests must not need hardware. Add focused fake-session, simulator, or

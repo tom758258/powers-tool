@@ -50,6 +50,18 @@ def test_root_contracts_remain_canonical():
         assert (REPO_ROOT / "docs" / "contracts" / contract).exists()
 
 
+def test_v2_public_identity_docs_are_owned_by_english_sources():
+    root = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    core = read_core_doc("README.md")
+    migration = (REPO_ROOT / "docs" / "migration-v2.md").read_text(encoding="utf-8")
+
+    assert "Powers Tool is a vendor-neutral Python toolkit" in root
+    assert "powers_tool_core" in root
+    assert "keysight-e36312a" in root
+    assert "Vendor-neutral Core library" in core
+    assert "not a compatibility promise" in migration
+
+
 def test_root_testing_guidelines_are_linked_and_structural():
     guidelines_path = REPO_ROOT / "docs" / "testing-guidelines.md"
     assert guidelines_path.exists()

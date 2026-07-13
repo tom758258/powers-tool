@@ -25,8 +25,22 @@ LEGACY_IDENTITY_TOKENS = (
 # Every retained occurrence is tied to one exact tracked file, token, count, and
 # reason. Count drift fails so a future occurrence cannot inherit an exemption.
 _ALLOWED_LEGACY_MATCHES = {
-    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[0]): (1, "immutable V1 release history"),
-    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[1]): (2, "immutable V1 release history"),
+    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[0]): (2, "V2 migration and immutable V1 history"),
+    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[1]): (3, "V2 migration and immutable V1 history"),
+    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[5]): (1, "V2 product rename history"),
+    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[6]): (1, "V2 product rename history"),
+    ("README.md", LEGACY_IDENTITY_TOKENS[5]): (1, "concise V2 product history"),
+    ("README.md", LEGACY_IDENTITY_TOKENS[6]): (1, "concise V2 product history"),
+    ("docs/migration-v2.md", LEGACY_IDENTITY_TOKENS[0]): (1, "V2 migration mapping"),
+    ("docs/migration-v2.md", LEGACY_IDENTITY_TOKENS[1]): (5, "V2 migration mapping"),
+    ("docs/migration-v2.md", LEGACY_IDENTITY_TOKENS[2]): (2, "V2 migration mapping"),
+    ("docs/migration-v2.md", LEGACY_IDENTITY_TOKENS[3]): (2, "V2 migration mapping"),
+    ("docs/migration-v2.md", LEGACY_IDENTITY_TOKENS[4]): (2, "V2 migration mapping"),
+    ("docs/migration-v2.md", LEGACY_IDENTITY_TOKENS[5]): (1, "V2 migration mapping"),
+    ("docs/migration-v2.md", LEGACY_IDENTITY_TOKENS[6]): (2, "V2 migration mapping"),
+    ("docs/migration-v2.md", LEGACY_IDENTITY_TOKENS[7]): (1, "V2 migration mapping"),
+    ("docs/migration-v2.md", LEGACY_IDENTITY_TOKENS[8]): (1, "V2 schema migration"),
+    ("docs/migration-v2.md", LEGACY_IDENTITY_TOKENS[9]): (1, "V2 field migration"),
     ("README.zh-TW.md", LEGACY_IDENTITY_TOKENS[0]): (2, "P6 localized-doc migration"),
     ("README.zh-TW.md", LEGACY_IDENTITY_TOKENS[1]): (13, "P6 localized-doc migration"),
     ("README.zh-TW.md", LEGACY_IDENTITY_TOKENS[2]): (3, "P6 localized-doc migration"),
@@ -145,6 +159,9 @@ def _tracked_utf8_text() -> dict[str, str]:
         capture_output=True,
     ).stdout.decode("utf-8").split("\0")
     texts: dict[str, str] = {}
+    migration_path = "docs/migration-v2.md"
+    if migration_path not in tracked and (ROOT / migration_path).exists():
+        tracked.append(migration_path)
     for relative in tracked:
         if not relative:
             continue

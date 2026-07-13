@@ -1,8 +1,9 @@
 # Core Integration
 
-`powers_tool_core` owns the hardware-facing runtime for Keysight DC power
-supplies. Adapter packages should build parser-neutral request objects and call
-the shared command runners instead of constructing SCPI directly.
+`powers_tool_core` owns the vendor-neutral hardware-facing runtime for
+supported DC power supplies. Current validated drivers target the documented
+Keysight models. Adapter packages should build parser-neutral request objects
+and call the shared command runners instead of constructing SCPI directly.
 
 `powers_tool_core` ships as part of the single `powers-tool`
 distribution. Its installed version follows `[project].version` from the root

@@ -1,6 +1,8 @@
 # Powers Tool CLI
 
-CLI adapter for controlling Keysight DC power supplies.
+Vendor-neutral CLI adapter for controlling supported DC power supplies.
+Current Product-active and hardware-validated models are the documented
+Keysight models; unknown live hardware remains fail closed.
 
 The CLI ships inside the single `powers-tool` distribution while
 preserving the `powers_tool_cli` import boundary. It exposes the

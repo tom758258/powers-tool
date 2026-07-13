@@ -1,6 +1,8 @@
 # Powers Tool Core
 
-Core library and driver layer for controlling Keysight DC power supplies safely.
+Vendor-neutral Core library and driver layer for controlling supported DC
+power supplies safely. Current Product-active and hardware-validated drivers
+are for the documented Keysight models; unknown live hardware remains closed.
 
 Core ships inside the single `powers-tool` distribution while preserving
 the `powers_tool_core` import boundary. It owns hardware-facing behavior

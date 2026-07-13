@@ -1,9 +1,11 @@
 # Powers Tool WebUI User Guide
 
 This guide is for operators who receive the built WebUI launcher and use it to
-inspect and control supported Keysight DC power supplies. It avoids developer
-details and focuses on normal local WebUI workflows. Developer setup, API
-behavior, validation, and UI change boundaries are documented in the
+inspect and control supported DC power supplies. The framework is
+vendor-neutral, while the currently validated hardware is the documented
+Keysight model set. This guide avoids developer details and focuses on normal
+local WebUI workflows. Developer setup, API behavior, validation, and UI change
+boundaries are documented in the
 [WebUI README](README.md) and [Web UI Change Rules](web-ui-change-rules.md).
 
 ## Start The WebUI

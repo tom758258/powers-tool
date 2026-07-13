@@ -28,9 +28,9 @@ The current `live_validated_full_suite` command inventories are:
 
 | Model | Exact product connections | Product-open model-aware commands |
 | --- | --- | --- |
-| E36312A | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `snapshot`, `trigger-status`, `trigger-step`, `trigger-list`, `trigger-abort` |
-| EDU36311A | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection` |
-| E3646A | ASRL / RS-232 + system VISA | `measure`, `output-state`, `read-status`, `readback`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence` |
+| `keysight-e36312a` (Keysight E36312A) | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `snapshot`, `trigger-status`, `trigger-step`, `trigger-list`, `trigger-abort` |
+| `keysight-edu36311a` (Keysight EDU36311A) | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection` |
+| `keysight-e3646a` (Keysight E3646A) | ASRL / RS-232 + system VISA | `measure`, `output-state`, `read-status`, `readback`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence` |
 
 `list-resources`, `verify`, `identify`, `error`, and `clear` are explicit
 diagnostic exemptions. Their success proves only that diagnostic operation; it
@@ -68,10 +68,10 @@ feature.
 
 | Stage | Current models | Runtime meaning |
 | --- | --- | --- |
-| Product-active | E36312A, EDU36311A, E3646A | Model-specific profiles/drivers with accepted exact Product scopes. |
+| Product-active | `keysight-e36312a` (Keysight E36312A), `keysight-edu36311a` (Keysight EDU36311A), `keysight-e3646a` (Keysight E3646A) | Model-specific profiles/drivers with accepted exact Product scopes. |
 | Candidate | None | Complete contributor model eligible only for explicitly pending Validation-mode scopes. |
-| Catalog-only | E36313A, E36233A, E36441A, E36155A | Identity/catalog metadata only; not an active planning or live expected-model identity. |
-| De-scoped | E36103B, E36232A | Blocked from Product, Validation, driver fallback, and live metadata. |
+| Catalog-only | `keysight-e36313a`, `keysight-e36233a`, `keysight-e36441a`, `keysight-e36155a` | Identity/catalog metadata only; not an active planning or live expected-model identity. |
+| De-scoped | `keysight-e36103b`, `keysight-e36232a` | Blocked from Product, Validation, driver fallback, and live metadata. |
 
 `generic-scpi` remains no-hardware/fallback-only and is not a physical model stage.
 Adding the candidate lifecycle does not enable a new model. A candidate must

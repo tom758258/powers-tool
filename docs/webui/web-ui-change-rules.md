@@ -18,7 +18,7 @@ Improve the browser UI only:
   cancellation, and cleanup behavior untouched unless the user explicitly asks
   for a backend change and confirms the risk.
 
-Assume connected Keysight power supplies are real hardware. A UI mistake can
+Assume connected supported power supplies are real hardware. A UI mistake can
 set the wrong voltage/current, enable the wrong output, clear the wrong
 protection state, or launch a risky workflow, so treat non-visual changes as
 high risk.

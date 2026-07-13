@@ -24,28 +24,38 @@ These instructions guide coding agents working in this repository. They are long
 
 ## 3. Project Direction
 
-- Maintain the existing single-distribution `powers-tool` project for
-  Keysight DC power supplies.
+- Maintain the existing single-distribution `powers-tool` project as a
+  vendor-neutral toolkit for supported programmable DC power supplies.
 - CLI and WebUI are parallel product interfaces over the shared Core runtime.
 - Keep adapter behavior aligned; neither CLI nor WebUI may own SCPI behavior.
+- Keep Core architecture vendor-neutral while placing vendor-specific drivers,
+  identity aliases, manuals, SCPI behavior, and support metadata in explicit
+  vendor/model boundaries.
 - Main environment is Windows.
 - Use the root single-distribution workflow. Install development dependencies
   with `pip install -e ".[all,dev]"` or sync with `uv sync --all-extras`.
-- Primary communication interfaces are USB and LAN through PyVISA.
+- Primary communication interfaces are USB, LAN, and explicitly configured
+  RS-232/ASRL through PyVISA.
 
 ## 4. Architecture Rules
 
 - Do not scatter SCPI strings through CLI commands, examples, or test flows.
 - Put SCPI behavior in driver classes or small command helpers.
-- Use a common power-supply interface with series-specific driver adapters.
-- Do not assume every E36xxx model uses identical SCPI.
+- Use a common power-supply interface with vendor- and model-specific driver
+  adapters.
+- Resolve live physical identity from both reported manufacturer and model;
+  never derive vendor identity by splitting `model_id`.
+- Require exact Product support by canonical model ID, command, transport,
+  backend, and required categorical feature where applicable.
+- Do not assume different vendors, series, or models use identical SCPI.
 - Verify model-specific SCPI, channel syntax, timing, protection behavior, and LIST/trigger behavior against the relevant programming guide before implementing it.
 - Keep resource strings configurable. Do not hard-code real VISA addresses in committed code.
 - Prefer fake-instrument tests for command generation and error paths before using hardware.
 
 ## 5. Safety Rules
 
-- This project controls Keysight power supplies through VISA/SCPI. Treat output-affecting changes as high risk.
+- This project controls supported programmable DC power supplies through
+  VISA/SCPI. Treat output-affecting changes as high risk.
 - Never enable real hardware output from a default test.
 - Hardware tests must be explicit, opt-in, and require a user-provided VISA resource.
 - Default output state should be off.
@@ -132,3 +142,5 @@ This repository is organized as a single-distribution project under the root
 - Never let `powers_tool_core` import from `powers_tool_cli` or
   `powers_tool_webui`.
 - CLI commands are invoked via `powers-tool` or `python -m powers_tool_cli.cli`.
+- WebUI entry points are `powers-tool-webui` for the server and
+  `powers-tool-webui-launcher` for the installed launcher wrapper.

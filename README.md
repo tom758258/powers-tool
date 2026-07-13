@@ -1,16 +1,29 @@
-[繁體中文](README.zh-TW.md)
+[Traditional Chinese](README.zh-TW.md)
 
 # Powers Tool
 
-Powers Tool is a Python control toolkit for Keysight DC power supplies.
-It provides one installable distribution, `powers-tool` `<version>`, while
-preserving three V2 import packages: `powers_tool_core`, `powers_tool_cli`,
-and `powers_tool_webui`.
+Powers Tool is a vendor-neutral Python toolkit for controlling supported DC
+power supplies. Version 2.0.0 provides one installable distribution,
+`powers-tool`, with three import packages: `powers_tool_core`,
+`powers_tool_cli`, and `powers_tool_webui`.
 
-The project supports USB, LAN, and explicit RS-232/ASRL communication through VISA, command-line
-operation, and a local browser WebUI. It is designed for power-supply workflows
-where explicit safety checks, simulator support, and machine-readable output
-matter.
+The framework is vendor-neutral, but current Product-active and
+hardware-validated models are the Keysight models listed below. Vendor-neutral
+architecture does not mean arbitrary or unknown power supplies are supported:
+unregistered or unresolved live hardware fails closed. Vendor-specific
+drivers, aliases, manuals, SCPI behavior, evidence, and support tables retain
+their correct vendor names.
+
+The shared Core runtime owns identity resolution, drivers, SCPI behavior,
+safety, and exact live-support decisions. The CLI and WebUI are parallel
+adapters over Core, while the Power Worker exposes the same Core command
+boundary to local automation. The project supports USB, LAN, and explicit
+RS-232/ASRL communication through VISA, with safety-first dry-run, simulator,
+and machine-readable workflows.
+
+Powers Tool was previously developed as Keysight Powers. Version 2.0.0
+introduces the vendor-neutral product and package identity; old names are not
+supported aliases. See the [version 2 migration guide](docs/migration-v2.md).
 
 ## Features
 
@@ -93,7 +106,7 @@ means the output current limit/current setting for E36312A, EDU36311A, and
 E3646A. Core exposes official programming-range metadata from the model
 programming manuals separately from the existing DC output rating safety
 limits. E3646A programming ranges are range-dependent: LOW/P8V is 0 to 8.24 V
-and 0 to 3.09 A, while HIGH/P20V is 0 to 20.60 V and 0 to 1.545 A. Powers does
+and 0 to 3.09 A, while HIGH/P20V is 0 to 20.60 V and 0 to 1.545 A. Powers Tool does
 not currently claim an official manual-required decimal-place rejection rule
 and does not round or truncate user setpoints before SCPI.
 
@@ -107,6 +120,23 @@ Fake or live-looking resource strings are placeholders and must not imply a
 real instrument model. Deterministic SIM resources, such as
 `USB0::SIM::E36312A::INSTR`, are allowed because they map to known simulator
 IDN/model data.
+
+## Current Hardware Scope
+
+| Lifecycle | Canonical model IDs | Current boundary |
+| --- | --- | --- |
+| Product-active | `keysight-e36312a` (Keysight E36312A), `keysight-edu36311a` (Keysight EDU36311A), `keysight-e3646a` (Keysight E3646A) | Exact Product-open scopes only |
+| Candidate | None | No candidate models |
+| Catalog-only | `keysight-e36313a`, `keysight-e36233a`, `keysight-e36441a`, `keysight-e36155a` | Identity/catalog metadata only |
+| De-scoped | `keysight-e36103b`, `keysight-e36232a` | Blocked from Product and Validation use |
+
+E36312A and EDU36311A TCPIP + `pyvisa_py` scopes remain pending and
+Product-closed. E3646A remains Product-open only for its existing ASRL/RS-232
++ `system_visa` exact scopes; USB and TCPIP are not current E3646A scopes. A
+successful identity diagnostic does not imply control support, and suite or
+feature-family labels do not register additional commands. The complete
+command and connection matrix is in
+[Supported Models](docs/core/supported-models.md).
 
 ## Project Structure
 
@@ -143,7 +173,7 @@ scripts/
 Open PowerShell and enter the project root first:
 
 ```powershell
-cd path\to\Keysight_Powers_Controller
+cd path\to\powers-tool
 ```
 
 Install uv if it is not already available:
@@ -218,8 +248,8 @@ the `dev` extra installed above:
 This produces only one Python distribution:
 
 ```text
-dist\powers_tool-<version>-py3-none-any.whl
-dist\powers_tool-<version>.tar.gz
+dist\powers_tool-2.0.0-py3-none-any.whl
+dist\powers_tool-2.0.0.tar.gz
 ```
 
 Standalone executables are separate PyInstaller workflows. Install PyInstaller
@@ -266,7 +296,8 @@ Build a release folder with wheel, sdist, standalone executables, and checksums:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_release.ps1
 ```
 
-This produces release artifacts named with the selected project version:
+For version 2.0.0, this produces release artifacts named with the selected
+project version:
 
 ```text
 release\<version>\powers-tool-<version>.exe

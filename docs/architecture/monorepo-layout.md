@@ -23,6 +23,8 @@ Core, CLI, and WebUI are separate import packages and maintenance boundaries,
 released together as one `powers-tool` distribution. The distribution
 version is owned by `[project].version` in the root `pyproject.toml`; use
 `<version>` in examples where the installed release version is substituted.
+Core is vendor-neutral; vendor-specific identity metadata, drivers, and SCPI
+behavior remain explicit implementation boundaries.
 
 | Area | Distribution | Import | Version | Console command |
 | --- | --- | --- | --- | --- |

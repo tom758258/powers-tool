@@ -1,10 +1,12 @@
 # Powers Tool CLI User Guide
 
 This guide is for operators who receive the built CLI executable or an
-already-installed `powers-tool` command to control supported Keysight DC
-power supplies. It focuses on normal live workflows, resource selection, and
-safe first checks. For developer setup, detailed command reference, and
-automation details, see the [CLI README](README.md).
+already-installed `powers-tool` command to control supported DC power
+supplies. The framework is vendor-neutral, while the currently validated
+hardware is the documented Keysight model set. It focuses on normal live
+workflows, resource selection, and safe first checks. For developer setup,
+detailed command reference, and automation details, see the
+[CLI README](README.md).
 
 ## Start The CLI
 
