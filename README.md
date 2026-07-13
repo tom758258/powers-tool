@@ -252,17 +252,12 @@ dist\powers_tool-2.0.0-py3-none-any.whl
 dist\powers_tool-2.0.0.tar.gz
 ```
 
-Standalone executables are separate PyInstaller workflows. Install PyInstaller
-before building exe artifacts:
+Standalone executables are separate PyInstaller workflows. Prepare the locked
+development environment, which includes PyInstaller, before building exe
+artifacts:
 
 ```powershell
-uv pip install pyinstaller --python .\.venv\Scripts\python.exe
-```
-
-If your virtual environment uses pip directly:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install pyinstaller
+uv sync --all-extras --locked --link-mode=copy
 ```
 
 Build the standalone CLI and WebUI launcher executables:
@@ -306,6 +301,22 @@ release\<version>\powers_tool-<version>-py3-none-any.whl
 release\<version>\powers_tool-<version>.tar.gz
 release\<version>\checksums.txt
 ```
+
+Run the final no-hardware release acceptance from an isolated clean worktree.
+The script creates separate locked Python 3.10 and current-Python environments,
+builds and installs the wheel and sdist, checks all console entry points,
+builds both standalone executables, and writes `report.json` and `summary.md`
+under the ignored output root:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  .\scripts\v2-release-acceptance.ps1 `
+  -Python310 (uv python find 3.10) `
+  -CurrentPython (uv python find 3.12)
+```
+
+This acceptance script never performs VISA discovery, opens a resource, or
+sends SCPI. It does not publish a release or rename the repository.
 
 ## Test
 

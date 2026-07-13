@@ -5,8 +5,6 @@ on:
   push:
     branches:
       - main
-      - master
-      - Codex
 
 jobs:
   pytest-linux:
@@ -47,6 +45,7 @@ jobs:
         run: |
           uv run powers-tool --help
           uv run powers-tool-webui --help
+          uv run powers-tool-webui-launcher --version
 
       - name: Build distribution
         run: uv run python -m build
@@ -91,3 +90,4 @@ jobs:
         run: |
           uv run powers-tool --help
           uv run powers-tool-webui --help
+          uv run powers-tool-webui-launcher --version

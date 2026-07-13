@@ -92,6 +92,12 @@ _ALLOWED_LEGACY_MATCHES = {
     ("tests/packaging/inspect_distribution.py", LEGACY_IDENTITY_TOKENS[2]): (1, "negative legacy-package inspection"),
     ("tests/packaging/inspect_distribution.py", LEGACY_IDENTITY_TOKENS[3]): (1, "negative legacy-package inspection"),
     ("tests/packaging/inspect_distribution.py", LEGACY_IDENTITY_TOKENS[4]): (1, "negative legacy-package inspection"),
+    ("scripts/v2-release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[1]): (3, "negative installed-command checks"),
+    ("scripts/v2-release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[2]): (1, "negative legacy-import check"),
+    ("scripts/v2-release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[3]): (1, "negative legacy-import check"),
+    ("scripts/v2-release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[4]): (1, "negative legacy-import check"),
+    ("tests/packaging/inspect_pyinstaller.py", LEGACY_IDENTITY_TOKENS[0]): (1, "negative legacy-metadata inspection"),
+    ("tests/packaging/inspect_pyinstaller.py", LEGACY_IDENTITY_TOKENS[1]): (1, "negative legacy-metadata inspection"),
     ("tests/webui/test_webui.py", LEGACY_IDENTITY_TOKENS[1]): (1, "negative legacy Ramp List kind regression"),
     ("tests/webui/test_webui.py", LEGACY_IDENTITY_TOKENS[8]): (1, "negative legacy Ramp List kind regression"),
     ("tests/webui/test_webui.py", LEGACY_IDENTITY_TOKENS[9]): (5, "negative legacy-field regressions"),
@@ -151,6 +157,7 @@ def test_ci_uses_v2_distribution_and_console_commands() -> None:
     assert "--reinstall-package powers-tool" in workflow
     assert "uv run powers-tool --help" in workflow
     assert "uv run powers-tool-webui --help" in workflow
+    assert "uv run powers-tool-webui-launcher --version" in workflow
     assert "inspect_distribution.py dist" in workflow
     assert f"--reinstall-package {LEGACY_IDENTITY_TOKENS[0]}" not in workflow
 
@@ -184,9 +191,15 @@ def _tracked_utf8_text() -> dict[str, str]:
         capture_output=True,
     ).stdout.decode("utf-8").split("\0")
     texts: dict[str, str] = {}
-    migration_path = "docs/migration-v2.md"
-    if migration_path not in tracked and (ROOT / migration_path).exists():
-        tracked.append(migration_path)
+    intended_untracked_paths = (
+        "docs/migration-v2.md",
+        "scripts/v2-release-acceptance.ps1",
+        "tests/packaging/inspect_pyinstaller.py",
+        "tests/packaging/test_v2_release_acceptance.py",
+    )
+    for relative in intended_untracked_paths:
+        if relative not in tracked and (ROOT / relative).exists():
+            tracked.append(relative)
     for relative in tracked:
         if not relative:
             continue
