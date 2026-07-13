@@ -1,7 +1,7 @@
 import pytest
 
 from powers_tool_core.core import CoreValidationError, OperationRequest, RuntimeOptions
-from powers_tool_core.ramp_list import RAMP_LIST_KIND, run_ramp_list
+from powers_tool_core.ramp_list import RAMP_LIST_KIND, RAMP_LIST_VERSION, run_ramp_list
 
 
 class FakeSession:
@@ -29,7 +29,7 @@ class FakeSession:
 
 
 def document(*segments):
-    return {"kind": RAMP_LIST_KIND, "version": 1, "segments": list(segments)}
+    return {"kind": RAMP_LIST_KIND, "version": 2, "segments": list(segments)}
 
 
 def segment(
@@ -58,6 +58,12 @@ def request(doc, **runtime):
         runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", **runtime),
         parameters={"document": doc},
     )
+
+
+def test_ramp_list_v2_contract_identity() -> None:
+    assert RAMP_LIST_KIND == "powers-tool-ramp-list"
+    assert RAMP_LIST_VERSION == 2
+    assert type(RAMP_LIST_VERSION) is int
 
 
 def test_ramp_list_lint_validates_without_opening_visa() -> None:
@@ -214,9 +220,15 @@ def test_ramp_list_cancellation_stops_later_segments_without_output_off() -> Non
 @pytest.mark.parametrize(
     ("doc", "message"),
     [
-        ({"kind": "wrong", "version": 1, "segments": [segment()]}, "kind"),
-        ({"kind": RAMP_LIST_KIND, "version": 2, "segments": [segment()]}, "version"),
+        ({"kind": "wrong", "version": 2, "segments": [segment()]}, "kind"),
+        ({"kind": "keysight-power-ramp-list", "version": 2, "segments": [segment()]}, "kind"),
+        ({"kind": RAMP_LIST_KIND, "version": 1, "segments": [segment()]}, "version"),
+        ({"kind": RAMP_LIST_KIND, "version": "2", "segments": [segment()]}, "version"),
         ({"kind": RAMP_LIST_KIND, "version": True, "segments": [segment()]}, "version"),
+        ({"kind": RAMP_LIST_KIND, "version": False, "segments": [segment()]}, "version"),
+        ({"kind": RAMP_LIST_KIND, "version": 2.0, "segments": [segment()]}, "version"),
+        ({"kind": RAMP_LIST_KIND, "segments": [segment()]}, "version"),
+        ({"kind": RAMP_LIST_KIND, "version": 3, "segments": [segment()]}, "version"),
         (document(), "1 to 10"),
         (document(*(segment() for _ in range(11))), "at most 10"),
         (document(segment(delay_ms=-1)), "delay_ms"),
@@ -229,6 +241,22 @@ def test_ramp_list_cancellation_stops_later_segments_without_output_off() -> Non
 def test_ramp_list_rejects_invalid_documents(doc, message) -> None:
     with pytest.raises(CoreValidationError, match=message):
         run_ramp_list(request(doc, dry_run=True))
+
+
+@pytest.mark.parametrize("version", [1, "2", True, False, 2.0, 3, None])
+def test_ramp_list_rejects_invalid_version_before_opening_visa(version: object) -> None:
+    opened = False
+
+    def opener(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("VISA must not be opened for an invalid Ramp List document")
+
+    invalid = {"kind": RAMP_LIST_KIND, "version": version, "segments": [segment()]}
+    with pytest.raises(CoreValidationError, match="unsupported ramp-list version"):
+        run_ramp_list(request(invalid), opener=opener)
+
+    assert opened is False
 
 
 def test_ramp_list_step_pulse_accepts_zero_delay() -> None:

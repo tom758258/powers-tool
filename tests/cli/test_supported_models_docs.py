@@ -85,6 +85,22 @@ def test_public_docs_describe_strict_no_hardware_model_profiles():
     assert "Live hardware uses manufacturer-plus-model IDN resolution" in combined
 
 
+def test_public_english_docs_describe_only_ramp_list_v2_contract() -> None:
+    paths = (
+        "docs/core/README.md",
+        "docs/cli/README.md",
+        "docs/contracts/power-worker-contract.md",
+        "docs/webui/README.md",
+    )
+    docs = {path: Path(path).read_text(encoding="utf-8") for path in paths}
+    combined = "\n".join(docs.values())
+
+    assert '`kind: "powers-tool-ramp-list"`' in combined
+    assert "Ramp List version 2" in combined
+    assert "Ramp List version 1" not in combined
+    assert "Version 1 Ramp List documents are rejected" in combined
+
+
 def test_public_docs_describe_p4_policy_boundary_without_publishing_hidden_switch():
     paths = (
         "README.md",

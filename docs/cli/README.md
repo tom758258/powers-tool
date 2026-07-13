@@ -495,10 +495,12 @@ every voltage write and accepts `--delay-ms 0`.
 Rear pulse pins are not output channels. Pulse workflows are E36312A-only, and
 `*TRG` may affect other already armed BUS-triggered behavior.
 
-Ramp List version 1 may contain a global `completion_pulse` object. Inline
-`--segment` usage accepts `--completion-pulse-timing`,
-`--completion-pulse-pins`, and `--completion-pulse-polarity`; with `--file`,
-the document is authoritative and CLI pulse overrides are rejected.
+Ramp List version 2 uses `kind: "powers-tool-ramp-list"` and may contain a
+global `completion_pulse` object. Version 1 Ramp List documents are rejected
+without conversion or fallback. Inline `--segment` usage accepts
+`--completion-pulse-timing`, `--completion-pulse-pins`, and
+`--completion-pulse-polarity`; with `--file`, the document is authoritative
+and CLI pulse overrides are rejected.
 
 ```powershell
 $env:POWERS_TOOL_RESOURCE = "USB0::...::INSTR"

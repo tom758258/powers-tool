@@ -275,8 +275,10 @@ the selected output channel. Ramp supports `segment` timing for one completion
 pulse and `step` timing for a software post-action pulse after every voltage
 write, including the final write. Every-step timing accepts `delay_ms = 0`.
 
-Ramp List version 1 optionally accepts a document-level `completion_pulse`
-object with `timing`, `pins`, and `polarity`. Sequence documents accept the canonical
-`trigger-pulse` action. Software pulses snapshot and restore trigger/digital
-pin settings unless `leave_trigger_configured` is explicitly requested.
+Ramp List version 2 uses `kind: "powers-tool-ramp-list"` and may include a
+document-level `completion_pulse` object with `timing`, `pins`, and `polarity`.
+Version 1 Ramp List documents are rejected without conversion or fallback.
+Sequence documents accept the canonical `trigger-pulse` action. Software
+pulses snapshot and restore trigger/digital pin settings unless
+`leave_trigger_configured` is explicitly requested.
 They send global `*TRG`, which may also trigger other armed BUS behavior.

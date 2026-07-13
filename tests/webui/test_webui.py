@@ -751,6 +751,11 @@ def test_static_ramp_list_editor_contract():
     assert "start_voltage: previous.stop_voltage" in app_js
     assert "stop_voltage: previous.stop_voltage" in app_js
     assert 'kind: "powers-tool-ramp-list"' in app_js
+    assert "version: 2" in extract_js_function(app_js, "rampListDocument")
+    validator = extract_js_function(app_js, "validateRampListDocument")
+    assert 'document.kind !== "powers-tool-ramp-list"' in validator
+    assert "document.version !== 2" in validator
+    assert "document.version !== 1" not in validator
     assert "window.showOpenFilePicker" in app_js
     assert "window.showSaveFilePicker" in app_js
     assert "const normalized = validateRampListDocument(JSON.parse(text));" in app_js
@@ -3192,7 +3197,7 @@ def test_ramp_list_lint_dry_run(client: TestClient):
             "lint": True,
             "document": {
                 "kind": "powers-tool-ramp-list",
-                "version": 1,
+                "version": 2,
                 "segments": [
                     {
                         "channel": 1,
@@ -3233,7 +3238,7 @@ def test_api_accepts_zero_delay_ramp_list_step_pulse(client: TestClient):
         "parameters": {
             "document": {
                 "kind": "powers-tool-ramp-list",
-                "version": 1,
+                "version": 2,
                 "completion_pulse": {"timing": "step", "pins": [1], "polarity": "positive"},
                 "segments": [{
                     "channel": 1, "current": 0.1, "start_voltage": 0, "stop_voltage": 1,
@@ -3246,6 +3251,88 @@ def test_api_accepts_zero_delay_ramp_list_step_pulse(client: TestClient):
     response = client.post("/api/jobs", json=payload)
 
     assert response.status_code == 200
+
+
+@pytest.mark.parametrize("version", [1, "2", True, False, 2.0, 3, None])
+def test_api_rejects_invalid_ramp_list_version_before_submission(
+    client: TestClient,
+    monkeypatch,
+    version: object,
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = set(job_manager.jobs)
+
+    async def forbidden_submit(**kwargs: object) -> str:
+        raise AssertionError("submit_job must not be called")
+
+    def forbidden_lock_check() -> bool:
+        raise AssertionError("hardware lock must not be checked")
+
+    monkeypatch.setattr(job_manager, "submit_job", forbidden_submit)
+    monkeypatch.setattr(job_manager, "is_hardware_locked", forbidden_lock_check)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "ramp-list",
+            "runtime": {"simulate": True, "resource": "USB0::SIM::E36312A::INSTR"},
+            "parameters": {
+                "document": {
+                    "kind": "powers-tool-ramp-list",
+                    "version": version,
+                    "segments": [{
+                        "channel": 1, "current": 0.1, "start_voltage": 0,
+                        "stop_voltage": 1, "step_voltage": 0.5,
+                        "delay_ms": 0, "hold_ms": 0,
+                    }],
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "unsupported ramp-list version" in response.json()["detail"]
+    assert set(job_manager.jobs) == jobs_before
+
+
+def test_api_rejects_legacy_ramp_list_kind_before_submission(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = set(job_manager.jobs)
+
+    async def forbidden_submit(**kwargs: object) -> str:
+        raise AssertionError("submit_job must not be called")
+
+    def forbidden_lock_check() -> bool:
+        raise AssertionError("hardware lock must not be checked")
+
+    monkeypatch.setattr(job_manager, "submit_job", forbidden_submit)
+    monkeypatch.setattr(job_manager, "is_hardware_locked", forbidden_lock_check)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "ramp-list",
+            "runtime": {"simulate": True, "resource": "USB0::SIM::E36312A::INSTR"},
+            "parameters": {
+                "document": {
+                    "kind": "keysight-power-ramp-list",
+                    "version": 2,
+                    "segments": [{
+                        "channel": 1, "current": 0.1, "start_voltage": 0,
+                        "stop_voltage": 1, "step_voltage": 0.5,
+                        "delay_ms": 0, "hold_ms": 0,
+                    }],
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "ramp-list kind must be" in response.json()["detail"]
+    assert set(job_manager.jobs) == jobs_before
 
 
 @pytest.mark.parametrize("field", ["completion_pulse_mode", "completion_pulse_dwell_ms", "wait_timeout_ms", "poll_ms"])

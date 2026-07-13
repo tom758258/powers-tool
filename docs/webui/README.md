@@ -280,8 +280,11 @@ instrument-internal state register. Live State remains tied to real Live Data
 readback and one-shot post-command refreshes.
 
 The frontend keeps one job SSE controller and one live-data SSE controller.
-Ramp List uses a dedicated segment-card editor with versioned JSON Load/Save,
-up to 10 ordered segments, and full-list trip guarding before submission.
+Ramp List uses a dedicated segment-card editor with versioned JSON Load/Save.
+Its persisted contract is `kind: "powers-tool-ramp-list"` with version 2;
+version 1 and malformed documents are rejected without conversion. The editor
+supports up to 10 ordered segments and full-list trip guarding before
+submission.
 Sequence uses collapsed step cards with JSON Load/Save and supports up to 250
 steps in the WebUI. Loaded Sequence JSON is normalized to the canonical
 `{"version": 1, "steps": [...]}` shape before saving or running. CLI and Core

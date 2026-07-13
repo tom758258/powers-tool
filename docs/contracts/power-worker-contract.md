@@ -209,7 +209,8 @@ settings `serial_remote` and `serial_local_on_close` request explicit
 `SYST:REM` and best-effort cleanup `SYST:LOC` for ASRL resources only.
 
 Ramp List documents are JSON objects with `kind: "powers-tool-ramp-list"`,
-`version: 1`, and 1 to 10 ordered `segments`. Each segment contains `channel`,
+`version: 2`, and 1 to 10 ordered `segments`. Version 1 Ramp List documents are
+rejected without conversion or fallback. Each segment contains `channel`,
 `current`, `start_voltage`, `stop_voltage`, `step_voltage`, `delay_ms`, and
 `hold_ms`. An optional global `completion_pulse` contains `timing`
 (`segment` or `step`), E36312A rear digital `pins`, and `polarity`.

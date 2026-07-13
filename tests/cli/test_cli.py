@@ -7807,6 +7807,7 @@ def test_ramp_list_lint_inline_does_not_open_resource(monkeypatch, capsys) -> No
     payload = json.loads(capsys.readouterr().out)
     assert payload["data"]["status"] == "valid"
     assert payload["data"]["segment_count"] == 2
+    assert payload["data"]["plan"]["version"] == 2
     assert payload["data"]["segments"][1]["hold_ms"] == 250
 
 
@@ -7816,7 +7817,7 @@ def test_ramp_list_dry_run_file_uses_versioned_document(tmp_path, capsys) -> Non
         json.dumps(
             {
                 "kind": "powers-tool-ramp-list",
-                "version": 1,
+                "version": 2,
                 "segments": [
                     {
                         "channel": 1,
@@ -7850,7 +7851,40 @@ def test_ramp_list_dry_run_file_uses_versioned_document(tmp_path, capsys) -> Non
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["data"]["status"] == "planned"
+    assert payload["data"]["plan"]["version"] == 2
     assert payload["data"]["plan"]["segments"][0]["voltages"] == [0.0, 0.4, 0.8, 1.0]
+
+
+def test_ramp_list_v1_file_is_rejected_without_conversion(tmp_path, capsys) -> None:
+    ramp_file = tmp_path / "legacy.ramp-list.json"
+    ramp_file.write_text(
+        json.dumps(
+            {
+                "kind": "powers-tool-ramp-list",
+                "version": 1,
+                "segments": [
+                    {
+                        "channel": 1,
+                        "current": 0.1,
+                        "start_voltage": 0,
+                        "stop_voltage": 1,
+                        "step_voltage": 0.5,
+                        "delay_ms": 0,
+                        "hold_ms": 0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert cli.main(["ramp-list", "--lint", "--json", "--file", str(ramp_file)]) == 2
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == 2
+    assert payload["error"]["type"] == "validation"
+    assert payload["error"]["code"] == "argument_error"
+    assert "unsupported ramp-list version: 1" in payload["error"]["message"]
 
 
 def test_ramp_list_simulate_inline_does_not_open_resource(monkeypatch, capsys) -> None:

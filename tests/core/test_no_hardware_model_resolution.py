@@ -171,7 +171,7 @@ def test_e3646a_no_hardware_channel_three_is_rejected_across_planners() -> None:
 
     ramp_document = {
         "kind": RAMP_LIST_KIND,
-        "version": 1,
+        "version": 2,
         "segments": [
             {
                 "channel": 3,

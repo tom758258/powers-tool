@@ -566,7 +566,7 @@ def test_validation_mode_restore_keeps_identity_and_confirmation_guards() -> Non
 def _ramp_list_document(*, channel: int = 1) -> dict[str, object]:
     return {
         "kind": RAMP_LIST_KIND,
-        "version": 1,
+        "version": 2,
         "segments": [
             {
                 "channel": channel,

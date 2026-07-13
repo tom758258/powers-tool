@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from powers_tool_core.core import OperationRequest, RuntimeOptions
-from powers_tool_core.ramp_list import RAMP_LIST_KIND
+from powers_tool_core.ramp_list import RAMP_LIST_KIND, RAMP_LIST_VERSION
 
 
 def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any) -> None:
@@ -77,7 +77,7 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRe
     if getattr(args, "segment", None) is not None:
         document: dict[str, Any] = {
             "kind": RAMP_LIST_KIND,
-            "version": 1,
+            "version": RAMP_LIST_VERSION,
             "segments": [_segment_document(values) for values in args.segment],
         }
         if pulse_requested:

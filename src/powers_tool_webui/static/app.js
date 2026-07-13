@@ -1022,7 +1022,7 @@ function moveRampSegment(index, offset) {
 function rampListDocument() {
   const document = {
     kind: "powers-tool-ramp-list",
-    version: 1,
+    version: 2,
     segments: state.rampListSegments.map((segment) => ({ ...segment }))
   };
   if (state.rampListCompletionPulse) document.completion_pulse = { ...state.rampListCompletionPulse };
@@ -1030,7 +1030,7 @@ function rampListDocument() {
 }
 
 function validateRampListDocument(document) {
-  if (!document || document.kind !== "powers-tool-ramp-list" || document.version !== 1) {
+  if (!document || document.kind !== "powers-tool-ramp-list" || document.version !== 2) {
     throw new Error("Invalid Ramp List kind or version.");
   }
   if (Object.keys(document).some((field) => !["kind", "version", "completion_pulse", "segments"].includes(field))) {

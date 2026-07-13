@@ -69,10 +69,14 @@ _ALLOWED_LEGACY_MATCHES = {
     ("tests/cli/test_supported_models_docs.py", LEGACY_IDENTITY_TOKENS[9]): (1, "legacy-removal regression name"),
     ("tests/cli/test_worker.py", LEGACY_IDENTITY_TOKENS[9]): (2, "negative legacy-field regressions"),
     ("tests/core/test_runtime_identity.py", LEGACY_IDENTITY_TOKENS[9]): (1, "negative legacy-field regression"),
+    ("tests/core/test_ramp_list_core.py", LEGACY_IDENTITY_TOKENS[1]): (1, "negative legacy Ramp List kind regression"),
+    ("tests/core/test_ramp_list_core.py", LEGACY_IDENTITY_TOKENS[8]): (1, "negative legacy Ramp List kind regression"),
     ("tests/packaging/inspect_distribution.py", LEGACY_IDENTITY_TOKENS[1]): (1, "negative legacy-entry-point inspection"),
     ("tests/packaging/inspect_distribution.py", LEGACY_IDENTITY_TOKENS[2]): (1, "negative legacy-package inspection"),
     ("tests/packaging/inspect_distribution.py", LEGACY_IDENTITY_TOKENS[3]): (1, "negative legacy-package inspection"),
     ("tests/packaging/inspect_distribution.py", LEGACY_IDENTITY_TOKENS[4]): (1, "negative legacy-package inspection"),
+    ("tests/webui/test_webui.py", LEGACY_IDENTITY_TOKENS[1]): (1, "negative legacy Ramp List kind regression"),
+    ("tests/webui/test_webui.py", LEGACY_IDENTITY_TOKENS[8]): (1, "negative legacy Ramp List kind regression"),
     ("tests/webui/test_webui.py", LEGACY_IDENTITY_TOKENS[9]): (5, "negative legacy-field regressions"),
 }
 

@@ -1314,7 +1314,12 @@ def test_worker_rejects_trigger_list_pulse_without_output_pins_before_enqueue():
 
 
 def test_worker_ramp_list_rejects_invalid_document_before_enqueue():
-    config = {"mode": "simulate", "settings": {}, "id": "test", "artifacts_dir": "."}
+    config = {
+        "mode": "simulate",
+        "settings": {"resource": "USB0::SIM::E36312A::INSTR"},
+        "id": "test",
+        "artifacts_dir": ".",
+    }
     state = WorkerState(config, 0)
 
     status, payload = worker_mod._validate_command_body(
@@ -1334,6 +1339,78 @@ def test_worker_ramp_list_rejects_invalid_document_before_enqueue():
 
     assert status == 400
     assert payload["error"]["code"] == "argument_error"
+    assert "unsupported ramp-list version: 1" in payload["error"]["message"]
+    assert state.next_job is None
+
+
+def test_worker_ramp_list_v1_is_rejected_before_artifact_creation(running_worker):
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{running_worker['port']}/command",
+        data=json.dumps(
+            {
+                "schema_version": 2,
+                "command": "ramp-list",
+                "arguments": {
+                    "document": {
+                        "kind": "powers-tool-ramp-list",
+                        "version": 1,
+                        "segments": [{
+                            "channel": 1, "current": 0.1, "start_voltage": 0,
+                            "stop_voltage": 1, "step_voltage": 0.5,
+                            "delay_ms": 0, "hold_ms": 0,
+                        }],
+                    }
+                },
+            }
+        ).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(request)
+
+    assert exc_info.value.code == 400
+    payload = json.loads(exc_info.value.read().decode("utf-8"))
+    assert payload["schema_version"] == 2
+    assert payload["error"]["code"] == "argument_error"
+    assert "unsupported ramp-list version: 1" in payload["error"]["message"]
+    jobs_dir = running_worker["artifacts_dir"] / "jobs"
+    assert not jobs_dir.exists() or not list(jobs_dir.iterdir())
+
+
+@pytest.mark.parametrize("version", ["2", True, False, 2.0, 3, None])
+def test_worker_ramp_list_rejects_invalid_version_type_before_enqueue(version):
+    config = {
+        "mode": "simulate",
+        "settings": {"resource": "USB0::SIM::E36312A::INSTR"},
+        "id": "test",
+        "artifacts_dir": ".",
+    }
+    state = WorkerState(config, 0)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "ramp-list",
+            "arguments": {
+                "document": {
+                    "kind": "powers-tool-ramp-list",
+                    "version": version,
+                    "segments": [{
+                        "channel": 1, "current": 0.1, "start_voltage": 0,
+                        "stop_voltage": 1, "step_voltage": 0.5,
+                        "delay_ms": 0, "hold_ms": 0,
+                    }],
+                }
+            },
+        },
+        state,
+    )
+
+    assert status == 400
+    assert payload["schema_version"] == 2
+    assert payload["error"]["code"] == "argument_error"
+    assert "unsupported ramp-list version" in payload["error"]["message"]
     assert state.next_job is None
 
 
@@ -1352,7 +1429,7 @@ def test_worker_live_ramp_list_requires_output_confirmation():
             "arguments": {
                 "document": {
                     "kind": "powers-tool-ramp-list",
-                    "version": 1,
+                    "version": 2,
                     "segments": [
                         {
                             "channel": 1,
@@ -1387,7 +1464,7 @@ def test_worker_simulate_ramp_list_document(running_worker):
                 "arguments": {
                     "document": {
                         "kind": "powers-tool-ramp-list",
-                        "version": 1,
+                        "version": 2,
                         "segments": [
                             {
                                 "channel": 1,

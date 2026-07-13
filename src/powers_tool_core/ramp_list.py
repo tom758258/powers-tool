@@ -29,7 +29,7 @@ from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.trigger import run_post_action_completion_pulse
 
 RAMP_LIST_KIND = "powers-tool-ramp-list"
-RAMP_LIST_VERSION = 1
+RAMP_LIST_VERSION = 2
 MAX_RAMP_SEGMENTS = 10
 SEGMENT_FIELDS = frozenset(
     {
@@ -120,8 +120,9 @@ def load_ramp_list_document(path: str) -> dict[str, Any]:
 def ramp_list_plan(request: OperationRequest, document: dict[str, Any]) -> dict[str, Any]:
     if document.get("kind") != RAMP_LIST_KIND:
         raise CoreValidationError(f"ramp-list kind must be {RAMP_LIST_KIND!r}")
-    if isinstance(document.get("version"), bool) or document.get("version") != RAMP_LIST_VERSION:
-        raise CoreValidationError(f"unsupported ramp-list version: {document.get('version')!r}")
+    version = document.get("version")
+    if type(version) is not int or version != RAMP_LIST_VERSION:
+        raise CoreValidationError(f"unsupported ramp-list version: {version!r}")
     unknown = sorted(set(document) - {"kind", "version", "completion_pulse", "segments"})
     if unknown:
         raise CoreValidationError(f"unsupported ramp-list field(s): {', '.join(unknown)}")
