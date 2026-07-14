@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hmac
 import importlib.metadata
 import importlib.util
 import json
@@ -59,6 +58,7 @@ from powers_tool_core.core import (
     UnsupportedModelError,
     ValidationCandidateContext,
 )
+from powers_tool_cli import candidate_capability
 from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.drivers.e3646a import E3646APowerSupply
 from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
@@ -848,6 +848,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         if hasattr(args, "format"):
             args.format = "json"
+    setattr(args, "_raw_argv", raw_argv)
     setattr(args, "_runtime", sys.modules[__name__])
     if getattr(args, "save_json", None) is not None and not args.json:
         emit_json_error(
@@ -881,6 +882,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     set_json_save_path(getattr(args, "save_json", None))
     try:
         return int(args.func(args))
+    except CoreValidationError as exc:
+        set_json_save_path(None)
+        emit_json_error(
+            command=args.command,
+            execution=_execution_for_args(args, hardware_intent=False),
+            request=_request_from_argv(args.command, raw_argv),
+            error_type="validation",
+            code=_core_validation_code(exc),
+            message=str(exc),
+            retryable=False,
+        )
+        return 2
     except JsonSaveError as exc:
         set_json_save_path(None)
         emit_json_error(
@@ -1005,9 +1018,11 @@ def _add_validation_support_policy_argument(parser: argparse.ArgumentParser) -> 
         action="store_true",
         help=argparse.SUPPRESS,
     )
-    parser.add_argument("--validation-candidate-context", help=argparse.SUPPRESS)
+    parser.add_argument("--validation-candidate-manifest", help=argparse.SUPPRESS)
+    parser.add_argument("--validation-candidate-capability", help=argparse.SUPPRESS)
     parser.add_argument("--validation-candidate-context-root", help=argparse.SUPPRESS)
-    parser.add_argument("--validation-candidate-token", help=argparse.SUPPRESS)
+    parser.add_argument("--validation-candidate-case-id", help=argparse.SUPPRESS)
+    parser.add_argument("--validation-candidate-suite", help=argparse.SUPPRESS)
 
 
 def _add_model_argument(
@@ -1051,56 +1066,44 @@ def _validation_candidate_context_for_args(
     cached = getattr(args, "_validated_candidate_context", None)
     if cached is not None:
         return cached
-    context_value = getattr(args, "validation_candidate_context", None)
+    capability_value = getattr(args, "validation_candidate_capability", None)
+    manifest_value = getattr(args, "validation_candidate_manifest", None)
     root_value = getattr(args, "validation_candidate_context_root", None)
-    token = getattr(args, "validation_candidate_token", None)
-    if context_value is None and root_value is None and token is None:
+    case_id_value = getattr(args, "validation_candidate_case_id", None)
+    suite_value = getattr(args, "validation_candidate_suite", None)
+    if capability_value is None and manifest_value is None and root_value is None and case_id_value is None and suite_value is None:
         return None
-    if not all(isinstance(value, str) and value for value in (context_value, root_value, token)):
-        raise CoreValidationError("validation candidate context is malformed")
-    context_path = Path(context_value).resolve()
-    context_root = Path(root_value).resolve()
-    if context_root.name != "private" or context_path.parent != context_root:
-        raise CoreValidationError("validation candidate context is outside the private run directory")
+    if not all(isinstance(value, str) and value for value in (capability_value, manifest_value, root_value, case_id_value, suite_value)):
+        raise CoreValidationError("validation candidate capability is malformed")
     try:
-        document = json.loads(context_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise CoreValidationError("validation candidate context is missing or malformed") from exc
-    finally:
-        try:
-            context_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-    required = {
-        "schema_version",
-        "run_id",
-        "case_id",
-        "suite",
-        "model_id",
-        "command",
-        "transport_scope",
-        "backend_scope",
-        "token",
-    }
-    if not isinstance(document, dict) or set(document) != required or document.get("schema_version") != 1:
-        raise CoreValidationError("validation candidate context is malformed")
-    values = {key: document.get(key) for key in required - {"schema_version"}}
-    if not all(isinstance(value, str) and value for value in values.values()):
-        raise CoreValidationError("validation candidate context is malformed")
-    if not hmac.compare_digest(token, document["token"]):
-        raise CoreValidationError("validation candidate context token is invalid")
-    if document["command"] != args.command:
-        raise CoreValidationError("validation candidate context command does not match")
-    context = ValidationCandidateContext(
-        run_id=document["run_id"],
-        case_id=document["case_id"],
-        suite=document["suite"],
-        model_id=document["model_id"],
-        command=document["command"],
-        transport_scope=document["transport_scope"],
-        backend_scope=document["backend_scope"],
-    )
+        capability_path = Path(capability_value).resolve()
+        manifest_path = Path(manifest_value).resolve()
+        context_root = Path(root_value).resolve()
+    except (OSError, ValueError) as exc:
+        raise CoreValidationError("validation candidate capability path is malformed") from exc
+    if context_root.name != "private" or capability_path.parent != context_root or manifest_path.parent != context_root:
+        raise CoreValidationError("validation candidate capability is outside the private run directory")
+    try:
+        secret = candidate_capability.secret_from_environment()
+        context = candidate_capability.consume_and_verify(
+            manifest_path,
+            capability_path,
+            context_root,
+            secret,
+            argv=getattr(args, "_raw_argv", ()),
+            command=args.command,
+            expected_case_id=getattr(args, "validation_candidate_case_id", None),
+            expected_suite=getattr(args, "validation_candidate_suite", None),
+        )
+    except candidate_capability.CandidateCapabilityError as exc:
+        raise CoreValidationError(str(exc)) from exc
     setattr(args, "_validated_candidate_context", context)
+    setattr(args, "_candidate_context_integrity_validated", True)
+    execution_state = getattr(args, "_execution_state", None)
+    if not isinstance(execution_state, dict):
+        execution_state = getattr(args, "_candidate_admission_state", None)
+    if isinstance(execution_state, dict):
+        execution_state["candidate_context_integrity_validated"] = True
     return context
 
 
@@ -3729,6 +3732,12 @@ def _run_restore_from_snapshot(args: argparse.Namespace) -> int:
                     confirm=args.confirm,
                     support_policy_mode=_support_policy_mode_for_args(args),
                     validation_candidate_context=_validation_candidate_context_for_args(args),
+                    validation_request_fingerprint=(
+                        getattr(args, "_validated_candidate_context", None).request_fingerprint
+                        if getattr(args, "_validated_candidate_context", None) is not None
+                        else None
+                    ),
+                    validation_admission_state=_candidate_admission_state_for_args(args),
                 ),
                 parameters={
                     "snapshot": args.snapshot,
@@ -7156,6 +7165,7 @@ def _run_output_on_real(args: argparse.Namespace) -> int:
             opened = True
             session: Any = _ScpiLoggingSession(args.resource, instrument) if args.log_scpi else instrument
             idn = session.query(IDN_QUERY)
+            _enforce_live_cli_scope(args, idn, command="output-on")
             power_supply = create_power_supply(session, idn)
             if not isinstance(power_supply, OUTPUT_WRITE_POWER_SUPPLY_TYPES):
                 raise _OutputOnModelError(
@@ -8101,13 +8111,62 @@ def _execution_for_args(
     *,
     hardware_intent: bool,
 ) -> dict[str, Any]:
+    existing = getattr(args, "_execution_state", None)
+    if isinstance(existing, dict):
+        mode = _mode_for_args(args)
+        existing.update(
+            {
+                "mode": mode,
+                "dry_run": bool(getattr(args, "dry_run", False)),
+                "hardware_touched": bool(hardware_intent and mode == "real" and not getattr(args, "dry_run", False)),
+            }
+        )
+        return existing
+    existing = getattr(args, "_candidate_admission_state", None)
     dry_run = bool(getattr(args, "dry_run", False))
     mode = _mode_for_args(args)
-    return {
-        "mode": mode,
-        "dry_run": dry_run,
-        "hardware_touched": bool(hardware_intent and mode == "real" and not dry_run),
-    }
+    execution = existing if isinstance(existing, dict) else {}
+    execution.update(
+        {
+            "mode": mode,
+            "dry_run": dry_run,
+            "hardware_touched": bool(hardware_intent and mode == "real" and not dry_run),
+        }
+    )
+    if any(
+        getattr(args, name, None) is not None
+        for name in (
+            "validation_candidate_capability",
+            "validation_candidate_manifest",
+            "validation_candidate_case_id",
+            "validation_candidate_suite",
+            "validation_candidate_context_root",
+        )
+    ):
+        execution.setdefault("candidate_context_required", True)
+        execution.setdefault("candidate_context_integrity_validated", False)
+        execution.setdefault("candidate_scope_admitted", False)
+    setattr(args, "_execution_state", execution)
+    return execution
+
+
+def _candidate_admission_state_for_args(args: argparse.Namespace) -> dict[str, object] | None:
+    if (
+        getattr(args, "validation_candidate_capability", None) is None
+        and getattr(args, "validation_candidate_manifest", None) is None
+        and getattr(args, "validation_candidate_case_id", None) is None
+        and getattr(args, "validation_candidate_suite", None) is None
+        and getattr(args, "validation_candidate_context_root", None) is None
+    ):
+        return None
+    execution = getattr(args, "_execution_state", None)
+    if isinstance(execution, dict):
+        return execution
+    state = getattr(args, "_candidate_admission_state", None)
+    if not isinstance(state, dict):
+        state = {}
+        setattr(args, "_candidate_admission_state", state)
+    return state
 
 
 def _validation_execution_from_argv(argv: Sequence[str]) -> dict[str, Any]:
@@ -9509,6 +9568,12 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
             support_policy_mode=_support_policy_mode_for_args(args),
             validation_candidate_context=_validation_candidate_context_for_args(args),
+            validation_request_fingerprint=(
+                getattr(args, "_validated_candidate_context", None).request_fingerprint
+                if getattr(args, "_validated_candidate_context", None) is not None
+                else None
+            ),
+            validation_admission_state=_candidate_admission_state_for_args(args),
         ),
         parameters=parameters,
     )
@@ -9544,6 +9609,12 @@ def _target_core_request_for_args(args: argparse.Namespace) -> OperationRequest:
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
             support_policy_mode=_support_policy_mode_for_args(args),
             validation_candidate_context=_validation_candidate_context_for_args(args),
+            validation_request_fingerprint=(
+                getattr(args, "_validated_candidate_context", None).request_fingerprint
+                if getattr(args, "_validated_candidate_context", None) is not None
+                else None
+            ),
+            validation_admission_state=_candidate_admission_state_for_args(args),
         ),
         parameters=parameters,
     )
@@ -9693,6 +9764,12 @@ def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
             log_scpi=getattr(args, "log_scpi", False),
             support_policy_mode=_support_policy_mode_for_args(args),
             validation_candidate_context=_validation_candidate_context_for_args(args),
+            validation_request_fingerprint=(
+                getattr(args, "_validated_candidate_context", None).request_fingerprint
+                if getattr(args, "_validated_candidate_context", None) is not None
+                else None
+            ),
+            validation_admission_state=_candidate_admission_state_for_args(args),
         ),
         parameters=parameters,
     )

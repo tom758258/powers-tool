@@ -234,6 +234,8 @@ function Protect-ShareableText {
     if (-not [string]::IsNullOrWhiteSpace($script:RawResource)) {
         $redacted = $redacted -replace [regex]::Escape($script:RawResource), $script:ResourceDisplay
     }
+    # Protect VISA resources that appear in nested simulator/resource-manager diagnostics too.
+    $redacted = $redacted -replace '(?i)\b(?:USB|TCPIP|ASRL|GPIB|PXI|VXI|SOCKET)\d*::[^\s"''<>|]+', "<redacted>"
     $idnPattern = Get-FreeFormIdnPattern
     $redacted = [regex]::Replace($redacted, $idnPattern, { param($match) "<redacted-idn>" })
     foreach ($value in @($script:SensitiveValues)) {
@@ -285,6 +287,9 @@ function ConvertTo-ShareableJsonValue {
     if ($Value -is [string]) {
         $safeStructuralField = ([string]$FieldName).Trim().ToLowerInvariant()
         if ($safeStructuralField -in @("name", "command", "suite", "phase", "validation_kind", "cleanup_role")) {
+            if ($Value -match '(?i)\b(?:USB|TCPIP|ASRL|GPIB|PXI|VXI|SOCKET)\d*::[^\s"''<>|]+') {
+                return "<redacted>"
+            }
             return $Value
         }
         if (Test-ShareableSensitiveField -Name ([string]$FieldName) -ParentName $ParentName) {
@@ -508,6 +513,115 @@ function New-SecureHexValue {
     return ([System.BitConverter]::ToString($bytes)).Replace("-", "").ToLowerInvariant()
 }
 
+function Invoke-CandidateCapabilityHelper {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+
+    if ([string]::IsNullOrWhiteSpace($script:CandidateRunSecret)) {
+        throw "Candidate capability run secret is unavailable."
+    }
+    $environmentName = "POWERS_TOOL_VALIDATION_RUN_SECRET"
+    $hadEnvironment = $null -ne [Environment]::GetEnvironmentVariable($environmentName, "Process")
+    $oldEnvironment = [Environment]::GetEnvironmentVariable($environmentName, "Process")
+    try {
+        [Environment]::SetEnvironmentVariable($environmentName, $script:CandidateRunSecret, "Process")
+        & $PythonExe -m powers_tool_cli.candidate_capability @Arguments 1>$null 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Candidate capability helper failed."
+        }
+    }
+    finally {
+        if ($hadEnvironment) {
+            [Environment]::SetEnvironmentVariable($environmentName, $oldEnvironment, "Process")
+        }
+        else {
+            [Environment]::SetEnvironmentVariable($environmentName, $null, "Process")
+        }
+    }
+}
+
+function Get-BaseValidationCommandArguments {
+    param(
+        [Parameter(Mandatory = $true)]$Case,
+        [Parameter(Mandatory = $true)][string]$JsonPath
+    )
+
+    $arguments = Add-LiveExpectedModelArgument -Case $Case
+    $arguments = Add-ValidationSupportPolicyArgument -Arguments $arguments
+    if ($Case.phase -eq "live") {
+        $arguments = Add-BackendArgument -Arguments $arguments
+    }
+    if ($arguments -notcontains "--save-json") {
+        $arguments = @($arguments + @("--save-json", $JsonPath))
+    }
+    return $arguments
+}
+
+function Ensure-CandidateManifest {
+    Ensure-ArtifactDirectories
+    if (-not [string]::IsNullOrWhiteSpace($script:CandidateManifestPath) -and
+        (Test-Path -LiteralPath $script:CandidateManifestPath)) {
+        return $script:CandidateManifestPath
+    }
+    $candidateCases = @($script:PlannedLiveCases | Where-Object { $_.phase -eq "live" -and $_.candidate_context_required })
+    if ($candidateCases.Count -eq 0) {
+        return $null
+    }
+    $entries = New-Object System.Collections.Generic.List[object]
+    foreach ($candidateCase in $candidateCases) {
+        $jsonPath = Join-Path $script:PrivateArtifactDir ((Get-CaseArtifactBaseName -Case $candidateCase) + ".json")
+        $arguments = @(Get-BaseValidationCommandArguments -Case $candidateCase -JsonPath $jsonPath)
+        $entries.Add([ordered]@{
+            case_id = $candidateCase.name
+            suite = $candidateCase.suite
+            command = $arguments[0]
+            model_id = $script:NormalizedTarget
+            transport_scope = $script:TransportScope
+            backend_scope = $script:BackendArtifact.backend_scope
+            state_changing = [bool]$candidateCase.state_changing
+            arguments = $arguments
+            request_fingerprint = ""
+            capability_id = (New-SecureHexValue -ByteCount 24)
+        })
+    }
+    $issuedAt = (Get-Date).ToUniversalTime()
+    $expiresAt = $issuedAt.AddMinutes(10)
+    $manifestInput = Join-Path $script:PrivateArtifactDir "candidate-run-manifest-input.json"
+    $script:CandidateManifestPath = Join-Path $script:PrivateArtifactDir "candidate-run-manifest.json"
+    $manifest = [ordered]@{
+        schema_version = 1
+        run_id = $script:CandidateRunId
+        target_model_id = $script:NormalizedTarget
+        selected_suite = $Suite
+        selected_suites = @($script:SuitesToRun)
+        transport_scope = $script:TransportScope
+        backend_scope = $script:BackendArtifact.backend_scope
+        private_run_directory_identity = (Resolve-Path -LiteralPath $script:PrivateArtifactDir).Path
+        issued_at = $issuedAt.ToString("o")
+        expires_at = $expiresAt.ToString("o")
+        candidate_cases = $entries.ToArray()
+    }
+    Write-Utf8NoBomFile -LiteralPath $manifestInput -Value @($manifest | ConvertTo-Json -Depth 20)
+    try {
+        Invoke-CandidateCapabilityHelper -Arguments @(
+            "issue-manifest", "--input", $manifestInput, "--output", $script:CandidateManifestPath
+        )
+    }
+    finally {
+        Remove-Item -LiteralPath $manifestInput -Force -ErrorAction SilentlyContinue
+    }
+    Add-SensitiveValue -Value $script:CandidateManifestPath
+    try {
+        $manifestDocument = Get-Content -LiteralPath $script:CandidateManifestPath -Raw | ConvertFrom-Json
+        Add-SensitiveValue -Value ([string]$manifestDocument.manifest_signature)
+    }
+    catch {
+        throw "Signed candidate run manifest could not be read."
+    }
+    return $script:CandidateManifestPath
+}
+
 function Add-CandidateContextArguments {
     param(
         [Parameter(Mandatory = $true)]$Case,
@@ -515,28 +629,40 @@ function Add-CandidateContextArguments {
     )
 
     if (-not $Case.candidate_context_required) { return $Arguments }
-    if ($Case.phase -ne "live") { throw "Candidate context is valid only for live cases." }
-    Ensure-ArtifactDirectories
-    $token = New-SecureHexValue
-    $contextPath = Join-Path $script:PrivateArtifactDir ("candidate-context-" + (Get-CaseArtifactBaseName -Case $Case) + ".json")
-    $context = [ordered]@{
-        schema_version = 1
-        run_id = $script:CandidateRunId
-        case_id = $Case.name
-        suite = $Case.suite
-        model_id = $script:NormalizedTarget
-        command = $Arguments[0]
-        transport_scope = $script:TransportScope
-        backend_scope = $script:BackendArtifact.backend_scope
-        token = $token
+    if ($Case.phase -ne "live") { throw "Candidate capability is valid only for live cases." }
+    if ($env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1" -and [string]::IsNullOrWhiteSpace($script:CandidateRunSecret)) {
+        $manifestPlaceholder = Join-Path $script:PrivateArtifactDir "candidate-run-manifest.json"
+        $capabilityPlaceholder = Join-Path $script:PrivateArtifactDir ("candidate-capability-" + (Get-CaseArtifactBaseName -Case $Case) + ".json")
+        return @($Arguments + @(
+            "--validation-candidate-manifest", $manifestPlaceholder,
+            "--validation-candidate-capability", $capabilityPlaceholder,
+            "--validation-candidate-context-root", $script:PrivateArtifactDir,
+            "--validation-candidate-case-id", $Case.name,
+            "--validation-candidate-suite", $Case.suite
+        ))
     }
-    Write-Utf8NoBomFile -LiteralPath $contextPath -Value @($context | ConvertTo-Json -Depth 5)
-    Add-SensitiveValue -Value $token
-    Add-SensitiveValue -Value $contextPath
+    $manifestPath = Ensure-CandidateManifest
+    if ([string]::IsNullOrWhiteSpace($manifestPath)) {
+        throw "Candidate run manifest is unavailable."
+    }
+    $capabilityPath = Join-Path $script:PrivateArtifactDir ("candidate-capability-" + (Get-CaseArtifactBaseName -Case $Case) + ".json")
+    Invoke-CandidateCapabilityHelper -Arguments @(
+        "issue-capability", "--manifest", $manifestPath, "--output", $capabilityPath, "--case-id", $Case.name
+    )
+    Add-SensitiveValue -Value $capabilityPath
+    try {
+        $capabilityDocument = Get-Content -LiteralPath $capabilityPath -Raw | ConvertFrom-Json
+        Add-SensitiveValue -Value ([string]$capabilityDocument.capability_signature)
+    }
+    catch {
+        throw "Signed candidate capability could not be read."
+    }
     return @($Arguments + @(
-        "--validation-candidate-context", $contextPath,
+        "--validation-candidate-manifest", $manifestPath,
+        "--validation-candidate-capability", $capabilityPath,
         "--validation-candidate-context-root", $script:PrivateArtifactDir,
-        "--validation-candidate-token", $token
+        "--validation-candidate-case-id", $Case.name,
+        "--validation-candidate-suite", $Case.suite
     ))
 }
 
@@ -609,19 +735,15 @@ function Add-LiveExpectedModelArgument {
 function Get-ValidationCommandArguments {
     param(
         [Parameter(Mandatory = $true)]$Case,
-        [Parameter(Mandatory = $true)][string]$JsonPath
+        [Parameter(Mandatory = $true)][string]$JsonPath,
+        [switch]$SkipCandidateContext
     )
 
-    $arguments = Add-LiveExpectedModelArgument -Case $Case
-    $arguments = Add-ValidationSupportPolicyArgument -Arguments $arguments
-    if ($Case.phase -eq "live") {
-        $arguments = Add-BackendArgument -Arguments $arguments
+    $arguments = @(Get-BaseValidationCommandArguments -Case $Case -JsonPath $JsonPath)
+    if (-not $SkipCandidateContext -and $Case.phase -eq "live") {
         $arguments = Add-CandidateContextArguments -Case $Case -Arguments $arguments
     }
-    if ($arguments -contains "--save-json") {
-        return $arguments
-    }
-    return @($arguments + @("--save-json", $JsonPath))
+    return $arguments
 }
 
 function Get-TransportScope {
@@ -892,7 +1014,7 @@ function Get-SnapshotCases {
         $cases.Add((New-CommandCase -Name "restore-off-assert-outputs" -Suite "snapshot" -Phase $phase -Args @("output-state", "--json", "--resource", $resource, "--channel", "all", "--log-scpi") -LiveHardwareExpected:$true -ValidationKind "output-state" -ExpectedChannels @(1,2,3) -ExpectedOutputEnabled $false))
         $cases.Add((New-CommandCase -Name "restore-on-safe-off" -Suite "snapshot" -Phase $phase -Args (@("safe-off") + $commonAll) -StateChanging:$true -LiveHardwareExpected:$true))
         $cases.Add((New-CommandCase -Name "restore-on-program-all" -Suite "snapshot" -Phase $phase -Args (@("apply") + $commonAll + @("--voltage", "1", "--current", "0.05", "--no-output")) -StateChanging:$true -LiveHardwareExpected:$true))
-        $cases.Add((New-CommandCase -Name "restore-on-enable-ch1" -Suite "snapshot" -Phase $phase -Args @("output-on", "--json", "--resource", $resource, "--channel", "1", "--confirm", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true))
+        $cases.Add((New-CommandCase -Name "restore-on-enable-ch1" -Suite "snapshot" -Phase $phase -Args @("output-on", "--json", "--resource", $resource, "--channel", "1", "--confirm", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true -CandidateContextRequired:$true))
         $cases.Add((New-CommandCase -Name "restore-on-save" -Suite "snapshot" -Phase $phase -Args @("snapshot", "--json", "--resource", $resource, "--snapshot-json", $snapshotOn, "--log-scpi") -LiveHardwareExpected:$true -GeneratedArtifacts @($snapshotOn)))
         $cases.Add((New-CommandCase -Name "restore-on-safe-off-before-restore" -Suite "snapshot" -Phase $phase -Args (@("safe-off") + $commonAll) -StateChanging:$true -LiveHardwareExpected:$true))
         $cases.Add((New-CommandCase -Name "restore-on-mutate-ch1" -Suite "snapshot" -Phase $phase -Args @("set", "--json", "--resource", $resource, "--channel", "1", "--voltage", "0.5", "--current", "0.04", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true))
@@ -1020,6 +1142,50 @@ function Get-SuiteCases {
         }
     }
     return $cases.ToArray()
+}
+
+function Get-ValidationOnlyCandidateCommands {
+    return @{
+        "keysight-e36312a" = @("output-on", "log", "doctor", "measure-all", "restore-from-snapshot")
+        "keysight-edu36311a" = @("output-on", "log", "doctor")
+        "keysight-e3646a" = @("output-on", "doctor")
+    }
+}
+
+function Assert-CandidateContextInventory {
+    param(
+        [Parameter(Mandatory = $true)][string]$Model,
+        [Parameter(Mandatory = $true)][object[]]$LiveCases,
+        [bool]$RequireComplete = $false
+    )
+
+    $inventory = Get-ValidationOnlyCandidateCommands
+    if (-not $inventory.ContainsKey($Model)) {
+        throw "Candidate inventory has no entry for $Model."
+    }
+    $expectedCommands = @($inventory[$Model])
+    foreach ($case in @($LiveCases)) {
+        $command = if ($case.args.Count -gt 0) { [string]$case.args[0] } else { "" }
+        $isCandidateCommand = ($case.phase -eq "live" -and [bool]$case.live_hardware_expected -and $command -in $expectedCommands)
+        if ($isCandidateCommand -and -not [bool]$case.candidate_context_required) {
+            throw "Live candidate command '$command' in case '$($case.name)' is missing candidate context."
+        }
+        if ([bool]$case.candidate_context_required -and -not $isCandidateCommand) {
+            throw "Noncandidate live case '$($case.name)' is marked candidate-context-required."
+        }
+        if ($command -in @("trigger-pulse", "trigger-fire") -and [bool]$case.candidate_context_required) {
+            throw "Direct trigger command '$command' must not receive candidate context."
+        }
+    }
+    $seenCandidateCommands = @($LiveCases | Where-Object {
+        if ($_.phase -ne "live" -or -not [bool]$_.live_hardware_expected) { return $false }
+        $command = if ($_.args.Count -gt 0) { [string]$_.args[0] } else { "" }
+        $command -in $expectedCommands
+    } | ForEach-Object { [string]$_.args[0] } | Sort-Object -Unique)
+    $missingCommands = @($expectedCommands | Where-Object { $_ -notin $seenCandidateCommands })
+    if ($RequireComplete -and $missingCommands.Count -gt 0) {
+        throw "Live candidate inventory is missing command uses: $($missingCommands -join ', ')."
+    }
 }
 
 function Get-CaseAssertionFailures {
@@ -1287,16 +1453,31 @@ function Invoke-ValidationCommand {
     $nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
     $hadNativePreference = $null -ne $nativePreferenceVariable
     $oldNativePreference = $null
+    $candidateEnvironmentName = "POWERS_TOOL_VALIDATION_RUN_SECRET"
+    $hadCandidateEnvironment = $null -ne [Environment]::GetEnvironmentVariable($candidateEnvironmentName, "Process")
+    $oldCandidateEnvironment = [Environment]::GetEnvironmentVariable($candidateEnvironmentName, "Process")
     try {
         $ErrorActionPreference = "Continue"
         if ($hadNativePreference) {
             $oldNativePreference = [bool]$nativePreferenceVariable.Value
             $PSNativeCommandUseErrorActionPreference = $false
         }
+        if ($Case.candidate_context_required) {
+            if ([string]::IsNullOrWhiteSpace($script:CandidateRunSecret)) {
+                throw "Candidate capability run secret is unavailable."
+            }
+            [Environment]::SetEnvironmentVariable($candidateEnvironmentName, $script:CandidateRunSecret, "Process")
+        }
         & $CliExecutable @CliPrefix @allArgs 1> $stdoutPath 2> $stderrPath
         $exitCode = $LASTEXITCODE
     }
     finally {
+        if ($hadCandidateEnvironment) {
+            [Environment]::SetEnvironmentVariable($candidateEnvironmentName, $oldCandidateEnvironment, "Process")
+        }
+        else {
+            [Environment]::SetEnvironmentVariable($candidateEnvironmentName, $null, "Process")
+        }
         $ErrorActionPreference = $oldErrorActionPreference
         if ($hadNativePreference) {
             $PSNativeCommandUseErrorActionPreference = $oldNativePreference
@@ -1326,11 +1507,15 @@ function Invoke-ValidationCommand {
     $dryRun = $null
     $errorCode = $null
     $errorMessage = $null
+    $candidateContextIntegrityValidated = $false
+    $candidateScopeAdmitted = $false
     if ($null -ne $payload) {
         $ok = [bool]$payload.ok
         $hardwareTouched = [bool]$payload.execution.hardware_touched
         $mode = [string]$payload.execution.mode
         $dryRun = [bool]$payload.execution.dry_run
+        $candidateContextIntegrityValidated = [bool](Get-PropertyValue -Object $payload.execution -Name "candidate_context_integrity_validated")
+        $candidateScopeAdmitted = [bool](Get-PropertyValue -Object $payload.execution -Name "candidate_scope_admitted")
         if ($null -ne $payload.error) {
             $errorCode = [string]$payload.error.code
             $errorMessage = [string]$payload.error.message
@@ -1460,7 +1645,8 @@ function Invoke-ValidationCommand {
         state_changing = $Case.state_changing
         validation_kind = $Case.validation_kind
         candidate_context_required = [bool]$Case.candidate_context_required
-        candidate_context_validated = [bool]($Case.candidate_context_required -and $casePassed)
+        candidate_context_integrity_validated = $candidateContextIntegrityValidated
+        candidate_scope_admitted = $candidateScopeAdmitted
         assertion_failures = @($assertionFailures | ForEach-Object { Protect-ShareableText -Text $_ })
         generated_artifacts = $generatedArtifactPaths.ToArray()
         comparison_result = if ($Case.validation_kind -eq "snapshot-compare") { if ($assertionFailures.Count -eq 0) { "matched" } else { "mismatch" } } else { $null }
@@ -1676,6 +1862,9 @@ function Write-ValidationArtifacts {
             suite = $_.suite
             phase = $_.phase
             expected_success = $_.expected_success
+            candidate_context_required = [bool]$_.candidate_context_required
+            candidate_context_integrity_validated = [bool]$_.candidate_context_integrity_validated
+            candidate_scope_admitted = [bool]$_.candidate_scope_admitted
             result = $_.result
         }
     })
@@ -1843,6 +2032,8 @@ $script:ExternalPreflight = [pscustomobject]@{ status = "not_run"; hardware_touc
 $script:SensitiveValues = New-Object System.Collections.Generic.List[string]
 $script:PlannedLiveCases = @()
 $script:CandidateRunId = New-SecureHexValue
+$script:CandidateRunSecret = $null
+$script:CandidateManifestPath = $null
 
 if ($env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1") {
     return
@@ -1905,6 +2096,8 @@ $startedAt = Get-Date
 
 Ensure-ArtifactDirectories
 $script:CandidateRunId = New-SecureHexValue
+$script:CandidateRunSecret = New-SecureHexValue -ByteCount 32
+Add-SensitiveValue -Value $script:CandidateRunSecret
 $externalPreflightRoot = Join-Path $script:PrivateArtifactDir "external_preflight"
 $externalPreflightStdout = Join-Path $script:PrivateArtifactDir "external_preflight.stdout.txt"
 $externalPreflightStderr = Join-Path $script:PrivateArtifactDir "external_preflight.stderr.txt"
@@ -1946,9 +2139,21 @@ if ($externalPreflightExit -ne 0) {
 Write-Host "Running selected-suite no-hardware plans for $NormalizedTarget suite '$Suite'..."
 $preflightCases = Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:$false
 foreach ($case in $preflightCases) {
-    Invoke-ValidationCommand -Case $case | Out-Null
+    try {
+        Invoke-ValidationCommand -Case $case | Out-Null
+    }
+    catch {
+        $script:Failures.Add("$($case.name) could not be prepared: $($_.Exception.Message)")
+        break
+    }
 }
 $script:PlannedLiveCases = @(Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:$true)
+try {
+    Assert-CandidateContextInventory -Model $NormalizedTarget -LiveCases $script:PlannedLiveCases -RequireComplete:($Suite -eq "full")
+}
+catch {
+    $script:Failures.Add("Candidate context inventory invariant failed: $($_.Exception.Message)")
+}
 
 if ($script:Failures.Count -gt 0) {
     Write-ValidationArtifacts -ValidationMode "preflight_failed" -Result "preflight_failed" -StartedAt $startedAt
@@ -1997,7 +2202,12 @@ Read-Host "Press Enter to run live suite validation, or press Ctrl+C to abort"
 
 $liveCases = Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:$true
 foreach ($case in $liveCases) {
-    Invoke-ValidationCommand -Case $case | Out-Null
+    try {
+        Invoke-ValidationCommand -Case $case | Out-Null
+    }
+    catch {
+        $script:Failures.Add("$($case.name) could not be prepared or executed: $($_.Exception.Message)")
+    }
     if ($script:Failures.Count -gt 0 -and $script:StateChanging) {
         Invoke-SafeOffCleanup -Role "failure"
         break

@@ -177,7 +177,8 @@ candidates that are implemented but not Product-open:
 
 Plan-only reports expose this model-specific planned case inventory without
 opening VISA. The internal validation-only path still requires the exact
-detected physical model, command, transport, backend, capability, and any
+signed one-time run/case capability and exact request fingerprint, in addition
+to the exact detected physical model, command, transport, backend, capability, and any
 expected-model guard. It does not admit pyvisa-py, custom backends, unlisted
 connections, other models, or unsupported commands. Direct `trigger-pulse`
 and `trigger-fire` are not included. Historical accepted artifacts do not
@@ -210,6 +211,12 @@ cases. The expanded suite is implemented and covered by no-hardware and
 PlanOnly checks, but it has not yet been run and accepted as new hardware
 evidence. Execution would still require separate evidence review and Product
 promotion work.
+
+The signed candidate capability is an internal misuse-resistance contract for
+the maintained wrapper. It is not protection against a user who can modify
+the installed source or otherwise control the machine. The ordinary hidden
+pending-support switch remains separate and cannot authorize a command
+candidate; capabilities never Product-open a command.
 
 Only exact commands in the Core product matrix are opened for normal LIVE use
 on those connections. E3646A live validation remains restricted to ASRL /

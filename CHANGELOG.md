@@ -29,6 +29,9 @@
   closed for these commands until separate live evidence review and promotion;
   historical accepted evidence is unchanged and predates these cases. The
   expanded suite has not yet been run or accepted as new hardware evidence.
+- Live candidate invocations now require an internally signed, exact,
+  run/case-scoped one-time capability from the maintained wrapper; registered
+  transport-pending admission remains a separate policy path.
 
 ## 1.0.0
 

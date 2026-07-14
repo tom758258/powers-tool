@@ -106,7 +106,13 @@ commands as exact validation candidates where the model supports them:
 E36312A adds `output-on`, `log`, resource-backed `doctor`, `measure-all`, and
 real `restore-from-snapshot`; EDU36311A adds `output-on`, `log`, and
 resource-backed `doctor`; E3646A adds `output-on` and resource-backed
-`doctor`. This internal validation-only admission is not a public bypass.
+`doctor`. Each live candidate invocation additionally requires a signed,
+run-scoped, case-scoped, one-time capability issued by this maintained
+wrapper. The capability binds the exact model, command, connection, case, and
+request; the ordinary pending-support switch alone cannot admit a candidate.
+This is an internal misuse-resistance contract, not a security boundary
+against a user who controls or modifies the machine. It is not a public
+bypass.
 Normal Product mode remains closed until new live artifacts are run, reviewed,
 registered, and promoted in a separate change. Existing historical evidence
 does not cover these new standalone cases, and a future passing suite does not

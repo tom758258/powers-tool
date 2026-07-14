@@ -45,11 +45,16 @@ Core also has an internal contributor-validation policy mode for explicitly
 registered pending scopes and a narrow inventory of validation-only command
 candidates. Candidate admission requires an implemented `real=True` command
 on the exact canonical IDN-detected model and the approved system-VISA
-transport for that model. It does not create a public pending status, enter the
-accepted command inventory, select or override the detected model, promote
+transport for that model, plus a verified typed context from a signed,
+run-scoped, case-scoped, one-time wrapper capability. The capability binds the
+exact request fingerprint. The ordinary pending-support switch cannot admit a
+command candidate by itself. It does not create a public pending status, enter
+the accepted command inventory, select or override the detected model, promote
 support, or bypass expected-model, command/profile, safety, confirmation,
 electrical-rating, sequence, or cleanup checks. Adapters decide whether that
-internal mode is available; normal integrations remain Product mode.
+internal mode is available; normal integrations remain Product mode. The
+capability is an internal misuse-resistance contract, not a security boundary
+against a user who controls or modifies the machine.
 
 Exact policy evaluation is feature-aware for `sequence_action` and
 `trigger_source`. Sequence validates every distinct instrument-relevant

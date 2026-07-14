@@ -19,6 +19,13 @@ class ValidationCandidateContext:
     command: str
     transport_scope: str
     backend_scope: str
+    request_fingerprint: str = ""
+    capability_id: str = ""
+    issued_at: str = ""
+    expires_at: str = ""
+    # Direct Core callers already supply the typed internal contract.  The CLI
+    # sets this explicitly after verifying the signed capability.
+    integrity_validated: bool = True
 
 
 @dataclass(frozen=True)
@@ -43,6 +50,8 @@ class RuntimeOptions:
     # Kept as a literal to avoid importing support_policy back into Core.
     support_policy_mode: str = "product"
     validation_candidate_context: ValidationCandidateContext | None = None
+    validation_request_fingerprint: str | None = None
+    validation_admission_state: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
         from powers_tool_core.model_resolution import validate_runtime_identity

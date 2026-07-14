@@ -46,7 +46,10 @@ rejects them after `*IDN?` and before command-specific SCPI. Dry-run or
 simulator support does not imply product LIVE support.
 
 The maintained `-Suite full` workflow now includes this validation-only
-candidate matrix:
+candidate matrix. Every live candidate case receives a signed, exact,
+run-scoped and case-scoped one-time capability; these capabilities are bound
+to the request arguments and never Product-open a command. The ordinary
+pending-support switch alone cannot admit a candidate.
 
 | Canonical model | Exact candidate connections | Added candidate commands |
 | --- | --- | --- |

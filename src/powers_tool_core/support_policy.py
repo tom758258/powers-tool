@@ -148,6 +148,7 @@ class CommandLiveSupportScope:
     candidate_basis_evidence_ids: tuple[str, ...] = ()
     note: str | None = None
     feature_scopes: tuple[CommandFeatureSupportScope, ...] = ()
+    admission_kind: str = "product"
 
 
 @dataclass(frozen=True)
@@ -495,6 +496,8 @@ def ensure_live_scope_supported(
     support_policy_mode: str,
     feature_requirements: Iterable[tuple[str, str]] = (),
     validation_candidate_context=None,
+    validation_request_fingerprint: str | None = None,
+    admission_state: dict[str, object] | None = None,
     registry: tuple[ModelSupportPolicy, ...] | None = None,
 ) -> CommandLiveSupportScope:
     """Return an allowed exact scope or reject it with fail-closed semantics."""
@@ -551,8 +554,12 @@ def ensure_live_scope_supported(
         backend=normalized_backend,
         support_policy_mode=normalized_mode,
         validation_candidate_context=validation_candidate_context,
+        validation_request_fingerprint=validation_request_fingerprint,
     )
     if candidate_scope is not None:
+        if admission_state is not None:
+            admission_state["candidate_scope_admitted"] = True
+            admission_state["candidate_admission_kind"] = "validation_candidate"
         return candidate_scope
     scope = find_live_support_scope(
         model_id=model_id,
@@ -582,6 +589,13 @@ def ensure_live_scope_supported(
                 status=scope.validation_status,
                 reason=reason,
             )
+        )
+    if admission_state is not None:
+        admission_state["candidate_scope_admitted"] = False
+        admission_state["candidate_admission_kind"] = (
+            "registered_pending"
+            if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
+            else "product"
         )
     feature_allowed = (
         _ALLOW_PRODUCT
@@ -654,6 +668,7 @@ def _validation_only_candidate_scope(
     backend: str,
     support_policy_mode: str,
     validation_candidate_context,
+    validation_request_fingerprint: str | None,
 ) -> CommandLiveSupportScope | None:
     """Admit one internal candidate without publishing or promoting its scope."""
 
@@ -672,6 +687,13 @@ def _validation_only_candidate_scope(
         raise LiveSupportPolicyError("validation candidate context is required")
     if not isinstance(validation_candidate_context, ValidationCandidateContext):
         raise LiveSupportPolicyError("validation candidate context is malformed")
+    if not validation_candidate_context.integrity_validated:
+        raise LiveSupportPolicyError("validation candidate context integrity was not validated")
+    if validation_candidate_context.request_fingerprint and (
+        not validation_request_fingerprint
+        or validation_candidate_context.request_fingerprint != validation_request_fingerprint
+    ):
+        raise LiveSupportPolicyError("validation candidate context invocation does not match")
     expected = {
         "model_id": model_id,
         "command": command,
@@ -683,11 +705,18 @@ def _validation_only_candidate_scope(
             raise LiveSupportPolicyError("validation candidate context does not match the live request")
     if not validation_candidate_context.run_id or not validation_candidate_context.case_id or not validation_candidate_context.suite:
         raise LiveSupportPolicyError("validation candidate context is malformed")
+    if validation_candidate_context.request_fingerprint and (
+        not validation_candidate_context.capability_id
+        or not validation_candidate_context.issued_at
+        or not validation_candidate_context.expires_at
+    ):
+        raise LiveSupportPolicyError("validation candidate context is malformed")
     return CommandLiveSupportScope(
         validation_status=VALIDATION_STATUS_PROFILE_VALIDATED,
         transport_scope=transport,
         backend_scope=backend,
         note="Internal exact validation-only candidate admission.",
+        admission_kind="validation_candidate",
     )
 
 

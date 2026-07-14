@@ -975,6 +975,36 @@ def test_live_cli_check_plan_artifact_redacts_resource_and_command_paths():
     assert "candidate validation evidence only" in report_path.with_name("summary.md").read_text(encoding="utf-8")
 
 
+def test_live_cli_check_shareable_plan_hides_candidate_capability_material():
+    resource = "USB0::SHAREABLE-CONTEXT::E36312A::INSTR"
+    result = _run_live_cli_check(
+        "-Target",
+        "keysight-e36312a",
+        "-Connection",
+        "USB",
+        "-Resource",
+        resource,
+        "-Suite",
+        "readonly",
+        "-PlanOnly",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = _report_path(result.stdout, result.stderr)
+    shareable_dir = report_path.parent
+    shareable_text = _shareable_text(shareable_dir)
+    private_dir = shareable_dir.parent / "private"
+    forbidden = (
+        resource,
+        "USB0::SIM::E36312A::INSTR",
+        "--validation-candidate-manifest",
+        "--validation-candidate-capability",
+        "POWERS_TOOL_VALIDATION_RUN_SECRET",
+        str(private_dir),
+    )
+    assert all(value not in shareable_text for value in forbidden)
+
+
 @pytest.mark.parametrize(
     ("target", "connection", "resource", "suite"),
     [
@@ -1185,6 +1215,11 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
         in {"output-on", "log", "doctor", "measure-all", "restore-from-snapshot"}
     }
     assert candidate_commands == expected_candidates
+    candidate_cases = [
+        case for case in planned
+        if case["command"] in expected_candidates and case["name"] != "restore-from-snapshot-plan"
+    ]
+    assert all(case["candidate_context_required"] is True for case in candidate_cases)
     assert not {"trigger-pulse", "trigger-fire"} & {case["command"] for case in planned}
     if target != "keysight-e36312a":
         assert not any(case["command"] == "restore-from-snapshot" for case in planned)
@@ -1200,7 +1235,8 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
         assert all("--confirm" in case["arguments"] for case in output_on_cases)
     if target == "keysight-e36312a":
         names = {case["name"] for case in planned}
-        assert {"restore-off-execute", "restore-on-execute", "restore-on-immediate-safe-off"} <= names
+        assert {"restore-off-execute", "restore-on-enable-ch1", "restore-on-execute", "restore-on-immediate-safe-off"} <= names
+        assert next(case for case in planned if case["name"] == "restore-on-enable-ch1")["candidate_context_required"] is True
     case_names = {case["name"] for case in report["cases"] if case["suite"] == "software-sequence"}
     assert {
         "ramp-list-lint",
