@@ -1,20 +1,144 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
+import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
+import tarfile
 from typing import Callable
 from uuid import uuid4
+import zipfile
 
 import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "release-acceptance.ps1"
+PACKAGING_DIR = ROOT / "tests" / "packaging"
+
+if str(PACKAGING_DIR) not in sys.path:
+    sys.path.insert(0, str(PACKAGING_DIR))
+
+inspect_pyinstaller = importlib.import_module("inspect_pyinstaller")
+inspector_utils = importlib.import_module("_inspector_utils")
+
+
+def _write_distribution_fixture(
+    dist_dir: Path,
+    *,
+    artifact_version: str,
+    metadata_version: str | None = None,
+    sdist_root_version: str | None = None,
+    include_sdist: bool = True,
+) -> None:
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    metadata_version = metadata_version or artifact_version
+    dist_info = f"powers_tool-{artifact_version}.dist-info"
+    wheel = dist_dir / f"powers_tool-{artifact_version}-py3-none-any.whl"
+    metadata = (
+        "Metadata-Version: 2.4\n"
+        "Name: powers-tool\n"
+        f"Version: {metadata_version}\n"
+        "Requires-Python: >=3.10\n"
+    )
+    entry_points = (
+        "[console_scripts]\n"
+        "powers-tool = powers_tool_cli.cli:main\n"
+        "powers-tool-webui = powers_tool_webui.server:main\n"
+        "powers-tool-webui-launcher = powers_tool_webui.launcher:main\n"
+    )
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(f"{dist_info}/METADATA", metadata)
+        archive.writestr(f"{dist_info}/entry_points.txt", entry_points)
+        for package in ("powers_tool_core", "powers_tool_cli", "powers_tool_webui"):
+            archive.writestr(f"{package}/__init__.py", "")
+        for filename in ("index.html", "styles.css", "app.js"):
+            archive.writestr(f"powers_tool_webui/static/{filename}", filename)
+
+    if not include_sdist:
+        return
+    root = f"powers_tool-{sdist_root_version or artifact_version}"
+    with tarfile.open(dist_dir / f"powers_tool-{artifact_version}.tar.gz", "w:gz") as archive:
+        for package in ("powers_tool_core", "powers_tool_cli", "powers_tool_webui"):
+            _add_tar_text(archive, f"{root}/src/{package}/__init__.py", "")
+        for filename in ("index.html", "styles.css", "app.js"):
+            _add_tar_text(
+                archive,
+                f"{root}/src/powers_tool_webui/static/{filename}",
+                filename,
+            )
+
+
+def _add_tar_text(archive: tarfile.TarFile, name: str, text: str) -> None:
+    payload = text.encode("utf-8")
+    info = tarfile.TarInfo(name)
+    info.size = len(payload)
+    archive.addfile(info, io.BytesIO(payload))
+
+
+def _run_distribution_inspector(
+    dist_dir: Path, *arguments: str, inspector: Path | None = None
+) -> subprocess.CompletedProcess[str]:
+    return _run(
+        [
+            sys.executable,
+            str(inspector or PACKAGING_DIR / "inspect_distribution.py"),
+            *arguments,
+            str(dist_dir),
+        ],
+        cwd=ROOT,
+        check=False,
+    )
+
+
+class _FakePyz:
+    def __init__(self, names: set[str]) -> None:
+        self.toc = names
+
+
+class _FakeCArchive:
+    def __init__(
+        self,
+        *,
+        version: str,
+        extra_metadata_versions: tuple[str, ...] = (),
+        pyz_names: set[str] | None = None,
+        webui_assets: bool = True,
+    ) -> None:
+        self.metadata = {
+            f"powers_tool-{item}.dist-info/METADATA": (
+                f"Name: powers-tool\nVersion: {item}\n".encode("utf-8")
+            )
+            for item in (version, *extra_metadata_versions)
+        }
+        names = [*self.metadata, "PYZ.pyz"]
+        if webui_assets:
+            names.extend(
+                f"powers_tool_webui/static/{filename}"
+                for filename in ("index.html", "styles.css", "app.js")
+            )
+        self.toc = {name: None for name in names}
+        self.pyz_names = pyz_names or {
+            "powers_tool_core",
+            "powers_tool_core.driver",
+            "powers_tool_cli",
+            "powers_tool_cli.cli",
+            "powers_tool_webui",
+            "powers_tool_webui.server",
+        }
+
+    def extract(self, name: str) -> bytes:
+        return self.metadata[name]
+
+    def open_embedded_archive(self, name: str) -> _FakePyz:
+        assert name == "PYZ.pyz"
+        return _FakePyz(self.pyz_names)
 
 
 def _run(
@@ -389,6 +513,7 @@ def test_release_acceptance_candidate_overlay_has_an_exact_write_scope() -> None
         "scripts/live-cli-check.ps1",
         "scripts/preflight-cli.ps1",
         "scripts/release-acceptance.ps1",
+        "tests/packaging/_inspector_utils.py",
         "tests/packaging/inspect_distribution.py",
         "tests/packaging/inspect_pyinstaller.py",
         "tests/packaging/test_packaging_identity.py",
@@ -466,13 +591,251 @@ def test_release_acceptance_is_version_neutral() -> None:
         assert stale not in text
 
 
-def test_pyinstaller_inspector_requires_release_metadata_and_webui_assets() -> None:
-    text = (ROOT / "tests" / "packaging" / "inspect_pyinstaller.py").read_text(
-        encoding="utf-8"
+def test_release_acceptance_passes_project_version_to_every_inspector() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    invocations = re.findall(
+        r'-Arguments @\("tests\\packaging\\(inspect_(?:distribution|pyinstaller)\.py)"([^\n]*)\)',
+        text,
     )
-    assert "Name: powers-tool" in text
-    assert "Version: 2.0.0" in text
-    assert '"index.html", "styles.css", "app.js"' in text
-    assert "keysight_power_" in text
-    assert "open_embedded_archive" in text
-    assert "names[powers_metadata]" in text
+    assert len(invocations) == 5
+    assert [name for name, _ in invocations].count("inspect_distribution.py") == 3
+    assert [name for name, _ in invocations].count("inspect_pyinstaller.py") == 2
+    for name, arguments in invocations:
+        assert '"--expected-version", $projectVersion' in arguments, name
+
+
+def test_distribution_inspector_accepts_matching_explicit_future_version(
+    tmp_path: Path,
+) -> None:
+    dist_dir = tmp_path / "dist"
+    _write_distribution_fixture(dist_dir, artifact_version="3.4.5")
+
+    result = _run_distribution_inspector(
+        dist_dir, "--expected-version", "3.4.5"
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_distribution_inspector_rejects_mismatching_metadata(tmp_path: Path) -> None:
+    dist_dir = tmp_path / "dist"
+    _write_distribution_fixture(
+        dist_dir, artifact_version="3.4.5", metadata_version="2.0.0"
+    )
+
+    result = _run_distribution_inspector(
+        dist_dir, "--expected-version", "3.4.5"
+    )
+
+    assert result.returncode != 0
+    assert "expected wheel metadata version '3.4.5'" in result.stderr
+    assert "Version: 2.0.0" in result.stderr
+
+
+def test_distribution_inspector_rejects_mismatching_artifact_filenames(
+    tmp_path: Path,
+) -> None:
+    dist_dir = tmp_path / "dist"
+    _write_distribution_fixture(dist_dir, artifact_version="2.0.0")
+
+    result = _run_distribution_inspector(
+        dist_dir, "--expected-version", "3.4.5"
+    )
+
+    assert result.returncode != 0
+    assert "expected wheel filename 'powers_tool-3.4.5-py3-none-any.whl'" in result.stderr
+    assert "powers_tool-2.0.0-py3-none-any.whl" in result.stderr
+
+
+def test_distribution_inspector_rejects_mismatching_sdist_filename(
+    tmp_path: Path,
+) -> None:
+    dist_dir = tmp_path / "dist"
+    _write_distribution_fixture(dist_dir, artifact_version="3.4.5")
+    (dist_dir / "powers_tool-3.4.5.tar.gz").rename(
+        dist_dir / "powers_tool-2.0.0.tar.gz"
+    )
+
+    result = _run_distribution_inspector(
+        dist_dir, "--expected-version", "3.4.5"
+    )
+
+    assert result.returncode != 0
+    assert "expected sdist filename 'powers_tool-3.4.5.tar.gz'" in result.stderr
+    assert "powers_tool-2.0.0.tar.gz" in result.stderr
+
+
+def test_distribution_inspector_rejects_mismatching_sdist_root(tmp_path: Path) -> None:
+    dist_dir = tmp_path / "dist"
+    _write_distribution_fixture(
+        dist_dir, artifact_version="3.4.5", sdist_root_version="2.0.0"
+    )
+
+    result = _run_distribution_inspector(
+        dist_dir, "--expected-version", "3.4.5"
+    )
+
+    assert result.returncode != 0
+    assert "expected sdist root 'powers_tool-3.4.5'" in result.stderr
+    assert "powers_tool-2.0.0" in result.stderr
+
+
+def test_distribution_inspector_wheel_only_accepts_explicit_version(
+    tmp_path: Path,
+) -> None:
+    dist_dir = tmp_path / "dist"
+    _write_distribution_fixture(
+        dist_dir, artifact_version="3.4.5", include_sdist=False
+    )
+
+    result = _run_distribution_inspector(
+        dist_dir, "--wheel-only", "--expected-version", "3.4.5"
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_inspectors_resolve_future_version_from_fixture_pyproject(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repository"
+    packaging = repository / "tests" / "packaging"
+    packaging.mkdir(parents=True)
+    (repository / "pyproject.toml").write_text(
+        '[project]\nname = "powers-tool"\nversion = "3.4.5"\n', encoding="utf-8"
+    )
+    for name in ("_inspector_utils.py", "inspect_distribution.py"):
+        shutil.copy2(PACKAGING_DIR / name, packaging / name)
+    dist_dir = repository / "dist"
+    _write_distribution_fixture(dist_dir, artifact_version="3.4.5")
+
+    result = _run_distribution_inspector(
+        dist_dir, inspector=packaging / "inspect_distribution.py"
+    )
+    resolved = inspector_utils.resolve_expected_version(
+        None, inspector_file=packaging / "inspect_pyinstaller.py"
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert resolved == "3.4.5"
+    archive = _FakeCArchive(version=resolved)
+    inspect_pyinstaller._validate_metadata(
+        archive,
+        {name: name for name in archive.toc},
+        expected_version=resolved,
+    )
+
+
+def test_pyinstaller_inspector_accepts_matching_future_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive = _FakeCArchive(version="3.4.5")
+    monkeypatch.setattr(inspect_pyinstaller, "CArchiveReader", lambda path: archive)
+
+    inspect_pyinstaller.inspect_executable(
+        Path("future.exe"),
+        ("powers_tool_core", "powers_tool_webui"),
+        webui=True,
+        expected_version="3.4.5",
+    )
+
+
+def test_pyinstaller_cli_accepts_explicit_and_canonical_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    future_archive = _FakeCArchive(version="3.4.5")
+    monkeypatch.setattr(
+        inspect_pyinstaller, "CArchiveReader", lambda path: future_archive
+    )
+    assert (
+        inspect_pyinstaller.main(
+            ["--expected-version", "3.4.5", "cli.exe", "webui.exe"]
+        )
+        == 0
+    )
+
+    canonical_version = inspector_utils.resolve_expected_version(
+        None, inspector_file=PACKAGING_DIR / "inspect_pyinstaller.py"
+    )
+    canonical_archive = _FakeCArchive(version=canonical_version)
+    monkeypatch.setattr(
+        inspect_pyinstaller, "CArchiveReader", lambda path: canonical_archive
+    )
+    assert inspect_pyinstaller.main(["cli.exe", "webui.exe"]) == 0
+
+
+def test_pyinstaller_inspector_rejects_stale_metadata_version() -> None:
+    archive = _FakeCArchive(version="2.0.0")
+
+    with pytest.raises(AssertionError) as error:
+        inspect_pyinstaller._validate_metadata(
+            archive,
+            {name: name for name in archive.toc},
+            expected_version="3.4.5",
+        )
+
+    assert "powers_tool-3.4.5.dist-info/METADATA" in str(error.value)
+    assert "powers_tool-2.0.0.dist-info/METADATA" in str(error.value)
+
+
+def test_pyinstaller_inspector_rejects_competing_metadata_version() -> None:
+    archive = _FakeCArchive(
+        version="3.4.5", extra_metadata_versions=("2.0.0",)
+    )
+
+    with pytest.raises(AssertionError) as error:
+        inspect_pyinstaller._validate_metadata(
+            archive,
+            {name: name for name in archive.toc},
+            expected_version="3.4.5",
+        )
+
+    assert "powers_tool-3.4.5.dist-info/METADATA" in str(error.value)
+    assert "powers_tool-2.0.0.dist-info/METADATA" in str(error.value)
+
+
+def test_pyinstaller_inspector_retains_package_webui_and_legacy_checks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    missing_package = _FakeCArchive(
+        version="3.4.5", pyz_names={"powers_tool_core", "powers_tool_core.driver"}
+    )
+    monkeypatch.setattr(
+        inspect_pyinstaller, "CArchiveReader", lambda path: missing_package
+    )
+    with pytest.raises(AssertionError, match="powers_tool_cli"):
+        inspect_pyinstaller.inspect_executable(
+            Path("missing-package.exe"),
+            ("powers_tool_core", "powers_tool_cli"),
+            webui=False,
+            expected_version="3.4.5",
+        )
+
+    missing_assets = _FakeCArchive(version="3.4.5", webui_assets=False)
+    monkeypatch.setattr(
+        inspect_pyinstaller, "CArchiveReader", lambda path: missing_assets
+    )
+    with pytest.raises(AssertionError, match="index.html"):
+        inspect_pyinstaller.inspect_executable(
+            Path("missing-assets.exe"),
+            ("powers_tool_core", "powers_tool_webui"),
+            webui=True,
+            expected_version="3.4.5",
+        )
+
+    legacy = _FakeCArchive(
+        version="3.4.5",
+        pyz_names={
+            "powers_tool_core",
+            "powers_tool_core.driver",
+            "keysight_power_core",
+        },
+    )
+    monkeypatch.setattr(inspect_pyinstaller, "CArchiveReader", lambda path: legacy)
+    with pytest.raises(AssertionError):
+        inspect_pyinstaller.inspect_executable(
+            Path("legacy.exe"),
+            ("powers_tool_core",),
+            webui=False,
+            expected_version="3.4.5",
+        )

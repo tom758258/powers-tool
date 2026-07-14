@@ -61,6 +61,7 @@ $allowedCandidatePaths = @(
     "scripts/live-cli-check.ps1",
     "scripts/preflight-cli.ps1",
     "scripts/release-acceptance.ps1",
+    "tests/packaging/_inspector_utils.py",
     "tests/packaging/inspect_distribution.py",
     "tests/packaging/inspect_pyinstaller.py",
     "tests/packaging/test_packaging_identity.py",
@@ -617,7 +618,7 @@ for filename in ("index.html", "styles.css", "app.js"):
     Run-Python -Name "build-wheel-sdist" -Python $current -WorkingDirectory $script:WorktreePath `
         -Arguments @("-m", "build") | Out-Null
     Run-Python -Name "inspect-wheel-sdist" -Python $current -WorkingDirectory $script:WorktreePath `
-        -Arguments @("tests\packaging\inspect_distribution.py", "dist") | Out-Null
+        -Arguments @("tests\packaging\inspect_distribution.py", "--expected-version", $projectVersion, "dist") | Out-Null
     $normalizedDistribution = $distributionName.Replace("-", "_")
     $wheel = (Get-ChildItem -LiteralPath (Join-Path $script:WorktreePath "dist") -Filter "$normalizedDistribution-$projectVersion-py3-none-any.whl" -File).FullName
     $sdist = (Get-ChildItem -LiteralPath (Join-Path $script:WorktreePath "dist") -Filter "$normalizedDistribution-$projectVersion.tar.gz" -File).FullName
@@ -656,7 +657,7 @@ for filename in ("index.html", "styles.css", "app.js"):
     Run-Python -Name "build-wheel-from-sdist" -Python $current -WorkingDirectory $script:RunRoot `
         -Arguments @("-m", "build", "--wheel", "--outdir", $sdistWheelOut, $sdistRoot.FullName) | Out-Null
     Run-Python -Name "inspect-wheel-from-sdist" -Python $current -WorkingDirectory $script:WorktreePath `
-        -Arguments @("tests\packaging\inspect_distribution.py", "--wheel-only", $sdistWheelOut) | Out-Null
+        -Arguments @("tests\packaging\inspect_distribution.py", "--wheel-only", "--expected-version", $projectVersion, $sdistWheelOut) | Out-Null
 
     $script:CurrentStep = "standalone PyInstaller builds"
     $standalone = Join-Path $worktreeTmp "standalone"
@@ -693,7 +694,7 @@ for filename in ("index.html", "styles.css", "app.js"):
         }
     }
     Run-Python -Name "inspect-standalone-archives" -Python $current -WorkingDirectory $script:WorktreePath `
-        -Arguments @("tests\packaging\inspect_pyinstaller.py", $standaloneCli, $standaloneWebui) | Out-Null
+        -Arguments @("tests\packaging\inspect_pyinstaller.py", "--expected-version", $projectVersion, $standaloneCli, $standaloneWebui) | Out-Null
 
     $script:CurrentStep = "versioned release folder"
     foreach ($path in @("dist", "build")) {
@@ -734,9 +735,9 @@ for filename in ("index.html", "styles.css", "app.js"):
         throw "checksums.txt must be UTF-8 without BOM"
     }
     Run-Python -Name "inspect-versioned-packages" -Python $current -WorkingDirectory $script:WorktreePath `
-        -Arguments @("tests\packaging\inspect_distribution.py", $versionDir) | Out-Null
+        -Arguments @("tests\packaging\inspect_distribution.py", "--expected-version", $projectVersion, $versionDir) | Out-Null
     Run-Python -Name "inspect-versioned-archives" -Python $current -WorkingDirectory $script:WorktreePath `
-        -Arguments @("tests\packaging\inspect_pyinstaller.py", (Join-Path $versionDir "powers-tool-$projectVersion.exe"), (Join-Path $versionDir "powers-tool-webui-$projectVersion.exe")) | Out-Null
+        -Arguments @("tests\packaging\inspect_pyinstaller.py", "--expected-version", $projectVersion, (Join-Path $versionDir "powers-tool-$projectVersion.exe"), (Join-Path $versionDir "powers-tool-webui-$projectVersion.exe")) | Out-Null
     foreach ($name in @("powers-tool-$projectVersion.exe", "powers-tool-webui-$projectVersion.exe")) {
         $path = Join-Path $versionDir $name
         $versionOutput = Invoke-Recorded -Name ("versioned-" + $name + "-version") `

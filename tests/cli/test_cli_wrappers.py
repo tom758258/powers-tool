@@ -51,7 +51,14 @@ def test_shared_helper_owns_all_model_and_suite_boundaries() -> None:
         "ConvertTo-Json -InputObject $profiles -Compress -Depth 5"
     )
     result = subprocess.run(
-        [POWERSHELL, "-NoProfile", "-Command", command],
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            command,
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -128,4 +135,3 @@ def test_live_wrapper_enforces_external_then_suite_preflight_before_live() -> No
     assert 'candidate_evidence_only = $true' in text
     assert 'promotes_live_support = $false' in text
     assert 'Join-Path $script:PrivateArtifactDir "external_preflight"' in text
-

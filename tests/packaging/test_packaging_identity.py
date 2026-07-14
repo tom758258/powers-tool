@@ -97,6 +97,7 @@ _ALLOWED_LEGACY_MATCHES = {
     ("scripts/release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[4]): (1, "negative legacy-import check"),
     ("tests/packaging/inspect_pyinstaller.py", LEGACY_IDENTITY_TOKENS[0]): (1, "negative legacy-metadata inspection"),
     ("tests/packaging/inspect_pyinstaller.py", LEGACY_IDENTITY_TOKENS[1]): (1, "negative legacy-metadata inspection"),
+    ("tests/packaging/test_release_acceptance.py", LEGACY_IDENTITY_TOKENS[2]): (1, "negative legacy-package inspector regression"),
     ("tests/webui/test_webui.py", LEGACY_IDENTITY_TOKENS[1]): (1, "negative legacy Ramp List kind regression"),
     ("tests/webui/test_webui.py", LEGACY_IDENTITY_TOKENS[8]): (1, "negative legacy Ramp List kind regression"),
     ("tests/webui/test_webui.py", LEGACY_IDENTITY_TOKENS[9]): (5, "negative legacy-field regressions"),
