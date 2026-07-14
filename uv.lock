@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = ">=3.10"
 
+[manifest]
+members = [
+    "powers-tool",
+    "powers-tool-validation",
+]
+
 [[package]]
 name = "altgraph"
 version = "0.17.5"
@@ -268,6 +274,29 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'webui'", specifier = ">=0.23.0" },
 ]
 provides-extras = ["webui", "dev", "all"]
+
+[[package]]
+name = "powers-tool-validation"
+version = "2.0.0"
+source = { editable = "validation" }
+dependencies = [
+    { name = "powers-tool" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "build" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "powers-tool", editable = "." }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "build", specifier = ">=1.2" },
+    { name = "pytest", specifier = ">=8.0" },
+]
 
 [[package]]
 name = "pydantic"

@@ -60,3 +60,6 @@ powers_tool_webui = [
 addopts = "--basetemp=.tmp_pytest"
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.uv.workspace]
+members = ["validation"]

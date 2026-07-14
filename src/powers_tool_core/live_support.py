@@ -80,6 +80,7 @@ def _enforce_live_support(
         feature_requirements=feature_requirements,
         validation_candidate_context=request.runtime.validation_candidate_context,
         validation_request_fingerprint=request.runtime.validation_request_fingerprint,
+        validation_build_permit=request.runtime.validation_build_permit,
         admission_state=request.runtime.validation_admission_state,
     )
 

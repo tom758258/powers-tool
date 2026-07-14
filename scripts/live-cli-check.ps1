@@ -54,6 +54,24 @@ if ($PythonExe -ne "python" -and -not (Test-Path -LiteralPath $CliExecutable)) {
     $CliExecutable = "powers-tool"
 }
 $CliPrefix = @()
+$ValidationProject = Join-Path $RepoRoot "validation"
+$ValidationExecutable = Join-Path (Join-Path $RepoRoot ".venv-validation") "Scripts\powers-tool-validation.exe"
+$ValidationPrefix = @()
+if (-not (Test-Path -LiteralPath $ValidationExecutable)) {
+    $ValidationExecutable = $PythonExe
+    $ValidationPrefix = @("-m", "powers_tool_validation.cli")
+}
+$ValidationSourcePath = Join-Path $ValidationProject "src"
+
+function Get-ValidationChildPythonPath {
+    $parts = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
+        $parts.Add($env:PYTHONPATH)
+    }
+    $parts.Add($ValidationSourcePath)
+    $parts.Add((Join-Path $RepoRoot "src"))
+    return ($parts -join [System.IO.Path]::PathSeparator)
+}
 
 function Fail-Validation {
     param(
@@ -382,7 +400,7 @@ function Protect-Arguments {
 
 function Get-GitHead {
     try {
-        $head = & git -C $RepoRoot rev-parse --short HEAD 2>$null
+        $head = & git -C $RepoRoot rev-parse HEAD 2>$null
         if ($LASTEXITCODE -eq 0) {
             return [string]$head
         }
@@ -504,6 +522,10 @@ function New-CommandCase {
     }
 }
 
+function Test-CurrentConnectionUsesCandidateCapabilities {
+    return $script:BackendArtifact.backend_scope -eq "system_visa"
+}
+
 function New-SecureHexValue {
     param([int]$ByteCount = 32)
 
@@ -524,9 +546,12 @@ function Invoke-CandidateCapabilityHelper {
     $environmentName = "POWERS_TOOL_VALIDATION_RUN_SECRET"
     $hadEnvironment = $null -ne [Environment]::GetEnvironmentVariable($environmentName, "Process")
     $oldEnvironment = [Environment]::GetEnvironmentVariable($environmentName, "Process")
+    $hadPythonPath = $null -ne [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+    $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
     try {
         [Environment]::SetEnvironmentVariable($environmentName, $script:CandidateRunSecret, "Process")
-        & $PythonExe -m powers_tool_cli.candidate_capability @Arguments 1>$null 2>$null
+        [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
+        & $ValidationExecutable @ValidationPrefix @Arguments 1>$null 2>$null
         if ($LASTEXITCODE -ne 0) {
             throw "Candidate capability helper failed."
         }
@@ -538,6 +563,117 @@ function Invoke-CandidateCapabilityHelper {
         else {
             [Environment]::SetEnvironmentVariable($environmentName, $null, "Process")
         }
+        if ($hadPythonPath) {
+            [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process")
+        }
+        else {
+            [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process")
+        }
+    }
+}
+
+function Get-CandidateRunLifetimeMinutes {
+    param([Parameter(Mandatory = $true)][object[]]$Cases)
+
+    $estimatedSeconds = 20 * 60
+    foreach ($case in $Cases) {
+        $estimatedSeconds += 45
+        $arguments = @($case.args)
+        for ($index = 0; $index -lt $arguments.Count - 1; $index++) {
+            $name = [string]$arguments[$index]
+            $value = 0.0
+            if (-not [double]::TryParse([string]$arguments[$index + 1], [ref]$value)) {
+                continue
+            }
+            if ($name -in @("--duration-ms", "--wait-timeout-ms", "--settle-ms", "--delay-ms", "--hold-ms")) {
+                $estimatedSeconds += ($value / 1000.0)
+            }
+            elseif ($name -eq "--duration-sec") {
+                $estimatedSeconds += $value
+            }
+            elseif ($name -eq "--interval-sec") {
+                $samplesIndex = [Array]::IndexOf($arguments, "--samples")
+                $samples = if ($samplesIndex -ge 0 -and $samplesIndex + 1 -lt $arguments.Count) { [double]$arguments[$samplesIndex + 1] } else { 1.0 }
+                $estimatedSeconds += ($value * [Math]::Max(1.0, $samples))
+            }
+        }
+    }
+    $minutes = [Math]::Ceiling($estimatedSeconds / 60.0)
+    return [int][Math]::Min(240, [Math]::Max(30, $minutes))
+}
+
+function Resolve-ValidationBuildAndInventory {
+    $buildInfoPath = Join-Path $script:PrivateArtifactDir "validation-build-info.json"
+    $buildInfoStderr = Join-Path $script:PrivateArtifactDir "validation-build-info.stderr.txt"
+    $hadPythonPath = $null -ne [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+    $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+    try {
+        [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
+        & $ValidationExecutable @ValidationPrefix "_internal-build-info" "--json" 1> $buildInfoPath 2> $buildInfoStderr
+    }
+    finally {
+        if ($hadPythonPath) { [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process") }
+        else { [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process") }
+    }
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $buildInfoPath)) {
+        throw "Internal validation build could not be resolved."
+    }
+    try {
+        $identity = Get-Content -LiteralPath $buildInfoPath -Raw | ConvertFrom-Json
+    }
+    catch {
+        throw "Internal validation build identity is malformed."
+    }
+    $expectedCommit = Get-GitHead
+    $expectedVersion = Get-PackageVersion
+    if ($identity.build_profile -ne "validation" -or
+        $identity.distribution_name -ne "powers-tool-validation" -or
+        -not [bool]$identity.validation_runtime_available -or
+        -not [bool]$identity.candidate_inventory_available) {
+        throw "Selected executable is not the internal validation build."
+    }
+    if ($identity.source_commit -ne $expectedCommit) {
+        throw "Internal validation build source commit does not match the reviewed repository commit."
+    }
+    if ($identity.product_package_version -ne $expectedVersion -or
+        $identity.validation_distribution_version -ne $expectedVersion) {
+        throw "Product and validation distribution versions do not match."
+    }
+    if ([string]$identity.package_hash -notmatch "^[0-9a-f]{64}$") {
+        throw "Internal validation build package identity is invalid."
+    }
+    $script:ValidationBuildIdentity = [pscustomobject]@{
+        distribution_name = [string]$identity.distribution_name
+        validation_distribution_version = [string]$identity.validation_distribution_version
+        product_package_version = [string]$identity.product_package_version
+        build_profile = [string]$identity.build_profile
+        source_commit = [string]$identity.source_commit
+        source_dirty = [bool]$identity.source_dirty
+        artifact_kind = [string]$identity.artifact_kind
+        package_hash = [string]$identity.package_hash
+        entry_point = [string]$identity.entry_point
+    }
+
+    $inventoryPath = Join-Path $script:PrivateArtifactDir "validation-candidate-inventory.json"
+    $inventoryStderr = Join-Path $script:PrivateArtifactDir "validation-candidate-inventory.stderr.txt"
+    $hadPythonPath = $null -ne [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+    $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+    try {
+        [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
+        & $ValidationExecutable @ValidationPrefix "_internal-candidate-inventory" "--json" 1> $inventoryPath 2> $inventoryStderr
+    }
+    finally {
+        if ($hadPythonPath) { [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process") }
+        else { [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process") }
+    }
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $inventoryPath)) {
+        throw "Core validation candidate inventory could not be loaded."
+    }
+    try {
+        $script:CandidateInventory = Get-Content -LiteralPath $inventoryPath -Raw | ConvertFrom-Json
+    }
+    catch {
+        throw "Core validation candidate inventory is malformed."
     }
 }
 
@@ -586,7 +722,7 @@ function Ensure-CandidateManifest {
         })
     }
     $issuedAt = (Get-Date).ToUniversalTime()
-    $expiresAt = $issuedAt.AddMinutes(10)
+    $expiresAt = $issuedAt.AddMinutes((Get-CandidateRunLifetimeMinutes -Cases $script:PlannedLiveCases))
     $manifestInput = Join-Path $script:PrivateArtifactDir "candidate-run-manifest-input.json"
     $script:CandidateManifestPath = Join-Path $script:PrivateArtifactDir "candidate-run-manifest.json"
     $manifest = [ordered]@{
@@ -901,13 +1037,13 @@ function Get-ReadOnlyCases {
     }
     $cases.Add((New-CommandCase -Name "capabilities" -Suite "readonly" -Phase $phase -Args (@("capabilities") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi")) -LiveHardwareExpected:$Live))
     if ($Live) {
-        $cases.Add((New-CommandCase -Name "doctor-resource" -Suite "readonly" -Phase $phase -Args @("doctor", "--json", "--resource", $resource, "--log-scpi") -LiveHardwareExpected:$true -ValidationKind "doctor" -CandidateContextRequired:$Live))
+        $cases.Add((New-CommandCase -Name "doctor-resource" -Suite "readonly" -Phase $phase -Args @("doctor", "--json", "--resource", $resource, "--log-scpi") -LiveHardwareExpected:$true -ValidationKind "doctor" -CandidateContextRequired:($Live -and (Test-CurrentConnectionUsesCandidateCapabilities))))
     }
     else {
         $cases.Add((New-CommandCase -Name "doctor-environment" -Suite "readonly" -Phase $phase -Args @("doctor", "--simulate", "--json") -ValidationKind "doctor-offline"))
     }
     if ($Model -eq "keysight-e36312a") {
-        $cases.Add((New-CommandCase -Name "measure-all" -Suite "readonly" -Phase $phase -Args (@("measure-all") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi")) -LiveHardwareExpected:$Live -ValidationKind "measure-all" -ExpectedChannels $channels -CandidateContextRequired:$Live))
+        $cases.Add((New-CommandCase -Name "measure-all" -Suite "readonly" -Phase $phase -Args (@("measure-all") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi")) -LiveHardwareExpected:$Live -ValidationKind "measure-all" -ExpectedChannels $channels -CandidateContextRequired:($Live -and (Test-CurrentConnectionUsesCandidateCapabilities))))
         if ($Live) {
             $cases.Add((New-CommandCase -Name "measure-all-error-queue" -Suite "readonly" -Phase $phase -Args @("error", "--json", "--resource", $resource, "--max-reads", "20", "--log-scpi") -LiveHardwareExpected:$true -ValidationKind "empty-errors"))
         }
@@ -915,7 +1051,7 @@ function Get-ReadOnlyCases {
     if ($Model -in @("keysight-e36312a", "keysight-edu36311a")) {
         $logCsv = Join-Path $script:PrivateArtifactDir ($phase + "-log.csv")
         $logJsonl = Join-Path $script:PrivateArtifactDir ($phase + "-log.jsonl")
-        $cases.Add((New-CommandCase -Name "log-one-sample" -Suite "readonly" -Phase $phase -Args (@("log") + $modeFlag + @("--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--csv", $logCsv, "--jsonl", $logJsonl, "--json", "--resource", $resource, "--log-scpi")) -LiveHardwareExpected:$Live -ValidationKind "log" -ExpectedChannels $channels -GeneratedArtifacts @($logCsv, $logJsonl) -CandidateContextRequired:$Live))
+        $cases.Add((New-CommandCase -Name "log-one-sample" -Suite "readonly" -Phase $phase -Args (@("log") + $modeFlag + @("--channel", "all", "--interval-sec", "0.1", "--samples", "1", "--csv", $logCsv, "--jsonl", $logJsonl, "--json", "--resource", $resource, "--log-scpi")) -LiveHardwareExpected:$Live -ValidationKind "log" -ExpectedChannels $channels -GeneratedArtifacts @($logCsv, $logJsonl) -CandidateContextRequired:($Live -and (Test-CurrentConnectionUsesCandidateCapabilities))))
     }
     return $cases.ToArray()
 }
@@ -938,7 +1074,7 @@ function Get-OutputCases {
         $cases.Add((New-CommandCase -Name ("cycle-output-ch" + $channel) -Suite "output" -Phase $phase -Args (@("cycle-output") + $common + @("--duration-ms", "500", "--confirm")) -StateChanging:$Live -LiveHardwareExpected:$Live))
         $cases.Add((New-CommandCase -Name ("ramp-ch" + $channel) -Suite "output" -Phase $phase -Args (@("ramp") + $common + @("--start-voltage", "0", "--stop-voltage", "1", "--step-voltage", "0.25", "--current", "0.05", "--delay-ms", "100")) -StateChanging:$Live -LiveHardwareExpected:$Live))
         if ($Model -ne "keysight-e3646a") {
-            $cases.Add((New-CommandCase -Name ("output-on-ch" + $channel) -Suite "output" -Phase $phase -Args (@("output-on") + $common + @("--confirm")) -StateChanging:$Live -LiveHardwareExpected:$Live -CandidateContextRequired:$Live))
+            $cases.Add((New-CommandCase -Name ("output-on-ch" + $channel) -Suite "output" -Phase $phase -Args (@("output-on") + $common + @("--confirm")) -StateChanging:$Live -LiveHardwareExpected:$Live -CandidateContextRequired:($Live -and (Test-CurrentConnectionUsesCandidateCapabilities))))
             $stateArgs = if ($Live) { @("output-state", "--json", "--resource", $resource, "--channel", [string]$channel, "--log-scpi") } else { @("output-state", "--simulate", "--json", "--resource", $resource, "--channel", [string]$channel) }
             $stateValidation = if ($Live) { "output-state" } else { $null }
             $cases.Add((New-CommandCase -Name ("assert-output-on-ch" + $channel) -Suite "output" -Phase $phase -Args $stateArgs -LiveHardwareExpected:$Live -ValidationKind $stateValidation -ExpectedChannels @($channel) -ExpectedOutputEnabled $true))
@@ -948,7 +1084,7 @@ function Get-OutputCases {
     }
     if ($Model -eq "keysight-e3646a") {
         $globalSwitchCommon = if ($Live) { @("--json", "--resource", $resource, "--channel", "1", "--log-scpi") } else { @("--dry-run", "--json") + $modelArgs + @("--channel", "1") }
-        $cases.Add((New-CommandCase -Name "output-on-global" -Suite "output" -Phase $phase -Args (@("output-on") + $globalSwitchCommon + @("--confirm")) -StateChanging:$Live -LiveHardwareExpected:$Live -CandidateContextRequired:$Live))
+        $cases.Add((New-CommandCase -Name "output-on-global" -Suite "output" -Phase $phase -Args (@("output-on") + $globalSwitchCommon + @("--confirm")) -StateChanging:$Live -LiveHardwareExpected:$Live -CandidateContextRequired:($Live -and (Test-CurrentConnectionUsesCandidateCapabilities))))
         $globalStateArgs = if ($Live) { @("output-state", "--json", "--resource", $resource, "--channel", "all", "--log-scpi") } else { @("output-state", "--simulate", "--json", "--resource", $resource, "--channel", "all") }
         $globalStateValidation = if ($Live) { "output-state" } else { $null }
         $cases.Add((New-CommandCase -Name "assert-global-output-on" -Suite "output" -Phase $phase -Args $globalStateArgs -LiveHardwareExpected:$Live -ValidationKind $globalStateValidation -ExpectedChannels $channels -ExpectedOutputEnabled $true))
@@ -1009,16 +1145,16 @@ function Get-SnapshotCases {
         $cases.Add((New-CommandCase -Name "restore-off-mutate-setpoints" -Suite "snapshot" -Phase $phase -Args (@("apply") + $commonAll + @("--voltage", "0.5", "--current", "0.04", "--no-output")) -StateChanging:$true -LiveHardwareExpected:$true))
         $cases.Add((New-CommandCase -Name "restore-off-mutate-protection" -Suite "snapshot" -Phase $phase -Args @("protection-set", "--json", "--resource", $resource, "--channel", "all", "--ovp-voltage", "4", "--ocp", "off", "--confirm", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true))
         $cases.Add((New-CommandCase -Name "restore-off-save-b" -Suite "snapshot" -Phase $phase -Args @("snapshot", "--json", "--resource", $resource, "--snapshot-json", $snapshotB, "--log-scpi") -LiveHardwareExpected:$true -ValidationKind "snapshot-mutation" -GeneratedArtifacts @($snapshotB) -CompareSnapshotPaths @($snapshotA,$snapshotB)))
-        $cases.Add((New-CommandCase -Name "restore-off-execute" -Suite "snapshot" -Phase $phase -Args @("restore-from-snapshot", "--json", "--resource", $resource, "--snapshot", $snapshotA, "--channel", "all", "--confirm", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true -ValidationKind "restore" -ExpectedChannels @(1,2,3) -CandidateContextRequired:$true))
+        $cases.Add((New-CommandCase -Name "restore-off-execute" -Suite "snapshot" -Phase $phase -Args @("restore-from-snapshot", "--json", "--resource", $resource, "--snapshot", $snapshotA, "--channel", "all", "--confirm", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true -ValidationKind "restore" -ExpectedChannels @(1,2,3) -CandidateContextRequired:(Test-CurrentConnectionUsesCandidateCapabilities)))
         $cases.Add((New-CommandCase -Name "restore-off-save-c" -Suite "snapshot" -Phase $phase -Args @("snapshot", "--json", "--resource", $resource, "--snapshot-json", $snapshotC, "--log-scpi") -LiveHardwareExpected:$true -ValidationKind "snapshot-compare" -GeneratedArtifacts @($snapshotC) -CompareSnapshotPaths @($snapshotA,$snapshotC)))
         $cases.Add((New-CommandCase -Name "restore-off-assert-outputs" -Suite "snapshot" -Phase $phase -Args @("output-state", "--json", "--resource", $resource, "--channel", "all", "--log-scpi") -LiveHardwareExpected:$true -ValidationKind "output-state" -ExpectedChannels @(1,2,3) -ExpectedOutputEnabled $false))
         $cases.Add((New-CommandCase -Name "restore-on-safe-off" -Suite "snapshot" -Phase $phase -Args (@("safe-off") + $commonAll) -StateChanging:$true -LiveHardwareExpected:$true))
         $cases.Add((New-CommandCase -Name "restore-on-program-all" -Suite "snapshot" -Phase $phase -Args (@("apply") + $commonAll + @("--voltage", "1", "--current", "0.05", "--no-output")) -StateChanging:$true -LiveHardwareExpected:$true))
-        $cases.Add((New-CommandCase -Name "restore-on-enable-ch1" -Suite "snapshot" -Phase $phase -Args @("output-on", "--json", "--resource", $resource, "--channel", "1", "--confirm", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true -CandidateContextRequired:$true))
+        $cases.Add((New-CommandCase -Name "restore-on-enable-ch1" -Suite "snapshot" -Phase $phase -Args @("output-on", "--json", "--resource", $resource, "--channel", "1", "--confirm", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true -CandidateContextRequired:(Test-CurrentConnectionUsesCandidateCapabilities)))
         $cases.Add((New-CommandCase -Name "restore-on-save" -Suite "snapshot" -Phase $phase -Args @("snapshot", "--json", "--resource", $resource, "--snapshot-json", $snapshotOn, "--log-scpi") -LiveHardwareExpected:$true -GeneratedArtifacts @($snapshotOn)))
         $cases.Add((New-CommandCase -Name "restore-on-safe-off-before-restore" -Suite "snapshot" -Phase $phase -Args (@("safe-off") + $commonAll) -StateChanging:$true -LiveHardwareExpected:$true))
         $cases.Add((New-CommandCase -Name "restore-on-mutate-ch1" -Suite "snapshot" -Phase $phase -Args @("set", "--json", "--resource", $resource, "--channel", "1", "--voltage", "0.5", "--current", "0.04", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true))
-        $cases.Add((New-CommandCase -Name "restore-on-execute" -Suite "snapshot" -Phase $phase -Args @("restore-from-snapshot", "--json", "--resource", $resource, "--snapshot", $snapshotOn, "--channel", "all", "--restore-output-state", "--confirm", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true -ValidationKind "restore" -ExpectedChannels @(1,2,3) -CandidateContextRequired:$true))
+        $cases.Add((New-CommandCase -Name "restore-on-execute" -Suite "snapshot" -Phase $phase -Args @("restore-from-snapshot", "--json", "--resource", $resource, "--snapshot", $snapshotOn, "--channel", "all", "--restore-output-state", "--confirm", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true -ValidationKind "restore" -ExpectedChannels @(1,2,3) -CandidateContextRequired:(Test-CurrentConnectionUsesCandidateCapabilities)))
         $cases.Add((New-CommandCase -Name "restore-on-readback" -Suite "snapshot" -Phase $phase -Args @("readback", "--json", "--resource", $resource, "--channel", "all", "--log-scpi") -LiveHardwareExpected:$true -ValidationKind "snapshot-readback" -ExpectedChannels @(1,2,3) -CompareSnapshotPaths @($snapshotOn)))
         $cases.Add((New-CommandCase -Name "restore-on-assert" -Suite "snapshot" -Phase $phase -Args @("output-state", "--json", "--resource", $resource, "--channel", "all", "--log-scpi") -LiveHardwareExpected:$true -ValidationKind "output-state-one-on" -ExpectedChannels @(1,2,3)))
         $cases.Add((New-CommandCase -Name "restore-on-immediate-safe-off" -Suite "snapshot" -Phase $phase -Args (@("safe-off") + $commonAll) -StateChanging:$true -LiveHardwareExpected:$true -CleanupRole "restore_on_immediate_safe_off"))
@@ -1144,14 +1280,6 @@ function Get-SuiteCases {
     return $cases.ToArray()
 }
 
-function Get-ValidationOnlyCandidateCommands {
-    return @{
-        "keysight-e36312a" = @("output-on", "log", "doctor", "measure-all", "restore-from-snapshot")
-        "keysight-edu36311a" = @("output-on", "log", "doctor")
-        "keysight-e3646a" = @("output-on", "doctor")
-    }
-}
-
 function Assert-CandidateContextInventory {
     param(
         [Parameter(Mandatory = $true)][string]$Model,
@@ -1159,14 +1287,21 @@ function Assert-CandidateContextInventory {
         [bool]$RequireComplete = $false
     )
 
-    $inventory = Get-ValidationOnlyCandidateCommands
-    if (-not $inventory.ContainsKey($Model)) {
+    if ($null -eq $script:CandidateInventory) {
+        throw "Core candidate inventory is unavailable."
+    }
+    $modelProperty = $script:CandidateInventory.PSObject.Properties[$Model]
+    if ($null -eq $modelProperty) {
         throw "Candidate inventory has no entry for $Model."
     }
-    $expectedCommands = @($inventory[$Model])
+    $expectedCommands = @($modelProperty.Value.commands)
+    $connectionMatches = @($modelProperty.Value.connections | Where-Object {
+        $_.Count -eq 2 -and $_[0] -eq $script:TransportScope -and $_[1] -eq $script:BackendArtifact.backend_scope
+    })
+    $candidateConnectionSelected = $connectionMatches.Count -eq 1
     foreach ($case in @($LiveCases)) {
         $command = if ($case.args.Count -gt 0) { [string]$case.args[0] } else { "" }
-        $isCandidateCommand = ($case.phase -eq "live" -and [bool]$case.live_hardware_expected -and $command -in $expectedCommands)
+        $isCandidateCommand = ($candidateConnectionSelected -and $case.phase -eq "live" -and [bool]$case.live_hardware_expected -and $command -in $expectedCommands)
         if ($isCandidateCommand -and -not [bool]$case.candidate_context_required) {
             throw "Live candidate command '$command' in case '$($case.name)' is missing candidate context."
         }
@@ -1183,7 +1318,7 @@ function Assert-CandidateContextInventory {
         $command -in $expectedCommands
     } | ForEach-Object { [string]$_.args[0] } | Sort-Object -Unique)
     $missingCommands = @($expectedCommands | Where-Object { $_ -notin $seenCandidateCommands })
-    if ($RequireComplete -and $missingCommands.Count -gt 0) {
+    if ($RequireComplete -and $candidateConnectionSelected -and $missingCommands.Count -gt 0) {
         throw "Live candidate inventory is missing command uses: $($missingCommands -join ', ')."
     }
 }
@@ -1456,6 +1591,8 @@ function Invoke-ValidationCommand {
     $candidateEnvironmentName = "POWERS_TOOL_VALIDATION_RUN_SECRET"
     $hadCandidateEnvironment = $null -ne [Environment]::GetEnvironmentVariable($candidateEnvironmentName, "Process")
     $oldCandidateEnvironment = [Environment]::GetEnvironmentVariable($candidateEnvironmentName, "Process")
+    $hadPythonPath = $null -ne [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+    $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
     try {
         $ErrorActionPreference = "Continue"
         if ($hadNativePreference) {
@@ -1467,8 +1604,12 @@ function Invoke-ValidationCommand {
                 throw "Candidate capability run secret is unavailable."
             }
             [Environment]::SetEnvironmentVariable($candidateEnvironmentName, $script:CandidateRunSecret, "Process")
+            [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
+            & $ValidationExecutable @ValidationPrefix @allArgs 1> $stdoutPath 2> $stderrPath
         }
-        & $CliExecutable @CliPrefix @allArgs 1> $stdoutPath 2> $stderrPath
+        else {
+            & $CliExecutable @CliPrefix @allArgs 1> $stdoutPath 2> $stderrPath
+        }
         $exitCode = $LASTEXITCODE
     }
     finally {
@@ -1477,6 +1618,12 @@ function Invoke-ValidationCommand {
         }
         else {
             [Environment]::SetEnvironmentVariable($candidateEnvironmentName, $null, "Process")
+        }
+        if ($hadPythonPath) {
+            [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process")
+        }
+        else {
+            [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process")
         }
         $ErrorActionPreference = $oldErrorActionPreference
         if ($hadNativePreference) {
@@ -1924,6 +2071,7 @@ function Write-ValidationArtifacts {
         cleanup = $script:CleanupEvidence
         git_head = Get-GitHead
         package_version = Get-PackageVersion
+        validation_build = $script:ValidationBuildIdentity
         started_at = $StartedAt.ToUniversalTime().ToString("o")
         completed_at = $completedAt.ToUniversalTime().ToString("o")
         result = $Result
@@ -2031,9 +2179,11 @@ $script:ShareableArtifactDir = $null
 $script:ExternalPreflight = [pscustomobject]@{ status = "not_run"; hardware_touched = $false }
 $script:SensitiveValues = New-Object System.Collections.Generic.List[string]
 $script:PlannedLiveCases = @()
-$script:CandidateRunId = New-SecureHexValue
+$script:CandidateRunId = $null
 $script:CandidateRunSecret = $null
 $script:CandidateManifestPath = $null
+$script:CandidateInventory = $null
+$script:ValidationBuildIdentity = $null
 
 if ($env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1") {
     return
@@ -2095,9 +2245,15 @@ $script:ExternalPreflight = [pscustomobject]@{ status = "not_run"; hardware_touc
 $startedAt = Get-Date
 
 Ensure-ArtifactDirectories
-$script:CandidateRunId = New-SecureHexValue
-$script:CandidateRunSecret = New-SecureHexValue -ByteCount 32
-Add-SensitiveValue -Value $script:CandidateRunSecret
+try {
+    Resolve-ValidationBuildAndInventory
+}
+catch {
+    $script:Failures.Add("Validation build resolution failed: $($_.Exception.Message)")
+    Write-ValidationArtifacts -ValidationMode "preflight_failed" -Result "preflight_failed" -StartedAt $startedAt
+    Write-Error "Validation build resolution failed before VISA access."
+    exit 1
+}
 $externalPreflightRoot = Join-Path $script:PrivateArtifactDir "external_preflight"
 $externalPreflightStdout = Join-Path $script:PrivateArtifactDir "external_preflight.stdout.txt"
 $externalPreflightStderr = Join-Path $script:PrivateArtifactDir "external_preflight.stderr.txt"
@@ -2199,6 +2355,28 @@ Write-Host "- Confirm output indicators are currently OFF before state-changing 
 Write-Host "- Confirm no OVP/OCP/error/protection abnormal indicators are shown."
 Write-Host ""
 Read-Host "Press Enter to run live suite validation, or press Ctrl+C to abort"
+
+if ($null -eq $script:ValidationBuildIdentity -or
+    $script:ValidationBuildIdentity.artifact_kind -ne "wheel" -or
+    [bool]$script:ValidationBuildIdentity.source_dirty) {
+    $script:Failures.Add("Real validation requires a clean, installed internal validation wheel.")
+    Write-ValidationArtifacts -ValidationMode "live" -Result "failed" -StartedAt $startedAt
+    Write-Error "Real validation requires a clean, installed internal validation wheel; no VISA resource was opened."
+    exit 1
+}
+
+$script:CandidateRunId = New-SecureHexValue
+$script:CandidateRunSecret = New-SecureHexValue -ByteCount 32
+Add-SensitiveValue -Value $script:CandidateRunSecret
+try {
+    Ensure-CandidateManifest | Out-Null
+}
+catch {
+    $script:Failures.Add("Candidate run manifest issuance failed: $($_.Exception.Message)")
+    Write-ValidationArtifacts -ValidationMode "live" -Result "failed" -StartedAt $startedAt
+    Write-Error "Candidate run manifest issuance failed before VISA access."
+    exit 1
+}
 
 $liveCases = Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:$true
 foreach ($case in $liveCases) {

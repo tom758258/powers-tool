@@ -331,7 +331,7 @@ def test_output_without_exact_evidence_rejects_after_idn_before_write() -> None:
     assert session.writes == []
 
 
-def test_validation_mode_opens_exact_output_candidate_scope() -> None:
+def test_product_core_rejects_bare_candidate_context_before_output_scpi() -> None:
     session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
     request = OperationRequest(
         "output-on",
@@ -345,11 +345,40 @@ def test_validation_mode_opens_exact_output_candidate_scope() -> None:
         ),
         {"channel": 1},
     )
-    data = run_operation(request, opener=lambda *args, **kwargs: session)
-    assert data["output_enabled"] is True
-    assert session.queries[:3] == ["*IDN?", "VOLT? (@1)", "CURR? (@1)"]
-    assert session.writes == ["OUTP ON,(@1)"]
+    with pytest.raises(LiveSupportPolicyError, match="internal validation build"):
+        run_operation(request, opener=lambda *args, **kwargs: session)
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
     assert session.closed
+
+
+def test_product_core_rejects_complete_forged_candidate_metadata() -> None:
+    context = ValidationCandidateContext(
+        run_id="run",
+        case_id="case",
+        suite="full",
+        model_id="keysight-e36312a",
+        command="output-on",
+        transport_scope="usb",
+        backend_scope="system_visa",
+        request_fingerprint="f" * 64,
+        capability_id="c" * 48,
+        issued_at="2026-01-01T00:00:00+00:00",
+        expires_at="2026-01-01T01:00:00+00:00",
+        integrity_validated=True,
+    )
+    request = OperationRequest(
+        "output-on",
+        RuntimeOptions(
+            resource="USB0::1::INSTR",
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            validation_candidate_context=context,
+            validation_request_fingerprint=context.request_fingerprint,
+            validation_build_permit=object(),
+        ),
+    )
+    with pytest.raises(LiveSupportPolicyError, match="internal validation build"):
+        enforce_live_support(request, "keysight-e36312a")
 
 
 @pytest.mark.parametrize(
@@ -367,23 +396,20 @@ def test_validation_mode_opens_exact_output_candidate_scope() -> None:
         ("keysight-e3646a", "doctor", "ASRL1::INSTR"),
     ],
 )
-def test_validation_mode_admits_exact_system_visa_command_candidates(
+def test_product_core_rejects_candidate_matrix_even_in_validation_policy_mode(
     model_id: str, command: str, resource: str
 ) -> None:
-    scope = enforce_live_support(
-        _request(
-            command,
-            resource,
-            model=model_id,
-            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
-            candidate_context=True,
-        ),
-        model_id,
-    )
-    assert scope is not None
-    assert scope.transport_scope in {"usb", "tcpip", "asrl"}
-    assert scope.backend_scope == "system_visa"
-    assert scope.accepted_evidence_ids == ()
+    with pytest.raises(LiveSupportPolicyError, match="internal validation build"):
+        enforce_live_support(
+            _request(
+                command,
+                resource,
+                model=model_id,
+                support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+                candidate_context=True,
+            ),
+            model_id,
+        )
 
 
 @pytest.mark.parametrize(
@@ -402,7 +428,7 @@ def test_product_mode_keeps_command_candidates_closed(
 
 
 def test_validation_mode_without_candidate_context_keeps_candidates_closed() -> None:
-    with pytest.raises(LiveSupportPolicyError, match="candidate context is required"):
+    with pytest.raises(LiveSupportPolicyError, match="internal validation build"):
         enforce_live_support(
             _request(
                 "output-on",
@@ -438,7 +464,7 @@ def test_validation_candidate_context_must_exactly_match_live_request(
             validation_candidate_context=replace(context, **{field: value}),
         ),
     )
-    with pytest.raises(LiveSupportPolicyError, match="context"):
+    with pytest.raises(LiveSupportPolicyError, match="internal validation build"):
         enforce_live_support(request, "keysight-e36312a")
 
 
@@ -451,7 +477,7 @@ def test_validation_candidate_context_must_be_typed() -> None:
             validation_candidate_context={"command": "output-on"},  # type: ignore[arg-type]
         ),
     )
-    with pytest.raises(LiveSupportPolicyError, match="malformed"):
+    with pytest.raises(LiveSupportPolicyError, match="internal validation build"):
         enforce_live_support(request, "keysight-e36312a")
 
 

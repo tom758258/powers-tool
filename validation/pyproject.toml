@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "powers-tool-validation"
+version = "2.0.0"
+description = "Internal validation-only companion for Powers Tool contributors."
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+  "powers-tool==2.0.0",
+]
+
+[project.scripts]
+powers-tool-validation = "powers_tool_validation.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["powers_tool_validation*"]
+
+[tool.pytest.ini_options]
+addopts = "--basetemp=.tmp_tests/pytest_validation"
+testpaths = ["tests"]
+pythonpath = ["src", "../src"]
+
+[tool.uv.sources]
+powers-tool = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "build>=1.2",
+  "pytest>=8.0",
+]

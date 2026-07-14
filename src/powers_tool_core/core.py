@@ -23,9 +23,8 @@ class ValidationCandidateContext:
     capability_id: str = ""
     issued_at: str = ""
     expires_at: str = ""
-    # Direct Core callers already supply the typed internal contract.  The CLI
-    # sets this explicitly after verifying the signed capability.
-    integrity_validated: bool = True
+    integrity_validated: bool = False
+    _verifier_proof: object | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -51,6 +50,7 @@ class RuntimeOptions:
     support_policy_mode: str = "product"
     validation_candidate_context: ValidationCandidateContext | None = None
     validation_request_fingerprint: str | None = None
+    validation_build_permit: object | None = field(default=None, repr=False, compare=False)
     validation_admission_state: dict[str, object] | None = None
 
     def __post_init__(self) -> None:

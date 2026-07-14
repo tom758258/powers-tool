@@ -106,13 +106,19 @@ commands as exact validation candidates where the model supports them:
 E36312A adds `output-on`, `log`, resource-backed `doctor`, `measure-all`, and
 real `restore-from-snapshot`; EDU36311A adds `output-on`, `log`, and
 resource-backed `doctor`; E3646A adds `output-on` and resource-backed
-`doctor`. Each live candidate invocation additionally requires a signed,
-run-scoped, case-scoped, one-time capability issued by this maintained
-wrapper. The capability binds the exact model, command, connection, case, and
-request; the ordinary pending-support switch alone cannot admit a candidate.
-This is an internal misuse-resistance contract, not a security boundary
-against a user who controls or modifies the machine. It is not a public
-bypass.
+`doctor`. Product wheels, sdists, CLIs, WebUI, and Worker contain no candidate
+activation interface or capability issuer. Candidate runs require the separate
+internal `powers-tool-validation` contributor distribution, which is excluded
+from normal Product release artifacts and uploads. Inside that build, each live
+candidate invocation additionally requires a signed, run-scoped, case-scoped,
+one-time capability bound to the exact model, command, connection, case, and
+request. The ordinary pending-support switch alone cannot admit a candidate.
+
+The distribution boundary, rather than HMAC, separates Product from Validation.
+HMAC protects exact run/case integrity and replay handling inside the internal
+validation build; it does not prove wrapper identity against a user who controls
+or modifies the source tree and deliberately builds another package. This is
+not a public bypass.
 Normal Product mode remains closed until new live artifacts are run, reviewed,
 registered, and promoted in a separate change. Existing historical evidence
 does not cover these new standalone cases, and a future passing suite does not
@@ -160,13 +166,17 @@ command and connection matrix is in
 
 ## Project Structure
 
-The repository has one distribution and one version number. In examples,
-`<version>` means `[project].version` from the root `pyproject.toml`:
+The normal Product release has one distribution and one version number. In
+examples, `<version>` means `[project].version` from the root `pyproject.toml`:
 
 - Distribution: `powers-tool` `<version>`
 - Core import: `powers_tool_core`
 - CLI import: `powers_tool_cli`
 - WebUI import: `powers_tool_webui`
+
+The `validation/` project builds the separate internal contributor-only
+`powers-tool-validation` companion at the same version. It is not included in
+Product wheels, sdists, standalone executables, or normal release folders.
 
 The import paths remain independent. Do not use a `keysight_power.*`
 namespace package.
@@ -271,6 +281,12 @@ This produces only one Python distribution:
 dist\powers_tool-2.0.0-py3-none-any.whl
 dist\powers_tool-2.0.0.tar.gz
 ```
+
+The Product artifact inspector rejects validation packages, candidate issuer
+modules, validation entry points, and candidate parser inputs. Normal release
+automation builds and copies only these Product artifacts. The internal
+`validation/` project is built and tested separately and is never added to the
+Product release folder.
 
 Standalone executables are separate PyInstaller workflows. Prepare the locked
 development environment, which includes PyInstaller, before building exe
@@ -393,9 +409,10 @@ Plan-only reports include the model-specific planned live-case inventory. The
 new candidate cases remain limited to E36312A USB/TCPIP + system VISA,
 EDU36311A USB/TCPIP + system VISA, and E3646A ASRL + system VISA; other models,
 transports, pyvisa-py, and custom backends fail closed.
-Each live candidate invocation also requires an exact, private, run-scoped
-context created by this maintained wrapper. The existing hidden pending-scope
-switch alone does not admit these command candidates.
+Each live candidate invocation also requires the reviewed internal validation
+build and an exact, private, signed, one-time run/case capability. The Product
+CLI does not accept candidate capability inputs, and the existing hidden
+pending-scope switch alone does not admit these command candidates.
 
 A passed `scripts\live-cli-check.ps1` run validates only the selected target
 model, connection type, suite, and cases recorded in that run's artifacts. It

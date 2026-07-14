@@ -58,6 +58,10 @@ def _write_distribution_fixture(
         archive.writestr(f"{dist_info}/entry_points.txt", entry_points)
         for package in ("powers_tool_core", "powers_tool_cli", "powers_tool_webui"):
             archive.writestr(f"{package}/__init__.py", "")
+        archive.writestr(
+            "powers_tool_core/build_profile.py",
+            "PRODUCT_BUILD_IDENTITY = ProductBuildIdentity(profile=BuildProfile.PRODUCT)\n",
+        )
         for filename in ("index.html", "styles.css", "app.js"):
             archive.writestr(f"powers_tool_webui/static/{filename}", filename)
 
@@ -67,6 +71,11 @@ def _write_distribution_fixture(
     with tarfile.open(dist_dir / f"powers_tool-{artifact_version}.tar.gz", "w:gz") as archive:
         for package in ("powers_tool_core", "powers_tool_cli", "powers_tool_webui"):
             _add_tar_text(archive, f"{root}/src/{package}/__init__.py", "")
+        _add_tar_text(
+            archive,
+            f"{root}/src/powers_tool_core/build_profile.py",
+            "PRODUCT_BUILD_IDENTITY = ProductBuildIdentity(profile=BuildProfile.PRODUCT)\n",
+        )
         for filename in ("index.html", "styles.css", "app.js"):
             _add_tar_text(
                 archive,
@@ -505,14 +514,24 @@ def test_release_acceptance_candidate_overlay_has_an_exact_write_scope() -> None
     allowed_block = text.split("$allowedCandidatePaths = @(", 1)[1].split(")", 1)[0]
     expected = {
         ".github/workflows/tests.yml",
+        "CHANGELOG.md",
+        "MANIFEST.in",
         "README.md",
         "pyproject.toml",
         "docs/cli/README.md",
         "docs/core/README.md",
+        "docs/core/supported-models.md",
+        "scripts/build_release.ps1",
         "scripts/_validation_helpers.ps1",
         "scripts/live-cli-check.ps1",
         "scripts/preflight-cli.ps1",
         "scripts/release-acceptance.ps1",
+        "src/powers_tool_cli/candidate_capability.py",
+        "src/powers_tool_cli/cli.py",
+        "src/powers_tool_core/build_profile.py",
+        "src/powers_tool_core/core.py",
+        "src/powers_tool_core/live_support.py",
+        "src/powers_tool_core/support_policy.py",
         "tests/packaging/_inspector_utils.py",
         "tests/packaging/inspect_distribution.py",
         "tests/packaging/inspect_pyinstaller.py",
@@ -520,9 +539,24 @@ def test_release_acceptance_candidate_overlay_has_an_exact_write_scope() -> None
         "tests/cli/test_cli_wrappers.py",
         "tests/cli/test_followup_features.py",
         "tests/cli/test_live_cli_check_script.py",
+        "tests/cli/test_candidate_capability.py",
+        "tests/cli/test_product_candidate_isolation.py",
         "tests/cli/test_supported_models_docs.py",
         "tests/core/test_model_enablement.py",
+        "tests/core/test_live_support_policy_enforcement.py",
+        "tests/packaging/test_distribution_isolation.py",
         "tests/packaging/test_release_acceptance.py",
+        "validation/pyproject.toml",
+        "validation/setup.py",
+        "validation/src/powers_tool_validation/__init__.py",
+        "validation/src/powers_tool_validation/__main__.py",
+        "validation/src/powers_tool_validation/build_identity.py",
+        "validation/src/powers_tool_validation/candidate_capability.py",
+        "validation/src/powers_tool_validation/cli.py",
+        "validation/src/powers_tool_validation/runtime_extension.py",
+        "validation/tests/inspect_validation_distribution.py",
+        "validation/tests/test_candidate_capability.py",
+        "validation/tests/test_validation_runtime.py",
         "uv.lock",
     }
     actual = {

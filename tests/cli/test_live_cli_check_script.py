@@ -918,7 +918,11 @@ $records | ConvertTo-Json -Depth 12 -Compress
 
     for record in records:
         assert record["contract"] != "unclassified", record
-        cli.build_parser().parse_args(record["arguments"])
+        if "--validation-candidate-manifest" in record["arguments"]:
+            with pytest.raises(SystemExit):
+                cli.build_parser().parse_args(record["arguments"])
+        else:
+            cli.build_parser().parse_args(record["arguments"])
 
 
 @pytest.mark.parametrize(
@@ -1668,3 +1672,46 @@ def test_english_docs_describe_suite_scoped_validation_and_e3646a_boundaries():
     assert "preflight-cli.ps1" in docs
     assert "software workflows, not native LIST" in normalized
     assert "OUTP ON/OFF" in docs
+def test_validation_build_and_inventory_are_resolved_before_live_access() -> None:
+    text = Path("scripts/live-cli-check.ps1").read_text(encoding="utf-8")
+
+    assert "Get-ValidationOnlyCandidateCommands" not in text
+    assert '"_internal-build-info" "--json"' in text
+    assert '"_internal-candidate-inventory" "--json"' in text
+    assert text.index("Resolve-ValidationBuildAndInventory") < text.index(
+        'Write-Host "Running external no-hardware CLI preflight'
+    )
+
+
+def test_live_manifest_and_secret_are_created_only_after_confirmation() -> None:
+    text = Path("scripts/live-cli-check.ps1").read_text(encoding="utf-8")
+    confirmation = text.rindex('Read-Host "Press Enter to run live suite validation')
+    secret = text.rindex("$script:CandidateRunSecret = New-SecureHexValue -ByteCount 32")
+    manifest = text.rindex("Ensure-CandidateManifest | Out-Null")
+
+    assert confirmation < secret < manifest
+    assert ".AddMinutes(10)" not in text
+    assert "[Math]::Min(240, [Math]::Max(30" in text
+
+
+def test_full_plan_only_creates_no_usable_live_capability() -> None:
+    before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
+    result = _run_live_cli_check(
+        "-Target",
+        "keysight-e36312a",
+        "-Connection",
+        "USB",
+        "-Resource",
+        "SIM::E36312A",
+        "-Suite",
+        "full",
+        "-PlanOnly",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = _new_live_check_report(before)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    private_dir = report_path.parent.parent / "private"
+    assert report["validation_build"]["build_profile"] == "validation"
+    assert not (private_dir / "candidate-run-manifest.json").exists()
+    assert not list(private_dir.glob("candidate-capability-*.json"))

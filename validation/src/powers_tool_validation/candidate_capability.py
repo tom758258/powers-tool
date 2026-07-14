@@ -1,4 +1,4 @@
-"""Internal signed capabilities for maintained live validation candidates.
+"""Signed capabilities for the internal validation distribution.
 
 This module is intentionally an internal implementation detail.  The wrapper
 issues signed run/case documents and the CLI verifies and consumes them before
@@ -17,11 +17,16 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from powers_tool_core.core import ValidationCandidateContext
+from powers_tool_core.capabilities import command_support
+from powers_tool_validation.build_identity import verified_candidate_context
 
 SCHEMA_VERSION = 1
 SECRET_ENVIRONMENT_VARIABLE = "POWERS_TOOL_VALIDATION_RUN_SECRET"
 _CAPABILITY_ID_PATTERN = re.compile(r"^[0-9a-f]{32,128}$")
-_MAX_RUN_SECONDS = 15 * 60
+_MIN_RUN_SECONDS = 30 * 60
+_MAX_RUN_SECONDS = 4 * 60 * 60
+_MAX_CASE_SECONDS = 15 * 60
+_MIN_CASE_SECONDS = 60
 _MAX_CLOCK_SKEW_SECONDS = 60
 _HIDDEN_ARGUMENTS = frozenset(
     {
@@ -117,18 +122,21 @@ def _parse_timestamp(value: Any, field: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _validate_time_window(document: dict[str, Any], *, now: datetime | None = None) -> None:
+def _validate_time_window(
+    document: dict[str, Any],
+    *,
+    maximum_seconds: int,
+    now: datetime | None = None,
+) -> None:
     issued = _parse_timestamp(document.get("issued_at"), "issued_at")
     expires = _parse_timestamp(document.get("expires_at"), "expires_at")
     if expires <= issued:
         raise CandidateCapabilityError("candidate capability time range is invalid")
-    if expires - issued > timedelta(seconds=_MAX_RUN_SECONDS):
+    if expires - issued > timedelta(seconds=maximum_seconds):
         raise CandidateCapabilityError("candidate capability expiry is too long")
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if issued > current + timedelta(seconds=_MAX_CLOCK_SKEW_SECONDS):
         raise CandidateCapabilityError("candidate capability is issued in the future")
-    if current - issued > timedelta(seconds=_MAX_RUN_SECONDS):
-        raise CandidateCapabilityError("candidate capability was issued too long ago")
     if expires < current:
         raise CandidateCapabilityError("candidate capability has expired")
 
@@ -161,7 +169,7 @@ def _validate_manifest_payload(payload: dict[str, Any], private_root: Path | Non
         actual = Path(str(payload["private_run_directory_identity"])).resolve()
         if actual != expected:
             raise CandidateCapabilityError("candidate run manifest private directory does not match")
-    _validate_time_window(payload)
+    _validate_time_window(payload, maximum_seconds=_MAX_RUN_SECONDS)
     seen: set[str] = set()
     seen_capabilities: set[str] = set()
     for entry in cases:
@@ -189,6 +197,13 @@ def _validate_manifest_payload(payload: dict[str, Any], private_root: Path | Non
             raise CandidateCapabilityError("candidate run manifest case entry is malformed")
         if not isinstance(entry["state_changing"], bool) or not isinstance(entry["arguments"], list) or not all(isinstance(item, str) for item in entry["arguments"]):
             raise CandidateCapabilityError("candidate run manifest case arguments are malformed")
+        capability = command_support(entry["model_id"]).get(entry["command"])
+        if capability is None or entry["state_changing"] is not bool(
+            capability.get("requires_confirm")
+        ):
+            raise CandidateCapabilityError(
+                "candidate run manifest state-changing classification is invalid"
+            )
         if entry["request_fingerprint"] != request_fingerprint(entry["arguments"]):
             raise CandidateCapabilityError("candidate run manifest request fingerprint is invalid")
         if not _CAPABILITY_ID_PATTERN.fullmatch(entry["capability_id"]):
@@ -210,6 +225,10 @@ def issue_manifest(input_path: Path, output_path: Path, secret: bytes) -> None:
         if isinstance(entry, dict) and not entry.get("request_fingerprint"):
             entry["request_fingerprint"] = request_fingerprint(entry.get("arguments", []))
     _validate_manifest_payload(payload)
+    issued = _parse_timestamp(payload["issued_at"], "issued_at")
+    expires = _parse_timestamp(payload["expires_at"], "expires_at")
+    if expires - issued < timedelta(seconds=_MIN_RUN_SECONDS):
+        raise CandidateCapabilityError("candidate run manifest expiry is too short")
     document = dict(payload)
     document["manifest_signature"] = _signature(payload, secret)
     output_path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -222,6 +241,11 @@ def issue_capability(manifest_path: Path, output_path: Path, case_id: str, secre
     if len(entries) != 1:
         raise CandidateCapabilityError("candidate case is not present in the signed run manifest")
     entry = dict(entries[0])
+    issued_at = datetime.now(timezone.utc)
+    manifest_expires = _parse_timestamp(payload["expires_at"], "expires_at")
+    expires_at = min(issued_at + timedelta(seconds=_MAX_CASE_SECONDS), manifest_expires)
+    if expires_at - issued_at < timedelta(seconds=_MIN_CASE_SECONDS):
+        raise CandidateCapabilityError("candidate run manifest is too near expiry")
     capability_payload = {
         "schema_version": SCHEMA_VERSION,
         "run_id": payload["run_id"],
@@ -235,8 +259,8 @@ def issue_capability(manifest_path: Path, output_path: Path, case_id: str, secre
         "arguments": entry["arguments"],
         "request_fingerprint": entry["request_fingerprint"],
         "capability_id": entry["capability_id"],
-        "issued_at": payload["issued_at"],
-        "expires_at": payload["expires_at"],
+        "issued_at": issued_at.isoformat(),
+        "expires_at": expires_at.isoformat(),
         "private_run_directory_identity": payload["private_run_directory_identity"],
         "manifest_path": str(manifest_path.resolve()),
         "manifest_signature": document["manifest_signature"],
@@ -288,10 +312,13 @@ def consume_and_verify(
     }
     if set(capability_payload) != required or capability_payload.get("schema_version") != SCHEMA_VERSION:
         raise CandidateCapabilityError("candidate capability is malformed")
-    _validate_time_window(capability_payload)
+    _validate_time_window(capability_payload, maximum_seconds=_MAX_CASE_SECONDS)
     if capability_payload["manifest_path"] != str(manifest):
         raise CandidateCapabilityError("candidate capability manifest does not match")
-    if capability_payload["manifest_signature"] != manifest_document.get("manifest_signature"):
+    manifest_signature = manifest_document.get("manifest_signature")
+    if not isinstance(manifest_signature, str) or not hmac.compare_digest(
+        capability_payload["manifest_signature"], manifest_signature
+    ):
         raise CandidateCapabilityError("candidate capability manifest signature does not match")
     if expected_case_id is not None and capability_payload["case_id"] != expected_case_id:
         raise CandidateCapabilityError("candidate capability case does not match")
@@ -306,17 +333,17 @@ def consume_and_verify(
         )
     ):
         raise CandidateCapabilityError("candidate capability is not an exact signed manifest case")
-    _consume_marker(root, str(capability_payload["capability_id"]))
-    try:
-        capability_file.unlink(missing_ok=True)
-    except OSError:
-        pass
     if capability_payload["command"] != command:
         raise CandidateCapabilityError("candidate capability command does not match")
     actual_fingerprint = request_fingerprint(argv)
     if not hmac.compare_digest(actual_fingerprint, capability_payload["request_fingerprint"]):
         raise CandidateCapabilityError("candidate capability invocation does not match")
-    return ValidationCandidateContext(
+    _consume_marker(root, str(capability_payload["capability_id"]))
+    try:
+        capability_file.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return verified_candidate_context(
         run_id=capability_payload["run_id"],
         case_id=capability_payload["case_id"],
         suite=capability_payload["suite"],
@@ -328,7 +355,6 @@ def consume_and_verify(
         capability_id=capability_payload["capability_id"],
         issued_at=capability_payload["issued_at"],
         expires_at=capability_payload["expires_at"],
-        integrity_validated=True,
     )
 
 

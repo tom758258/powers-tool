@@ -56,9 +56,7 @@ from powers_tool_core.core import (
     TriggerWaitTimeout,
     UnsupportedChannelError,
     UnsupportedModelError,
-    ValidationCandidateContext,
 )
-from powers_tool_cli import candidate_capability
 from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.drivers.e3646a import E3646APowerSupply
 from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
@@ -162,6 +160,8 @@ LOG_CSV_FIELDS = (
     "output_enabled",
     "errors",
 )
+
+_DISTRIBUTION_RUNTIME_EXTENSION: Any = None
 
 OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
 STEP_TRIGGER_POWER_SUPPLY_TYPES = (E36312APowerSupply,)
@@ -1018,11 +1018,9 @@ def _add_validation_support_policy_argument(parser: argparse.ArgumentParser) -> 
         action="store_true",
         help=argparse.SUPPRESS,
     )
-    parser.add_argument("--validation-candidate-manifest", help=argparse.SUPPRESS)
-    parser.add_argument("--validation-candidate-capability", help=argparse.SUPPRESS)
-    parser.add_argument("--validation-candidate-context-root", help=argparse.SUPPRESS)
-    parser.add_argument("--validation-candidate-case-id", help=argparse.SUPPRESS)
-    parser.add_argument("--validation-candidate-suite", help=argparse.SUPPRESS)
+    extension = _DISTRIBUTION_RUNTIME_EXTENSION
+    if extension is not None:
+        extension.add_live_arguments(parser)
 
 
 def _add_model_argument(
@@ -1060,51 +1058,18 @@ def _runtime_identity_for_args(args: argparse.Namespace) -> dict[str, str | None
     }
 
 
-def _validation_candidate_context_for_args(
-    args: argparse.Namespace,
-) -> ValidationCandidateContext | None:
-    cached = getattr(args, "_validated_candidate_context", None)
-    if cached is not None:
-        return cached
-    capability_value = getattr(args, "validation_candidate_capability", None)
-    manifest_value = getattr(args, "validation_candidate_manifest", None)
-    root_value = getattr(args, "validation_candidate_context_root", None)
-    case_id_value = getattr(args, "validation_candidate_case_id", None)
-    suite_value = getattr(args, "validation_candidate_suite", None)
-    if capability_value is None and manifest_value is None and root_value is None and case_id_value is None and suite_value is None:
-        return None
-    if not all(isinstance(value, str) and value for value in (capability_value, manifest_value, root_value, case_id_value, suite_value)):
-        raise CoreValidationError("validation candidate capability is malformed")
-    try:
-        capability_path = Path(capability_value).resolve()
-        manifest_path = Path(manifest_value).resolve()
-        context_root = Path(root_value).resolve()
-    except (OSError, ValueError) as exc:
-        raise CoreValidationError("validation candidate capability path is malformed") from exc
-    if context_root.name != "private" or capability_path.parent != context_root or manifest_path.parent != context_root:
-        raise CoreValidationError("validation candidate capability is outside the private run directory")
-    try:
-        secret = candidate_capability.secret_from_environment()
-        context = candidate_capability.consume_and_verify(
-            manifest_path,
-            capability_path,
-            context_root,
-            secret,
-            argv=getattr(args, "_raw_argv", ()),
-            command=args.command,
-            expected_case_id=getattr(args, "validation_candidate_case_id", None),
-            expected_suite=getattr(args, "validation_candidate_suite", None),
-        )
-    except candidate_capability.CandidateCapabilityError as exc:
-        raise CoreValidationError(str(exc)) from exc
-    setattr(args, "_validated_candidate_context", context)
-    setattr(args, "_candidate_context_integrity_validated", True)
-    execution_state = getattr(args, "_execution_state", None)
-    if not isinstance(execution_state, dict):
-        execution_state = getattr(args, "_candidate_admission_state", None)
-    if isinstance(execution_state, dict):
-        execution_state["candidate_context_integrity_validated"] = True
-    return context
+def _install_distribution_runtime_extension(extension: Any) -> None:
+    """Install the separately distributed internal runtime adapter."""
+
+    global _DISTRIBUTION_RUNTIME_EXTENSION
+    _DISTRIBUTION_RUNTIME_EXTENSION = extension
+
+
+def _distribution_runtime_options_for_args(args: argparse.Namespace) -> dict[str, Any]:
+    extension = _DISTRIBUTION_RUNTIME_EXTENSION
+    if extension is None:
+        return {}
+    return dict(extension.runtime_options(args))
 
 
 def _add_write_verification_arguments(parser: argparse.ArgumentParser) -> None:
@@ -3731,13 +3696,7 @@ def _run_restore_from_snapshot(args: argparse.Namespace) -> int:
                     log_scpi=args.log_scpi,
                     confirm=args.confirm,
                     support_policy_mode=_support_policy_mode_for_args(args),
-                    validation_candidate_context=_validation_candidate_context_for_args(args),
-                    validation_request_fingerprint=(
-                        getattr(args, "_validated_candidate_context", None).request_fingerprint
-                        if getattr(args, "_validated_candidate_context", None) is not None
-                        else None
-                    ),
-                    validation_admission_state=_candidate_admission_state_for_args(args),
+                    **_distribution_runtime_options_for_args(args),
                 ),
                 parameters={
                     "snapshot": args.snapshot,
@@ -8133,40 +8092,11 @@ def _execution_for_args(
             "hardware_touched": bool(hardware_intent and mode == "real" and not dry_run),
         }
     )
-    if any(
-        getattr(args, name, None) is not None
-        for name in (
-            "validation_candidate_capability",
-            "validation_candidate_manifest",
-            "validation_candidate_case_id",
-            "validation_candidate_suite",
-            "validation_candidate_context_root",
-        )
-    ):
-        execution.setdefault("candidate_context_required", True)
-        execution.setdefault("candidate_context_integrity_validated", False)
-        execution.setdefault("candidate_scope_admitted", False)
+    extension = _DISTRIBUTION_RUNTIME_EXTENSION
+    if extension is not None:
+        extension.decorate_execution(args, execution)
     setattr(args, "_execution_state", execution)
     return execution
-
-
-def _candidate_admission_state_for_args(args: argparse.Namespace) -> dict[str, object] | None:
-    if (
-        getattr(args, "validation_candidate_capability", None) is None
-        and getattr(args, "validation_candidate_manifest", None) is None
-        and getattr(args, "validation_candidate_case_id", None) is None
-        and getattr(args, "validation_candidate_suite", None) is None
-        and getattr(args, "validation_candidate_context_root", None) is None
-    ):
-        return None
-    execution = getattr(args, "_execution_state", None)
-    if isinstance(execution, dict):
-        return execution
-    state = getattr(args, "_candidate_admission_state", None)
-    if not isinstance(state, dict):
-        state = {}
-        setattr(args, "_candidate_admission_state", state)
-    return state
 
 
 def _validation_execution_from_argv(argv: Sequence[str]) -> dict[str, Any]:
@@ -9567,13 +9497,7 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
             support_policy_mode=_support_policy_mode_for_args(args),
-            validation_candidate_context=_validation_candidate_context_for_args(args),
-            validation_request_fingerprint=(
-                getattr(args, "_validated_candidate_context", None).request_fingerprint
-                if getattr(args, "_validated_candidate_context", None) is not None
-                else None
-            ),
-            validation_admission_state=_candidate_admission_state_for_args(args),
+            **_distribution_runtime_options_for_args(args),
         ),
         parameters=parameters,
     )
@@ -9608,13 +9532,7 @@ def _target_core_request_for_args(args: argparse.Namespace) -> OperationRequest:
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
             support_policy_mode=_support_policy_mode_for_args(args),
-            validation_candidate_context=_validation_candidate_context_for_args(args),
-            validation_request_fingerprint=(
-                getattr(args, "_validated_candidate_context", None).request_fingerprint
-                if getattr(args, "_validated_candidate_context", None) is not None
-                else None
-            ),
-            validation_admission_state=_candidate_admission_state_for_args(args),
+            **_distribution_runtime_options_for_args(args),
         ),
         parameters=parameters,
     )
@@ -9763,13 +9681,7 @@ def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
             support_policy_mode=_support_policy_mode_for_args(args),
-            validation_candidate_context=_validation_candidate_context_for_args(args),
-            validation_request_fingerprint=(
-                getattr(args, "_validated_candidate_context", None).request_fingerprint
-                if getattr(args, "_validated_candidate_context", None) is not None
-                else None
-            ),
-            validation_admission_state=_candidate_admission_state_for_args(args),
+            **_distribution_runtime_options_for_args(args),
         ),
         parameters=parameters,
     )

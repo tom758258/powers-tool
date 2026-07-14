@@ -81,6 +81,11 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
+& $Python (Join-Path $RepoRoot "tests\packaging\inspect_distribution.py") --expected-version $Version (Join-Path $RepoRoot "dist")
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_cli_exe.ps1") -DistPath $versionDir -Name "powers-tool-$Version"
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE

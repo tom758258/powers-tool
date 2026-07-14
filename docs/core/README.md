@@ -41,20 +41,25 @@ then requires an exact `model_id + command + transport + backend + required
 feature` scope before command-specific SCPI. Missing, unsupported, and pending
 scopes fail closed.
 
-Core also has an internal contributor-validation policy mode for explicitly
-registered pending scopes and a narrow inventory of validation-only command
-candidates. Candidate admission requires an implemented `real=True` command
-on the exact canonical IDN-detected model and the approved system-VISA
-transport for that model, plus a verified typed context from a signed,
-run-scoped, case-scoped, one-time wrapper capability. The capability binds the
-exact request fingerprint. The ordinary pending-support switch cannot admit a
-command candidate by itself. It does not create a public pending status, enter
-the accepted command inventory, select or override the detected model, promote
-support, or bypass expected-model, command/profile, safety, confirmation,
-electrical-rating, sequence, or cleanup checks. Adapters decide whether that
-internal mode is available; normal integrations remain Product mode. The
-capability is an internal misuse-resistance contract, not a security boundary
-against a user who controls or modifies the machine.
+Core's internal contributor-validation policy mode retains fail-closed policy
+code for explicitly registered pending scopes
+and a narrow inventory of validation-only command candidates. The Product
+build has an immutable Product identity, contains no candidate issuer or
+candidate-capable CLI parser, and rejects candidate contexts from direct Core
+callers. Candidate admission exists only when the separately built internal
+`powers-tool-validation` distribution supplies its embedded Validation
+identity and verifier-produced typed context.
+
+Inside that validation build, admission requires an implemented `real=True`
+command on the exact canonical IDN-detected model and approved system-VISA
+transport, plus a signed, run-scoped, case-scoped, one-time capability bound to
+the exact request fingerprint. HMAC provides run/case integrity, expiry, and
+replay protection there; it is not the Product/Validation boundary and does not
+prove wrapper identity against a user who controls the source tree. The
+ordinary pending-support switch cannot admit a command candidate by itself.
+Candidate admission creates no public pending status, accepted command,
+evidence record, or Product promotion and bypasses no expected-model or safety
+guard.
 
 Exact policy evaluation is feature-aware for `sequence_action` and
 `trigger_source`. Sequence validates every distinct instrument-relevant

@@ -29,9 +29,14 @@
   closed for these commands until separate live evidence review and promotion;
   historical accepted evidence is unchanged and predates these cases. The
   expanded suite has not yet been run or accepted as new hardware evidence.
-- Live candidate invocations now require an internally signed, exact,
-  run/case-scoped one-time capability from the maintained wrapper; registered
-  transport-pending admission remains a separate policy path.
+- Product release artifacts now exclude candidate parser inputs and capability
+  machinery. Candidate validation uses a separate internal
+  `powers-tool-validation` distribution with an embedded Validation identity;
+  normal release workflows continue to build only Product artifacts.
+- HMAC-signed, exact, run/case-scoped one-time capabilities provide expiry,
+  invocation integrity, and replay prevention inside that validation build.
+  Distribution separation, not a caller-supplied HMAC key, is the admission
+  boundary; registered transport-pending admission remains a separate path.
 
 ## 1.0.0
 

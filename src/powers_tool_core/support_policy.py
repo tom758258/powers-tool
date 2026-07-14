@@ -10,6 +10,10 @@ from powers_tool_core.capabilities import (
     command_support,
     known_capability_commands,
 )
+from powers_tool_core.build_profile import (
+    validation_context_was_verified,
+    validation_runtime_permit_is_valid,
+)
 from powers_tool_core.core import CoreValidationError, ValidationCandidateContext
 from powers_tool_core.identity import (
     IDENTITY_INDEXES,
@@ -124,6 +128,24 @@ _VALIDATION_ONLY_EXACT_CONNECTIONS = {
     ),
     "keysight-e3646a": frozenset({(TRANSPORT_ASRL, BACKEND_SYSTEM_VISA)}),
 }
+
+
+def internal_validation_candidate_inventory() -> Mapping[str, Mapping[str, tuple]]:
+    """Return the Core-owned candidate matrix for internal validation tooling."""
+
+    return MappingProxyType(
+        {
+            model_id: MappingProxyType(
+                {
+                    "commands": tuple(sorted(commands)),
+                    "connections": tuple(
+                        sorted(_VALIDATION_ONLY_EXACT_CONNECTIONS.get(model_id, frozenset()))
+                    ),
+                }
+            )
+            for model_id, commands in _VALIDATION_ONLY_COMMAND_CANDIDATES.items()
+        }
+    )
 
 
 class LiveSupportPolicyError(CoreValidationError):
@@ -497,6 +519,7 @@ def ensure_live_scope_supported(
     feature_requirements: Iterable[tuple[str, str]] = (),
     validation_candidate_context=None,
     validation_request_fingerprint: str | None = None,
+    validation_build_permit=None,
     admission_state: dict[str, object] | None = None,
     registry: tuple[ModelSupportPolicy, ...] | None = None,
 ) -> CommandLiveSupportScope:
@@ -555,6 +578,7 @@ def ensure_live_scope_supported(
         support_policy_mode=normalized_mode,
         validation_candidate_context=validation_candidate_context,
         validation_request_fingerprint=validation_request_fingerprint,
+        validation_build_permit=validation_build_permit,
     )
     if candidate_scope is not None:
         if admission_state is not None:
@@ -669,6 +693,7 @@ def _validation_only_candidate_scope(
     support_policy_mode: str,
     validation_candidate_context,
     validation_request_fingerprint: str | None,
+    validation_build_permit,
 ) -> CommandLiveSupportScope | None:
     """Admit one internal candidate without publishing or promoting its scope."""
 
@@ -683,14 +708,20 @@ def _validation_only_candidate_scope(
         model_id, frozenset()
     ):
         return None
+    if not validation_runtime_permit_is_valid(validation_build_permit):
+        raise LiveSupportPolicyError("validation candidate admission requires the internal validation build")
     if validation_candidate_context is None:
         raise LiveSupportPolicyError("validation candidate context is required")
     if not isinstance(validation_candidate_context, ValidationCandidateContext):
         raise LiveSupportPolicyError("validation candidate context is malformed")
-    if not validation_candidate_context.integrity_validated:
+    if (
+        not validation_candidate_context.integrity_validated
+        or not validation_context_was_verified(validation_candidate_context)
+    ):
         raise LiveSupportPolicyError("validation candidate context integrity was not validated")
-    if validation_candidate_context.request_fingerprint and (
-        not validation_request_fingerprint
+    if (
+        not validation_candidate_context.request_fingerprint
+        or not validation_request_fingerprint
         or validation_candidate_context.request_fingerprint != validation_request_fingerprint
     ):
         raise LiveSupportPolicyError("validation candidate context invocation does not match")
@@ -703,13 +734,20 @@ def _validation_only_candidate_scope(
     for field, value in expected.items():
         if getattr(validation_candidate_context, field, None) != value:
             raise LiveSupportPolicyError("validation candidate context does not match the live request")
-    if not validation_candidate_context.run_id or not validation_candidate_context.case_id or not validation_candidate_context.suite:
-        raise LiveSupportPolicyError("validation candidate context is malformed")
-    if validation_candidate_context.request_fingerprint and (
-        not validation_candidate_context.capability_id
-        or not validation_candidate_context.issued_at
-        or not validation_candidate_context.expires_at
-    ):
+    required_context_fields = (
+        "run_id",
+        "case_id",
+        "suite",
+        "model_id",
+        "command",
+        "transport_scope",
+        "backend_scope",
+        "request_fingerprint",
+        "capability_id",
+        "issued_at",
+        "expires_at",
+    )
+    if any(not getattr(validation_candidate_context, field, None) for field in required_context_fields):
         raise LiveSupportPolicyError("validation candidate context is malformed")
     return CommandLiveSupportScope(
         validation_status=VALIDATION_STATUS_PROFILE_VALIDATED,
