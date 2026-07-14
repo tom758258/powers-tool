@@ -223,16 +223,17 @@ def test_public_dry_run_examples_do_not_use_live_resource_without_model():
 
 
 def test_no_hardware_scripts_use_model_or_deterministic_sim_resources():
-    preflight = Path("scripts/preflight-smoke-validation.ps1").read_text(encoding="utf-8")
+    helper = Path("scripts/_validation_helpers.ps1").read_text(encoding="utf-8")
+    preflight = Path("scripts/preflight-cli.ps1").read_text(encoding="utf-8")
     live_cli_check = Path("scripts/live-cli-check.ps1").read_text(encoding="utf-8")
     batch = Path("scripts/batch-validation.ps1").read_text(encoding="utf-8")
 
-    assert "USB0::SIM::E36312A::INSTR" in preflight
-    assert "USB0::SIM::EDU36311A::INSTR" in preflight
-    assert "ASRL1::SIM::E3646A::INSTR" in live_cli_check
+    assert "USB0::SIM::E36312A::INSTR" in helper
+    assert "USB0::SIM::EDU36311A::INSTR" in helper
+    assert "ASRL1::SIM::E3646A::INSTR" in helper
     assert "E36103B" not in live_cli_check
     assert "E36232A" not in live_cli_check
-    assert "deterministic SIM resources" in preflight
+    assert "Get-ValidationPreflightCases" in preflight
     assert "Test-DeterministicSimResource" in batch
     assert '"USB0::SIM::E36312A::INSTR"' in batch
     assert '"USB0::SIM::EDU36311A::INSTR"' in batch

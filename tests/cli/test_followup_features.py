@@ -781,45 +781,6 @@ def test_doctor_json_environment(capsys):
     assert environment["python"]["executable"]
 
 
-def test_no_hardware_regression_script_keeps_output_out_of_local():
-    script = Path("scripts/no-hardware-regression.ps1").read_text(encoding="utf-8")
-
-    assert ".tmp_tests\\no_hardware_regression" in script
-    assert "--basetemp" in script
-    assert "report.json" in script
-    assert "summary.md" in script
-    assert "Local\\" not in script
-    assert "Local/" not in script
-
-
-def test_smoke_validation_scripts_use_instrument_read_status_command():
-    preflight = Path("scripts/preflight-smoke-validation.ps1").read_text(encoding="utf-8")
-    live = Path("scripts/live-smoke-validation-check.ps1").read_text(encoding="utf-8")
-
-    assert 'Args = @("read-status", "--simulate"' in preflight
-    assert '-Arguments @("read-status", "--json"' in live
-    assert 'Args = @("protection-status", "--simulate"' in preflight
-    assert '-Arguments @("protection-status", "--json"' in live
-    for channel in ("1", "2", "3"):
-        assert f'Name = "smoke-output-ch{channel}-dry-run"' in preflight
-        assert f'Json = "smoke-output-ch{channel}.json"' in preflight
-    assert "foreach ($channel in @(1, 2, 3))" in live
-    assert '-Name ("smoke-output-ch" + $channel)' in live
-
-
-def test_edu36311a_live_smoke_defaults_to_output_profile():
-    preflight = Path("scripts/preflight-smoke-validation.ps1").read_text(encoding="utf-8")
-    live = Path("scripts/live-smoke-validation-check.ps1").read_text(encoding="utf-8")
-
-    assert '[string]$Profile = "auto"' in preflight
-    assert '$isEduReadonly = $normalizedTarget -eq "keysight-edu36311a" -and $normalizedProfile -eq "readonly"' in preflight
-    assert '$isEduReadonly = $normalizedTarget -eq "keysight-edu36311a" -and $normalizedProfile -eq "readonly"' in live
-    assert '& $preflightScript -Target $Target -Profile $Profile' in live
-    assert 'Invoke-LiveReadOnlyChecks -LogPrefix "output-smoke" -IncludeSequence:($normalizedTarget -eq "keysight-edu36311a")' in live
-    assert 'Name = "sequence-readonly-simulate"' in preflight
-    assert 'Name = "apply-no-output-dry-run"' in preflight
-
-
 def test_sequence_failure_cleanup_errors_do_not_replace_original_failure(monkeypatch, tmp_path, capsys):
     sequence = tmp_path / "sequence.yaml"
     sequence.write_text("version: 1\nsteps:\n  - action: measure\n    channel: 1\n", encoding="utf-8")

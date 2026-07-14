@@ -19,33 +19,6 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = "Stop"
 
-$TargetMetadata = [ordered]@{
-    "keysight-e36312a" = [pscustomobject]@{
-        model_id = "keysight-e36312a"
-        vendor_id = "keysight"
-        model_name = "E36312A"
-        simulator_resource = "USB0::SIM::E36312A::INSTR"
-        channels = @(1, 2, 3)
-        suites = @("readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence")
-    }
-    "keysight-edu36311a" = [pscustomobject]@{
-        model_id = "keysight-edu36311a"
-        vendor_id = "keysight"
-        model_name = "EDU36311A"
-        simulator_resource = "USB0::SIM::EDU36311A::INSTR"
-        channels = @(1, 2, 3)
-        suites = @("readonly", "output", "protection", "software-sequence")
-    }
-    "keysight-e3646a" = [pscustomobject]@{
-        model_id = "keysight-e3646a"
-        vendor_id = "keysight"
-        model_name = "E3646A"
-        simulator_resource = "ASRL1::SIM::E3646A::INSTR"
-        channels = @(1, 2)
-        suites = @("readonly", "output", "software-sequence")
-    }
-}
-$SupportedTargets = @($TargetMetadata.Keys)
 $PolicyGatedCommands = @(
     "measure", "measure-all", "output-state", "read-status", "validate-readonly", "readback",
     "protection-status", "protection-set", "clear-protection", "snapshot", "restore-from-snapshot",
@@ -69,6 +42,10 @@ $IdnSelectedCommandsWithoutExplicitModelGuard = @(
 )
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $TmpRoot = Join-Path $RepoRoot ".tmp_tests"
+. (Join-Path $PSScriptRoot "_validation_helpers.ps1")
+$TargetMetadata = $script:ValidationTargetProfiles
+$SupportedTargets = @(Get-SupportedTargetModelIds)
+$PreflightScript = Join-Path $PSScriptRoot "preflight-cli.ps1"
 $PythonExe = Join-Path (Join-Path $RepoRoot ".venv") "Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $PythonExe)) {
     $PythonExe = "python"
@@ -1346,9 +1323,11 @@ function Write-ValidationArtifacts {
         started_at = $StartedAt.ToUniversalTime().ToString("o")
         completed_at = $completedAt.ToUniversalTime().ToString("o")
         result = $Result
+        status = $Result
         output_dir = ConvertTo-RepoRelativePath -Path $script:ShareableArtifactDir
         shareable_artifact_dir = ConvertTo-RepoRelativePath -Path $script:ShareableArtifactDir
         preflight_report = ConvertTo-RepoRelativePath -Path $reportPath
+        external_preflight = $script:ExternalPreflight
         suites = $script:SuitesToRun
         cases = $caseRecords
         commands = $script:CommandRecords.ToArray()
@@ -1373,6 +1352,7 @@ function Write-ValidationArtifacts {
     $lines.Add("Suites run: ``" + ($script:SuitesToRun -join ", ") + "``")
     $lines.Add("Result: ``" + $Result + "``")
     $lines.Add("PlanOnly: ``" + [bool]$PlanOnly + "``")
+    $lines.Add("External preflight: ``" + $script:ExternalPreflight.status + "``")
     $lines.Add("Live executed: ``" + ($ValidationMode -eq "live") + "``")
     $lines.Add("Support policy mode: ``validation``")
     $lines.Add("Candidate evidence only: ``true``")
@@ -1443,6 +1423,7 @@ $script:InstrumentIdentity = $null
 $script:CleanupEvidence = $null
 $script:PrivateArtifactDir = $null
 $script:ShareableArtifactDir = $null
+$script:ExternalPreflight = [pscustomobject]@{ status = "not_run"; hardware_touched = $false }
 $script:SensitiveValues = New-Object System.Collections.Generic.List[string]
 
 if ($env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1") {
@@ -1498,9 +1479,49 @@ $script:StateChanging = @($SuitesToRun | Where-Object { $_ -in @("output", "prot
 $script:CommandRecords = New-Object System.Collections.Generic.List[object]
 $script:Failures = New-Object System.Collections.Generic.List[string]
 $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "planned"
+$script:ExternalPreflight = [pscustomobject]@{ status = "not_run"; hardware_touched = $false }
 $startedAt = Get-Date
 
-Write-Host "Running no-hardware preflight for $NormalizedTarget suite '$Suite'..."
+Ensure-ArtifactDirectories
+$externalPreflightRoot = Join-Path $script:PrivateArtifactDir "external_preflight"
+$externalPreflightStdout = Join-Path $script:PrivateArtifactDir "external_preflight.stdout.txt"
+$externalPreflightStderr = Join-Path $script:PrivateArtifactDir "external_preflight.stderr.txt"
+Write-Host "Running external no-hardware CLI preflight for $NormalizedTarget..."
+$oldErrorActionPreference = $ErrorActionPreference
+$nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+$hadNativePreference = $null -ne $nativePreferenceVariable
+$oldNativePreference = $null
+try {
+    $ErrorActionPreference = "Continue"
+    if ($hadNativePreference) {
+        $oldNativePreference = [bool]$nativePreferenceVariable.Value
+        $PSNativeCommandUseErrorActionPreference = $false
+    }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PreflightScript -Target $NormalizedTarget -OutputRoot $externalPreflightRoot 1> $externalPreflightStdout 2> $externalPreflightStderr
+    $externalPreflightExit = $LASTEXITCODE
+}
+finally {
+    $ErrorActionPreference = $oldErrorActionPreference
+    if ($hadNativePreference) { $PSNativeCommandUseErrorActionPreference = $oldNativePreference }
+}
+$externalReportPath = @(Get-ChildItem -LiteralPath $externalPreflightRoot -Filter report.json -File -Recurse -ErrorAction SilentlyContinue | Sort-Object { $_.FullName.Length } | Select-Object -First 1)
+$script:ExternalPreflight = [pscustomobject]@{
+    status = if ($externalPreflightExit -eq 0) { "passed" } else { "failed" }
+    exit_code = $externalPreflightExit
+    hardware_touched = $false
+    output_root = ConvertTo-RepoRelativePath -Path $externalPreflightRoot
+    report = if ($externalReportPath.Count -eq 1) { ConvertTo-RepoRelativePath -Path $externalReportPath[0].FullName } else { $null }
+    stdout = ConvertTo-RepoRelativePath -Path $externalPreflightStdout
+    stderr = ConvertTo-RepoRelativePath -Path $externalPreflightStderr
+}
+if ($externalPreflightExit -ne 0) {
+    $script:Failures.Add("External preflight-cli.ps1 failed before live resource access.")
+    Write-ValidationArtifacts -ValidationMode "preflight_failed" -Result "preflight_failed" -StartedAt $startedAt
+    Write-Error "External preflight failed; no VISA resource was opened. See $(ConvertTo-RepoRelativePath -Path (Join-Path $script:ShareableArtifactDir 'report.json'))."
+    exit 1
+}
+
+Write-Host "Running selected-suite no-hardware plans for $NormalizedTarget suite '$Suite'..."
 $preflightCases = Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:$false
 foreach ($case in $preflightCases) {
     Invoke-ValidationCommand -Case $case | Out-Null

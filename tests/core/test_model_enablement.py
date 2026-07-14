@@ -405,7 +405,7 @@ def test_product_ui_and_wrapper_targets_match_product_active_models() -> None:
     index_html = Path("src/powers_tool_webui/static/index.html").read_text(encoding="utf-8")
     assert '<option value="">Auto-detect</option>' in index_html
     assert 'option value="keysight-' not in index_html
-    wrapper = Path("scripts/live-cli-check.ps1").read_text(encoding="utf-8")
+    wrapper = Path("scripts/_validation_helpers.ps1").read_text(encoding="utf-8")
     wrapper_targets = frozenset(
         re.findall(r'^    "(keysight-[^"]+)" = \[pscustomobject\]@\{', wrapper, re.MULTILINE)
     )

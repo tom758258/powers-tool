@@ -105,12 +105,6 @@ Run pytest from the repository root. For an intentional per-run override, use
 `--basetemp .tmp_tests/<purpose>`. Do not use `Local/` for pytest temporary
 data or generated test artifacts.
 
-Run the bundled no-hardware regression checklist:
-
-```powershell
-.\scripts\no-hardware-regression.ps1
-```
-
 ### Scripted Validation
 
 Run all scripts from the repository root in PowerShell. Each script writes a
@@ -119,40 +113,34 @@ machine-readable `report.json` and a human-readable `summary.md` under
 
 | Script | Hardware use | Purpose |
 | --- | --- | --- |
-| `scripts\no-hardware-regression.ps1` | No hardware | Runs focused follow-up checks, JSON/docs contract checks, and the full default pytest suite. Use this as the normal no-hardware regression gate. |
-| `scripts\live-cli-check.ps1` | Plan-only or explicit live hardware | Runs Meters-style target/connection/suite validation cases. Use this for feature validation records. |
-| `scripts\preflight-smoke-validation.ps1` | No hardware | Runs target-specific dry-run and simulator smoke checks for E36312A or EDU36311A before live work. |
-| `scripts\live-smoke-validation-check.ps1` | Live hardware | Legacy smoke wrapper for E36312A/EDU36311A bounded smoke checks. It is not the feature-suite validation record; use `live-cli-check.ps1` for suite validation. |
+| `scripts\preflight-cli.ps1` | No hardware | Runs model-aware CLI dry-run and simulator validation for one active model or all active models, parses every JSON result, and enforces `hardware_touched=false`. |
+| `scripts\live-cli-check.ps1` | Plan-only or explicit live hardware | Always runs `preflight-cli.ps1`, then generates the exact selected-suite plans before optional interactive live validation. Use this for candidate feature-validation records. |
+| `scripts\release-acceptance.ps1` | No hardware | Runs the complete version-neutral isolated-worktree release gate, including tests, package/install/entry-point checks, standalone builds, release artifacts, CLI preflight, and live `-PlanOnly`. |
 | `scripts\batch-validation.ps1` | Selected by switches | Runs only the selected simulated or live validation tasks and writes one batch report. |
 
 If the current Windows execution policy blocks `.ps1` files, use a
 process-local bypass for the selected script:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\no-hardware-regression.ps1
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\preflight-smoke-validation.ps1 -Target keysight-e36312a
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\preflight-cli.ps1 -Target all
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection USB -Resource "SIM::E36312A" -Suite readonly -PlanOnly
 ```
 
-No-hardware regression runs focused follow-up checks, JSON/docs contract
-checks, and the full default pytest suite:
+`preflight-cli.ps1` validates actual public CLI no-hardware paths for all three
+Product-active models by default. It writes timestamped aggregate and
+per-model reports under `.tmp_tests\cli_preflight`:
 
 ```powershell
-.\scripts\no-hardware-regression.ps1
-```
-
-Its default report directory is `.tmp_tests\no_hardware_regression`. To select
-another Python executable or report directory:
-
-```powershell
-.\scripts\no-hardware-regression.ps1 -Python .\.venv\Scripts\python.exe -OutputDir .tmp_tests\my_regression
+.\scripts\preflight-cli.ps1 -Target all
 ```
 
 Suite live validation uses an explicit target, connection, resource, and
-suite. `-PlanOnly` runs only simulator, dry-run, lint, and expected-failure
-checks; it does not open VISA. Without `-PlanOnly`, the script runs the same
-preflight first, then requires interactive Enter confirmation before opening
-VISA. If stdin is redirected, live execution is refused with a
-confirmation-required report.
+suite. Every run, including `-PlanOnly`, first calls the broad model-level
+`preflight-cli.ps1` and then generates the selected suite's exact simulator,
+dry-run, lint, and expected-failure cases. `-PlanOnly` stops there and does not
+open the supplied resource. Without `-PlanOnly`, interactive Enter confirmation
+is required before opening VISA. If stdin is redirected, live execution is
+refused with a confirmation-required report.
 
 `live-cli-check.ps1` is the maintained contributor validation harness, not the
 same thing as declaring a connection opened for normal use. Its artifacts are
@@ -243,51 +231,36 @@ EDU36311A `software-sequence` validation covers only project-supported
 software `ramp-list` and sequence read-only/output workflows. It does not
 enable trigger/native LIST, snapshot, or restore-from-snapshot.
 
-Smoke preflight uses only `--dry-run` and `--simulate`; it does not open VISA
-or touch hardware. It uses deterministic SIM resources for the selected target
-so the no-hardware planning identity is deterministic:
+CLI preflight uses only `--dry-run` and `--simulate`; it does not scan for or
+open VISA resources. It uses deterministic SIM resources and supports one
+canonical model or all active models:
 
 ```powershell
-.\scripts\preflight-smoke-validation.ps1 -Target keysight-e36312a
-.\scripts\preflight-smoke-validation.ps1 -Target keysight-edu36311a
+.\scripts\preflight-cli.ps1 -Target all
+.\scripts\preflight-cli.ps1 -Target keysight-e3646a
 ```
 
-Pass `-Profile readonly` with `-Target keysight-edu36311a` only when you need the
-legacy read-only preflight instead of the default output-smoke preflight.
-
-Reports are written to `.tmp_tests\smoke_validation_preflight\<Target>`.
-
-Live smoke always runs the matching no-hardware preflight first and requires
-an explicit `-Resource`. The script does not scan for resources, guess a
-resource, or read an environment default. Discover a live resource first, copy
-the exact value, then pass it explicitly:
+Live validation requires an explicit `-Resource`. The script does not scan for
+resources, guess a resource, or read an environment default. Discover a live
+resource separately, copy the exact value, then pass it explicitly:
 
 ```powershell
 .\.venv\Scripts\powers-tool.exe list-resources --live-only --json
 ```
 
 Use `list-resources --verify --json` instead when you need to diagnose stale
-VISA cache entries. After choosing the intended live resource, run the live
-smoke script. It pauses for confirmation before opening VISA:
+VISA cache entries. After choosing the intended live resource, run the
+maintained live script. It pauses for confirmation before opening VISA:
 
 ```powershell
 $env:E36312A_USB_RESOURCE = "USB0::...::INSTR"
 $env:EDU36311A_USB_RESOURCE = "USB0::...::INSTR"
 
-.\scripts\live-smoke-validation-check.ps1 -Target keysight-e36312a -Connection USB -Resource $env:E36312A_USB_RESOURCE
-.\scripts\live-smoke-validation-check.ps1 -Target keysight-edu36311a -Connection USB -Resource $env:EDU36311A_USB_RESOURCE
+.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
+.\scripts\live-cli-check.ps1 -Target keysight-edu36311a -Connection USB -Resource $env:EDU36311A_USB_RESOURCE -Suite full
 ```
 
-E36312A and EDU36311A live smoke are the normal hardware acceptance gates.
-They run read-only checks first, read protection status without changing
-protection settings, set all channels to 1 V / 0.05 A with outputs off, and
-briefly enable CH1, CH2, and CH3 one at a time for about 500 ms each.
-EDU36311A can still run the legacy read-only profile with `-Profile readonly`.
-`-Connection LAN` is also supported when an explicit LAN VISA resource is
-supplied. Use `-Backend "@ivi"` or another backend only when the local VISA
-setup requires it.
-
-Legacy smoke success is a bounded smoke result, not a complete
+Suite success is a bounded validation result, not a complete
 feature-validation suite result. For enabling or recording a model-specific
 feature, use the corresponding `live-cli-check.ps1` suite/case result.
 

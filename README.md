@@ -310,7 +310,7 @@ points, builds both standalone executables, and writes `report.json` and
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
-  .\scripts\v2-release-acceptance.ps1 `
+  .\scripts\release-acceptance.ps1 `
   -Python310 (uv python find 3.10) `
   -CurrentPython (uv python find 3.13)
 ```
@@ -351,6 +351,16 @@ Run the full no-hardware suite:
 
 Scripted no-hardware and live validation workflows are documented in the
 [CLI README](docs/cli/README.md).
+
+The maintained public validation entry points are layered as follows:
+
+- `scripts\preflight-cli.ps1` runs model-aware CLI dry-run and simulator
+  validation without hardware for one active model or all active models.
+- `scripts\live-cli-check.ps1` always runs that external preflight, then the
+  selected suite's exact plans, before any optional interactive live work.
+- `scripts\release-acceptance.ps1` is the complete version-neutral isolated
+  release gate and includes both the all-model preflight and a representative
+  live `-PlanOnly` contract check.
 
 Live feature validation is suite-based. For each active model, `-Suite full`
 is the complete validation gate for all currently project-supported LIVE

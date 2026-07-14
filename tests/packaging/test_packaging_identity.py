@@ -82,7 +82,6 @@ _ALLOWED_LEGACY_MATCHES = {
     ("src/powers_tool_cli/worker.py", LEGACY_IDENTITY_TOKENS[9]): (1, "explicit legacy-field rejection"),
     ("src/powers_tool_webui/app.py", LEGACY_IDENTITY_TOKENS[9]): (1, "explicit legacy-field rejection"),
     ("tests/cli/test_cli_model_profile.py", LEGACY_IDENTITY_TOKENS[1]): (1, "negative legacy-entry-point regression"),  # stale-name-audit-data
-    ("tests/cli/test_live_cli_check_script.py", LEGACY_IDENTITY_TOKENS[3]): (1, "negative legacy-import regression"),
     ("tests/cli/test_supported_models_docs.py", LEGACY_IDENTITY_TOKENS[9]): (1, "legacy-removal regression name"),
     ("tests/cli/test_worker.py", LEGACY_IDENTITY_TOKENS[9]): (2, "negative legacy-field regressions"),
     ("tests/core/test_runtime_identity.py", LEGACY_IDENTITY_TOKENS[9]): (1, "negative legacy-field regression"),
@@ -92,10 +91,10 @@ _ALLOWED_LEGACY_MATCHES = {
     ("tests/packaging/inspect_distribution.py", LEGACY_IDENTITY_TOKENS[2]): (1, "negative legacy-package inspection"),
     ("tests/packaging/inspect_distribution.py", LEGACY_IDENTITY_TOKENS[3]): (1, "negative legacy-package inspection"),
     ("tests/packaging/inspect_distribution.py", LEGACY_IDENTITY_TOKENS[4]): (1, "negative legacy-package inspection"),
-    ("scripts/v2-release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[1]): (3, "negative installed-command checks"),
-    ("scripts/v2-release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[2]): (1, "negative legacy-import check"),
-    ("scripts/v2-release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[3]): (1, "negative legacy-import check"),
-    ("scripts/v2-release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[4]): (1, "negative legacy-import check"),
+    ("scripts/release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[1]): (3, "negative installed-command checks"),
+    ("scripts/release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[2]): (1, "negative legacy-import check"),
+    ("scripts/release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[3]): (1, "negative legacy-import check"),
+    ("scripts/release-acceptance.ps1", LEGACY_IDENTITY_TOKENS[4]): (1, "negative legacy-import check"),
     ("tests/packaging/inspect_pyinstaller.py", LEGACY_IDENTITY_TOKENS[0]): (1, "negative legacy-metadata inspection"),
     ("tests/packaging/inspect_pyinstaller.py", LEGACY_IDENTITY_TOKENS[1]): (1, "negative legacy-metadata inspection"),
     ("tests/webui/test_webui.py", LEGACY_IDENTITY_TOKENS[1]): (1, "negative legacy Ramp List kind regression"),
@@ -193,15 +192,17 @@ def _tracked_utf8_text() -> dict[str, str]:
     texts: dict[str, str] = {}
     intended_untracked_paths = (
         "docs/migration-v2.md",
-        "scripts/v2-release-acceptance.ps1",
+        "scripts/release-acceptance.ps1",
         "tests/packaging/inspect_pyinstaller.py",
-        "tests/packaging/test_v2_release_acceptance.py",
+        "tests/packaging/test_release_acceptance.py",
     )
     for relative in intended_untracked_paths:
         if relative not in tracked and (ROOT / relative).exists():
             tracked.append(relative)
     for relative in tracked:
         if not relative:
+            continue
+        if not (ROOT / relative).is_file():
             continue
         raw = (ROOT / relative).read_bytes()
         if b"\0" in raw:

@@ -1,7 +1,7 @@
 param(
     [string]$Python310 = "",
     [string]$CurrentPython = "",
-    [string]$OutputRoot = ".tmp_tests\v2_release_acceptance",
+    [string]$OutputRoot = ".tmp_tests\release_acceptance",
     [switch]$KeepWorktree,
     [switch]$IncludeWorkingTreeChanges,
     [switch]$InterpreterPreflightOnly
@@ -55,11 +55,21 @@ $allowedCandidatePaths = @(
     ".github/workflows/tests.yml",
     "README.md",
     "pyproject.toml",
-    "scripts/v2-release-acceptance.ps1",
+    "docs/cli/README.md",
+    "docs/core/README.md",
+    "scripts/_validation_helpers.ps1",
+    "scripts/live-cli-check.ps1",
+    "scripts/preflight-cli.ps1",
+    "scripts/release-acceptance.ps1",
     "tests/packaging/inspect_distribution.py",
     "tests/packaging/inspect_pyinstaller.py",
     "tests/packaging/test_packaging_identity.py",
-    "tests/packaging/test_v2_release_acceptance.py",
+    "tests/cli/test_cli_wrappers.py",
+    "tests/cli/test_followup_features.py",
+    "tests/cli/test_live_cli_check_script.py",
+    "tests/cli/test_supported_models_docs.py",
+    "tests/core/test_model_enablement.py",
+    "tests/packaging/test_release_acceptance.py",
     "uv.lock"
 )
 
@@ -372,9 +382,9 @@ function Test-InstalledEntryPoints {
 
     $scripts = Split-Path -Parent $Python
     $checks = @(
-        @("powers-tool", "powers-tool 2.0.0", "Safe Powers Tool CLI for supported DC power supplies."),
-        @("powers-tool-webui", "powers-tool-webui 2.0.0", "Powers Tool WebUI Server"),
-        @("powers-tool-webui-launcher", "powers-tool-webui-launcher 2.0.0", "Powers Tool WebUI Launcher")
+        @("powers-tool", "powers-tool $projectVersion", "Safe Powers Tool CLI for supported DC power supplies."),
+        @("powers-tool-webui", "powers-tool-webui $projectVersion", "Powers Tool WebUI Server"),
+        @("powers-tool-webui-launcher", "powers-tool-webui-launcher $projectVersion", "Powers Tool WebUI Launcher")
     )
     foreach ($check in $checks) {
         $exe = Join-Path $scripts ($check[0] + ".exe")
@@ -444,7 +454,7 @@ try {
         $unexpectedCandidatePaths = @(Compare-Object -ReferenceObject $allowedCandidatePaths `
             -DifferenceObject $candidatePaths -PassThru | Where-Object { $_ -in $candidatePaths })
         if ($unexpectedCandidatePaths.Count -ne 0) {
-            throw "Candidate overlay contains paths outside the P7 allowlist: $($unexpectedCandidatePaths -join ', ')"
+            throw "Candidate overlay contains paths outside the release acceptance allowlist: $($unexpectedCandidatePaths -join ', ')"
         }
         foreach ($relative in $candidatePaths) {
             $sourcePath = Join-Path $script:RepoRoot $relative
@@ -470,7 +480,7 @@ try {
     if (-not $nameMatch.Success -or -not $versionMatch.Success) { throw "Could not read project metadata" }
     $distributionName = $nameMatch.Groups[1].Value
     $projectVersion = $versionMatch.Groups[1].Value
-    if ($distributionName -ne "powers-tool" -or $projectVersion -ne "2.0.0") {
+    if ($distributionName -ne "powers-tool") {
         throw "Unexpected project identity: $distributionName $projectVersion"
     }
 
@@ -532,10 +542,10 @@ try {
         if (-not $nameMatch.Success -or -not $versionMatch.Success) { throw "Could not read project metadata" }
         $distributionName = $nameMatch.Groups[1].Value
         $projectVersion = $versionMatch.Groups[1].Value
-        if ($distributionName -ne "powers-tool" -or $projectVersion -ne "2.0.0") {
+        if ($distributionName -ne "powers-tool") {
             throw "Unexpected project identity: $distributionName $projectVersion"
         }
-        $worktreeTmp = Join-Path $script:WorktreePath ".tmp_tests\p7_release_acceptance"
+        $worktreeTmp = Join-Path $script:WorktreePath ".tmp_tests\release_acceptance_work"
         New-Item -ItemType Directory -Force -Path $worktreeTmp | Out-Null
 
     $script:CurrentStep = "locked source environments"
@@ -552,16 +562,18 @@ import powers_tool_cli
 import powers_tool_core
 import powers_tool_webui
 
-assert metadata.version("powers-tool") == "2.0.0"
-assert powers_tool_core.__version__ == "2.0.0"
-assert powers_tool_cli.__version__ == "2.0.0"
-assert powers_tool_webui.__version__ == "2.0.0"
+expected_version = "__PROJECT_VERSION__"
+assert metadata.version("powers-tool") == expected_version
+assert powers_tool_core.__version__ == expected_version
+assert powers_tool_cli.__version__ == expected_version
+assert powers_tool_webui.__version__ == expected_version
 for legacy in ("keysight_power_core", "keysight_power_cli", "keysight_power_webui"):
     assert importlib.util.find_spec(legacy) is None, legacy
 static = resources.files("powers_tool_webui").joinpath("static")
 for filename in ("index.html", "styles.css", "app.js"):
     assert static.joinpath(filename).is_file(), filename
 '@
+    $identityCode = $identityCode.Replace("__PROJECT_VERSION__", $projectVersion)
     $identityScript = Join-Path $script:RunRoot "identity_check.py"
     Write-Utf8NoBomFile -LiteralPath $identityScript -Content $identityCode
     $script:CurrentStep = "source identity checks"
@@ -575,7 +587,7 @@ for filename in ("index.html", "styles.css", "app.js"):
         "tests\core\test_import.py",
         "tests\cli\test_cli.py",
         "tests\packaging\test_packaging_identity.py",
-        "tests\packaging\test_v2_release_acceptance.py",
+        "tests\packaging\test_release_acceptance.py",
         "tests\webui\test_webui_import.py",
         "tests\webui\test_launcher.py"
     )
@@ -606,8 +618,9 @@ for filename in ("index.html", "styles.css", "app.js"):
         -Arguments @("-m", "build") | Out-Null
     Run-Python -Name "inspect-wheel-sdist" -Python $current -WorkingDirectory $script:WorktreePath `
         -Arguments @("tests\packaging\inspect_distribution.py", "dist") | Out-Null
-    $wheel = (Get-ChildItem -LiteralPath (Join-Path $script:WorktreePath "dist") -Filter "powers_tool-2.0.0-py3-none-any.whl" -File).FullName
-    $sdist = (Get-ChildItem -LiteralPath (Join-Path $script:WorktreePath "dist") -Filter "powers_tool-2.0.0.tar.gz" -File).FullName
+    $normalizedDistribution = $distributionName.Replace("-", "_")
+    $wheel = (Get-ChildItem -LiteralPath (Join-Path $script:WorktreePath "dist") -Filter "$normalizedDistribution-$projectVersion-py3-none-any.whl" -File).FullName
+    $sdist = (Get-ChildItem -LiteralPath (Join-Path $script:WorktreePath "dist") -Filter "$normalizedDistribution-$projectVersion.tar.gz" -File).FullName
     Assert-File -Path $wheel
     Assert-File -Path $sdist
 
@@ -666,10 +679,10 @@ for filename in ("index.html", "styles.css", "app.js"):
                 -FilePath $pair[1] -Arguments @($arg) -WorkingDirectory $script:RunRoot -TimeoutSeconds 30
             $passed = if ($pair[0] -eq "webui") {
                 (-not $output.Trim()) -or
-                    ($arg -eq "--version" -and $output.Trim() -eq "powers-tool-webui-launcher 2.0.0") -or
+                    ($arg -eq "--version" -and $output.Trim() -eq "powers-tool-webui-launcher $projectVersion") -or
                     ($arg -eq "--help" -and $output.Contains("Powers Tool WebUI Launcher"))
             } elseif ($arg -eq "--version") {
-                $output.Trim() -eq "powers-tool 2.0.0"
+                $output.Trim() -eq "powers-tool $projectVersion"
             } else {
                 $output.Contains("Safe Powers Tool CLI for supported DC power supplies.")
             }
@@ -689,14 +702,14 @@ for filename in ("index.html", "styles.css", "app.js"):
     }
     $releaseRoot = Join-Path $worktreeTmp "release"
     Invoke-Recorded -Name "build-versioned-release" -FilePath "powershell.exe" `
-        -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $script:WorktreePath "scripts\build_release.ps1"), "-Version", "2.0.0", "-ReleaseRoot", $releaseRoot) `
+        -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $script:WorktreePath "scripts\build_release.ps1"), "-Version", $projectVersion, "-ReleaseRoot", $releaseRoot) `
         -WorkingDirectory $script:WorktreePath | Out-Null
-    $versionDir = Join-Path $releaseRoot "2.0.0"
+    $versionDir = Join-Path $releaseRoot $projectVersion
     $expectedRelease = @(
-        "powers-tool-2.0.0.exe",
-        "powers-tool-webui-2.0.0.exe",
-        "powers_tool-2.0.0-py3-none-any.whl",
-        "powers_tool-2.0.0.tar.gz",
+        "powers-tool-$projectVersion.exe",
+        "powers-tool-webui-$projectVersion.exe",
+        "$normalizedDistribution-$projectVersion-py3-none-any.whl",
+        "$normalizedDistribution-$projectVersion.tar.gz",
         "checksums.txt"
     )
     $releaseFiles = @(Get-ChildItem -LiteralPath $versionDir -File | Select-Object -ExpandProperty Name)
@@ -723,21 +736,21 @@ for filename in ("index.html", "styles.css", "app.js"):
     Run-Python -Name "inspect-versioned-packages" -Python $current -WorkingDirectory $script:WorktreePath `
         -Arguments @("tests\packaging\inspect_distribution.py", $versionDir) | Out-Null
     Run-Python -Name "inspect-versioned-archives" -Python $current -WorkingDirectory $script:WorktreePath `
-        -Arguments @("tests\packaging\inspect_pyinstaller.py", (Join-Path $versionDir "powers-tool-2.0.0.exe"), (Join-Path $versionDir "powers-tool-webui-2.0.0.exe")) | Out-Null
-    foreach ($name in @("powers-tool-2.0.0.exe", "powers-tool-webui-2.0.0.exe")) {
+        -Arguments @("tests\packaging\inspect_pyinstaller.py", (Join-Path $versionDir "powers-tool-$projectVersion.exe"), (Join-Path $versionDir "powers-tool-webui-$projectVersion.exe")) | Out-Null
+    foreach ($name in @("powers-tool-$projectVersion.exe", "powers-tool-webui-$projectVersion.exe")) {
         $path = Join-Path $versionDir $name
         $versionOutput = Invoke-Recorded -Name ("versioned-" + $name + "-version") `
             -FilePath $path -Arguments @("--version") -WorkingDirectory $script:RunRoot -TimeoutSeconds 30
         $helpOutput = Invoke-Recorded -Name ("versioned-" + $name + "-help") `
             -FilePath $path -Arguments @("--help") -WorkingDirectory $script:RunRoot -TimeoutSeconds 30
-        if ($name -eq "powers-tool-2.0.0.exe") {
+        if ($name -eq "powers-tool-$projectVersion.exe") {
             Add-Check -Target $script:StandaloneChecks -Name "versioned CLI --version" `
-                -Passed ($versionOutput.Trim() -eq "powers-tool 2.0.0") -Detail $versionOutput.Trim()
+                -Passed ($versionOutput.Trim() -eq "powers-tool $projectVersion") -Detail $versionOutput.Trim()
             Add-Check -Target $script:StandaloneChecks -Name "versioned CLI --help" `
                 -Passed $helpOutput.Contains("Safe Powers Tool CLI for supported DC power supplies.")
         } else {
             Add-Check -Target $script:StandaloneChecks -Name "versioned WebUI --version clean exit" `
-                -Passed ((-not $versionOutput.Trim()) -or $versionOutput.Trim() -eq "powers-tool-webui-launcher 2.0.0")
+                -Passed ((-not $versionOutput.Trim()) -or $versionOutput.Trim() -eq "powers-tool-webui-launcher $projectVersion")
             Add-Check -Target $script:StandaloneChecks -Name "versioned WebUI --help clean exit" `
                 -Passed ((-not $helpOutput.Trim()) -or $helpOutput.Contains("Powers Tool WebUI Launcher"))
         }
@@ -745,7 +758,7 @@ for filename in ("index.html", "styles.css", "app.js"):
 
     $retainedArtifacts = Join-Path $script:RunRoot "artifacts"
     $retainedStandalone = Join-Path $retainedArtifacts "standalone"
-    $retainedRelease = Join-Path $retainedArtifacts "release\2.0.0"
+    $retainedRelease = Join-Path $retainedArtifacts ("release\" + $projectVersion)
     New-Item -ItemType Directory -Force -Path $retainedStandalone, $retainedRelease | Out-Null
     Copy-Item -LiteralPath $standaloneCli, $standaloneWebui -Destination $retainedStandalone
     Get-ChildItem -LiteralPath $versionDir -File | Copy-Item -Destination $retainedRelease
@@ -762,7 +775,7 @@ for filename in ("index.html", "styles.css", "app.js"):
     $script:CurrentStep = "documentation and identity gates"
     $readme = Get-Content -LiteralPath (Join-Path $script:WorktreePath "README.md") -Raw
     $webuiReadme = Get-Content -LiteralPath (Join-Path $script:WorktreePath "docs\webui\README.md") -Raw
-    Assert-Contains -Text $readme -Needle "v2-release-acceptance.ps1" -Context "README.md"
+    Assert-Contains -Text $readme -Needle "release-acceptance.ps1" -Context "README.md"
     Assert-Contains -Text $webuiReadme -Needle "FastAPI server console wrapper" -Context "docs/webui/README.md"
     Assert-Contains -Text $webuiReadme -Needle "GUI launcher console wrapper" -Context "docs/webui/README.md"
     Assert-Contains -Text $webuiReadme -Needle "dist\powers-tool-webui.exe" -Context "docs/webui/README.md"
@@ -788,9 +801,14 @@ for filename in ("index.html", "styles.css", "app.js"):
     Run-Python -Name "pytest-current-full" -Python $current -WorkingDirectory $script:WorktreePath `
         -Arguments @("-m", "pytest", "tests", "-q", "-p", "no:cacheprovider", "--basetemp", (Join-Path $worktreeTmp "pytest_current")) | Out-Null
 
-    $script:CurrentStep = "maintained no-hardware wrapper"
-    Invoke-Recorded -Name "no-hardware-regression-wrapper" -FilePath "powershell.exe" `
-        -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $script:WorktreePath "scripts\no-hardware-regression.ps1"), "-Python", $current, "-OutputDir", (Join-Path $worktreeTmp "no_hardware_wrapper")) `
+    $script:CurrentStep = "model-aware CLI preflight"
+    Invoke-Recorded -Name "preflight-cli-all" -FilePath "powershell.exe" `
+        -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $script:WorktreePath "scripts\preflight-cli.ps1"), "-Target", "all", "-OutputRoot", (Join-Path $worktreeTmp "cli_preflight")) `
+        -WorkingDirectory $script:WorktreePath | Out-Null
+
+    $script:CurrentStep = "live CLI PlanOnly contract"
+    Invoke-Recorded -Name "live-cli-plan-only" -FilePath "powershell.exe" `
+        -Arguments @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $script:WorktreePath "scripts\live-cli-check.ps1"), "-Target", "keysight-e36312a", "-Connection", "USB", "-Resource", "SIM::E36312A", "-Suite", "readonly", "-PlanOnly") `
         -WorkingDirectory $script:WorktreePath | Out-Null
 
         $script:FullAcceptanceCompleted = $true
@@ -800,7 +818,7 @@ for filename in ("index.html", "styles.css", "app.js"):
 catch {
     $script:FailedStep = $script:CurrentStep
     $script:FailureMessage = $_.Exception.Message
-    Write-Warning ("Powers Tool v2 release acceptance failed during {0}: {1}" -f $script:CurrentStep, $script:FailureMessage)
+    Write-Warning ("Powers Tool release acceptance failed during {0}: {1}" -f $script:CurrentStep, $script:FailureMessage)
 }
 finally {
     if ($script:WorktreePath -and (Test-Path -LiteralPath $script:WorktreePath) -and -not $KeepWorktree) {
@@ -823,7 +841,7 @@ finally {
     if ($script:RunRoot) {
         $report = [ordered]@{
             schema_version = 1
-            kind = "powers-tool-v2-release-acceptance"
+            kind = "powers-tool-release-acceptance"
             ok = $script:Ok
             acceptance_mode = $acceptanceMode
             full_acceptance_completed = $script:FullAcceptanceCompleted
@@ -876,13 +894,13 @@ finally {
         $reportJson = $report | ConvertTo-Json -Depth 8
         Write-Utf8NoBomFile -LiteralPath (Join-Path $script:RunRoot "report.json") -Content $reportJson
         $summaryTitle = if ($InterpreterPreflightOnly -and $IncludeWorkingTreeChanges) {
-            "Powers Tool v2 Candidate Working-Tree Interpreter Preflight"
+            "Powers Tool Candidate Working-Tree Interpreter Preflight"
         } elseif ($InterpreterPreflightOnly) {
-            "Powers Tool v2 Interpreter Preflight"
+            "Powers Tool Interpreter Preflight"
         } elseif ($IncludeWorkingTreeChanges) {
-            "Powers Tool v2 Candidate Working-Tree Validation"
+            "Powers Tool Candidate Working-Tree Validation"
         } else {
-            "Powers Tool v2 Final Committed Clean-HEAD Acceptance"
+            "Powers Tool Release Acceptance"
         }
         $summary = @(
             "# $summaryTitle",

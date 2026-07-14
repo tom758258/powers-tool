@@ -14,7 +14,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts" / "v2-release-acceptance.ps1"
+SCRIPT = ROOT / "scripts" / "release-acceptance.ps1"
 
 
 def _run(
@@ -71,14 +71,14 @@ def _find_uv_python(version: str, cache: Path) -> Path:
 @pytest.fixture
 def find_python(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], Path]:
     _powershell()
-    cache = tmp_path_factory.mktemp("p7_uv_cache")
+    cache = tmp_path_factory.mktemp("release_uv_cache")
     return lambda version: _find_uv_python(version, cache)
 
 
 def _make_distinct_interpreter(
     base_python: Path, request: pytest.FixtureRequest
 ) -> Path:
-    environment = ROOT / ".tmp_tests" / "p7_preflight_python" / uuid4().hex
+    environment = ROOT / ".tmp_tests" / "release_preflight_python" / uuid4().hex
     request.addfinalizer(lambda: shutil.rmtree(environment, ignore_errors=True))
     clean_env = os.environ.copy()
     for name in ("PYTHONHOME", "UV_INTERNAL__PYTHONHOME", "VIRTUAL_ENV", "PYTHONPATH"):
@@ -93,8 +93,8 @@ def _make_distinct_interpreter(
 
 def _make_preflight_repository(request: pytest.FixtureRequest) -> Path:
     fixture_id = uuid4().hex
-    repository = ROOT / ".tmp_tests" / "p7_preflight_repo" / fixture_id
-    git_directory = ROOT / ".tmp_tests" / "p7_preflight_git" / fixture_id
+    repository = ROOT / ".tmp_tests" / "release_preflight_repo" / fixture_id
+    git_directory = ROOT / ".tmp_tests" / "release_preflight_git" / fixture_id
     repository.mkdir(parents=True)
     git_directory.parent.mkdir(parents=True, exist_ok=True)
     request.addfinalizer(lambda: shutil.rmtree(repository, ignore_errors=True))
@@ -103,7 +103,7 @@ def _make_preflight_repository(request: pytest.FixtureRequest) -> Path:
     scripts.mkdir(parents=True)
     shutil.copy2(SCRIPT, scripts / SCRIPT.name)
     (repository / "pyproject.toml").write_text(
-        '[project]\nname = "powers-tool"\nversion = "2.0.0"\n',
+        '[project]\nname = "powers-tool"\nversion = "3.4.5"\n',
         encoding="utf-8",
     )
     (repository / "README.md").write_text("preflight fixture\n", encoding="utf-8")
@@ -120,8 +120,8 @@ def _make_preflight_repository(request: pytest.FixtureRequest) -> Path:
         cwd=repository,
     )
     _run(["git", "config", "core.longpaths", "true"], cwd=repository)
-    _run(["git", "config", "user.email", "p7-tests@example.invalid"], cwd=repository)
-    _run(["git", "config", "user.name", "P7 Tests"], cwd=repository)
+    _run(["git", "config", "user.email", "release-tests@example.invalid"], cwd=repository)
+    _run(["git", "config", "user.name", "Release Tests"], cwd=repository)
     _run(["git", "add", "."], cwd=repository)
     _run(["git", "commit", "-m", "preflight fixture"], cwd=repository)
     return repository
@@ -157,7 +157,7 @@ def _run_preflight(
     return result, json.loads(reports[0].read_text(encoding="utf-8"))
 
 
-def test_v2_acceptance_script_uses_isolated_locked_workflows() -> None:
+def test_release_acceptance_script_uses_isolated_locked_workflows() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
 
     for required in (
@@ -199,7 +199,7 @@ def test_v2_acceptance_script_uses_isolated_locked_workflows() -> None:
     assert "PYTHONNOUSERSITE" in text
     assert "apply-working-tree-diff" in text
     assert "ls-files --others --exclude-standard" in text
-    assert "outside the P7 allowlist" in text
+    assert "outside the release acceptance allowlist" in text
     assert text.index('"focused release acceptance tests"') < text.index(
         '"complete no-hardware suites"'
     )
@@ -207,7 +207,7 @@ def test_v2_acceptance_script_uses_isolated_locked_workflows() -> None:
 
 
 def test_release_scripts_use_module_independent_sha256_helper() -> None:
-    for name in ("v2-release-acceptance.ps1", "build_release.ps1"):
+    for name in ("release-acceptance.ps1", "build_release.ps1"):
         text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
 
         assert "Get-FileHash" not in text
@@ -294,6 +294,8 @@ def test_preflight_report_records_exact_interpreter_and_committed_provenance(
     assert report["acceptance_mode"] == "interpreter-preflight"
     assert report["full_acceptance_completed"] is False
     assert report["source_commit"] == expected_commit
+    assert report["distribution_name"] == "powers-tool"
+    assert report["project_version"] == "3.4.5"
     assert Path(report["python_310"]["requested_interpreter"]) == python310
     assert report["python_310"]["expected_version"] == "3.10"
     assert report["python_310"]["actual_version"].startswith("3.10.")
@@ -373,7 +375,7 @@ def test_readme_uses_python_313_and_distinguishes_candidate_from_final_acceptanc
     assert "does not replace final release\nacceptance" in text
 
 
-def test_v2_acceptance_candidate_overlay_has_an_exact_write_scope() -> None:
+def test_release_acceptance_candidate_overlay_has_an_exact_write_scope() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
 
     allowed_block = text.split("$allowedCandidatePaths = @(", 1)[1].split(")", 1)[0]
@@ -381,11 +383,21 @@ def test_v2_acceptance_candidate_overlay_has_an_exact_write_scope() -> None:
         ".github/workflows/tests.yml",
         "README.md",
         "pyproject.toml",
-        "scripts/v2-release-acceptance.ps1",
+        "docs/cli/README.md",
+        "docs/core/README.md",
+        "scripts/_validation_helpers.ps1",
+        "scripts/live-cli-check.ps1",
+        "scripts/preflight-cli.ps1",
+        "scripts/release-acceptance.ps1",
         "tests/packaging/inspect_distribution.py",
         "tests/packaging/inspect_pyinstaller.py",
         "tests/packaging/test_packaging_identity.py",
-        "tests/packaging/test_v2_release_acceptance.py",
+        "tests/cli/test_cli_wrappers.py",
+        "tests/cli/test_followup_features.py",
+        "tests/cli/test_live_cli_check_script.py",
+        "tests/cli/test_supported_models_docs.py",
+        "tests/core/test_model_enablement.py",
+        "tests/packaging/test_release_acceptance.py",
         "uv.lock",
     }
     actual = {
@@ -394,7 +406,8 @@ def test_v2_acceptance_candidate_overlay_has_an_exact_write_scope() -> None:
         if line.strip().startswith('"')
     }
     assert actual == expected
-    assert not any(path.startswith(("Local/", "docs/")) for path in actual)
+    assert not any(path.startswith("Local/") for path in actual)
+    assert not any("zh-TW" in path for path in actual)
 
 
 def test_ci_main_push_and_safe_launcher_smoke_are_preserved() -> None:
@@ -411,12 +424,11 @@ def test_ci_main_push_and_safe_launcher_smoke_are_preserved() -> None:
     assert "uv run powers-tool-webui-launcher --version" in text
 
 
-def test_v2_acceptance_script_is_no_hardware_and_keeps_localized_docs_out_of_scope() -> None:
+def test_release_acceptance_script_is_no_hardware_and_keeps_localized_docs_out_of_scope() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
 
     for forbidden in (
         "list-resources --live-only",
-        "live-cli-check.ps1",
         "*IDN?",
         "pyvisa_py",
         "VISA discovery",
@@ -429,6 +441,29 @@ def test_v2_acceptance_script_is_no_hardware_and_keeps_localized_docs_out_of_sco
         "hardware_touched = $false",
     ):
         assert protected in text
+    assert '"preflight-cli-all"' in text
+    assert '"live-cli-plan-only"' in text
+    assert '"-PlanOnly"' in text
+    assert '"SIM::E36312A"' in text
+    assert "no-hardware-regression.ps1" not in text
+
+
+def test_release_acceptance_is_version_neutral() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+
+    assert '$projectVersion = $versionMatch.Groups[1].Value' in text
+    assert '$distributionName -ne "powers-tool"' in text
+    assert '$projectVersion -ne "2.0.0"' not in text
+    assert '"-Version", $projectVersion' in text
+    assert 'Join-Path $releaseRoot $projectVersion' in text
+    assert 'kind = "powers-tool-release-acceptance"' in text
+    for stale in (
+        "powers-tool-v2-release-acceptance",
+        "v2_release_acceptance",
+        "p7_release_acceptance",
+        "Powers Tool v2 Release Acceptance",
+    ):
+        assert stale not in text
 
 
 def test_pyinstaller_inspector_requires_release_metadata_and_webui_assets() -> None:

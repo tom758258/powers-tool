@@ -169,12 +169,13 @@ Run pytest from the repository root. For an intentional per-run override, use
 `--basetemp .tmp_tests/<purpose>`. Do not use `Local/` for pytest temporary
 data or generated test artifacts.
 
-The repository-level validation scripts also exercise core behavior through
-the CLI adapter. Run the no-hardware gate before live validation:
+The repository-level validation scripts also exercise Core through the CLI
+adapter. Run the model-aware no-hardware preflight before a plan-only live
+wrapper check:
 
 ```powershell
-.\scripts\no-hardware-regression.ps1
-.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection USB -Resource USB0::SIM::E36312A::INSTR -Suite readonly -PlanOnly
+.\scripts\preflight-cli.ps1 -Target all
+.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection USB -Resource SIM::E36312A -Suite readonly -PlanOnly
 ```
 
 Live suite checks and hardware pytest are explicit, opt-in hardware checks.

@@ -1008,7 +1008,7 @@ def test_live_cli_check_e3646a_full_plan_contains_software_sequence_not_native_l
 
 
 def test_live_cli_check_full_suite_composition_is_model_aware():
-    script = SCRIPT.read_text(encoding="utf-8")
+    script = (Path("scripts") / "_validation_helpers.ps1").read_text(encoding="utf-8")
 
     assert '"keysight-e36312a" = [pscustomobject]@{' in script
     assert '"keysight-edu36311a" = [pscustomobject]@{' in script
@@ -1504,16 +1504,6 @@ def test_live_cli_check_noncanonical_or_inactive_targets_fail_before_live(target
     assert "Running no-hardware preflight" not in result.stdout
 
 
-def test_live_smoke_script_uses_v2_target_and_cli_identity():
-    smoke = Path("scripts/live-smoke-validation-check.ps1").read_text(encoding="utf-8")
-
-    assert '[string]$Profile = "auto"' in smoke
-    assert "canonical model IDs keysight-e36312a or keysight-edu36311a" in smoke
-    assert "powers-tool" in smoke
-    assert "keysight_power_cli" not in smoke
-    assert "preflight-smoke-validation.ps1" in smoke
-
-
 def test_english_docs_describe_suite_scoped_validation_and_e3646a_boundaries():
     docs = "\n".join(
         Path(path).read_text(encoding="utf-8")
@@ -1530,6 +1520,6 @@ def test_english_docs_describe_suite_scoped_validation_and_e3646a_boundaries():
     assert "live-cli-check.ps1" in docs
     assert "validates only the selected" in normalized
     assert "does not validate the entire model" in normalized
-    assert "Legacy smoke" in docs
+    assert "preflight-cli.ps1" in docs
     assert "software workflows, not native LIST" in normalized
     assert "OUTP ON/OFF" in docs

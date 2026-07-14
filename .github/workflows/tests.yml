@@ -91,3 +91,28 @@ jobs:
           uv run powers-tool --help
           uv run powers-tool-webui --help
           uv run powers-tool-webui-launcher --version
+
+  wrapper-contracts:
+    name: Windows validation wrapper contracts
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.9.13"
+          enable-cache: true
+
+      - name: Install package
+        run: uv sync --locked --all-extras --reinstall-package powers-tool
+
+      - name: Run wrapper contracts
+        run: uv run python -m pytest tests\cli\test_cli_wrappers.py tests\packaging\test_release_acceptance.py -q -p no:cacheprovider
