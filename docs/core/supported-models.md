@@ -6,9 +6,10 @@ Normal product LIVE execution uses the exact product matrix below. The two
 TCPIP + pyvisa-py entries remain registered pending candidates, not
 product-open support: system-VISA evidence does not validate pyvisa-py or a
 custom backend. An internal contributor-validation policy mode can evaluate
-only those already-registered pending exact scopes; it does not promote them,
-add a model or command, or bypass model/profile, safety, confirmation, and
-request validation. E3646A remains ASRL / RS-232 + system VISA only.
+registered pending scopes and the exact command candidates listed below; it
+does not promote them, change public status metadata, or bypass physical
+identity, model/profile, transport/backend, safety, confirmation, and request
+validation. E3646A remains ASRL / RS-232 + system VISA only.
 
 This document summarizes the checked-in Core live-support policy. The
 authoritative command/transport/backend decisions are in
@@ -43,6 +44,23 @@ implemented or represented in no-hardware planning/capability surfaces, but
 have no accepted exact product LIVE scope. Normal real execution therefore
 rejects them after `*IDN?` and before command-specific SCPI. Dry-run or
 simulator support does not imply product LIVE support.
+
+The maintained `-Suite full` workflow now includes this validation-only
+candidate matrix:
+
+| Canonical model | Exact candidate connections | Added candidate commands |
+| --- | --- | --- |
+| `keysight-e36312a` | USB + system VISA; TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor`, `measure-all`, real `restore-from-snapshot` |
+| `keysight-edu36311a` | USB + system VISA; TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor` |
+| `keysight-e3646a` | ASRL + system VISA | `output-on`, resource-backed `doctor` |
+
+This matrix is not Product support and is not projected as `transport_pending`
+or a new public command status. Public capabilities continue to show profile
+support with no accepted exact Product scope and `product_open=false`. Product
+mode may read `*IDN?` to make that decision, but rejects before command-specific
+SCPI or mutation. Direct `trigger-pulse` and `trigger-fire` are not candidates;
+existing Product-open E36312A `trigger-status`, `trigger-step`, `trigger-list`,
+and `trigger-abort` scopes remain unchanged.
 
 ## Feature-Aware Exact Scopes
 
@@ -134,6 +152,12 @@ artifacts may be absent; such records remain explicitly
 `historical_reference_only` and do not claim a checksum. The historical
 wrapper used the default system-VISA resource-manager path, so these records
 do not validate pyvisa-py or a custom backend.
+
+Those historical records do not contain the new standalone candidate cases.
+Their accepted command lists remain immutable. A future passing expanded full
+suite creates reviewable candidate artifacts only; a separate evidence-review,
+registration, and Product-promotion change is required before any new command
+can become `live_validated_full_suite`.
 
 The E36312A and EDU36311A TCPIP + pyvisa-py scopes cite their corresponding
 TCPIP/system-VISA evidence only as a non-promoting candidate basis. They have

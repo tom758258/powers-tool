@@ -101,6 +101,20 @@ product-open. E3646A product LIVE remains ASRL / RS-232 + system VISA only,
 and its `ramp-list` and step-limited `sequence` are software workflows, not
 native LIST.
 
+The maintained `full` live-validation suite now includes those implemented
+commands as exact validation candidates where the model supports them:
+E36312A adds `output-on`, `log`, resource-backed `doctor`, `measure-all`, and
+real `restore-from-snapshot`; EDU36311A adds `output-on`, `log`, and
+resource-backed `doctor`; E3646A adds `output-on` and resource-backed
+`doctor`. This internal validation-only admission is not a public bypass.
+Normal Product mode remains closed until new live artifacts are run, reviewed,
+registered, and promoted in a separate change. Existing historical evidence
+does not cover these new standalone cases, and a future passing suite does not
+promote them automatically. Direct `trigger-pulse` and `trigger-fire` remain
+closed and are not candidates; the existing Product-open E36312A
+`trigger-status`, `trigger-step`, `trigger-list`, and `trigger-abort` scopes are
+unchanged.
+
 For output commands, `voltage` means the output voltage setpoint and `current`
 means the output current limit/current setting for E36312A, EDU36311A, and
 E3646A. Core exposes official programming-range metadata from the model
@@ -368,6 +382,11 @@ features of that model. With a passing expanded full-suite record for the
 approved model and connection, the model's currently project-supported LIVE
 features may be opened. Disabled, unimplemented, out-of-scope, or factory-only
 features are not implied by the pass.
+
+Plan-only reports include the model-specific planned live-case inventory. The
+new candidate cases remain limited to E36312A USB/TCPIP + system VISA,
+EDU36311A USB/TCPIP + system VISA, and E3646A ASRL + system VISA; other models,
+transports, pyvisa-py, and custom backends fail closed.
 
 A passed `scripts\live-cli-check.ps1` run validates only the selected target
 model, connection type, suite, and cases recorded in that run's artifacts. It

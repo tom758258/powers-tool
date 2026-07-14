@@ -23,6 +23,11 @@
 - Preserves existing hardware evidence without treating the identity migration
   as new hardware validation. Currently validated hardware remains the
   documented Keysight models; no support scope was expanded by the rename.
+- Expands the model-specific `full` contributor-validation plans with bounded
+  standalone `output-on`, logging, resource-backed doctor, E36312A
+  `measure-all`, and E36312A real restore candidates. Product mode remains
+  closed for these commands until separate live evidence review and promotion;
+  historical accepted evidence is unchanged.
 
 ## 1.0.0
 

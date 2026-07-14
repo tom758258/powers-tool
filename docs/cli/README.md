@@ -166,6 +166,37 @@ examples use `POWERS_TOOL_RESOURCE` or `POWERS_TOOL_ASRL_RESOURCE`;
 model-specific lab variables such as
 `E36312A_USB_RESOURCE` remain explicit operator inputs.
 
+The current `full` plans also record model-specific standalone validation
+candidates that are implemented but not Product-open:
+
+| Target and exact validation connection | Added candidate commands |
+| --- | --- |
+| E36312A USB or TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor`, `measure-all`, real `restore-from-snapshot` |
+| EDU36311A USB or TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor` |
+| E3646A ASRL + system VISA | `output-on`, resource-backed `doctor` |
+
+Plan-only reports expose this model-specific planned case inventory without
+opening VISA. The internal validation-only path still requires the exact
+detected physical model, command, transport, backend, capability, and any
+expected-model guard. It does not admit pyvisa-py, custom backends, unlisted
+connections, other models, or unsupported commands. Direct `trigger-pulse`
+and `trigger-fire` are not included. Historical accepted artifacts do not
+cover these new standalone cases; even a future passing run requires separate
+evidence review, registration, and Product promotion.
+
+The new cases are deliberately bounded. Logging collects one all-channel
+sample at 0.1 seconds into private CSV/JSONL files, validates the exact header,
+channel inventory, telemetry fields, per-row empty error fields, and completed
+summary, then writes only redacted shareable copies. Resource-backed `doctor`
+must complete the resource-manager/backend check, open the selected resource,
+identify the expected model, and emit no state-changing SCPI; offline `doctor`
+is unchanged. E36312A `measure-all` requires exactly CH1-CH3 numeric voltage
+and current results. Its two real restore paths separately prove settings with
+outputs kept OFF and one bounded CH1 ON snapshot restored with
+`--restore-output-state --confirm`; both paths retain the canonical snapshot
+guards and require best-effort safe-off, final output-state, and error-queue
+evidence even after failure.
+
 Current accepted evidence connections from passing validation artifacts:
 
 - E36312A USB + system VISA
@@ -414,9 +445,11 @@ Product LIVE support is command-exact, not feature-family-wide. See the
 resource-backed `doctor`, and `restore-from-snapshot` currently have no
 accepted exact product scope and fail after `*IDN?` before command-specific
 SCPI. They remain available where documented for dry-run or simulator
-planning. Accepted commands such as `set`, `output-off`, `safe-off`,
-`apply`, `ramp`, and model-appropriate read/protection/trigger commands
-still require an exact accepted model/transport/backend scope.
+planning. The supported subset listed above is additionally executable only
+inside the maintained exact full-suite validation workflow. Accepted commands
+such as `set`, `output-off`, `safe-off`, `apply`, `ramp`, and model-appropriate
+read/protection/trigger commands still require an exact accepted
+model/transport/backend scope.
 
 Normal CLI operation always uses the product live-support policy. Pending
 transport/backend evidence is not normal product support, and no public force
@@ -814,7 +847,11 @@ uv run powers-tool output-on --simulate --json --resource USB0::SIM::E36312A::IN
 
 `output-on` has no accepted product LIVE exact scope. Normal real execution
 fails after `*IDN?` without setpoint queries or writes. The examples above
-exercise only dry-run/simulator planning.
+exercise only dry-run/simulator planning. The full-suite validation candidate
+uses bounded 1 V / 0.05 A setpoints, confirms actual ON/OFF readback, and
+requires final safe-off/error-queue cleanup. E3646A uses one global output
+switch case after programming both channels; it is not tested as independent
+per-channel output relays.
 
 Read back and cycle output state:
 
@@ -949,8 +986,8 @@ stays parseable. Every JSON success and error envelope includes
   Feature-family, dry-run, simulator, or parser support does not widen it.
 - `output-on`, `measure-all`, `trigger-pulse`, `trigger-fire`, `log`,
   resource-backed `doctor`, and `restore-from-snapshot` are not
-  product-open. Their no-hardware implementation remains available where
-  supported.
+  product-open. Supported commands may be exact full-suite validation
+  candidates, but that internal workflow is not a normal-use bypass.
 - Real `clear`, `error`, and `measure` are safe I/O commands: `clear` sends
   `*CLS` and clears status/error state, while `error` and `measure` only query.
 - `--safety-config` is explicit only and applies local plan validation limits;

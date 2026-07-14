@@ -41,12 +41,15 @@ then requires an exact `model_id + command + transport + backend + required
 feature` scope before command-specific SCPI. Missing, unsupported, and pending
 scopes fail closed.
 
-Core also has an internal contributor-validation policy mode for running only
-already-registered pending exact scopes. It does not select or override the
-IDN-detected model, promote support, or bypass command/profile validation,
-safety limits, confirmation, electrical ratings, sequence restrictions, or
-cleanup behavior. Adapters decide whether that internal mode is available;
-normal product integrations remain product mode.
+Core also has an internal contributor-validation policy mode for explicitly
+registered pending scopes and a narrow inventory of validation-only command
+candidates. Candidate admission requires an implemented `real=True` command
+on the exact canonical IDN-detected model and the approved system-VISA
+transport for that model. It does not create a public pending status, enter the
+accepted command inventory, select or override the detected model, promote
+support, or bypass expected-model, command/profile, safety, confirmation,
+electrical-rating, sequence, or cleanup checks. Adapters decide whether that
+internal mode is available; normal integrations remain Product mode.
 
 Exact policy evaluation is feature-aware for `sequence_action` and
 `trigger_source`. Sequence validates every distinct instrument-relevant
@@ -193,6 +196,15 @@ it does not validate other connection types or every factory instrument
 function. Commands, state-changing behavior, and report locations are
 documented in the [CLI README scripted validation section](../cli/README.md#scripted-validation).
 
+The current exact full-suite candidates add E36312A `output-on`, `log`,
+resource-backed `doctor`, `measure-all`, and real `restore-from-snapshot` on
+USB/TCPIP + system VISA; EDU36311A `output-on`, `log`, and resource-backed
+`doctor` on USB/TCPIP + system VISA; and E3646A `output-on` plus
+resource-backed `doctor` on ASRL + system VISA. They remain absent from
+accepted Product command inventories and public exact scopes. Historical
+evidence does not cover the new standalone cases, and passing future artifacts
+does not promote them automatically.
+
 ## Docs
 
 - Core integration guide: `integration.md`
@@ -226,6 +238,10 @@ particular, `trigger-fire` and `trigger-pulse` are not product-open. Native
 LIST execution belongs only to `trigger-list`; Ramp always uses software
 setpoint steps. Unsupported models, including EDU36311A, do not expose trigger
 dry-run or simulator behavior.
+
+Direct `trigger-pulse` and `trigger-fire` are not validation candidates and
+remain Product-closed. Existing Product-open E36312A `trigger-status`,
+`trigger-step`, `trigger-list`, and `trigger-abort` scopes are unchanged.
 
 The current expanded full-suite records have passed for E36312A USB,
 E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL / RS-232. These

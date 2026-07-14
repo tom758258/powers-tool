@@ -20,6 +20,7 @@ from powers_tool_core.support_policy import (
     LiveSupportPolicyError,
     SUPPORT_POLICY_MODE_PRODUCT,
     SUPPORT_POLICY_MODE_VALIDATION,
+    exact_live_support_metadata,
 )
 from powers_tool_core.trigger import run_trigger
 
@@ -43,6 +44,8 @@ class FakeSession:
             "*IDN?": self.idn,
             "MEAS:VOLT?": "1.0",
             "MEAS:CURR?": "0.1",
+            "VOLT? (@1)": "1.0",
+            "CURR? (@1)": "0.05",
         }.get(command, '0,"No error"')
 
     def write(self, command: str) -> None:
@@ -309,7 +312,7 @@ def test_output_without_exact_evidence_rejects_after_idn_before_write() -> None:
     assert session.writes == []
 
 
-def test_validation_mode_does_not_open_output_without_exact_scope() -> None:
+def test_validation_mode_opens_exact_output_candidate_scope() -> None:
     session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
     request = OperationRequest(
         "output-on",
@@ -320,11 +323,131 @@ def test_validation_mode_does_not_open_output_without_exact_scope() -> None:
         ),
         {"channel": 1},
     )
+    data = run_operation(request, opener=lambda *args, **kwargs: session)
+    assert data["output_enabled"] is True
+    assert session.queries[:3] == ["*IDN?", "VOLT? (@1)", "CURR? (@1)"]
+    assert session.writes == ["OUTP ON,(@1)"]
+    assert session.closed
+
+
+@pytest.mark.parametrize(
+    ("model_id", "command", "resource"),
+    [
+        ("keysight-e36312a", "output-on", "USB0::1::INSTR"),
+        ("keysight-e36312a", "log", "TCPIP0::192.0.2.1::INSTR"),
+        ("keysight-e36312a", "doctor", "USB0::1::INSTR"),
+        ("keysight-e36312a", "measure-all", "TCPIP0::192.0.2.1::INSTR"),
+        ("keysight-e36312a", "restore-from-snapshot", "USB0::1::INSTR"),
+        ("keysight-edu36311a", "output-on", "USB0::1::INSTR"),
+        ("keysight-edu36311a", "log", "TCPIP0::192.0.2.1::INSTR"),
+        ("keysight-edu36311a", "doctor", "USB0::1::INSTR"),
+        ("keysight-e3646a", "output-on", "ASRL1::INSTR"),
+        ("keysight-e3646a", "doctor", "ASRL1::INSTR"),
+    ],
+)
+def test_validation_mode_admits_exact_system_visa_command_candidates(
+    model_id: str, command: str, resource: str
+) -> None:
+    scope = enforce_live_support(
+        _request(command, resource, support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION),
+        model_id,
+    )
+    assert scope is not None
+    assert scope.transport_scope in {"usb", "tcpip", "asrl"}
+    assert scope.backend_scope == "system_visa"
+    assert scope.accepted_evidence_ids == ()
+
+
+@pytest.mark.parametrize(
+    ("model_id", "command", "resource", "backend"),
+    [
+        ("keysight-e36312a", "output-on", "USB0::1::INSTR", None),
+        ("keysight-edu36311a", "log", "TCPIP0::192.0.2.1::INSTR", None),
+        ("keysight-e3646a", "doctor", "ASRL1::INSTR", None),
+    ],
+)
+def test_product_mode_keeps_command_candidates_closed(
+    model_id: str, command: str, resource: str, backend: str | None
+) -> None:
     with pytest.raises(LiveSupportPolicyError, match="no exact transport/backend scope"):
+        enforce_live_support(_request(command, resource, backend=backend), model_id)
+
+
+@pytest.mark.parametrize(
+    ("model_id", "command", "resource", "backend"),
+    [
+        ("keysight-e36312a", "output-on", "ASRL1::INSTR", None),
+        ("keysight-e36312a", "output-on", "USB0::1::INSTR", "@py"),
+        ("keysight-e36312a", "output-on", "USB0::1::INSTR", "@ivi"),
+        ("keysight-e36312a", "output-on", "", None),
+        ("keysight-edu36311a", "measure-all", "USB0::1::INSTR", None),
+        ("keysight-e3646a", "log", "ASRL1::INSTR", None),
+        ("keysight-e3646a", "doctor", "TCPIP0::192.0.2.1::INSTR", None),
+        ("keysight-e36312a", "trigger-pulse", "USB0::1::INSTR", None),
+        ("keysight-e36312a", "trigger-fire", "USB0::1::INSTR", None),
+    ],
+)
+def test_validation_command_candidates_fail_closed_outside_exact_inventory(
+    model_id: str, command: str, resource: str, backend: str | None
+) -> None:
+    with pytest.raises(CoreValidationError):
+        enforce_live_support(
+            _request(
+                command,
+                resource,
+                backend=backend,
+                support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            ),
+            model_id,
+        )
+
+
+def test_command_candidate_does_not_change_public_product_metadata() -> None:
+    metadata = exact_live_support_metadata(
+        model_id="keysight-e36312a",
+        resource="USB0::1::INSTR",
+        backend=None,
+        commands=("output-on", "trigger-status"),
+    )
+    output_on = metadata["commands"]["output-on"]
+    assert output_on["profile_supported"] is True
+    assert output_on["exact_scope_validation_status"] is None
+    assert output_on["product_open"] is False
+    assert metadata["commands"]["trigger-status"]["product_open"] is True
+
+
+def test_validation_candidate_expected_model_mismatch_stops_before_output_scpi() -> None:
+    session = FakeSession("KEYSIGHT,EDU36311A,SN,1.0")
+    request = OperationRequest(
+        "output-on",
+        RuntimeOptions(
+            resource="USB0::1::INSTR",
+            expected_model_id="keysight-e36312a",
+            confirm=True,
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        ),
+        {"channel": 1},
+    )
+    with pytest.raises(CoreValidationError, match="Expected model_id keysight-e36312a"):
         run_operation(request, opener=lambda *args, **kwargs: session)
     assert session.queries == ["*IDN?"]
     assert session.writes == []
-    assert session.closed
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    ["generic-scpi", "keysight-e36313a", "keysight-e36103b"],
+)
+def test_validation_candidate_rejects_nonactive_physical_policy_models(model_id: str) -> None:
+    with pytest.raises(CoreValidationError):
+        enforce_live_support(
+            _request(
+                "output-on",
+                "USB0::1::INSTR",
+                support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            ),
+            model_id,
+        )
 
 
 def test_exempt_clear_keeps_its_existing_no_idn_behavior() -> None:

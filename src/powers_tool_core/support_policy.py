@@ -100,6 +100,31 @@ _ALLOW_VALIDATION = _ALLOW_PRODUCT | {
 }
 _PENDING_STATUSES = frozenset({VALIDATION_STATUS_TRANSPORT_PENDING})
 
+# Internal-only admission for exact live-validation candidates. These entries
+# are deliberately absent from public support metadata and accepted evidence.
+_VALIDATION_ONLY_COMMAND_CANDIDATES = {
+    "keysight-e36312a": frozenset(
+        {"output-on", "log", "doctor", "measure-all", "restore-from-snapshot"}
+    ),
+    "keysight-edu36311a": frozenset({"output-on", "log", "doctor"}),
+    "keysight-e3646a": frozenset({"output-on", "doctor"}),
+}
+_VALIDATION_ONLY_EXACT_CONNECTIONS = {
+    "keysight-e36312a": frozenset(
+        {
+            (TRANSPORT_USB, BACKEND_SYSTEM_VISA),
+            (TRANSPORT_TCPIP, BACKEND_SYSTEM_VISA),
+        }
+    ),
+    "keysight-edu36311a": frozenset(
+        {
+            (TRANSPORT_USB, BACKEND_SYSTEM_VISA),
+            (TRANSPORT_TCPIP, BACKEND_SYSTEM_VISA),
+        }
+    ),
+    "keysight-e3646a": frozenset({(TRANSPORT_ASRL, BACKEND_SYSTEM_VISA)}),
+}
+
 
 class LiveSupportPolicyError(CoreValidationError):
     """Raised when an exact live support-policy decision rejects a scope."""
@@ -518,6 +543,15 @@ def ensure_live_scope_supported(
                 reason=policy.note or "the model/profile does not support this command",
             )
         )
+    candidate_scope = _validation_only_candidate_scope(
+        model_id=model_id,
+        command=normalized_command,
+        transport=normalized_transport,
+        backend=normalized_backend,
+        support_policy_mode=normalized_mode,
+    )
+    if candidate_scope is not None:
+        return candidate_scope
     scope = find_live_support_scope(
         model_id=model_id,
         command=normalized_command,
@@ -608,6 +642,35 @@ def ensure_live_scope_supported(
                 )
             )
     return scope
+
+
+def _validation_only_candidate_scope(
+    *,
+    model_id: str,
+    command: str,
+    transport: str,
+    backend: str,
+    support_policy_mode: str,
+) -> CommandLiveSupportScope | None:
+    """Admit one internal candidate without publishing or promoting its scope."""
+
+    if support_policy_mode != SUPPORT_POLICY_MODE_VALIDATION:
+        return None
+    if command not in _VALIDATION_ONLY_COMMAND_CANDIDATES.get(model_id, frozenset()):
+        return None
+    capability = command_support(model_id).get(command)
+    if capability is None or capability.get("real") is not True:
+        return None
+    if (transport, backend) not in _VALIDATION_ONLY_EXACT_CONNECTIONS.get(
+        model_id, frozenset()
+    ):
+        return None
+    return CommandLiveSupportScope(
+        validation_status=VALIDATION_STATUS_PROFILE_VALIDATED,
+        transport_scope=transport,
+        backend_scope=backend,
+        note="Internal exact validation-only candidate admission.",
+    )
 
 
 def validate_live_support_metadata(

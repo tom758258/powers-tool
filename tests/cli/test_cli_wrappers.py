@@ -126,9 +126,10 @@ def test_live_wrapper_enforces_external_then_suite_preflight_before_live() -> No
     text = (ROOT / "scripts" / "live-cli-check.ps1").read_text(encoding="utf-8")
     external = text.index("& powershell.exe", text.index("$PreflightScript"))
     internal = text.index("Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:$false")
+    planned_live_cases = text.index("$script:PlannedLiveCases = @(Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:$true)")
     confirmation = text.index('Read-Host "Press Enter to run live suite validation')
-    live_cases = text.index("Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:$true")
-    assert external < internal < confirmation < live_cases
+    live_cases = text.index("$liveCases = Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:$true")
+    assert external < internal < planned_live_cases < confirmation < live_cases
     assert 'status = "preflight_failed"' not in text
     assert 'Write-ValidationArtifacts -ValidationMode "preflight_failed" -Result "preflight_failed"' in text
     assert 'if ($PlanOnly)' in text

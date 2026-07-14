@@ -210,6 +210,7 @@ def _main_flow_fixture_cli_path(tmp_path: Path) -> Path:
 import json
 import os
 import sys
+from pathlib import Path
 
 failed = os.environ.get("P5_FIXTURE_PREFLIGHT_FAIL") == "1"
 payload = {
@@ -217,6 +218,26 @@ payload = {
     "error": None if not failed else {"code": "fixture_preflight_failed", "message": "fixture preflight failed"},
     "execution": {"mode": "simulate", "dry_run": False, "hardware_touched": False},
 }
+command = sys.argv[1]
+if command == "doctor":
+    payload["data"] = {"real_resource_manager": {"checked": False, "available": None}}
+elif command == "measure-all":
+    payload["data"] = {
+        "channels": [
+            {"channel": channel, "measurements": {"voltage": 0.0, "current": 0.0}}
+            for channel in (1, 2, 3)
+        ]
+    }
+elif command == "log":
+    csv_path = Path(sys.argv[sys.argv.index("--csv") + 1])
+    jsonl_path = Path(sys.argv[sys.argv.index("--jsonl") + 1])
+    header = "timestamp,resource,resource_alias,model,serial,channel,programmed_voltage,programmed_current,measured_voltage,measured_current,output_enabled,errors\n"
+    rows = [f"2026-01-01T00:00:00Z,SIM,,E36312A,SIM,{channel},1,0.05,0,0,false,\n" for channel in (1, 2, 3)]
+    csv_path.write_text(header + "".join(rows), encoding="utf-8")
+    events = [json.dumps({"event": "sample", "sample": {"channel": channel}}) for channel in (1, 2, 3)]
+    events.append(json.dumps({"event": "summary", "samples_written": 1, "channels": [1, 2, 3], "stopped": False, "stop_reason": "completed"}))
+    jsonl_path.write_text("\n".join(events) + "\n", encoding="utf-8")
+    payload["data"] = {"samples_written": 1, "stopped": False, "stop_reason": "completed"}
 save_path = sys.argv[sys.argv.index("--save-json") + 1]
 with open(save_path, "w", encoding="utf-8") as handle:
     json.dump(payload, handle)
@@ -1018,6 +1039,66 @@ def test_live_cli_check_full_suite_composition_is_model_aware():
     assert 'suites = @("readonly", "output", "software-sequence")' in script
 
 
+def test_live_cli_check_log_validator_rejects_incomplete_or_error_artifacts(tmp_path):
+    header = (
+        "timestamp,resource,resource_alias,model,serial,channel,programmed_voltage,"
+        "programmed_current,measured_voltage,measured_current,output_enabled,errors\n"
+    )
+    valid_rows = [
+        f"2026-01-01T00:00:00Z,SIM,,E36312A,SIM,{channel},1,0.05,0,0,false,\n"
+        for channel in (1, 2, 3)
+    ]
+    valid_events = [
+        {"event": "sample", "sample": {"channel": channel}} for channel in (1, 2, 3)
+    ] + [
+        {
+            "event": "summary",
+            "samples_written": 1,
+            "channels": [1, 2, 3],
+            "stopped": False,
+            "stop_reason": "completed",
+        }
+    ]
+    scenarios = {
+        "missing-files": (None, None),
+        "wrong-row-count": (valid_rows[:2], valid_events),
+        "nonempty-errors": (
+            [*valid_rows[:2], valid_rows[2].rstrip("\n") + "-200 instrument error\n"],
+            valid_events,
+        ),
+        "missing-summary": (valid_rows, valid_events[:-1]),
+        "interrupted-summary": (
+            valid_rows,
+            [
+                *valid_events[:-1],
+                {
+                    **valid_events[-1],
+                    "stopped": True,
+                    "stop_reason": "interrupted",
+                },
+            ],
+        ),
+    }
+    for name, (rows, events) in scenarios.items():
+        csv_path = tmp_path / f"{name}.csv"
+        jsonl_path = tmp_path / f"{name}.jsonl"
+        if rows is not None and events is not None:
+            csv_path.write_text(header + "".join(rows), encoding="utf-8")
+            jsonl_path.write_text(
+                "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8"
+            )
+        command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$case = New-CommandCase -Name "log-test" -Suite "readonly" -Phase "preflight" -Args @("log") -ValidationKind "log" -ExpectedChannels @(1,2,3) -GeneratedArtifacts @("{csv_path}", "{jsonl_path}")
+$payload = '{{"data":{{"samples_written":1,"stopped":false,"stop_reason":"completed"}}}}' | ConvertFrom-Json
+$failures = @(Get-CaseAssertionFailures -Case $case -Payload $payload -Identity $null -OutputStates $null -InstrumentErrors $null -StderrPath "{tmp_path / 'empty.stderr'}")
+if ($failures.Count -eq 0) {{ throw "expected log validation failure" }}
+'''
+        result = _run_powershell_command(command)
+        assert result.returncode == 0, name + ": " + result.stdout + result.stderr
+
+
 def test_live_cli_check_target_metadata_matches_core_registries():
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -1045,25 +1126,28 @@ $TargetMetadata | ConvertTo-Json -Depth 8 -Compress
 
 
 @pytest.mark.parametrize(
-    ("target", "connection", "resource", "expected_suites"),
+    ("target", "connection", "resource", "expected_suites", "expected_candidates"),
     [
         (
             "keysight-e36312a",
             "USB",
             "USB0::SIM::E36312A::INSTR",
             ["readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence"],
+            {"output-on", "log", "doctor", "measure-all", "restore-from-snapshot"},
         ),
         (
             "keysight-edu36311a",
             "USB",
             "USB0::SIM::EDU36311A::INSTR",
             ["readonly", "output", "protection", "software-sequence"],
+            {"output-on", "log", "doctor"},
         ),
         (
             "keysight-e3646a",
             "ASRL",
             "ASRL1::SIM::E3646A::INSTR",
             ["readonly", "output", "software-sequence"],
+            {"output-on", "doctor"},
         ),
     ],
 )
@@ -1072,6 +1156,7 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
     connection: str,
     resource: str,
     expected_suites: list[str],
+    expected_candidates: set[str],
 ):
     result = _run_live_cli_check(
         "-Target",
@@ -1092,6 +1177,30 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
     assert report["suites"] == expected_suites
     assert "software-sequence" in report["suites"]
     assert "software-sequence" in summary
+    planned = report["planned_live_cases"]
+    candidate_commands = {
+        case["command"]
+        for case in planned
+        if case["command"]
+        in {"output-on", "log", "doctor", "measure-all", "restore-from-snapshot"}
+    }
+    assert candidate_commands == expected_candidates
+    assert not {"trigger-pulse", "trigger-fire"} & {case["command"] for case in planned}
+    if target != "keysight-e36312a":
+        assert not any(case["command"] == "restore-from-snapshot" for case in planned)
+        assert not any(case["command"] == "measure-all" for case in planned)
+    if target == "keysight-e3646a":
+        assert not any(case["command"] == "log" for case in planned)
+        global_on = next(case for case in planned if case["name"] == "output-on-global")
+        assert global_on["arguments"][global_on["arguments"].index("--channel") + 1] == "1"
+        assert sum(case["command"] == "output-on" for case in planned) == 1
+    else:
+        output_on_cases = [case for case in planned if case["command"] == "output-on" and case["suite"] == "output"]
+        assert len(output_on_cases) == 3
+        assert all("--confirm" in case["arguments"] for case in output_on_cases)
+    if target == "keysight-e36312a":
+        names = {case["name"] for case in planned}
+        assert {"restore-off-execute", "restore-on-execute", "restore-on-immediate-safe-off"} <= names
     case_names = {case["name"] for case in report["cases"] if case["suite"] == "software-sequence"}
     assert {
         "ramp-list-lint",
