@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from powers_tool_cli import cli
 from powers_tool_core.support_evidence import SUPPORT_EVIDENCE_MANIFEST
 
 
@@ -801,6 +802,104 @@ foreach ($diagnostic in @("list-resources", "verify", "identify", "error", "clea
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def _wrapper_arguments(command: str) -> list[str]:
+    powershell = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:NormalizedTarget = "keysight-e3646a"
+$script:RawResource = "ASRL1::INSTR"
+$script:OutputDir = ".tmp_tests\parser-contract"
+$script:BackendValue = $null
+Ensure-ArtifactDirectories
+$case = @(Get-SuiteCases -Model $script:NormalizedTarget -Suites (Get-SupportedSuites -Model $script:NormalizedTarget) -Live:$true | Where-Object {{ $_.args[0] -eq "{command}" }})[0]
+@(Get-ValidationCommandArguments -Case $case -JsonPath ".tmp_tests\parser-contract.json") | ConvertTo-Json -Compress
+'''
+    result = _run_powershell_command(powershell)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout)
+
+
+def test_live_cli_check_verify_arguments_are_accepted_by_production_parser():
+    arguments = _wrapper_arguments("verify")
+
+    args = cli.build_parser().parse_args(arguments)
+
+    assert arguments == [
+        "verify",
+        "--json",
+        "--resource",
+        "ASRL1::INSTR",
+        "--log-scpi",
+        "--model",
+        "keysight-e3646a",
+        "--save-json",
+        ".tmp_tests\\parser-contract.json",
+    ]
+    assert cli._target_core_request_for_args(args).runtime.expected_model_id == "keysight-e3646a"
+
+
+@pytest.mark.parametrize("command", ["error", "clear"])
+def test_live_cli_check_raw_diagnostic_arguments_omit_model(command):
+    arguments = _wrapper_arguments(command)
+
+    cli.build_parser().parse_args(arguments)
+
+    assert "--model" not in arguments
+
+
+def test_live_cli_check_identify_retains_expected_model_guard():
+    arguments = _wrapper_arguments("identify")
+
+    args = cli.build_parser().parse_args(arguments)
+
+    assert cli._target_core_request_for_args(args).runtime.expected_model_id == "keysight-e3646a"
+
+
+def test_live_cli_check_model_aware_command_retains_expected_model_guard():
+    arguments = _wrapper_arguments("output-state")
+
+    args = cli.build_parser().parse_args(arguments)
+
+    assert cli._target_core_request_for_args(args).runtime.expected_model_id == "keysight-e3646a"
+
+
+@pytest.mark.parametrize(
+    ("target", "resource"),
+    [
+        ("keysight-e36312a", "USB0::SIM::E36312A::INSTR"),
+        ("keysight-edu36311a", "USB0::SIM::EDU36311A::INSTR"),
+        ("keysight-e3646a", "ASRL1::SIM::E3646A::INSTR"),
+    ],
+)
+def test_every_maintained_live_suite_case_is_production_parser_compatible(
+    tmp_path, target, resource
+):
+    output_dir = (tmp_path / target).as_posix()
+    powershell = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:NormalizedTarget = "{target}"
+$script:RawResource = "{resource}"
+$script:OutputDir = "{output_dir}"
+$script:BackendValue = $null
+Ensure-ArtifactDirectories
+$records = @()
+foreach ($case in @(Get-SuiteCases -Model "{target}" -Suites (Get-SupportedSuites -Model "{target}") -Live:$true)) {{
+    $contract = Get-LiveCommandIdentityContract -Command $case.args[0]
+    $arguments = @(Get-ValidationCommandArguments -Case $case -JsonPath (Join-Path $script:PrivateArtifactDir ($case.name + ".json")))
+    $records += [pscustomobject]@{{ name = $case.name; contract = $contract; arguments = $arguments }}
+}}
+$records | ConvertTo-Json -Depth 12 -Compress
+'''
+    result = _run_powershell_command(powershell)
+    assert result.returncode == 0, result.stdout + result.stderr
+    records = json.loads(result.stdout)
+
+    for record in records:
+        assert record["contract"] != "unclassified", record
+        cli.build_parser().parse_args(record["arguments"])
+
+
 @pytest.mark.parametrize(
     ("value", "backend", "scope", "argument"),
     [
@@ -1322,6 +1421,7 @@ def test_live_cli_check_required_state_cleanup_command_failures_are_not_passed(
     report = json.loads(Path(result.stdout.strip()).read_text(encoding="utf-8"))
     assert report["cleanup"]["status"] == "partial"
     assert failure_fragment in report["failures"]
+    assert report["failures"].count(failure_fragment) == 1
 
 
 def test_live_cli_check_restore_false_is_truthfully_not_cleanup_verified(tmp_path):

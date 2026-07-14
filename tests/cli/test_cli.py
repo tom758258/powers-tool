@@ -798,6 +798,103 @@ def test_verify_json_missing_resource_returns_validation_payload(capsys) -> None
     assert captured.err == ""
 
 
+def test_verify_model_maps_to_live_expected_model_id() -> None:
+    args = cli.build_parser().parse_args(
+        [
+            "verify",
+            "--json",
+            "--resource",
+            "ASRL1::INSTR",
+            "--model",
+            "keysight-e3646a",
+        ]
+    )
+
+    request = cli._target_core_request_for_args(args)
+
+    assert request.runtime.expected_model_id == "keysight-e3646a"
+    assert request.runtime.planning_model_id is None
+
+
+def test_verify_expected_model_mismatch_stops_after_idn(monkeypatch, capsys) -> None:
+    session = FakeSession("Agilent Technologies,E3646A,0,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "verify",
+                "--json",
+                "--resource",
+                "ASRL1::INSTR",
+                "--model",
+                "keysight-e36312a",
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+    assert "Expected model_id keysight-e36312a" in payload["error"]["message"]
+    assert payload["execution"]["hardware_touched"] is True
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+
+
+def test_parser_error_with_save_json_writes_existing_error_envelope(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    save_path = tmp_path / "parser-error.json"
+
+    def fail_open(*args, **kwargs):
+        raise AssertionError("parser failures must not open hardware")
+
+    monkeypatch.setattr(cli, "open_resource", fail_open)
+
+    assert (
+        cli.main(
+            [
+                "verify",
+                "--json",
+                "--save-json",
+                str(save_path),
+                "--resource",
+                "ASRL1::INSTR",
+                "--invalid-option",
+            ]
+        )
+        == 2
+    )
+
+    stdout_payload = json.loads(capsys.readouterr().out)
+    saved_payload = json.loads(save_path.read_text(encoding="utf-8"))
+    assert saved_payload == stdout_payload
+    assert saved_payload["error"]["code"] == "argument_error"
+    assert saved_payload["execution"]["hardware_touched"] is False
+
+
+def test_parser_error_save_failure_uses_existing_json_save_error(capsys, tmp_path) -> None:
+    assert (
+        cli.main(
+            [
+                "verify",
+                "--json",
+                "--save-json",
+                str(tmp_path),
+                "--resource",
+                "ASRL1::INSTR",
+                "--invalid-option",
+            ]
+        )
+        == 1
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "json_save_failed"
+    assert payload["execution"]["hardware_touched"] is False
+
+
 def test_list_resources_simulate_does_not_create_real_resource_manager(monkeypatch, capsys) -> None:
     def fail_real_manager(backend=None):
         raise AssertionError("real VISA manager should not be created")
@@ -7312,6 +7409,29 @@ def test_identify_e3646a_real_reads_only_idn(monkeypatch, capsys) -> None:
     assert payload["data"]["options"] is None
     assert payload["data"]["scpi_version"] is None
     assert payload["data"]["remote_lockout_state"] is None
+
+
+def test_identify_expected_model_guard_remains_parser_visible(monkeypatch, capsys) -> None:
+    session = FakeSession(idn="KEYSIGHT,E3646A,SERIAL0000,1.0")
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert (
+        cli.main(
+            [
+                "identify",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--model",
+                "keysight-e3646a",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert session.queries == ["*IDN?"]
 
 
 def test_identify_extended_query_failure_is_json_error(monkeypatch, capsys) -> None:

@@ -166,9 +166,16 @@ Wrapper targets are exact canonical physical `model_id` values; bare model
 names are rejected. New shareable reports use string `schema_version: "2.0"`,
 `kind: "powers-tool-live-validation"`, `vendor_id`, and `model_id`. Plan-only
 reports record `planning_model_id`; live reports record `expected_model_id`.
-The wrapper invokes `powers-tool` and never treats a passing report as support
-promotion. Generic examples use `POWERS_TOOL_RESOURCE` or
-`POWERS_TOOL_ASRL_RESOURCE`; model-specific lab variables such as
+The wrapper passes the canonical expected-model guard to identity-bearing and
+model-aware commands that accept it. `verify` and `identify` validate the
+manufacturer-plus-model identity detected by `*IDN?` against that guard;
+`error` and `clear` remain raw diagnostic/status operations without a model
+guard, and `list-resources` has no target-model override. The wrapper invokes
+`powers-tool` and never treats a passing report as support promotion. Failed or
+incomplete cleanup evidence is not accepted. Passing artifacts remain
+candidate-only and cannot promote Product support automatically. Generic
+examples use `POWERS_TOOL_RESOURCE` or `POWERS_TOOL_ASRL_RESOURCE`;
+model-specific lab variables such as
 `E36312A_USB_RESOURCE` remain explicit operator inputs.
 
 Current accepted evidence connections from passing validation artifacts:

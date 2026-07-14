@@ -54,6 +54,19 @@ $PolicyGatedCommands = @(
     "trigger-status", "trigger-step", "trigger-list", "trigger-fire", "trigger-abort"
 )
 $ExemptLiveDiagnosticCommands = @("list-resources", "verify", "identify", "error", "clear")
+$IdentityBearingExpectedModelCommands = @("verify", "identify")
+$ModelAwareExpectedModelCommands = @(
+    "set", "output-on", "output-off", "safe-off", "output-state", "cycle-output", "apply",
+    "ramp", "smoke-output", "trigger-pulse", "trigger-status", "trigger-step", "trigger-list",
+    "trigger-fire", "trigger-abort", "protection-set", "clear-protection", "snapshot",
+    "restore-from-snapshot", "sequence", "ramp-list"
+)
+$RawDiagnosticCommands = @("error", "clear")
+$NoPhysicalIdentityCommands = @("list-resources")
+$IdnSelectedCommandsWithoutExplicitModelGuard = @(
+    "measure", "measure-all", "read-status", "validate-readonly", "readback", "protection-status",
+    "log", "doctor", "capabilities"
+)
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $TmpRoot = Join-Path $RepoRoot ".tmp_tests"
 $PythonExe = Join-Path (Join-Path $RepoRoot ".venv") "Scripts\python.exe"
@@ -518,6 +531,64 @@ function Add-ValidationSupportPolicyArgument {
     return @($Arguments + "--validation-allow-pending-live-support")
 }
 
+function Get-LiveCommandIdentityContract {
+    param([Parameter(Mandatory = $true)][string]$Command)
+
+    $normalized = $Command.Trim().ToLowerInvariant()
+    if ($normalized -in $script:IdentityBearingExpectedModelCommands) {
+        return "identity_expected_model"
+    }
+    if ($normalized -in $script:ModelAwareExpectedModelCommands) {
+        return "model_aware_expected_model"
+    }
+    if ($normalized -in $script:RawDiagnosticCommands) {
+        return "raw_diagnostic"
+    }
+    if ($normalized -in $script:NoPhysicalIdentityCommands) {
+        return "no_physical_identity"
+    }
+    if ($normalized -in $script:IdnSelectedCommandsWithoutExplicitModelGuard) {
+        return "idn_selected_without_explicit_guard"
+    }
+    return "unclassified"
+}
+
+function Add-LiveExpectedModelArgument {
+    param([Parameter(Mandatory = $true)]$Case)
+
+    if ($Case.phase -ne "live" -or $Case.args.Count -eq 0) {
+        return $Case.args
+    }
+    $contract = Get-LiveCommandIdentityContract -Command $Case.args[0]
+    if ($contract -in @("identity_expected_model", "model_aware_expected_model")) {
+        if ($Case.args -contains "--model") {
+            return $Case.args
+        }
+        return @($Case.args + @("--model", $script:NormalizedTarget))
+    }
+    if ($Case.args -contains "--model") {
+        throw "$($Case.args[0]) does not accept a live expected-model argument."
+    }
+    return $Case.args
+}
+
+function Get-ValidationCommandArguments {
+    param(
+        [Parameter(Mandatory = $true)]$Case,
+        [Parameter(Mandatory = $true)][string]$JsonPath
+    )
+
+    $arguments = Add-LiveExpectedModelArgument -Case $Case
+    $arguments = Add-ValidationSupportPolicyArgument -Arguments $arguments
+    if ($Case.phase -eq "live") {
+        $arguments = Add-BackendArgument -Arguments $arguments
+    }
+    if ($arguments -contains "--save-json") {
+        return $arguments
+    }
+    return @($arguments + @("--save-json", $JsonPath))
+}
+
 function Get-TransportScope {
     param([Parameter(Mandatory = $true)][string]$Connection)
 
@@ -860,22 +931,8 @@ function Invoke-ValidationCommand {
     $shareableJsonPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".json")
     $shareableStdoutPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".stdout.txt")
     $shareableStderrPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".stderr-scpi.txt")
-    $argsWithIdentity = if ($Case.phase -eq "live" -and $Case.args -notcontains "--model") {
-        @($Case.args + @("--model", $script:NormalizedTarget))
-    }
-    else {
-        $Case.args
-    }
-    $argsWithPolicy = Add-ValidationSupportPolicyArgument -Arguments $argsWithIdentity
-    $argsWithBackend = if ($Case.phase -eq "live") { Add-BackendArgument -Arguments $argsWithPolicy } else { $argsWithPolicy }
-    $hasSaveJson = $false
-    foreach ($arg in $argsWithBackend) {
-        if ($arg -eq "--save-json") {
-            $hasSaveJson = $true
-            break
-        }
-    }
-    $allArgs = if ($hasSaveJson) { $argsWithBackend } else { @($argsWithBackend + @("--save-json", $jsonPath)) }
+    $allArgs = @(Get-ValidationCommandArguments -Case $Case -JsonPath $jsonPath)
+    $hasSaveJson = $Case.args -contains "--save-json"
     $actualJsonPath = $jsonPath
     if ($hasSaveJson) {
         for ($index = 0; $index -lt $allArgs.Count; $index++) {
@@ -1025,7 +1082,7 @@ function Invoke-ValidationCommand {
         error_code = $errorCode
         parse_error = $parseError
         expected_success = $Case.expected_success
-        support_policy_mode = if ($argsWithPolicy -contains "--validation-allow-pending-live-support") { "validation" } else { $null }
+        support_policy_mode = if ($allArgs -contains "--validation-allow-pending-live-support") { "validation" } else { $null }
         transport_scope = $script:TransportScope
         backend_scope = $backendScope
         identity_observed = [bool]($Case.phase -eq "live" -and $null -ne $identity)
@@ -1136,10 +1193,14 @@ function Invoke-SafeOffCleanup {
         elseif (-not $script:CleanupEvidence.output_state_checked -or -not $script:CleanupEvidence.error_queue_checked -or $null -eq $script:CleanupEvidence.all_outputs_off) {
             $script:CleanupEvidence.status = "partial"
             if (-not $script:CleanupEvidence.output_state_checked -or $null -eq $script:CleanupEvidence.all_outputs_off) {
-                $script:Failures.Add("Cleanup did not produce verifiable output-state evidence.")
+                if ($script:Failures -notcontains "Cleanup did not produce verifiable output-state evidence.") {
+                    $script:Failures.Add("Cleanup did not produce verifiable output-state evidence.")
+                }
             }
             if (-not $script:CleanupEvidence.error_queue_checked) {
-                $script:Failures.Add("Cleanup could not verify the instrument error queue.")
+                if ($script:Failures -notcontains "Cleanup could not verify the instrument error queue.") {
+                    $script:Failures.Add("Cleanup could not verify the instrument error queue.")
+                }
             }
         }
         elseif ($null -ne $script:CleanupEvidence.instrument_errors -and @($script:CleanupEvidence.instrument_errors).Count -gt 0) {

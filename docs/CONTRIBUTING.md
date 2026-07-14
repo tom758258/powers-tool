@@ -86,6 +86,12 @@ artifacts below `.tmp_tests\live_cli_check`. `-Backend "@py"` is an optional
 advanced contributor-validation choice when the exact pending scope is
 registered; it is not normal product support.
 
+The wrapper applies the canonical target as an expected-model guard only to
+identity-bearing commands and model-aware commands that own that CLI contract.
+`verify` and `identify` query `*IDN?` and compare the manufacturer-plus-model
+resolution with that guard. Raw `error` and `clear` diagnostics do not accept a
+model guard, and `list-resources` does not accept a physical model identity.
+
 ## New models, commands, and capabilities
 
 Physical model enablement follows four explicit stages: `catalog_only`,
@@ -180,6 +186,7 @@ cleanup result.
 
 Failed validation is still useful evidence and must not be discarded. Passing
 artifacts are candidate evidence only. They do not automatically promote product support.
+Failed cleanup is not accepted evidence.
 Skipped or incomplete cleanup is not cleanup-verified evidence. Required
 state-changing evidence cannot pass unless safe-off succeeds, outputs are
 confirmed OFF, and the final error queue is clean.

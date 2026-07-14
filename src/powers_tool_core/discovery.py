@@ -9,6 +9,7 @@ from powers_tool_core.core import CoreIoError, CoreValidationError, OperationReq
 from powers_tool_core.errors import VisaConnectionError
 from powers_tool_core.identity import IdentityResolutionError, resolve_physical_model_identity
 from powers_tool_core.models import parse_idn, resource_interface
+from powers_tool_core.model_resolution import validate_live_expected_model
 from powers_tool_core.operations import ScpiLoggingSession
 from powers_tool_core.testing.simulator import SimulatedResourceManager
 
@@ -71,13 +72,20 @@ def _run_verify(
     idn = _query_idn(request, resource, opener=opener, manager=manager, scpi_logger=scpi_logger)
     if idn is None:
         raise CoreIoError(f"Could not verify VISA resource: {resource}", opened=False)
-    return {
-        "resource": resource_payload(
-            resource,
-            simulated=request.runtime.simulate,
-            reachable=True,
-            idn_raw=idn,
+    payload = resource_payload(
+        resource,
+        simulated=request.runtime.simulate,
+        reachable=True,
+        idn_raw=idn,
+    )
+    if not request.runtime.simulate:
+        validate_live_expected_model(
+            request.runtime.expected_model_id,
+            payload["model_id"],
+            command=request.command,
         )
+    return {
+        "resource": payload
     }
 
 

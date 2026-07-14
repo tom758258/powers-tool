@@ -256,6 +256,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--resource", required=True, help="VISA resource string.")
     _add_json_argument(verify_parser)
     _add_simulate_argument(verify_parser)
+    _add_model_argument(verify_parser)
     _add_backend_argument(verify_parser)
     _add_timeout_argument(verify_parser)
     _add_serial_arguments(verify_parser)
@@ -540,6 +541,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_resource_arguments(identify_parser)
     _add_json_argument(identify_parser)
     _add_simulate_argument(identify_parser)
+    _add_model_argument(identify_parser)
     _add_safety_config_argument(identify_parser)
     _add_backend_argument(identify_parser)
     _add_timeout_argument(identify_parser)
@@ -810,11 +812,26 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     raw_argv = tuple(sys.argv[1:] if argv is None else argv)
     set_json_start_time(time.perf_counter())
+    set_json_save_path(_json_save_path_from_argv(raw_argv))
     JsonCliArgumentParser.active_argv = raw_argv
     try:
         args = build_parser().parse_args(raw_argv)
+    except JsonSaveError as exc:
+        set_json_save_path(None)
+        emit_json_error(
+            command=_command_from_argv(raw_argv),
+            execution=_validation_execution_from_argv(raw_argv),
+            request=_request_from_argv(_command_from_argv(raw_argv), raw_argv),
+            error_type="connection",
+            code="json_save_failed",
+            message=f"Could not save JSON: {exc}",
+            retryable=False,
+        )
+        set_json_start_time(None)
+        return 1
     except SystemExit as exc:
         exit_code = _exit_code(exc)
+        set_json_save_path(None)
         set_json_start_time(None)
         return exit_code
     finally:
@@ -1195,6 +1212,16 @@ def _run_verify(args: argparse.Namespace) -> int:
             _target_core_request_for_args(args),
             opener=_core_opener_for_args(args),
             scpi_logger=_log_scpi,
+        )
+    except CoreValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
         )
     except CoreIoError:
         message = f"Could not verify VISA resource: {args.resource}"
@@ -3389,6 +3416,16 @@ def _run_identify(args: argparse.Namespace) -> int:
             _target_core_request_for_args(args),
             opener=_core_opener_for_args(args),
             scpi_logger=_log_scpi,
+        )
+    except CoreValidationError as exc:
+        return _emit_cli_error(
+            args,
+            request=request,
+            error_type="validation",
+            code="argument_error",
+            message=str(exc),
+            retryable=False,
+            hardware_intent=True,
         )
     except CoreIoError as exc:
         code = "identify_failed" if exc.opened else "connection_failed"
@@ -8949,6 +8986,12 @@ def _option_value(argv: Sequence[str], option: str) -> str | None:
                 return None
             return argv[value_index]
     return None
+
+
+def _json_save_path_from_argv(argv: Sequence[str]) -> str | None:
+    if "--json" not in argv:
+        return None
+    return _option_value(argv, "--save-json")
 
 
 def _number_from_argv(argv: Sequence[str], option: str) -> float | str | None:
