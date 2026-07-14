@@ -9,6 +9,19 @@ from powers_tool_core.connection import DEFAULT_TIMEOUT_MS, SerialOptions
 
 
 @dataclass(frozen=True)
+class ValidationCandidateContext:
+    """Validated, run-scoped admission context for one internal candidate case."""
+
+    run_id: str
+    case_id: str
+    suite: str
+    model_id: str
+    command: str
+    transport_scope: str
+    backend_scope: str
+
+
+@dataclass(frozen=True)
 class RuntimeOptions:
     """Runtime context shared by CLI, future UI, and automation adapters."""
 
@@ -29,6 +42,7 @@ class RuntimeOptions:
     serial_local_on_close: bool = False
     # Kept as a literal to avoid importing support_policy back into Core.
     support_policy_mode: str = "product"
+    validation_candidate_context: ValidationCandidateContext | None = None
 
     def __post_init__(self) -> None:
         from powers_tool_core.model_resolution import validate_runtime_identity

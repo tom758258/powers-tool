@@ -27,7 +27,8 @@
   standalone `output-on`, logging, resource-backed doctor, E36312A
   `measure-all`, and E36312A real restore candidates. Product mode remains
   closed for these commands until separate live evidence review and promotion;
-  historical accepted evidence is unchanged.
+  historical accepted evidence is unchanged and predates these cases. The
+  expanded suite has not yet been run or accepted as new hardware evidence.
 
 ## 1.0.0
 

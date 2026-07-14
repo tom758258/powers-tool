@@ -78,6 +78,7 @@ def _enforce_live_support(
         backend=request.runtime.backend,
         support_policy_mode=support_policy_mode,
         feature_requirements=feature_requirements,
+        validation_candidate_context=request.runtime.validation_candidate_context,
     )
 
 

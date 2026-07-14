@@ -154,7 +154,9 @@ wrapper used the default system-VISA resource-manager path, so these records
 do not validate pyvisa-py or a custom backend.
 
 Those historical records do not contain the new standalone candidate cases.
-Their accepted command lists remain immutable. A future passing expanded full
+Their accepted command lists remain immutable. The expanded suite is
+implemented and has no-hardware and PlanOnly coverage, but it has not yet been
+run and accepted as new hardware evidence. A future passing expanded full
 suite creates reviewable candidate artifacts only; a separate evidence-review,
 registration, and Product-promotion change is required before any new command
 can become `live_validated_full_suite`.

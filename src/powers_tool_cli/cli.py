@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hmac
 import importlib.metadata
 import importlib.util
 import json
@@ -56,6 +57,7 @@ from powers_tool_core.core import (
     TriggerWaitTimeout,
     UnsupportedChannelError,
     UnsupportedModelError,
+    ValidationCandidateContext,
 )
 from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.drivers.e3646a import E3646APowerSupply
@@ -342,6 +344,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_resource_arguments(measure_all_parser)
     _add_json_argument(measure_all_parser)
     _add_simulate_argument(measure_all_parser)
+    _add_model_argument(measure_all_parser)
     _add_safety_config_argument(measure_all_parser)
     _add_backend_argument(measure_all_parser)
     _add_timeout_argument(measure_all_parser)
@@ -690,6 +693,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_json_argument(log_parser)
     _add_simulate_argument(log_parser)
+    _add_model_argument(log_parser)
     _add_safety_config_argument(log_parser)
     _add_backend_argument(log_parser)
     _add_timeout_argument(log_parser)
@@ -715,6 +719,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_backend_argument(doctor_parser)
     _add_timeout_argument(doctor_parser)
     _add_validation_support_policy_argument(doctor_parser)
+    _add_model_argument(doctor_parser)
     doctor_parser.add_argument("--resource", help="Optional resource to identify.")
     doctor_parser.add_argument(
         "--log-scpi",
@@ -1000,6 +1005,9 @@ def _add_validation_support_policy_argument(parser: argparse.ArgumentParser) -> 
         action="store_true",
         help=argparse.SUPPRESS,
     )
+    parser.add_argument("--validation-candidate-context", help=argparse.SUPPRESS)
+    parser.add_argument("--validation-candidate-context-root", help=argparse.SUPPRESS)
+    parser.add_argument("--validation-candidate-token", help=argparse.SUPPRESS)
 
 
 def _add_model_argument(
@@ -1035,6 +1043,65 @@ def _runtime_identity_for_args(args: argparse.Namespace) -> dict[str, str | None
         "expected_model_id": model_id,
         "planning_profile_id": profile_id,
     }
+
+
+def _validation_candidate_context_for_args(
+    args: argparse.Namespace,
+) -> ValidationCandidateContext | None:
+    cached = getattr(args, "_validated_candidate_context", None)
+    if cached is not None:
+        return cached
+    context_value = getattr(args, "validation_candidate_context", None)
+    root_value = getattr(args, "validation_candidate_context_root", None)
+    token = getattr(args, "validation_candidate_token", None)
+    if context_value is None and root_value is None and token is None:
+        return None
+    if not all(isinstance(value, str) and value for value in (context_value, root_value, token)):
+        raise CoreValidationError("validation candidate context is malformed")
+    context_path = Path(context_value).resolve()
+    context_root = Path(root_value).resolve()
+    if context_root.name != "private" or context_path.parent != context_root:
+        raise CoreValidationError("validation candidate context is outside the private run directory")
+    try:
+        document = json.loads(context_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CoreValidationError("validation candidate context is missing or malformed") from exc
+    finally:
+        try:
+            context_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    required = {
+        "schema_version",
+        "run_id",
+        "case_id",
+        "suite",
+        "model_id",
+        "command",
+        "transport_scope",
+        "backend_scope",
+        "token",
+    }
+    if not isinstance(document, dict) or set(document) != required or document.get("schema_version") != 1:
+        raise CoreValidationError("validation candidate context is malformed")
+    values = {key: document.get(key) for key in required - {"schema_version"}}
+    if not all(isinstance(value, str) and value for value in values.values()):
+        raise CoreValidationError("validation candidate context is malformed")
+    if not hmac.compare_digest(token, document["token"]):
+        raise CoreValidationError("validation candidate context token is invalid")
+    if document["command"] != args.command:
+        raise CoreValidationError("validation candidate context command does not match")
+    context = ValidationCandidateContext(
+        run_id=document["run_id"],
+        case_id=document["case_id"],
+        suite=document["suite"],
+        model_id=document["model_id"],
+        command=document["command"],
+        transport_scope=document["transport_scope"],
+        backend_scope=document["backend_scope"],
+    )
+    setattr(args, "_validated_candidate_context", context)
+    return context
 
 
 def _add_write_verification_arguments(parser: argparse.ArgumentParser) -> None:
@@ -3661,6 +3728,7 @@ def _run_restore_from_snapshot(args: argparse.Namespace) -> int:
                     log_scpi=args.log_scpi,
                     confirm=args.confirm,
                     support_policy_mode=_support_policy_mode_for_args(args),
+                    validation_candidate_context=_validation_candidate_context_for_args(args),
                 ),
                 parameters={
                     "snapshot": args.snapshot,
@@ -9440,6 +9508,7 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
             support_policy_mode=_support_policy_mode_for_args(args),
+            validation_candidate_context=_validation_candidate_context_for_args(args),
         ),
         parameters=parameters,
     )
@@ -9474,6 +9543,7 @@ def _target_core_request_for_args(args: argparse.Namespace) -> OperationRequest:
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
             support_policy_mode=_support_policy_mode_for_args(args),
+            validation_candidate_context=_validation_candidate_context_for_args(args),
         ),
         parameters=parameters,
     )
@@ -9622,6 +9692,7 @@ def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
             support_policy_mode=_support_policy_mode_for_args(args),
+            validation_candidate_context=_validation_candidate_context_for_args(args),
         ),
         parameters=parameters,
     )

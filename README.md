@@ -387,6 +387,9 @@ Plan-only reports include the model-specific planned live-case inventory. The
 new candidate cases remain limited to E36312A USB/TCPIP + system VISA,
 EDU36311A USB/TCPIP + system VISA, and E3646A ASRL + system VISA; other models,
 transports, pyvisa-py, and custom backends fail closed.
+Each live candidate invocation also requires an exact, private, run-scoped
+context created by this maintained wrapper. The existing hidden pending-scope
+switch alone does not admit these command candidates.
 
 A passed `scripts\live-cli-check.ps1` run validates only the selected target
 model, connection type, suite, and cases recorded in that run's artifacts. It
@@ -401,6 +404,10 @@ and exact recorded cases:
 - EDU36311A USB + system VISA
 - EDU36311A LAN + system VISA
 - E3646A ASRL / RS-232 + system VISA
+
+These are historical accepted full-suite records. They predate and do not
+include the newly added validation-candidate cases. The expanded suite has
+no newly run or accepted hardware evidence yet.
 
 Core references these immutable historical bundles by stable evidence ID.
 Their original artifact directories remain unchanged; migrating their identity

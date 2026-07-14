@@ -10,7 +10,7 @@ from powers_tool_core.capabilities import (
     command_support,
     known_capability_commands,
 )
-from powers_tool_core.core import CoreValidationError
+from powers_tool_core.core import CoreValidationError, ValidationCandidateContext
 from powers_tool_core.identity import (
     IDENTITY_INDEXES,
     IdentityResolutionError,
@@ -494,6 +494,7 @@ def ensure_live_scope_supported(
     backend: str,
     support_policy_mode: str,
     feature_requirements: Iterable[tuple[str, str]] = (),
+    validation_candidate_context=None,
     registry: tuple[ModelSupportPolicy, ...] | None = None,
 ) -> CommandLiveSupportScope:
     """Return an allowed exact scope or reject it with fail-closed semantics."""
@@ -549,6 +550,7 @@ def ensure_live_scope_supported(
         transport=normalized_transport,
         backend=normalized_backend,
         support_policy_mode=normalized_mode,
+        validation_candidate_context=validation_candidate_context,
     )
     if candidate_scope is not None:
         return candidate_scope
@@ -651,6 +653,7 @@ def _validation_only_candidate_scope(
     transport: str,
     backend: str,
     support_policy_mode: str,
+    validation_candidate_context,
 ) -> CommandLiveSupportScope | None:
     """Admit one internal candidate without publishing or promoting its scope."""
 
@@ -665,6 +668,21 @@ def _validation_only_candidate_scope(
         model_id, frozenset()
     ):
         return None
+    if validation_candidate_context is None:
+        raise LiveSupportPolicyError("validation candidate context is required")
+    if not isinstance(validation_candidate_context, ValidationCandidateContext):
+        raise LiveSupportPolicyError("validation candidate context is malformed")
+    expected = {
+        "model_id": model_id,
+        "command": command,
+        "transport_scope": transport,
+        "backend_scope": backend,
+    }
+    for field, value in expected.items():
+        if getattr(validation_candidate_context, field, None) != value:
+            raise LiveSupportPolicyError("validation candidate context does not match the live request")
+    if not validation_candidate_context.run_id or not validation_candidate_context.case_id or not validation_candidate_context.suite:
+        raise LiveSupportPolicyError("validation candidate context is malformed")
     return CommandLiveSupportScope(
         validation_status=VALIDATION_STATUS_PROFILE_VALIDATED,
         transport_scope=transport,

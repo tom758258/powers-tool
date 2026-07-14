@@ -243,10 +243,12 @@ Direct `trigger-pulse` and `trigger-fire` are not validation candidates and
 remain Product-closed. Existing Product-open E36312A `trigger-status`,
 `trigger-step`, `trigger-list`, and `trigger-abort` scopes are unchanged.
 
-The current expanded full-suite records have passed for E36312A USB,
-E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL / RS-232. These
-records remain scoped to the recorded model, connection, suite, and cases.
-E3646A USB and LAN remain outside the current scope.
+Historical accepted full-suite records exist for E36312A USB, E36312A LAN,
+EDU36311A USB, EDU36311A LAN, and E3646A ASRL / RS-232. They predate and do
+not include the newly added validation-candidate cases. The expanded suite
+has no newly run or accepted hardware evidence yet and still requires later
+evidence review and Product-promotion work. E3646A USB and LAN remain outside
+the current scope.
 
 E3646A product LIVE support is ASRL / RS-232 + system VISA and only the exact
 commands listed in [Supported Models](supported-models.md). A read-only or

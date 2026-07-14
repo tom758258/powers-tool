@@ -197,13 +197,19 @@ outputs kept OFF and one bounded CH1 ON snapshot restored with
 guards and require best-effort safe-off, final output-state, and error-queue
 evidence even after failure.
 
-Current accepted evidence connections from passing validation artifacts:
+Historical accepted full-suite records exist for these exact connections:
 
 - E36312A USB + system VISA
 - E36312A LAN + system VISA
 - EDU36311A USB + system VISA
 - EDU36311A LAN + system VISA
 - E3646A ASRL / RS-232 + system VISA
+
+Those records predate and do not include the newly added validation-candidate
+cases. The expanded suite is implemented and covered by no-hardware and
+PlanOnly checks, but it has not yet been run and accepted as new hardware
+evidence. Execution would still require separate evidence review and Product
+promotion work.
 
 Only exact commands in the Core product matrix are opened for normal LIVE use
 on those connections. E3646A live validation remains restricted to ASRL /
