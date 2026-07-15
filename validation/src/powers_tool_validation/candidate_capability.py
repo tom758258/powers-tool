@@ -16,9 +16,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from powers_tool_core.core import ValidationCandidateContext
 from powers_tool_core.capabilities import command_support
-from powers_tool_validation.build_identity import verified_candidate_context
+from powers_tool_validation._runtime_trust import _RESULT_SENTINEL, _VerifiedCapabilityResult
 
 SCHEMA_VERSION = 1
 SECRET_ENVIRONMENT_VARIABLE = "POWERS_TOOL_VALIDATION_RUN_SECRET"
@@ -294,7 +293,7 @@ def consume_and_verify(
     command: str,
     expected_case_id: str | None = None,
     expected_suite: str | None = None,
-) -> ValidationCandidateContext:
+) -> _VerifiedCapabilityResult:
     root = private_root.resolve()
     manifest = manifest_path.resolve()
     capability_file = capability_path.resolve()
@@ -343,19 +342,19 @@ def consume_and_verify(
         capability_file.unlink(missing_ok=True)
     except OSError:
         pass
-    return verified_candidate_context(
-        run_id=capability_payload["run_id"],
-        case_id=capability_payload["case_id"],
-        suite=capability_payload["suite"],
-        model_id=capability_payload["model_id"],
-        command=capability_payload["command"],
-        transport_scope=capability_payload["transport_scope"],
-        backend_scope=capability_payload["backend_scope"],
-        request_fingerprint=capability_payload["request_fingerprint"],
-        capability_id=capability_payload["capability_id"],
-        issued_at=capability_payload["issued_at"],
-        expires_at=capability_payload["expires_at"],
-    )
+    return _VerifiedCapabilityResult({
+        "run_id": capability_payload["run_id"],
+        "case_id": capability_payload["case_id"],
+        "suite": capability_payload["suite"],
+        "model_id": capability_payload["model_id"],
+        "command": capability_payload["command"],
+        "transport_scope": capability_payload["transport_scope"],
+        "backend_scope": capability_payload["backend_scope"],
+        "request_fingerprint": capability_payload["request_fingerprint"],
+        "capability_id": capability_payload["capability_id"],
+        "issued_at": capability_payload["issued_at"],
+        "expires_at": capability_payload["expires_at"],
+    }, _RESULT_SENTINEL)
 
 
 def secret_from_environment() -> bytes:

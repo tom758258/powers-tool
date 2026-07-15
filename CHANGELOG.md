@@ -1,5 +1,11 @@
 # Changelog
 
+- Correct the internal Product/Validation runtime boundary so real validation
+  requires exact clean installed wheels, rejects source shadowing, uses one
+  Product runtime for the full suite, records both wheel SHA-256 identities,
+  and exposes no direct permit or verified-context minting API. No candidate
+  was hardware-validated or Product-opened by this correction.
+
 ## 2.0.0
 
 - Renames the product from Keysight Powers to Powers Tool and the distribution

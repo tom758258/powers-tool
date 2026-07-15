@@ -248,7 +248,7 @@ sys.exit(0 if payload["ok"] else 2)
     return tmp_path
 
 
-def test_live_cli_check_main_flow_marks_preflight_failure_cleanup_status(tmp_path):
+def test_real_mode_rejects_source_fixture_before_preflight(tmp_path):
     fixture_path = _main_flow_fixture_cli_path(tmp_path)
     before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
     result = _run_live_cli_check(
@@ -264,16 +264,11 @@ def test_live_cli_check_main_flow_marks_preflight_failure_cleanup_status(tmp_pat
     )
 
     assert result.returncode != 0, result.stdout + result.stderr
-    report = json.loads(_new_live_check_report(before).read_text(encoding="utf-8"))
-    assert report["schema_version"] == "2.0"
-    assert report["validation_mode"] == "preflight_failed"
-    assert report["result"] == "preflight_failed"
-    assert report["live_executed"] is False
-    assert report["cleanup"]["status"] == "not_executed_preflight_failed"
-    assert report["cleanup"]["attempted"] is False
+    assert "prepared isolated Validation environment" in result.stderr
+    assert set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json")) == before
 
 
-def test_live_cli_check_main_flow_marks_confirmation_required_cleanup_status(tmp_path):
+def test_real_mode_does_not_reach_confirmation_with_source_fixture(tmp_path):
     fixture_path = _main_flow_fixture_cli_path(tmp_path)
     before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
     result = _run_live_cli_check(
@@ -290,13 +285,8 @@ def test_live_cli_check_main_flow_marks_confirmation_required_cleanup_status(tmp
     )
 
     assert result.returncode != 0, result.stdout + result.stderr
-    report = json.loads(_new_live_check_report(before).read_text(encoding="utf-8"))
-    assert report["schema_version"] == "2.0"
-    assert report["validation_mode"] == "confirmation_required"
-    assert report["result"] == "confirmation_required"
-    assert report["live_executed"] is False
-    assert report["cleanup"]["status"] == "not_executed_confirmation_required"
-    assert report["cleanup"]["attempted"] is False
+    assert "prepared isolated Validation environment" in result.stderr
+    assert set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json")) == before
 
 
 def _artifact_privacy_command(

@@ -114,11 +114,13 @@ candidate invocation additionally requires a signed, run-scoped, case-scoped,
 one-time capability bound to the exact model, command, connection, case, and
 request. The ordinary pending-support switch alone cannot admit a candidate.
 
-The distribution boundary, rather than HMAC, separates Product from Validation.
-HMAC protects exact run/case integrity and replay handling inside the internal
-validation build; it does not prove wrapper identity against a user who controls
-or modifies the source tree and deliberately builds another package. This is
-not a public bypass.
+Real validation requires a prepared, clean, isolated environment containing
+the exact reviewed Product and Validation wheels. Preparation records both
+wheel-file SHA-256 identities, verifies the installed distributions, and makes
+every live case use the same installed Product runtime. Repository source
+fallback is PlanOnly-only; real validation rejects source-tree imports before
+VISA. HMAC verification and atomic one-time capability consumption are
+mandatory, and there is no public permit or verified-context minting API.
 Normal Product mode remains closed until new live artifacts are run, reviewed,
 registered, and promoted in a separate change. Existing historical evidence
 does not cover these new standalone cases, and a future passing suite does not
@@ -177,6 +179,9 @@ examples, `<version>` means `[project].version` from the root `pyproject.toml`:
 The `validation/` project builds the separate internal contributor-only
 `powers-tool-validation` companion at the same version. It is not included in
 Product wheels, sdists, standalone executables, or normal release folders.
+The maintained `scripts\prepare-validation-environment.ps1` workflow builds,
+inspects, hashes, and installs the exact local Product and Validation wheels
+from one clean reviewed commit without substituting another Product artifact.
 
 The import paths remain independent. Do not use a `keysight_power.*`
 namespace package.

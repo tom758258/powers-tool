@@ -57,15 +57,24 @@ $CliPrefix = @()
 $ValidationProject = Join-Path $RepoRoot "validation"
 $ValidationExecutable = Join-Path (Join-Path $RepoRoot ".venv-validation") "Scripts\powers-tool-validation.exe"
 $ValidationPrefix = @()
-if (-not (Test-Path -LiteralPath $ValidationExecutable)) {
+if ($PlanOnly) {
+    $ValidationExecutable = $PythonExe
+    $ValidationPrefix = @("-m", "powers_tool_validation.cli")
+}
+elseif (-not (Test-Path -LiteralPath $ValidationExecutable)) {
+    if (-not $PlanOnly -and $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -ne "1") {
+        [Console]::Error.WriteLine("Real validation requires the prepared isolated Validation environment.")
+        exit 2
+    }
     $ValidationExecutable = $PythonExe
     $ValidationPrefix = @("-m", "powers_tool_validation.cli")
 }
 $ValidationSourcePath = Join-Path $ValidationProject "src"
 
 function Get-ValidationChildPythonPath {
+    if (-not $PlanOnly -and $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -ne "1") { return $null }
     $parts = New-Object System.Collections.Generic.List[string]
-    if (-not [string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
+    if ($env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1" -and -not [string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
         $parts.Add($env:PYTHONPATH)
     }
     $parts.Add($ValidationSourcePath)
@@ -639,8 +648,15 @@ function Resolve-ValidationBuildAndInventory {
         $identity.validation_distribution_version -ne $expectedVersion) {
         throw "Product and validation distribution versions do not match."
     }
-    if ([string]$identity.package_hash -notmatch "^[0-9a-f]{64}$") {
-        throw "Internal validation build package identity is invalid."
+    if (-not $PlanOnly -and (
+        -not [bool]$identity.installed_runtime_verified -or
+        [bool]$identity.repository_source_shadowed -or
+        $identity.product_runtime_origin_kind -ne "installed-wheel" -or
+        $identity.product_cli_runtime_origin_kind -ne "installed-wheel" -or
+        $identity.validation_runtime_origin_kind -ne "installed-wheel" -or
+        [string]$identity.product_wheel_sha256 -notmatch "^[0-9a-f]{64}$" -or
+        [string]$identity.validation_wheel_sha256 -notmatch "^[0-9a-f]{64}$")) {
+        throw "Prepared installed-wheel runtime identity is invalid."
     }
     $script:ValidationBuildIdentity = [pscustomobject]@{
         distribution_name = [string]$identity.distribution_name
@@ -650,7 +666,14 @@ function Resolve-ValidationBuildAndInventory {
         source_commit = [string]$identity.source_commit
         source_dirty = [bool]$identity.source_dirty
         artifact_kind = [string]$identity.artifact_kind
-        package_hash = [string]$identity.package_hash
+        product_wheel_sha256 = if ($PlanOnly) { $null } else { [string]$identity.product_wheel_sha256 }
+        validation_wheel_sha256 = if ($PlanOnly) { $null } else { [string]$identity.validation_wheel_sha256 }
+        product_runtime_origin_kind = [string]$identity.product_runtime_origin_kind
+        product_cli_runtime_origin_kind = [string]$identity.product_cli_runtime_origin_kind
+        validation_runtime_origin_kind = [string]$identity.validation_runtime_origin_kind
+        repository_source_shadowed = [bool]$identity.repository_source_shadowed
+        installed_runtime_verified = [bool]$identity.installed_runtime_verified
+        validation_runtime_mode = if ($PlanOnly -and $identity.artifact_kind -eq "source-tree") { "source-plan-only" } else { "installed-wheel" }
         entry_point = [string]$identity.entry_point
     }
 
@@ -1604,11 +1627,13 @@ function Invoke-ValidationCommand {
                 throw "Candidate capability run secret is unavailable."
             }
             [Environment]::SetEnvironmentVariable($candidateEnvironmentName, $script:CandidateRunSecret, "Process")
-            [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
-            & $ValidationExecutable @ValidationPrefix @allArgs 1> $stdoutPath 2> $stderrPath
+        }
+        [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
+        if ($env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1" -and -not $Case.candidate_context_required) {
+            & $CliExecutable @CliPrefix @allArgs 1> $stdoutPath 2> $stderrPath
         }
         else {
-            & $CliExecutable @CliPrefix @allArgs 1> $stdoutPath 2> $stderrPath
+            & $ValidationExecutable @ValidationPrefix @allArgs 1> $stdoutPath 2> $stderrPath
         }
         $exitCode = $LASTEXITCODE
     }
@@ -2358,11 +2383,19 @@ Read-Host "Press Enter to run live suite validation, or press Ctrl+C to abort"
 
 if ($null -eq $script:ValidationBuildIdentity -or
     $script:ValidationBuildIdentity.artifact_kind -ne "wheel" -or
-    [bool]$script:ValidationBuildIdentity.source_dirty) {
+    [bool]$script:ValidationBuildIdentity.source_dirty -or
+    -not [bool]$script:ValidationBuildIdentity.installed_runtime_verified -or
+    [bool]$script:ValidationBuildIdentity.repository_source_shadowed) {
     $script:Failures.Add("Real validation requires a clean, installed internal validation wheel.")
     Write-ValidationArtifacts -ValidationMode "live" -Result "failed" -StartedAt $startedAt
     Write-Error "Real validation requires a clean, installed internal validation wheel; no VISA resource was opened."
     exit 1
+}
+
+if ($env:POWERS_TOOL_VALIDATION_TEST_STOP_BEFORE_VISA -eq "1" -and $env:PYTEST_CURRENT_TEST) {
+    Write-ValidationArtifacts -ValidationMode "pre_visa_test" -Result "passed" -StartedAt $startedAt
+    Write-Host "Installed-wheel pre-VISA gate passed; hardware_touched=false."
+    exit 0
 }
 
 $script:CandidateRunId = New-SecureHexValue

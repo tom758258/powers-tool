@@ -8,7 +8,10 @@ from typing import Any, Mapping
 
 from powers_tool_core.core import CoreValidationError
 from powers_tool_validation import candidate_capability
-from powers_tool_validation.build_identity import validation_runtime_permit
+from powers_tool_validation._runtime_trust import (
+    _context_from_verified_result,
+    _RUNTIME_PERMIT,
+)
 
 
 _ARGUMENT_NAMES = (
@@ -50,7 +53,7 @@ class ValidationRuntimeExtension:
             return cached
         values = self._candidate_inputs(args)
         options: dict[str, Any] = {
-            "validation_build_permit": validation_runtime_permit(),
+            "validation_build_permit": _RUNTIME_PERMIT,
         }
         if not any(value is not None for value in values):
             setattr(args, "_validation_distribution_runtime_options", options)
@@ -81,7 +84,7 @@ class ValidationRuntimeExtension:
         self.decorate_execution(args, state)
         try:
             secret = candidate_capability.secret_from_environment()
-            context = candidate_capability.consume_and_verify(
+            verified_result = candidate_capability.consume_and_verify(
                 manifest_path,
                 capability_path,
                 context_root,
@@ -93,6 +96,7 @@ class ValidationRuntimeExtension:
             )
         except candidate_capability.CandidateCapabilityError as exc:
             raise CoreValidationError(str(exc)) from exc
+        context = _context_from_verified_result(verified_result)
         state["candidate_context_integrity_validated"] = True
         options.update(
             {

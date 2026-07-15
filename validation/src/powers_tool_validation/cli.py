@@ -10,6 +10,11 @@ from typing import Any, Sequence
 from powers_tool_core.support_policy import internal_validation_candidate_inventory
 from powers_tool_validation import __version__, candidate_capability
 from powers_tool_validation.build_identity import VALIDATION_BUILD_IDENTITY
+from powers_tool_validation.installation_identity import (
+    InstallationIdentityError,
+    development_runtime_info,
+    verified_installation_identity,
+)
 from powers_tool_validation.runtime_extension import ValidationRuntimeExtension
 
 
@@ -25,16 +30,27 @@ def _inventory_payload() -> dict[str, Any]:
 
 def _build_info_payload() -> dict[str, Any]:
     identity = VALIDATION_BUILD_IDENTITY
+    if identity.artifact_kind == "wheel":
+        installed = verified_installation_identity()
+        if (
+            installed["source_commit"] != identity.source_commit
+            or bool(installed["source_dirty"]) != identity.source_dirty
+        ):
+            raise InstallationIdentityError(
+                "prepared identity differs from embedded Validation build metadata"
+            )
+    else:
+        installed = development_runtime_info(Path(__file__).resolve().parents[3])
     return {
         "schema_version": 1,
         "distribution_name": identity.distribution_name,
         "validation_distribution_version": identity.version,
         "product_package_version": identity.product_version,
         "build_profile": identity.profile.value,
+        **installed,
         "source_commit": identity.source_commit,
         "source_dirty": identity.source_dirty,
         "artifact_kind": identity.artifact_kind,
-        "package_hash": identity.package_hash,
         "validation_runtime_available": True,
         "candidate_inventory_available": bool(_inventory_payload()),
         "entry_point": "powers-tool-validation",
@@ -47,8 +63,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"powers-tool-validation {__version__}")
         return 0
     if arguments == ["_internal-build-info", "--json"]:
-        print(json.dumps(_build_info_payload(), sort_keys=True))
-        return 0
+        try:
+            print(json.dumps(_build_info_payload(), sort_keys=True))
+            return 0
+        except InstallationIdentityError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     if arguments == ["_internal-candidate-inventory", "--json"]:
         print(json.dumps(_inventory_payload(), sort_keys=True))
         return 0

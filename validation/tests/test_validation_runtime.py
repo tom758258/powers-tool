@@ -18,7 +18,10 @@ from powers_tool_validation import candidate_capability
 from powers_tool_validation.build_identity import (
     BuildProfile,
     VALIDATION_BUILD_IDENTITY,
-    validation_runtime_permit,
+)
+from powers_tool_validation._runtime_trust import (
+    _context_from_verified_result,
+    _RUNTIME_PERMIT,
 )
 from powers_tool_validation.runtime_extension import ValidationRuntimeExtension
 
@@ -63,7 +66,7 @@ def _verified_context(tmp_path: Path) -> ValidationCandidateContext:
     candidate_capability.issue_capability(
         manifest_path, capability_path, "output-on-ch1", secret
     )
-    return candidate_capability.consume_and_verify(
+    return _context_from_verified_result(candidate_capability.consume_and_verify(
         manifest_path,
         capability_path,
         root,
@@ -72,7 +75,7 @@ def _verified_context(tmp_path: Path) -> ValidationCandidateContext:
         command="output-on",
         expected_case_id="output-on-ch1",
         expected_suite="output",
-    )
+    ))
 
 
 def _request(context: ValidationCandidateContext, **overrides: object) -> OperationRequest:
@@ -81,7 +84,7 @@ def _request(context: ValidationCandidateContext, **overrides: object) -> Operat
         "support_policy_mode": SUPPORT_POLICY_MODE_VALIDATION,
         "validation_candidate_context": context,
         "validation_request_fingerprint": context.request_fingerprint,
-        "validation_build_permit": validation_runtime_permit(),
+        "validation_build_permit": _RUNTIME_PERMIT,
     }
     options.update(overrides)
     return OperationRequest("output-on", RuntimeOptions(**options))
@@ -91,7 +94,14 @@ def test_validation_build_identity_is_embedded_and_version_matched() -> None:
     assert VALIDATION_BUILD_IDENTITY.profile is BuildProfile.VALIDATION
     assert VALIDATION_BUILD_IDENTITY.distribution_name == "powers-tool-validation"
     assert VALIDATION_BUILD_IDENTITY.version == VALIDATION_BUILD_IDENTITY.product_version
-    assert len(VALIDATION_BUILD_IDENTITY.package_hash) == 64
+    assert VALIDATION_BUILD_IDENTITY.artifact_kind in {"source-tree", "wheel"}
+
+
+def test_no_arbitrary_context_or_permit_minting_api_is_exported() -> None:
+    from powers_tool_validation import build_identity
+
+    assert not hasattr(build_identity, "verified_candidate_context")
+    assert not hasattr(build_identity, "validation_runtime_permit")
 
 
 def test_validation_parser_accepts_candidate_inputs_only_when_extension_installed() -> None:

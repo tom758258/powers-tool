@@ -28,6 +28,8 @@ def inspect_validation_distribution(dist_dir: Path, *, expected_version: str) ->
         assert "powers-tool =" not in entry_points
         for required in (
             "powers_tool_validation/build_identity.py",
+            "powers_tool_validation/installation_identity.py",
+            "powers_tool_validation/_runtime_trust.py",
             "powers_tool_validation/candidate_capability.py",
             "powers_tool_validation/cli.py",
             "powers_tool_validation/runtime_extension.py",

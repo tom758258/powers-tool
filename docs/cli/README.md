@@ -208,6 +208,14 @@ and `trigger-fire` are not included. Historical accepted artifacts do not
 cover these new standalone cases; even a future passing run requires separate
 evidence review, registration, and Product promotion.
 
+Real runs require the maintained prepared isolated environment containing one
+exact reviewed Product wheel and one exact reviewed Validation wheel. Both
+wheel-file SHA-256 identities are recorded, and the Validation entry point uses
+that same Product runtime for every live command, cleanup, and final check.
+Real mode clears `PYTHONPATH` and rejects repository-source imports before
+VISA. Source fallback is limited to no-hardware PlanOnly development and
+creates no usable live manifest or case capability.
+
 The new cases are deliberately bounded. Logging collects one all-channel
 sample at 0.1 seconds into private CSV/JSONL files, validates the exact header,
 channel inventory, telemetry fields, per-row empty error fields, and completed
@@ -238,8 +246,8 @@ promotion work.
 The separate Product/Validation distribution boundary prevents the normal
 Product installation from enabling candidates. Within the internal validation
 build, HMAC protects one exact run, case, connection, and invocation with
-expiry and one-time consumption. It does not establish the identity of the
-PowerShell wrapper against someone who controls or modifies the source tree.
+expiry and atomic one-time consumption. No public permit or arbitrary
+verified-context factory is provided.
 Secrets, signatures, fingerprints, and private paths remain absent from
 shareable artifacts. The ordinary hidden pending-support switch remains
 separate and cannot authorize a command candidate; capabilities never

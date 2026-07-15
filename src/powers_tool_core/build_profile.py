@@ -44,8 +44,8 @@ def validation_runtime_permit_is_valid(permit: Any) -> bool:
     if permit is None:
         return False
     try:
-        from powers_tool_validation.build_identity import (  # type: ignore[import-not-found]
-            validation_runtime_permit_is_valid as validate,
+        from powers_tool_validation._runtime_trust import (  # type: ignore[import-not-found]
+            _permit_is_valid as validate,
         )
     except (ImportError, ModuleNotFoundError):
         return False
@@ -56,8 +56,8 @@ def validation_context_was_verified(context: Any) -> bool:
     """Return whether the validation distribution's verifier created *context*."""
 
     try:
-        from powers_tool_validation.build_identity import (  # type: ignore[import-not-found]
-            validation_context_was_verified as validate,
+        from powers_tool_validation._runtime_trust import (  # type: ignore[import-not-found]
+            _context_is_verified as validate,
         )
     except (ImportError, ModuleNotFoundError):
         return False

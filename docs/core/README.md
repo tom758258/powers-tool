@@ -49,6 +49,11 @@ candidate-capable CLI parser, and rejects candidate contexts from direct Core
 callers. Candidate admission exists only when the separately built internal
 `powers-tool-validation` distribution supplies its embedded Validation
 identity and verifier-produced typed context.
+The verifier validates the signed exact manifest and case capability and
+atomically consumes it; only its private opaque result can become a Core
+context. There is no public permit or arbitrary context factory. Prepared real
+validation also binds the run to exact Product and Validation wheel SHA-256
+identities and rejects repository-source runtime origins before VISA.
 
 Inside that validation build, admission requires an implemented `real=True`
 command on the exact canonical IDN-detected model and approved system-VISA

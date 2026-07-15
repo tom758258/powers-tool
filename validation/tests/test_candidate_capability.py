@@ -74,8 +74,7 @@ def test_signed_capability_binds_exact_invocation_and_is_one_time(tmp_path: Path
         argv=arguments,
         command="output-on",
     )
-    assert context.integrity_validated is True
-    assert context.request_fingerprint == candidate_capability.request_fingerprint(arguments)
+    assert context.values["request_fingerprint"] == candidate_capability.request_fingerprint(arguments)
     with pytest.raises(candidate_capability.CandidateCapabilityError):
         candidate_capability.consume_and_verify(
             manifest,
@@ -220,7 +219,7 @@ def test_capability_consumption_rejects_changed_effective_arguments(tmp_path: Pa
         argv=arguments,
         command="output-on",
     )
-    assert context.integrity_validated is True
+    assert context.values["command"] == "output-on"
 
 
 def test_expired_case_capability_does_not_consume(tmp_path: Path) -> None:
