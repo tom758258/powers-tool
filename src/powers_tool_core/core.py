@@ -49,6 +49,7 @@ class RuntimeOptions:
     # Kept as a literal to avoid importing support_policy back into Core.
     support_policy_mode: str = "product"
     validation_candidate_context: ValidationCandidateContext | None = None
+    validation_admission_handle: object | None = field(default=None, repr=False, compare=False)
     validation_request_fingerprint: str | None = None
     validation_build_permit: object | None = field(default=None, repr=False, compare=False)
     validation_admission_state: dict[str, object] | None = None

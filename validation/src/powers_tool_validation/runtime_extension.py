@@ -8,10 +8,6 @@ from typing import Any, Mapping
 
 from powers_tool_core.core import CoreValidationError
 from powers_tool_validation import candidate_capability
-from powers_tool_validation._runtime_trust import (
-    _context_from_verified_result,
-    _RUNTIME_PERMIT,
-)
 
 
 _ARGUMENT_NAMES = (
@@ -52,9 +48,7 @@ class ValidationRuntimeExtension:
         if isinstance(cached, dict):
             return cached
         values = self._candidate_inputs(args)
-        options: dict[str, Any] = {
-            "validation_build_permit": _RUNTIME_PERMIT,
-        }
+        options: dict[str, Any] = {}
         if not any(value is not None for value in values):
             setattr(args, "_validation_distribution_runtime_options", options)
             return options
@@ -84,7 +78,7 @@ class ValidationRuntimeExtension:
         self.decorate_execution(args, state)
         try:
             secret = candidate_capability.secret_from_environment()
-            verified_result = candidate_capability.consume_and_verify(
+            admission_handle = candidate_capability.consume_and_verify(
                 manifest_path,
                 capability_path,
                 context_root,
@@ -96,12 +90,13 @@ class ValidationRuntimeExtension:
             )
         except candidate_capability.CandidateCapabilityError as exc:
             raise CoreValidationError(str(exc)) from exc
-        context = _context_from_verified_result(verified_result)
         state["candidate_context_integrity_validated"] = True
         options.update(
             {
-                "validation_candidate_context": context,
-                "validation_request_fingerprint": context.request_fingerprint,
+                "validation_admission_handle": admission_handle,
+                "validation_request_fingerprint": candidate_capability.request_fingerprint(
+                    getattr(args, "_raw_argv", ())
+                ),
                 "validation_admission_state": state,
             }
         )

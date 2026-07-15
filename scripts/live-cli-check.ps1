@@ -650,6 +650,10 @@ function Resolve-ValidationBuildAndInventory {
     }
     if (-not $PlanOnly -and (
         -not [bool]$identity.installed_runtime_verified -or
+        -not [bool]$identity.runtime_dependencies_verified -or
+        -not [bool]$identity.retained_wheels_verified -or
+        -not [bool]$identity.installed_files_record_verified -or
+        -not [bool]$identity.module_origins_verified -or
         [bool]$identity.repository_source_shadowed -or
         $identity.product_runtime_origin_kind -ne "installed-wheel" -or
         $identity.product_cli_runtime_origin_kind -ne "installed-wheel" -or
@@ -673,6 +677,10 @@ function Resolve-ValidationBuildAndInventory {
         validation_runtime_origin_kind = [string]$identity.validation_runtime_origin_kind
         repository_source_shadowed = [bool]$identity.repository_source_shadowed
         installed_runtime_verified = [bool]$identity.installed_runtime_verified
+        runtime_dependencies_verified = [bool]$identity.runtime_dependencies_verified
+        retained_wheels_verified = [bool]$identity.retained_wheels_verified
+        installed_files_record_verified = [bool]$identity.installed_files_record_verified
+        module_origins_verified = [bool]$identity.module_origins_verified
         validation_runtime_mode = if ($PlanOnly -and $identity.artifact_kind -eq "source-tree") { "source-plan-only" } else { "installed-wheel" }
         entry_point = [string]$identity.entry_point
     }

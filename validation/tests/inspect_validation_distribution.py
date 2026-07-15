@@ -29,13 +29,13 @@ def inspect_validation_distribution(dist_dir: Path, *, expected_version: str) ->
         for required in (
             "powers_tool_validation/build_identity.py",
             "powers_tool_validation/installation_identity.py",
-            "powers_tool_validation/_runtime_trust.py",
             "powers_tool_validation/candidate_capability.py",
             "powers_tool_validation/cli.py",
             "powers_tool_validation/runtime_extension.py",
             "powers_tool_validation/_build_metadata.py",
         ):
             assert required in names
+        assert "powers_tool_validation/_runtime_trust.py" not in names
         assert not any(name.startswith("powers_tool_core/") for name in names)
         assert not any(name.startswith("powers_tool_cli/") for name in names)
         build_identity = archive.read(

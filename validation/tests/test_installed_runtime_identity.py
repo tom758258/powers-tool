@@ -10,9 +10,39 @@ def test_preparation_workflow_installs_exact_local_wheels() -> None:
     text = (ROOT / "scripts" / "prepare-validation-environment.ps1").read_text(encoding="utf-8")
     assert "--no-index --no-deps $productWheel.FullName" in text
     assert "--no-index --no-deps $validationWheel.FullName" in text
+    assert "uv export --locked --no-dev --no-emit-workspace" in text
+    assert "pip download --require-hashes --only-binary=:all:" in text
+    assert "pip install --no-index --find-links" in text
+    assert "import yaml,pyvisa,powers_tool_core,powers_tool_cli,powers_tool_validation" in text
+    assert ".powers-tool-validation-artifacts" in text
     assert "Get-FileHash -Algorithm SHA256" in text
     assert ".powers-tool-validation-installation.json" in text
     assert "status --porcelain" in text
+
+
+def test_preparation_workflow_is_version_neutral() -> None:
+    text = (ROOT / "scripts" / "prepare-validation-environment.ps1").read_text(encoding="utf-8")
+    assert "pyproject.toml" in text and "validation\\pyproject.toml" in text
+    assert "$productVersion -ne $validationVersion" in text
+    assert "--expected-version $productVersion" in text
+    assert "--expected-version $validationVersion" in text
+    assert 'product_version = $productVersion' in text
+    assert 'validation_version = $validationVersion' in text
+    assert "2.0.0" not in text
+
+
+def test_runtime_identity_closes_retained_wheels_to_installed_files() -> None:
+    text = (ROOT / "validation" / "src" / "powers_tool_validation" / "installation_identity.py").read_text(encoding="utf-8")
+    for contract in (
+        "ARTIFACT_DIRECTORY", "retained wheel identity verification failed",
+        "installed file differs from retained wheel RECORD",
+        "installed METADATA differs from retained wheel",
+        "installed entry points differ from retained wheel",
+        "installed RECORD integrity check failed",
+        "loaded runtime module was not verified against retained wheels",
+        "runtime_dependencies_verified",
+    ):
+        assert contract in text
 
 
 def test_real_wrapper_has_one_runtime_and_no_source_fallback() -> None:

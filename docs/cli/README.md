@@ -210,11 +210,18 @@ evidence review, registration, and Product promotion.
 
 Real runs require the maintained prepared isolated environment containing one
 exact reviewed Product wheel and one exact reviewed Validation wheel. Both
-wheel-file SHA-256 identities are recorded, and the Validation entry point uses
+wheel-file SHA-256 identities are recorded; locked Product runtime dependencies
+are installed from a local wheelhouse; and both exact wheels are retained so
+installed files, METADATA, entry points, RECORD data, and loaded module origins
+can be verified against them. The Validation entry point uses
 that same Product runtime for every live command, cleanup, and final check.
 Real mode clears `PYTHONPATH` and rejects repository-source imports before
 VISA. Source fallback is limited to no-hardware PlanOnly development and
 creates no usable live manifest or case capability.
+The installation-identity HMAC detects accidental or uncoordinated changes in
+the maintained environment; it does not protect against a user rewriting the
+environment, manifest, and key together. Ordinary Validation imports expose no
+permit, admission insertion, or verified-context minting API.
 
 The new cases are deliberately bounded. Logging collects one all-channel
 sample at 0.1 seconds into private CSV/JSONL files, validates the exact header,

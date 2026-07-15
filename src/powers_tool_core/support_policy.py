@@ -11,8 +11,7 @@ from powers_tool_core.capabilities import (
     known_capability_commands,
 )
 from powers_tool_core.build_profile import (
-    validation_context_was_verified,
-    validation_runtime_permit_is_valid,
+    consume_validation_admission,
 )
 from powers_tool_core.core import CoreValidationError, ValidationCandidateContext
 from powers_tool_core.identity import (
@@ -518,6 +517,7 @@ def ensure_live_scope_supported(
     support_policy_mode: str,
     feature_requirements: Iterable[tuple[str, str]] = (),
     validation_candidate_context=None,
+    validation_admission_handle=None,
     validation_request_fingerprint: str | None = None,
     validation_build_permit=None,
     admission_state: dict[str, object] | None = None,
@@ -577,6 +577,7 @@ def ensure_live_scope_supported(
         backend=normalized_backend,
         support_policy_mode=normalized_mode,
         validation_candidate_context=validation_candidate_context,
+        validation_admission_handle=validation_admission_handle,
         validation_request_fingerprint=validation_request_fingerprint,
         validation_build_permit=validation_build_permit,
     )
@@ -692,6 +693,7 @@ def _validation_only_candidate_scope(
     backend: str,
     support_policy_mode: str,
     validation_candidate_context,
+    validation_admission_handle,
     validation_request_fingerprint: str | None,
     validation_build_permit,
 ) -> CommandLiveSupportScope | None:
@@ -708,15 +710,15 @@ def _validation_only_candidate_scope(
         model_id, frozenset()
     ):
         return None
-    if not validation_runtime_permit_is_valid(validation_build_permit):
-        raise LiveSupportPolicyError("validation candidate admission requires the internal validation build")
+    if validation_candidate_context is not None:
+        raise LiveSupportPolicyError("validation candidate context integrity was not validated")
+    validation_candidate_context = consume_validation_admission(validation_admission_handle)
     if validation_candidate_context is None:
         raise LiveSupportPolicyError("validation candidate context is required")
     if not isinstance(validation_candidate_context, ValidationCandidateContext):
         raise LiveSupportPolicyError("validation candidate context is malformed")
     if (
         not validation_candidate_context.integrity_validated
-        or not validation_context_was_verified(validation_candidate_context)
     ):
         raise LiveSupportPolicyError("validation candidate context integrity was not validated")
     if (

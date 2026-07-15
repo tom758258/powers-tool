@@ -19,14 +19,10 @@ from powers_tool_validation.build_identity import (
     BuildProfile,
     VALIDATION_BUILD_IDENTITY,
 )
-from powers_tool_validation._runtime_trust import (
-    _context_from_verified_result,
-    _RUNTIME_PERMIT,
-)
 from powers_tool_validation.runtime_extension import ValidationRuntimeExtension
 
 
-def _verified_context(tmp_path: Path) -> ValidationCandidateContext:
+def _verified_handle(tmp_path: Path) -> tuple[str, str]:
     root = tmp_path / "private"
     root.mkdir()
     now = datetime.now(timezone.utc)
@@ -66,7 +62,7 @@ def _verified_context(tmp_path: Path) -> ValidationCandidateContext:
     candidate_capability.issue_capability(
         manifest_path, capability_path, "output-on-ch1", secret
     )
-    return _context_from_verified_result(candidate_capability.consume_and_verify(
+    handle = candidate_capability.consume_and_verify(
         manifest_path,
         capability_path,
         root,
@@ -75,16 +71,16 @@ def _verified_context(tmp_path: Path) -> ValidationCandidateContext:
         command="output-on",
         expected_case_id="output-on-ch1",
         expected_suite="output",
-    ))
+    )
+    return handle, candidate_capability.request_fingerprint(arguments)
 
 
-def _request(context: ValidationCandidateContext, **overrides: object) -> OperationRequest:
+def _request(handle: object, fingerprint: str, **overrides: object) -> OperationRequest:
     options = {
         "resource": "USB0::1::INSTR",
         "support_policy_mode": SUPPORT_POLICY_MODE_VALIDATION,
-        "validation_candidate_context": context,
-        "validation_request_fingerprint": context.request_fingerprint,
-        "validation_build_permit": _RUNTIME_PERMIT,
+        "validation_admission_handle": handle,
+        "validation_request_fingerprint": fingerprint,
     }
     options.update(overrides)
     return OperationRequest("output-on", RuntimeOptions(**options))
@@ -130,10 +126,10 @@ def test_validation_parser_accepts_candidate_inputs_only_when_extension_installe
 
 
 def test_only_verifier_output_admits_exact_candidate(tmp_path: Path) -> None:
-    context = _verified_context(tmp_path)
+    handle, fingerprint = _verified_handle(tmp_path)
     state = {"candidate_context_integrity_validated": True}
     scope = enforce_live_support(
-        _request(context, validation_admission_state=state),
+        _request(handle, fingerprint, validation_admission_state=state),
         "keysight-e36312a",
     )
     assert scope is not None
@@ -148,14 +144,14 @@ def test_only_verifier_output_admits_exact_candidate(tmp_path: Path) -> None:
 def test_candidate_admission_evidence_remains_true_after_later_case_failure(
     tmp_path: Path,
 ) -> None:
-    context = _verified_context(tmp_path)
+    handle, fingerprint = _verified_handle(tmp_path)
     execution = {
         "candidate_context_required": True,
         "candidate_context_integrity_validated": True,
         "candidate_scope_admitted": False,
     }
     enforce_live_support(
-        _request(context, validation_admission_state=execution),
+        _request(handle, fingerprint, validation_admission_state=execution),
         "keysight-e36312a",
     )
     result = "failed"
@@ -165,7 +161,7 @@ def test_candidate_admission_evidence_remains_true_after_later_case_failure(
 
 
 def test_candidate_scope_rejection_does_not_report_admission(tmp_path: Path) -> None:
-    context = _verified_context(tmp_path)
+    handle, fingerprint = _verified_handle(tmp_path)
     state = {
         "candidate_context_integrity_validated": True,
         "candidate_scope_admitted": False,
@@ -173,7 +169,8 @@ def test_candidate_scope_rejection_does_not_report_admission(tmp_path: Path) -> 
     with pytest.raises(LiveSupportPolicyError, match="does not match"):
         enforce_live_support(
             _request(
-                context,
+                handle,
+                fingerprint,
                 resource="TCPIP0::192.0.2.1::INSTR",
                 validation_admission_state=state,
             ),
@@ -236,35 +233,39 @@ def test_validation_build_rejects_bare_or_forged_context(
     context: ValidationCandidateContext,
 ) -> None:
     with pytest.raises(LiveSupportPolicyError, match="integrity"):
-        enforce_live_support(_request(context), "keysight-e36312a")
-
-
-@pytest.mark.parametrize(
-    ("field", "value", "message"),
-    [
-        ("request_fingerprint", "", "invocation"),
-        ("capability_id", "", "malformed"),
-        ("issued_at", "", "malformed"),
-        ("expires_at", "", "malformed"),
-    ],
-)
-def test_verified_context_requires_all_capability_metadata(
-    tmp_path: Path, field: str, value: str, message: str
-) -> None:
-    from dataclasses import replace
-
-    context = replace(_verified_context(tmp_path), **{field: value})
-    with pytest.raises(LiveSupportPolicyError, match=message):
-        enforce_live_support(_request(context), "keysight-e36312a")
+        enforce_live_support(
+            _request(None, "f" * 64, validation_candidate_context=context),
+            "keysight-e36312a",
+        )
 
 
 def test_verified_context_request_fingerprint_must_match(tmp_path: Path) -> None:
-    context = _verified_context(tmp_path)
+    handle, fingerprint = _verified_handle(tmp_path)
     with pytest.raises(LiveSupportPolicyError, match="invocation"):
         enforce_live_support(
-            _request(context, validation_request_fingerprint="0" * 64),
+            _request(handle, "0" * 64),
             "keysight-e36312a",
         )
+
+
+def test_verified_admission_handle_is_one_time(tmp_path: Path) -> None:
+    handle, fingerprint = _verified_handle(tmp_path)
+    enforce_live_support(_request(handle, fingerprint), "keysight-e36312a")
+    with pytest.raises(LiveSupportPolicyError, match="context is required"):
+        enforce_live_support(_request(handle, fingerprint), "keysight-e36312a")
+
+
+def test_importable_modules_cannot_forge_candidate_admission() -> None:
+    import powers_tool_validation.candidate_capability as capability
+    import powers_tool_validation.runtime_extension as extension
+
+    assert not hasattr(extension, "_RUNTIME_PERMIT")
+    assert not hasattr(extension, "_context_from_verified_result")
+    assert not hasattr(capability, "_RESULT_SENTINEL")
+    assert not hasattr(capability, "_VerifiedCapabilityResult")
+    assert not hasattr(capability, "_install_verified_admission")
+    with pytest.raises(LiveSupportPolicyError, match="context is required"):
+        enforce_live_support(_request("forged-handle", "f" * 64), "keysight-e36312a")
 
 
 def test_core_candidate_inventory_is_single_exact_source() -> None:

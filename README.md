@@ -116,11 +116,16 @@ request. The ordinary pending-support switch alone cannot admit a candidate.
 
 Real validation requires a prepared, clean, isolated environment containing
 the exact reviewed Product and Validation wheels. Preparation records both
-wheel-file SHA-256 identities, verifies the installed distributions, and makes
+wheel-file SHA-256 identities, installs locked runtime dependencies from a
+local wheelhouse, retains both reviewed wheels, and verifies installed files,
+METADATA, entry points, and loaded modules against those retained wheels. It makes
 every live case use the same installed Product runtime. Repository source
 fallback is PlanOnly-only; real validation rejects source-tree imports before
 VISA. HMAC verification and atomic one-time capability consumption are
-mandatory, and there is no public permit or verified-context minting API.
+mandatory, and ordinary imports provide no permit, registry insertion, or
+verified-context minting API. The installation-identity HMAC detects accidental
+or uncoordinated changes in the maintained environment; it is not a security
+boundary against a user who rewrites the environment, manifest, and key together.
 Normal Product mode remains closed until new live artifacts are run, reviewed,
 registered, and promoted in a separate change. Existing historical evidence
 does not cover these new standalone cases, and a future passing suite does not

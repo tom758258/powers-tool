@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Complete the internal prepared Validation environment with lock-derived
+  runtime dependencies and retained Product/Validation wheels whose hashes,
+  metadata, entry points, RECORD contents, installed files, and loaded module
+  origins are verified before VISA access.
+- Replace the import-forgeable candidate permit/context bridge with a
+  verifier-created, process-local, one-time admission handle available only
+  after HMAC verification and atomic capability consumption.
+- Keep this correction no-hardware and internal: no candidate command was
+  Product-opened and no hardware evidence was created or changed.
+
 - Correct the internal Product/Validation runtime boundary so real validation
   requires exact clean installed wheels, rejects source shadowing, uses one
   Product runtime for the full suite, records both wheel SHA-256 identities,

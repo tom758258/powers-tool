@@ -66,7 +66,7 @@ def test_signed_capability_binds_exact_invocation_and_is_one_time(tmp_path: Path
         str(tmp_path / "private" / "output.json"),
     ]
     manifest, capability, secret = _issue(tmp_path, arguments)
-    context = candidate_capability.consume_and_verify(
+    handle = candidate_capability.consume_and_verify(
         manifest,
         capability,
         manifest.parent,
@@ -74,7 +74,7 @@ def test_signed_capability_binds_exact_invocation_and_is_one_time(tmp_path: Path
         argv=arguments,
         command="output-on",
     )
-    assert context.values["request_fingerprint"] == candidate_capability.request_fingerprint(arguments)
+    assert isinstance(handle, str) and handle
     with pytest.raises(candidate_capability.CandidateCapabilityError):
         candidate_capability.consume_and_verify(
             manifest,
@@ -211,7 +211,7 @@ def test_capability_consumption_rejects_changed_effective_arguments(tmp_path: Pa
             command="output-on",
         )
     assert capability.exists()
-    context = candidate_capability.consume_and_verify(
+    handle = candidate_capability.consume_and_verify(
         manifest,
         capability,
         manifest.parent,
@@ -219,7 +219,7 @@ def test_capability_consumption_rejects_changed_effective_arguments(tmp_path: Pa
         argv=arguments,
         command="output-on",
     )
-    assert context.values["command"] == "output-on"
+    assert isinstance(handle, str) and handle
 
 
 def test_expired_case_capability_does_not_consume(tmp_path: Path) -> None:

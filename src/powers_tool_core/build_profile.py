@@ -38,27 +38,15 @@ PRODUCT_BUILD_IDENTITY = ProductBuildIdentity(
 )
 
 
-def validation_runtime_permit_is_valid(permit: Any) -> bool:
-    """Return whether the separately installed validation build issued *permit*."""
+def consume_validation_admission(handle: Any) -> Any:
+    """Consume one verifier-created admission handle from the companion runtime."""
 
-    if permit is None:
-        return False
+    if handle is None:
+        return None
     try:
-        from powers_tool_validation._runtime_trust import (  # type: ignore[import-not-found]
-            _permit_is_valid as validate,
+        from powers_tool_validation.candidate_capability import (  # type: ignore[import-not-found]
+            consume_verified_admission,
         )
     except (ImportError, ModuleNotFoundError):
-        return False
-    return bool(validate(permit))
-
-
-def validation_context_was_verified(context: Any) -> bool:
-    """Return whether the validation distribution's verifier created *context*."""
-
-    try:
-        from powers_tool_validation._runtime_trust import (  # type: ignore[import-not-found]
-            _context_is_verified as validate,
-        )
-    except (ImportError, ModuleNotFoundError):
-        return False
-    return bool(validate(context))
+        return None
+    return consume_verified_admission(handle)
