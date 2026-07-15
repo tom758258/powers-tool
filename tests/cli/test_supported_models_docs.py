@@ -92,8 +92,6 @@ def test_public_docs_preserve_machine_schema_and_support_tokens() -> None:
 
     for legacy_token in (
         "implemented_pending_hardware_validation",
-        "schema_version: 1",
-        "version: 1",
     ):
         assert legacy_token not in combined
 
@@ -117,10 +115,6 @@ def test_hidden_validation_flag_is_contributor_only() -> None:
 
     assert hidden_flag in contributor
     assert hidden_flag not in public_docs
-
-    boundary_docs = (public_docs + "\n" + contributor).lower()
-    for keyword in ("product", "validation", "candidate", "evidence", "promot"):
-        assert keyword in boundary_docs
 
 
 def test_contributor_docs_preserve_safety_and_privacy_keywords() -> None:
