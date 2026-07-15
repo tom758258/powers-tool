@@ -1510,6 +1510,7 @@ def _run_core_trigger(args: argparse.Namespace) -> int:
                 code="wait_timeout",
                 message=str(exc),
                 retryable=False,
+                data={"trigger": exc.trigger} if exc.trigger is not None else None,
             )
         else:
             print(str(exc), file=sys.stderr)
@@ -1524,6 +1525,7 @@ def _run_core_trigger(args: argparse.Namespace) -> int:
                 code="interrupted",
                 message=str(exc),
                 retryable=True,
+                data={"trigger": exc.trigger} if exc.trigger is not None else None,
             )
         else:
             print(str(exc), file=sys.stderr)
@@ -1560,7 +1562,14 @@ def _run_core_trigger(args: argparse.Namespace) -> int:
             "trigger-fire": "trigger_fire_failed",
             "trigger-abort": "trigger_config_failed",
         }
-        return _emit_safe_io_error(args, request=request, execution=execution, code=failure_codes[args.command], message=str(exc))
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code=failure_codes[args.command],
+            message=str(exc),
+            data={"trigger": exc.trigger} if exc.trigger is not None else None,
+        )
 
     resource_data = _core_trigger_resource_data(args, data)
     if args.json:
@@ -9405,6 +9414,7 @@ def _emit_safe_io_error(
     execution: dict[str, Any],
     code: str,
     message: str,
+    data: dict[str, Any] | None = None,
 ) -> int:
     if args.json:
         emit_json_error(
@@ -9415,6 +9425,7 @@ def _emit_safe_io_error(
             code=code,
             message=message,
             retryable=True,
+            data=data,
         )
     else:
         print(message, file=sys.stderr)

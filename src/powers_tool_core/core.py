@@ -84,6 +84,10 @@ class CoreIoError(RuntimeError):
 class CoreExecutionError(RuntimeError):
     """A command failed after request validation."""
 
+    def __init__(self, message: str, *, trigger: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.trigger = trigger
+
 
 class CommandCancelled(CoreExecutionError):
     """A command stopped cooperatively after a cancellation request."""

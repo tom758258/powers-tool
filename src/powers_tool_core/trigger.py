@@ -300,6 +300,9 @@ def trigger_result_payload(
     restored: bool | None = None,
     restore_errors: list[str] | None = None,
     fallback_reason: str | None = None,
+    abort_attempted: bool | None = None,
+    abort_succeeded: bool | None = None,
+    abort_errors: list[str] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "mode": mode,
@@ -321,6 +324,10 @@ def trigger_result_payload(
     }
     if fallback_reason is not None:
         payload["fallback_reason"] = fallback_reason
+    if abort_attempted is not None:
+        payload["abort_attempted"] = abort_attempted
+        payload["abort_succeeded"] = bool(abort_succeeded)
+        payload["abort_errors"] = abort_errors or []
     return payload
 
 
@@ -642,6 +649,7 @@ def _run_trigger_pulse(
                 for selected_channel in power_supply.capabilities.channels
             )
             restored = False
+            operation_error: BaseException | None = None
             try:
                 voltage = power_supply.programmed_voltage(channel=channel)
                 current = power_supply.programmed_current(channel=channel)
@@ -664,21 +672,32 @@ def _run_trigger_pulse(
                 power_supply.configure_output_trigger_source_bus(channel)
                 raise_if_cancelled(stop_requested)
                 power_supply.trigger_pulse(channel=channel)
-            finally:
-                restore_errors = _restore_trigger_snapshots(power_supply, snapshots)
-                queue_error: Exception | None = None
-                try:
-                    _raise_on_instrument_errors(power_supply, request.command)
-                except Exception as exc:
-                    queue_error = exc
-                if restore_errors or queue_error is not None:
-                    details = []
-                    if restore_errors:
-                        details.append("restore failed: " + "; ".join(restore_errors))
-                    if queue_error is not None:
-                        details.append(str(queue_error))
-                    raise CoreExecutionError("trigger-pulse cleanup failed: " + "; ".join(details))
-                restored = True
+            except (Exception, KeyboardInterrupt) as exc:
+                operation_error = exc
+
+            restore_errors = _restore_trigger_snapshots(power_supply, snapshots)
+            queue_error: BaseException | None = None
+            try:
+                _raise_on_instrument_errors(power_supply, request.command)
+            except (Exception, KeyboardInterrupt) as exc:
+                queue_error = exc
+            if restore_errors or queue_error is not None:
+                details = []
+                if operation_error is not None:
+                    details.append("operation failed: " + str(operation_error))
+                if restore_errors:
+                    details.append("restore failed: " + "; ".join(restore_errors))
+                if queue_error is not None:
+                    details.append(str(queue_error))
+                cleanup_error = CoreExecutionError("trigger-pulse cleanup failed: " + "; ".join(details))
+                if operation_error is not None:
+                    raise cleanup_error from operation_error
+                if queue_error is not None:
+                    raise cleanup_error from queue_error
+                raise cleanup_error
+            if operation_error is not None:
+                raise operation_error
+            restored = True
             data = {
                 "_resource": request.runtime.resource,
                 "idn": idn,
@@ -897,17 +916,41 @@ def _run_trigger_fire(
                     unsupported_command_message("trigger-fire", _power_supply_model(power_supply), "live")
                 )
             channel = p.get("channel")
+            fired = False
             completed = False
             try:
                 power_supply.fire_bus_trigger()
+                fired = True
                 if p.get("wait_complete", False):
                     wait_for_trigger_completion(power_supply, timeout_ms=_trigger_wait_timeout_ms(p), poll_ms=_trigger_poll_interval_ms(p), sleep=sleep, stop_requested=stop_requested)
                     completed = True
                 _raise_on_instrument_errors(power_supply, request.command)
-            except (Exception, KeyboardInterrupt):
+            except (Exception, KeyboardInterrupt) as exc:
+                abort_attempted = channel is not None
+                abort_errors: list[str] = []
                 if channel is not None:
-                    power_supply.abort_output_trigger(int(channel))
-                raise
+                    try:
+                        power_supply.abort_output_trigger(int(channel))
+                    except (Exception, KeyboardInterrupt) as abort_exc:
+                        abort_errors.append(str(abort_exc))
+                trigger = trigger_result_payload(
+                    mode="fire",
+                    native=True,
+                    channel=int(channel) if channel is not None else None,
+                    fired=fired,
+                    completed=completed,
+                    wait_timeout_ms=_trigger_wait_timeout_ms(p) if p.get("wait_complete", False) else None,
+                    poll_ms=_trigger_poll_interval_ms(p) if p.get("wait_complete", False) else None,
+                    abort_attempted=abort_attempted,
+                    abort_succeeded=abort_attempted and not abort_errors,
+                    abort_errors=abort_errors,
+                )
+                if isinstance(exc, (TriggerWaitTimeout, TriggerInterrupted)):
+                    exc.trigger = trigger
+                    raise
+                if isinstance(exc, KeyboardInterrupt):
+                    raise
+                raise CoreExecutionError(f"trigger-fire failed: {exc}", trigger=trigger) from exc
             return {
                 "_resource": request.runtime.resource,
                 "idn": getattr(power_supply, "_core_idn_raw", None),
@@ -916,7 +959,7 @@ def _run_trigger_fire(
                     native=True,
                     channel=int(p["channel"]) if p.get("channel") is not None else None,
                     armed=False,
-                    fired=True,
+                    fired=fired,
                     completed=completed,
                     wait_timeout_ms=_trigger_wait_timeout_ms(p) if p.get("wait_complete", False) else None,
                     poll_ms=_trigger_poll_interval_ms(p) if p.get("wait_complete", False) else None,

@@ -5,6 +5,7 @@ import pytest
 
 import powers_tool_core.connection as connection
 import powers_tool_cli.cli as cli
+from powers_tool_core.core import CoreExecutionError
 from powers_tool_core.errors import VisaConnectionError
 
 
@@ -5852,6 +5853,60 @@ def test_trigger_fire_wait_complete_requires_channel(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["code"] == "argument_error"
     assert "requires --channel" in payload["error"]["message"]
+
+
+def test_trigger_fire_success_json_contains_full_trigger_payload(monkeypatch, capsys) -> None:
+    trigger = {
+        "mode": "fire",
+        "native": True,
+        "channel": 1,
+        "pins": [],
+        "polarity": "positive",
+        "source": "bus",
+        "armed": False,
+        "fired": True,
+        "completed": True,
+        "aborted": False,
+        "stopped": False,
+        "stop_reason": None,
+        "wait_timeout_ms": 1000,
+        "poll_ms": 50,
+        "restored": None,
+        "restore_errors": [],
+    }
+    monkeypatch.setattr(
+        cli.trigger_core,
+        "run_trigger",
+        lambda *args, **kwargs: {"_resource": OUTPUT_RESOURCE, "idn": None, "trigger": trigger},
+    )
+
+    assert cli.main(["trigger-fire", "--simulate", "--json", "--resource", OUTPUT_RESOURCE, "--channel", "1"]) == 0
+
+    assert json.loads(capsys.readouterr().out)["data"]["trigger"] == trigger
+
+
+def test_trigger_fire_failure_json_contains_abort_diagnostics(monkeypatch, capsys) -> None:
+    trigger = {
+        "mode": "fire",
+        "native": True,
+        "channel": 1,
+        "fired": True,
+        "completed": False,
+        "abort_attempted": True,
+        "abort_succeeded": False,
+        "abort_errors": ["abort failed"],
+    }
+
+    def fail(*args, **kwargs):
+        raise CoreExecutionError("trigger-fire failed: queue error", trigger=trigger)
+
+    monkeypatch.setattr(cli.trigger_core, "run_trigger", fail)
+
+    assert cli.main(["trigger-fire", "--simulate", "--json", "--resource", OUTPUT_RESOURCE, "--channel", "1"]) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "trigger_fire_failed"
+    assert payload["data"]["trigger"] == trigger
 
 
 def test_trigger_abort_all_plans_each_channel(capsys) -> None:

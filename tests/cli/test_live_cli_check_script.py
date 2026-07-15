@@ -942,6 +942,75 @@ $trace | ConvertTo-Json -Compress
     assert "cleanup-trigger-fire-final" in trace
 
 
+def test_trigger_fire_payload_assertion_requires_exact_json_values(tmp_path) -> None:
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$case = New-CommandCase -Name "fire" -Suite "trigger-list" -Phase "preflight" -Args @("trigger-fire") -ValidationKind "trigger-fire"
+$payloads = @(
+    '{{"data":{{"trigger":{{"mode":"fire","channel":1,"fired":true,"completed":true}}}}}}',
+    '{{"data":{{"trigger":{{"mode":"fire","channel":1,"fired":true,"completed":false}}}}}}',
+    '{{"data":{{"trigger":{{"mode":"fire","channel":1,"fired":false,"completed":true}}}}}}',
+    '{{"data":{{}}}}',
+    '{{"data":{{"trigger":{{"mode":"fire","channel":"1","fired":true,"completed":true}}}}}}',
+    '{{"data":{{"trigger":{{"mode":"step","channel":1,"fired":true,"completed":true}}}}}}'
+)
+$counts = @($payloads | ForEach-Object {{
+    $payload = $_ | ConvertFrom-Json
+    @(Get-CaseAssertionFailures -Case $case -Payload $payload -Identity $null -OutputStates $null -InstrumentErrors $null -StderrPath "{tmp_path / 'empty.stderr'}").Count
+}})
+$counts | ConvertTo-Json -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == [0, 1, 1, 4, 1, 1]
+
+
+def test_trigger_fire_evidence_comes_only_from_recorded_payload(tmp_path) -> None:
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:PrivateArtifactDir = "{(tmp_path / 'private').as_posix()}"
+New-Item -ItemType Directory -Path $script:PrivateArtifactDir -Force | Out-Null
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:StateChanging = $true
+$script:Restore = $true
+$script:CleanupEvidence = New-CleanupEvidence -ValidationMode "live"
+function Invoke-SafeOffCleanup {{ param([string]$Role); $script:CleanupEvidence = [pscustomobject]@{{ status = "passed"; all_outputs_off = $true; error_queue_checked = $true; instrument_errors = @() }} }}
+function Invoke-TriggerValidationHelper {{ param([string]$Action, [string]$SnapshotPath); if ($Action -eq "arm") {{ New-Item -ItemType File -Path $SnapshotPath -Force | Out-Null }}; return [pscustomobject]@{{ ok = $true; payload = [pscustomobject]@{{ error_queue_empty = $true }} }} }}
+$script:CurrentTrigger = $null
+function Invoke-ValidationCommand {{ param($Case); return [pscustomobject]@{{ result = "passed"; trigger = $script:CurrentTrigger }} }}
+$case = New-CommandCase -Name "fire" -Suite "trigger-list" -Phase "live" -Args @("trigger-fire")
+$triggers = @(
+    ('{{"mode":"fire","channel":1,"fired":true,"completed":true}}' | ConvertFrom-Json),
+    ('{{"mode":"fire","channel":1,"fired":true,"completed":false}}' | ConvertFrom-Json),
+    ('{{"mode":"fire","channel":1,"fired":false,"completed":true}}' | ConvertFrom-Json),
+    $null,
+    ('{{"mode":"fire","channel":2,"fired":true,"completed":true}}' | ConvertFrom-Json),
+    ('{{"mode":"step","channel":1,"fired":true,"completed":true}}' | ConvertFrom-Json)
+)
+$evidence = @($triggers | ForEach-Object {{
+    $script:CurrentTrigger = $_
+    $script:TriggerEvidence = New-TriggerEvidence
+    Invoke-TriggerFireCandidateCase -Case $case
+    [pscustomobject]@{{ fired = $script:TriggerEvidence.fire.fired; completed = $script:TriggerEvidence.fire.completed }}
+}})
+$evidence | ConvertTo-Json -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == [
+        {"fired": True, "completed": True},
+        {"fired": False, "completed": False},
+        {"fired": False, "completed": False},
+        {"fired": False, "completed": False},
+        {"fired": False, "completed": False},
+        {"fired": False, "completed": False},
+    ]
+
+
 def test_live_cli_check_centrally_adds_validation_flag_only_for_policy_commands():
     command = r"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"

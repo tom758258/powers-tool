@@ -33,6 +33,8 @@ class RecordingPulsePowerSupply(E36312APowerSupply):
     def __init__(self) -> None:
         self.events: list[str] = []
         self.fail_pulse = False
+        self.fail_fire = False
+        self.fail_abort = False
         self.fail_readback = False
         self.fail_restore_channel: int | None = None
         self.interrupt_restore_channel: int | None = None
@@ -52,6 +54,8 @@ class RecordingPulsePowerSupply(E36312APowerSupply):
 
     def abort_output_trigger(self, channel: int) -> None:
         self.events.append(f"abort-{channel}")
+        if self.fail_abort:
+            raise RuntimeError("abort failed")
 
     def configure_trigger_output_pins(self, pins, polarity) -> None:
         self.events.append("configure-pins")
@@ -78,6 +82,8 @@ class RecordingPulsePowerSupply(E36312APowerSupply):
 
     def fire_bus_trigger(self) -> None:
         self.events.append("fire")
+        if self.fail_fire:
+            raise RuntimeError("fire failed")
 
     def _restore_trigger_channel_snapshot(self, snapshot) -> None:
         self.events.append(f"restore-{snapshot.channel}")
@@ -220,6 +226,34 @@ def test_trigger_pulse_post_restore_error_queue_forces_command_failure(monkeypat
 
     with pytest.raises(CoreExecutionError, match="instrument errors"):
         _run_recording_pulse(monkeypatch, power_supply)
+
+
+def test_trigger_pulse_operation_and_restore_failures_are_aggregated(monkeypatch) -> None:
+    power_supply = RecordingPulsePowerSupply()
+    power_supply.fail_pulse = True
+    power_supply.fail_restore_channel = 2
+
+    with pytest.raises(CoreExecutionError) as exc_info:
+        _run_recording_pulse(monkeypatch, power_supply)
+
+    assert "operation failed: pulse failed" in str(exc_info.value)
+    assert "restore failed: channel 2: restore failed" in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == "pulse failed"
+
+
+def test_trigger_pulse_operation_and_error_queue_failures_are_aggregated(monkeypatch) -> None:
+    power_supply = RecordingPulsePowerSupply()
+    power_supply.fail_pulse = True
+    power_supply.queue_errors = ['-200,"Execution error"']
+
+    with pytest.raises(CoreExecutionError) as exc_info:
+        _run_recording_pulse(monkeypatch, power_supply)
+
+    assert "operation failed: pulse failed" in str(exc_info.value)
+    assert "instrument errors" in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == "pulse failed"
 
 
 def test_trigger_step_preview_with_wait_complete() -> None:
@@ -475,10 +509,65 @@ def test_trigger_fire_wait_failure_aborts_channel(monkeypatch, failure) -> None:
         parameters={"channel": 1, "wait_complete": True},
     )
 
-    with pytest.raises(type(failure)):
+    with pytest.raises(type(failure)) as exc_info:
         trigger_module.run_trigger(request, opener=lambda *args, **kwargs: TriggerSession())
 
     assert power_supply.events == ["fire", "abort-1"]
+    assert exc_info.value.trigger["fired"] is True
+    assert exc_info.value.trigger["completed"] is False
+    assert exc_info.value.trigger["abort_attempted"] is True
+    assert exc_info.value.trigger["abort_succeeded"] is True
+    assert exc_info.value.trigger["abort_errors"] == []
+
+
+def test_trigger_fire_timeout_preserves_abort_failure_diagnostics(monkeypatch) -> None:
+    power_supply = RecordingPulsePowerSupply()
+    power_supply.fail_abort = True
+    monkeypatch.setattr(trigger_module, "create_power_supply", lambda instrument, idn: power_supply)
+    monkeypatch.setattr(
+        trigger_module,
+        "wait_for_trigger_completion",
+        lambda *args, **kwargs: (_ for _ in ()).throw(TriggerWaitTimeout("timeout")),
+    )
+    request = TriggerRequest(
+        command="trigger-fire",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", simulate=True),
+        parameters={"channel": 1, "wait_complete": True},
+    )
+
+    with pytest.raises(TriggerWaitTimeout) as exc_info:
+        trigger_module.run_trigger(request, opener=lambda *args, **kwargs: TriggerSession())
+
+    assert exc_info.value.trigger["abort_attempted"] is True
+    assert exc_info.value.trigger["abort_succeeded"] is False
+    assert exc_info.value.trigger["abort_errors"] == ["abort failed"]
+
+
+@pytest.mark.parametrize(
+    ("configure", "message", "fired"),
+    [
+        (lambda power_supply: setattr(power_supply, "fail_fire", True), "fire failed", False),
+        (lambda power_supply: power_supply.queue_errors.append('-200,"Execution error"'), "instrument errors", True),
+    ],
+)
+def test_trigger_fire_general_failure_aborts_and_preserves_cause(monkeypatch, configure, message, fired) -> None:
+    power_supply = RecordingPulsePowerSupply()
+    configure(power_supply)
+    monkeypatch.setattr(trigger_module, "create_power_supply", lambda instrument, idn: power_supply)
+    request = TriggerRequest(
+        command="trigger-fire",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", simulate=True),
+        parameters={"channel": 1},
+    )
+
+    with pytest.raises(CoreExecutionError) as exc_info:
+        trigger_module.run_trigger(request, opener=lambda *args, **kwargs: TriggerSession())
+
+    assert message in str(exc_info.value.__cause__)
+    assert exc_info.value.trigger["fired"] is fired
+    assert exc_info.value.trigger["completed"] is False
+    assert exc_info.value.trigger["abort_succeeded"] is True
+    assert power_supply.events[-1] == "abort-1"
 
 
 class NeverCompletePowerSupply:

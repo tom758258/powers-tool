@@ -919,11 +919,12 @@ function Get-TriggerListCases {
     $modeFlag = if ($Live) { @() } else { @("--simulate") }
     $stepFlag = if ($Live) { @() } else { @("--dry-run") }
     $candidateScope = [bool]$Live
+    $fireValidationKind = if ($Live) { "trigger-fire" } else { "" }
     return @(
         (New-CommandCase -Name "trigger-status" -Suite "trigger-list" -Phase $phase -Args (@("trigger-status") + $modeFlag + @("--json", "--resource", $resource, "--channel", "1", "--log-scpi")) -LiveHardwareExpected:$Live),
         (New-CommandCase -Name "trigger-step-bus" -Suite "trigger-list" -Phase $phase -Args (@("trigger-step") + $stepFlag + @("--json", "--resource", $resource, "--channel", "1", "--source", "bus", "--fire", "--wait-complete", "--log-scpi")) -StateChanging:$Live -LiveHardwareExpected:$Live),
         (New-CommandCase -Name "trigger-list-bus" -Suite "trigger-list" -Phase $phase -Args (@("trigger-list") + $modeFlag + @("--json", "--resource", $resource, "--channel", "1", "--voltage-list", "0,0.5,1", "--current-list", "0.05,0.05,0.05", "--dwell-list", "0.01,0.01,0.01", "--source", "bus", "--fire", "--wait-complete", "--log-scpi")) -StateChanging:$Live -LiveHardwareExpected:$Live),
-        (New-CommandCase -Name "trigger-fire-candidate" -Suite "trigger-list" -Phase $phase -Args (@("trigger-fire") + $stepFlag + @("--json", "--resource", $resource, "--channel", "1", "--wait-complete", "--wait-timeout-ms", "10000", "--poll-ms", "200", "--log-scpi")) -StateChanging:$Live -LiveHardwareExpected:$Live -CandidateScopeRequired:$candidateScope),
+        (New-CommandCase -Name "trigger-fire-candidate" -Suite "trigger-list" -Phase $phase -Args (@("trigger-fire") + $stepFlag + @("--json", "--resource", $resource, "--channel", "1", "--wait-complete", "--wait-timeout-ms", "10000", "--poll-ms", "200", "--log-scpi")) -StateChanging:$Live -LiveHardwareExpected:$Live -ValidationKind $fireValidationKind -CandidateScopeRequired:$candidateScope),
         (New-CommandCase -Name "trigger-pulse-candidate" -Suite "trigger-list" -Phase $phase -Args (@("trigger-pulse") + $stepFlag + @("--json", "--resource", $resource, "--pin", "1", "--channel", "1", "--polarity", "positive", "--log-scpi")) -StateChanging:$Live -LiveHardwareExpected:$Live -CandidateScopeRequired:$candidateScope -OperatorInteractionRequired:$Live),
         (New-CommandCase -Name "trigger-abort" -Suite "trigger-list" -Phase $phase -Args (@("trigger-abort") + $modeFlag + @("--json", "--resource", $resource, "--channel", "1", "--log-scpi")) -StateChanging:$Live -LiveHardwareExpected:$Live)
     )
@@ -1179,6 +1180,30 @@ function Get-CaseAssertionFailures {
             $failures.Add("$($Case.name) did not confirm an empty instrument error queue.")
         }
     }
+    elseif ($kind -eq "trigger-fire") {
+        $trigger = Get-PropertyValue -Object $data -Name "trigger"
+        $mode = Get-PropertyValue -Object $trigger -Name "mode"
+        $channel = Get-PropertyValue -Object $trigger -Name "channel"
+        $fired = Get-PropertyValue -Object $trigger -Name "fired"
+        $completed = Get-PropertyValue -Object $trigger -Name "completed"
+        $channelIsNumber = $channel -is [byte] -or $channel -is [sbyte] -or
+            $channel -is [int16] -or $channel -is [uint16] -or
+            $channel -is [int32] -or $channel -is [uint32] -or
+            $channel -is [int64] -or $channel -is [uint64] -or
+            $channel -is [single] -or $channel -is [double] -or $channel -is [decimal]
+        if ($mode -isnot [string] -or $mode -cne "fire") {
+            $failures.Add("$($Case.name) did not report trigger mode=fire.")
+        }
+        if (-not $channelIsNumber -or $channel -ne 1) {
+            $failures.Add("$($Case.name) did not report numeric trigger channel=1.")
+        }
+        if ($fired -isnot [bool] -or $fired -ne $true) {
+            $failures.Add("$($Case.name) did not report trigger fired=true as a JSON boolean.")
+        }
+        if ($completed -isnot [bool] -or $completed -ne $true) {
+            $failures.Add("$($Case.name) did not report trigger completed=true as a JSON boolean.")
+        }
+    }
     elseif ($kind -eq "restore") {
         $restored = @((Get-PropertyValue -Object $data -Name "restored_channels"))
         if (($restored -join ',') -ne ($Case.expected_channels -join ',')) {
@@ -1393,6 +1418,19 @@ function Invoke-ValidationCommand {
             $errorMessage = [string]$payload.error.message
         }
     }
+    $triggerRecord = $null
+    if ($null -ne $payload) {
+        $payloadData = Get-PropertyValue -Object $payload -Name "data"
+        $payloadTrigger = Get-PropertyValue -Object $payloadData -Name "trigger"
+        if ($null -ne $payloadTrigger) {
+            $triggerRecord = [pscustomobject]@{
+                mode = Get-PropertyValue -Object $payloadTrigger -Name "mode"
+                channel = Get-PropertyValue -Object $payloadTrigger -Name "channel"
+                fired = Get-PropertyValue -Object $payloadTrigger -Name "fired"
+                completed = Get-PropertyValue -Object $payloadTrigger -Name "completed"
+            }
+        }
+    }
 
     $identity = $null
     $outputStates = $null
@@ -1512,6 +1550,7 @@ function Invoke-ValidationCommand {
         identity_observed = [bool]($Case.phase -eq "live" -and $null -ne $identity)
         output_states_observed = $outputStates
         instrument_errors_observed = $instrumentErrors
+        trigger = $triggerRecord
         cleanup_role = $Case.cleanup_role
         state_changing = $Case.state_changing
         validation_kind = $Case.validation_kind
@@ -1741,8 +1780,25 @@ function Invoke-TriggerFireCandidateCase {
             return
         }
         $record = Invoke-ValidationCommand -Case $Case
-        $script:TriggerEvidence.fire.fired = ($record.result -eq "passed")
-        $script:TriggerEvidence.fire.completed = ($record.result -eq "passed")
+        $recordTrigger = Get-PropertyValue -Object $record -Name "trigger"
+        $recordMode = Get-PropertyValue -Object $recordTrigger -Name "mode"
+        $recordChannel = Get-PropertyValue -Object $recordTrigger -Name "channel"
+        $recordFired = Get-PropertyValue -Object $recordTrigger -Name "fired"
+        $recordCompleted = Get-PropertyValue -Object $recordTrigger -Name "completed"
+        $recordChannelIsNumber = $recordChannel -is [byte] -or $recordChannel -is [sbyte] -or
+            $recordChannel -is [int16] -or $recordChannel -is [uint16] -or
+            $recordChannel -is [int32] -or $recordChannel -is [uint32] -or
+            $recordChannel -is [int64] -or $recordChannel -is [uint64] -or
+            $recordChannel -is [single] -or $recordChannel -is [double] -or $recordChannel -is [decimal]
+        $firePayloadValid = [bool](
+            $record.result -eq "passed" -and
+            $recordMode -is [string] -and $recordMode -ceq "fire" -and
+            $recordChannelIsNumber -and $recordChannel -eq 1 -and
+            $recordFired -is [bool] -and $recordFired -eq $true -and
+            $recordCompleted -is [bool] -and $recordCompleted -eq $true
+        )
+        $script:TriggerEvidence.fire.fired = $firePayloadValid
+        $script:TriggerEvidence.fire.completed = $firePayloadValid
         $script:TriggerEvidence.fire.timeout_or_interrupted = [bool]($record.result -ne "passed")
         $script:TriggerEvidence.fire.abort_status = if ($record.result -eq "passed") { "not_required" } else { "command_failure_abort_attempted" }
     }
