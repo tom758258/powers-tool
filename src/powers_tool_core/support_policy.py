@@ -10,10 +10,7 @@ from powers_tool_core.capabilities import (
     command_support,
     known_capability_commands,
 )
-from powers_tool_core.build_profile import (
-    consume_validation_admission,
-)
-from powers_tool_core.core import CoreValidationError, ValidationCandidateContext
+from powers_tool_core.core import CoreValidationError
 from powers_tool_core.identity import (
     IDENTITY_INDEXES,
     IdentityResolutionError,
@@ -516,11 +513,6 @@ def ensure_live_scope_supported(
     backend: str,
     support_policy_mode: str,
     feature_requirements: Iterable[tuple[str, str]] = (),
-    validation_candidate_context=None,
-    validation_admission_handle=None,
-    validation_request_fingerprint: str | None = None,
-    validation_build_permit=None,
-    admission_state: dict[str, object] | None = None,
     registry: tuple[ModelSupportPolicy, ...] | None = None,
 ) -> CommandLiveSupportScope:
     """Return an allowed exact scope or reject it with fail-closed semantics."""
@@ -576,15 +568,8 @@ def ensure_live_scope_supported(
         transport=normalized_transport,
         backend=normalized_backend,
         support_policy_mode=normalized_mode,
-        validation_candidate_context=validation_candidate_context,
-        validation_admission_handle=validation_admission_handle,
-        validation_request_fingerprint=validation_request_fingerprint,
-        validation_build_permit=validation_build_permit,
     )
     if candidate_scope is not None:
-        if admission_state is not None:
-            admission_state["candidate_scope_admitted"] = True
-            admission_state["candidate_admission_kind"] = "validation_candidate"
         return candidate_scope
     scope = find_live_support_scope(
         model_id=model_id,
@@ -614,13 +599,6 @@ def ensure_live_scope_supported(
                 status=scope.validation_status,
                 reason=reason,
             )
-        )
-    if admission_state is not None:
-        admission_state["candidate_scope_admitted"] = False
-        admission_state["candidate_admission_kind"] = (
-            "registered_pending"
-            if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
-            else "product"
         )
     feature_allowed = (
         _ALLOW_PRODUCT
@@ -692,10 +670,6 @@ def _validation_only_candidate_scope(
     transport: str,
     backend: str,
     support_policy_mode: str,
-    validation_candidate_context,
-    validation_admission_handle,
-    validation_request_fingerprint: str | None,
-    validation_build_permit,
 ) -> CommandLiveSupportScope | None:
     """Admit one internal candidate without publishing or promoting its scope."""
 
@@ -710,47 +684,6 @@ def _validation_only_candidate_scope(
         model_id, frozenset()
     ):
         return None
-    if validation_candidate_context is not None:
-        raise LiveSupportPolicyError("validation candidate context integrity was not validated")
-    validation_candidate_context = consume_validation_admission(validation_admission_handle)
-    if validation_candidate_context is None:
-        raise LiveSupportPolicyError("validation candidate context is required")
-    if not isinstance(validation_candidate_context, ValidationCandidateContext):
-        raise LiveSupportPolicyError("validation candidate context is malformed")
-    if (
-        not validation_candidate_context.integrity_validated
-    ):
-        raise LiveSupportPolicyError("validation candidate context integrity was not validated")
-    if (
-        not validation_candidate_context.request_fingerprint
-        or not validation_request_fingerprint
-        or validation_candidate_context.request_fingerprint != validation_request_fingerprint
-    ):
-        raise LiveSupportPolicyError("validation candidate context invocation does not match")
-    expected = {
-        "model_id": model_id,
-        "command": command,
-        "transport_scope": transport,
-        "backend_scope": backend,
-    }
-    for field, value in expected.items():
-        if getattr(validation_candidate_context, field, None) != value:
-            raise LiveSupportPolicyError("validation candidate context does not match the live request")
-    required_context_fields = (
-        "run_id",
-        "case_id",
-        "suite",
-        "model_id",
-        "command",
-        "transport_scope",
-        "backend_scope",
-        "request_fingerprint",
-        "capability_id",
-        "issued_at",
-        "expires_at",
-    )
-    if any(not getattr(validation_candidate_context, field, None) for field in required_context_fields):
-        raise LiveSupportPolicyError("validation candidate context is malformed")
     return CommandLiveSupportScope(
         validation_status=VALIDATION_STATUS_PROFILE_VALIDATED,
         transport_scope=transport,

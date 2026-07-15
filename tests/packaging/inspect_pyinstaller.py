@@ -56,8 +56,6 @@ def inspect_executable(
         assert any(name.startswith(f"{package}.") for name in pyz_names), package
     assert not any("keysight_power_" in name for name in (*names, *pyz_names))
     assert not any("keysight-powers" in name.lower() for name in names)
-    assert not any(name.startswith("powers_tool_validation") for name in pyz_names)
-    assert "powers_tool_cli.candidate_capability" not in pyz_names
 
     if webui:
         for filename in ("index.html", "styles.css", "app.js"):

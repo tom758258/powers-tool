@@ -248,45 +248,8 @@ sys.exit(0 if payload["ok"] else 2)
     return tmp_path
 
 
-def test_real_mode_rejects_source_fixture_before_preflight(tmp_path):
-    fixture_path = _main_flow_fixture_cli_path(tmp_path)
-    before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
-    result = _run_live_cli_check(
-        "-Target",
-        "keysight-e36312a",
-        "-Connection",
-        "USB",
-        "-Resource",
-        "USB0::FIXTURE::INSTR",
-        "-Suite",
-        "readonly",
-        env={"PYTHONPATH": str(fixture_path), "P5_FIXTURE_PREFLIGHT_FAIL": "1"},
-    )
-
-    assert result.returncode != 0, result.stdout + result.stderr
-    assert "prepared isolated Validation environment" in result.stderr
-    assert set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json")) == before
 
 
-def test_real_mode_does_not_reach_confirmation_with_source_fixture(tmp_path):
-    fixture_path = _main_flow_fixture_cli_path(tmp_path)
-    before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
-    result = _run_live_cli_check(
-        "-Target",
-        "keysight-e36312a",
-        "-Connection",
-        "USB",
-        "-Resource",
-        "USB0::FIXTURE::INSTR",
-        "-Suite",
-        "readonly",
-        env={"PYTHONPATH": str(fixture_path)},
-        stdin_text="",
-    )
-
-    assert result.returncode != 0, result.stdout + result.stderr
-    assert "prepared isolated Validation environment" in result.stderr
-    assert set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json")) == before
 
 
 def _artifact_privacy_command(
@@ -702,7 +665,6 @@ if ($preflightRecord.result -ne "passed") {{ throw "preflight did not pass" }}
 if ($liveRecord.result -ne "failed") {{ throw "expected live failure, got $($liveRecord.result)" }}
 if ($liveRecord.parse_error -ne "JSON output file was not created.") {{ throw "unexpected parse error $($liveRecord.parse_error)" }}
 if ($liveRecord.mode) {{ throw "live mode should be empty when JSON is missing" }}
-if ($liveRecord.hardware_touched) {{ throw "live hardware_touched should be empty when JSON is missing" }}
 if (Test-Path -LiteralPath (Join-Path $script:OutputDir "live-trigger-step-bus.json")) {{ throw "live JSON should not exist" }}
 """
     result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
@@ -789,7 +751,6 @@ def test_live_cli_check_readonly_plan_only_succeeds_without_hardware(target, con
     assert report["instrument_identity"]["availability"] == "not_observed_plan_only"
     assert report["instrument_identity"]["detected_model"] is None
     assert report["cleanup"]["status"] == "not_executed_plan_only"
-    assert all(command["hardware_touched"] is False for command in report["commands"])
 
 
 def test_live_cli_check_centrally_adds_validation_flag_only_for_policy_commands():
@@ -908,11 +869,7 @@ $records | ConvertTo-Json -Depth 12 -Compress
 
     for record in records:
         assert record["contract"] != "unclassified", record
-        if "--validation-candidate-manifest" in record["arguments"]:
-            with pytest.raises(SystemExit):
-                cli.build_parser().parse_args(record["arguments"])
-        else:
-            cli.build_parser().parse_args(record["arguments"])
+        cli.build_parser().parse_args(record["arguments"])
 
 
 @pytest.mark.parametrize(
@@ -969,7 +926,7 @@ def test_live_cli_check_plan_artifact_redacts_resource_and_command_paths():
     assert "candidate validation evidence only" in report_path.with_name("summary.md").read_text(encoding="utf-8")
 
 
-def test_live_cli_check_shareable_plan_hides_candidate_capability_material():
+def test_live_cli_check_shareable_plan_contains_no_private_runtime_material():
     resource = "USB0::SHAREABLE-CONTEXT::E36312A::INSTR"
     result = _run_live_cli_check(
         "-Target",
@@ -991,9 +948,6 @@ def test_live_cli_check_shareable_plan_hides_candidate_capability_material():
     forbidden = (
         resource,
         "USB0::SIM::E36312A::INSTR",
-        "--validation-candidate-manifest",
-        "--validation-candidate-capability",
-        "POWERS_TOOL_VALIDATION_RUN_SECRET",
         str(private_dir),
     )
     assert all(value not in shareable_text for value in forbidden)
@@ -1049,7 +1003,6 @@ def test_live_cli_check_e3646a_full_plan_contains_software_sequence_not_native_l
     assert "sequence-unsupported-restore-dry-run" in case_names
     assert "sequence-unsupported-native-list-dry-run" in case_names
     assert "sequence-unsupported-completion-pulse-dry-run" in case_names
-    assert all(command["hardware_touched"] is False for command in report["commands"])
 
 
 def test_live_cli_check_full_suite_composition_is_model_aware():
@@ -1213,7 +1166,7 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
         case for case in planned
         if case["command"] in expected_candidates and case["name"] != "restore-from-snapshot-plan"
     ]
-    assert all(case["candidate_context_required"] is True for case in candidate_cases)
+    assert all("candidate_context_required" not in case for case in candidate_cases)
     assert not {"trigger-pulse", "trigger-fire"} & {case["command"] for case in planned}
     if target != "keysight-e36312a":
         assert not any(case["command"] == "restore-from-snapshot" for case in planned)
@@ -1230,7 +1183,7 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
     if target == "keysight-e36312a":
         names = {case["name"] for case in planned}
         assert {"restore-off-execute", "restore-on-enable-ch1", "restore-on-execute", "restore-on-immediate-safe-off"} <= names
-        assert next(case for case in planned if case["name"] == "restore-on-enable-ch1")["candidate_context_required"] is True
+        assert "candidate_context_required" not in next(case for case in planned if case["name"] == "restore-on-enable-ch1")
     case_names = {case["name"] for case in report["cases"] if case["suite"] == "software-sequence"}
     assert {
         "ramp-list-lint",
@@ -1238,7 +1191,6 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
         "sequence-lint-readonly",
         "sequence-dry-run-readonly",
     } <= case_names
-    assert all(command["hardware_touched"] is False for command in report["commands"])
 
 
 @pytest.mark.parametrize(
@@ -1662,46 +1614,3 @@ def test_english_docs_describe_suite_scoped_validation_and_e3646a_boundaries():
     assert "preflight-cli.ps1" in docs
     assert "software workflows, not native LIST" in normalized
     assert "OUTP ON/OFF" in docs
-def test_validation_build_and_inventory_are_resolved_before_live_access() -> None:
-    text = Path("scripts/live-cli-check.ps1").read_text(encoding="utf-8")
-
-    assert "Get-ValidationOnlyCandidateCommands" not in text
-    assert '"_internal-build-info" "--json"' in text
-    assert '"_internal-candidate-inventory" "--json"' in text
-    assert text.index("Resolve-ValidationBuildAndInventory") < text.index(
-        'Write-Host "Running external no-hardware CLI preflight'
-    )
-
-
-def test_live_manifest_and_secret_are_created_only_after_confirmation() -> None:
-    text = Path("scripts/live-cli-check.ps1").read_text(encoding="utf-8")
-    confirmation = text.rindex('Read-Host "Press Enter to run live suite validation')
-    secret = text.rindex("$script:CandidateRunSecret = New-SecureHexValue -ByteCount 32")
-    manifest = text.rindex("Ensure-CandidateManifest | Out-Null")
-
-    assert confirmation < secret < manifest
-    assert ".AddMinutes(10)" not in text
-    assert "[Math]::Min(240, [Math]::Max(30" in text
-
-
-def test_full_plan_only_creates_no_usable_live_capability() -> None:
-    before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
-    result = _run_live_cli_check(
-        "-Target",
-        "keysight-e36312a",
-        "-Connection",
-        "USB",
-        "-Resource",
-        "SIM::E36312A",
-        "-Suite",
-        "full",
-        "-PlanOnly",
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    report_path = _new_live_check_report(before)
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    private_dir = report_path.parent.parent / "private"
-    assert report["validation_build"]["build_profile"] == "validation"
-    assert not (private_dir / "candidate-run-manifest.json").exists()
-    assert not list(private_dir.glob("candidate-capability-*.json"))

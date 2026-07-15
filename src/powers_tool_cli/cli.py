@@ -161,7 +161,6 @@ LOG_CSV_FIELDS = (
     "errors",
 )
 
-_DISTRIBUTION_RUNTIME_EXTENSION: Any = None
 
 OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
 STEP_TRIGGER_POWER_SUPPLY_TYPES = (E36312APowerSupply,)
@@ -1018,9 +1017,6 @@ def _add_validation_support_policy_argument(parser: argparse.ArgumentParser) -> 
         action="store_true",
         help=argparse.SUPPRESS,
     )
-    extension = _DISTRIBUTION_RUNTIME_EXTENSION
-    if extension is not None:
-        extension.add_live_arguments(parser)
 
 
 def _add_model_argument(
@@ -1056,20 +1052,6 @@ def _runtime_identity_for_args(args: argparse.Namespace) -> dict[str, str | None
         "expected_model_id": model_id,
         "planning_profile_id": profile_id,
     }
-
-
-def _install_distribution_runtime_extension(extension: Any) -> None:
-    """Install the separately distributed internal runtime adapter."""
-
-    global _DISTRIBUTION_RUNTIME_EXTENSION
-    _DISTRIBUTION_RUNTIME_EXTENSION = extension
-
-
-def _distribution_runtime_options_for_args(args: argparse.Namespace) -> dict[str, Any]:
-    extension = _DISTRIBUTION_RUNTIME_EXTENSION
-    if extension is None:
-        return {}
-    return dict(extension.runtime_options(args))
 
 
 def _add_write_verification_arguments(parser: argparse.ArgumentParser) -> None:
@@ -3696,7 +3678,6 @@ def _run_restore_from_snapshot(args: argparse.Namespace) -> int:
                     log_scpi=args.log_scpi,
                     confirm=args.confirm,
                     support_policy_mode=_support_policy_mode_for_args(args),
-                    **_distribution_runtime_options_for_args(args),
                 ),
                 parameters={
                     "snapshot": args.snapshot,
@@ -8092,9 +8073,6 @@ def _execution_for_args(
             "hardware_touched": bool(hardware_intent and mode == "real" and not dry_run),
         }
     )
-    extension = _DISTRIBUTION_RUNTIME_EXTENSION
-    if extension is not None:
-        extension.decorate_execution(args, execution)
     setattr(args, "_execution_state", execution)
     return execution
 
@@ -9497,7 +9475,6 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
             support_policy_mode=_support_policy_mode_for_args(args),
-            **_distribution_runtime_options_for_args(args),
         ),
         parameters=parameters,
     )
@@ -9532,7 +9509,6 @@ def _target_core_request_for_args(args: argparse.Namespace) -> OperationRequest:
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
             support_policy_mode=_support_policy_mode_for_args(args),
-            **_distribution_runtime_options_for_args(args),
         ),
         parameters=parameters,
     )
@@ -9681,7 +9657,6 @@ def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
             timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
             support_policy_mode=_support_policy_mode_for_args(args),
-            **_distribution_runtime_options_for_args(args),
         ),
         parameters=parameters,
     )

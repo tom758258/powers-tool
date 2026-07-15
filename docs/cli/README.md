@@ -118,25 +118,7 @@ machine-readable `report.json` and a human-readable `summary.md` under
 | `scripts\release-acceptance.ps1` | No hardware | Runs the complete version-neutral isolated-worktree release gate, including tests, package/install/entry-point checks, standalone builds, release artifacts, CLI preflight, and live `-PlanOnly`. |
 | `scripts\batch-validation.ps1` | Selected by switches | Runs only the selected simulated or live validation tasks and writes one batch report. |
 
-Real candidate validation requires a clean, reviewed internal validation wheel
-installed in `.venv-validation`; the wrapper verifies its embedded profile,
-source commit, version, package identity, and Core candidate inventory before
-VISA access. Build Product and Validation artifacts separately, then install
-both only into that internal environment:
-
-```powershell
-.\.venv\Scripts\python.exe -m build --wheel --outdir dist
-.\.venv\Scripts\python.exe -m build --wheel --outdir .tmp_tests\validation-dist validation
-uv venv .venv-validation
-uv pip install --python .venv-validation\Scripts\python.exe `
-  .\dist\powers_tool-<version>-py3-none-any.whl `
-  .\.tmp_tests\validation-dist\powers_tool_validation-<version>-py3-none-any.whl
-```
-
-This environment is an internal contributor tool and is not a Product release
-or upload target. PlanOnly may resolve the source-tree validation project for
-inventory checks, but it creates no run secret, signed live manifest, or usable
-case capability.
+The live wrapper uses the Product CLI and loads the Core-owned candidate inventory directly in memory. It creates no intermediate inventory, manifest, or capability files.
 
 If the current Windows execution policy blocks `.ps1` files, use a
 process-local bypass for the selected script:
@@ -195,34 +177,6 @@ candidates that are implemented but not Product-open:
 | EDU36311A USB or TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor` |
 | E3646A ASRL + system VISA | `output-on`, resource-backed `doctor` |
 
-Plan-only reports expose this model-specific planned case inventory without
-opening VISA. The Product CLI does not register candidate capability arguments,
-and Product artifacts contain no issuer/verifier module. Candidate execution
-uses the separate internal `powers-tool-validation` entry point, which normal
-Product release workflows do not build or upload. That path requires an exact
-signed one-time run/case capability and request fingerprint in addition to the
-detected physical model, command, transport, backend, capability, and
-expected-model guard. It does not admit pyvisa-py, custom backends, unlisted
-connections, other models, or unsupported commands. Direct `trigger-pulse`
-and `trigger-fire` are not included. Historical accepted artifacts do not
-cover these new standalone cases; even a future passing run requires separate
-evidence review, registration, and Product promotion.
-
-Real runs require the maintained prepared isolated environment containing one
-exact reviewed Product wheel and one exact reviewed Validation wheel. Both
-wheel-file SHA-256 identities are recorded; locked Product runtime dependencies
-are installed from a local wheelhouse; and both exact wheels are retained so
-installed files, METADATA, entry points, RECORD data, and loaded module origins
-can be verified against them. The Validation entry point uses
-that same Product runtime for every live command, cleanup, and final check.
-Real mode clears `PYTHONPATH` and rejects repository-source imports before
-VISA. Source fallback is limited to no-hardware PlanOnly development and
-creates no usable live manifest or case capability.
-The installation-identity HMAC detects accidental or uncoordinated changes in
-the maintained environment; it does not protect against a user rewriting the
-environment, manifest, and key together. Ordinary Validation imports expose no
-permit, admission insertion, or verified-context minting API.
-
 The new cases are deliberately bounded. Logging collects one all-channel
 sample at 0.1 seconds into private CSV/JSONL files, validates the exact header,
 channel inventory, telemetry fields, per-row empty error fields, and completed
@@ -249,16 +203,6 @@ cases. The expanded suite is implemented and covered by no-hardware and
 PlanOnly checks, but it has not yet been run and accepted as new hardware
 evidence. Execution would still require separate evidence review and Product
 promotion work.
-
-The separate Product/Validation distribution boundary prevents the normal
-Product installation from enabling candidates. Within the internal validation
-build, HMAC protects one exact run, case, connection, and invocation with
-expiry and atomic one-time consumption. No public permit or arbitrary
-verified-context factory is provided.
-Secrets, signatures, fingerprints, and private paths remain absent from
-shareable artifacts. The ordinary hidden pending-support switch remains
-separate and cannot authorize a command candidate; capabilities never
-Product-open a command.
 
 Only exact commands in the Core product matrix are opened for normal LIVE use
 on those connections. E3646A live validation remains restricted to ASRL /

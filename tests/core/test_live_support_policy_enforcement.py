@@ -9,7 +9,6 @@ from powers_tool_core.core import (
     OperationRequest,
     RuntimeOptions,
     TriggerRequest,
-    ValidationCandidateContext,
 )
 from powers_tool_core.instrument_io import run_instrument_io
 from powers_tool_core.live_support import enforce_live_support
@@ -62,10 +61,7 @@ def _request(
     backend: str | None = None,
     model: str | None = None,
     support_policy_mode: str = SUPPORT_POLICY_MODE_PRODUCT,
-    candidate_context: bool = False,
 ) -> OperationRequest:
-    transport = "usb" if resource.startswith("USB") else "tcpip" if resource.startswith("TCPIP") else "asrl"
-    backend_scope = "pyvisa_py" if backend == "@py" else "custom" if backend else "system_visa"
     return OperationRequest(
         command,
         RuntimeOptions(
@@ -73,19 +69,6 @@ def _request(
             backend=backend,
             expected_model_id=model,
             support_policy_mode=support_policy_mode,
-            validation_candidate_context=(
-                ValidationCandidateContext(
-                    run_id="run",
-                    case_id="case",
-                    suite="full",
-                    model_id=model or "keysight-e36312a",
-                    command=command,
-                    transport_scope=transport,
-                    backend_scope=backend_scope,
-                )
-                if candidate_context
-                else None
-            ),
         ),
     )
 
@@ -331,85 +314,8 @@ def test_output_without_exact_evidence_rejects_after_idn_before_write() -> None:
     assert session.writes == []
 
 
-def test_product_core_rejects_bare_candidate_context_before_output_scpi() -> None:
-    session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
-    request = OperationRequest(
-        "output-on",
-        RuntimeOptions(
-            resource="USB0::1::INSTR",
-            confirm=True,
-            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
-            validation_candidate_context=ValidationCandidateContext(
-                "run", "case", "full", "keysight-e36312a", "output-on", "usb", "system_visa"
-            ),
-        ),
-        {"channel": 1},
-    )
-    with pytest.raises(LiveSupportPolicyError, match="context integrity"):
-        run_operation(request, opener=lambda *args, **kwargs: session)
-    assert session.queries == ["*IDN?"]
-    assert session.writes == []
-    assert session.closed
 
 
-def test_product_core_rejects_complete_forged_candidate_metadata() -> None:
-    context = ValidationCandidateContext(
-        run_id="run",
-        case_id="case",
-        suite="full",
-        model_id="keysight-e36312a",
-        command="output-on",
-        transport_scope="usb",
-        backend_scope="system_visa",
-        request_fingerprint="f" * 64,
-        capability_id="c" * 48,
-        issued_at="2026-01-01T00:00:00+00:00",
-        expires_at="2026-01-01T01:00:00+00:00",
-        integrity_validated=True,
-    )
-    request = OperationRequest(
-        "output-on",
-        RuntimeOptions(
-            resource="USB0::1::INSTR",
-            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
-            validation_candidate_context=context,
-            validation_request_fingerprint=context.request_fingerprint,
-            validation_build_permit=object(),
-        ),
-    )
-    with pytest.raises(LiveSupportPolicyError, match="context integrity"):
-        enforce_live_support(request, "keysight-e36312a")
-
-
-@pytest.mark.parametrize(
-    ("model_id", "command", "resource"),
-    [
-        ("keysight-e36312a", "output-on", "USB0::1::INSTR"),
-        ("keysight-e36312a", "log", "TCPIP0::192.0.2.1::INSTR"),
-        ("keysight-e36312a", "doctor", "USB0::1::INSTR"),
-        ("keysight-e36312a", "measure-all", "TCPIP0::192.0.2.1::INSTR"),
-        ("keysight-e36312a", "restore-from-snapshot", "USB0::1::INSTR"),
-        ("keysight-edu36311a", "output-on", "USB0::1::INSTR"),
-        ("keysight-edu36311a", "log", "TCPIP0::192.0.2.1::INSTR"),
-        ("keysight-edu36311a", "doctor", "USB0::1::INSTR"),
-        ("keysight-e3646a", "output-on", "ASRL1::INSTR"),
-        ("keysight-e3646a", "doctor", "ASRL1::INSTR"),
-    ],
-)
-def test_product_core_rejects_candidate_matrix_even_in_validation_policy_mode(
-    model_id: str, command: str, resource: str
-) -> None:
-    with pytest.raises(LiveSupportPolicyError, match="context integrity"):
-        enforce_live_support(
-            _request(
-                command,
-                resource,
-                model=model_id,
-                support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
-                candidate_context=True,
-            ),
-            model_id,
-        )
 
 
 @pytest.mark.parametrize(
@@ -427,58 +333,6 @@ def test_product_mode_keeps_command_candidates_closed(
         enforce_live_support(_request(command, resource, backend=backend), model_id)
 
 
-def test_validation_mode_without_candidate_context_keeps_candidates_closed() -> None:
-    with pytest.raises(LiveSupportPolicyError, match="context is required"):
-        enforce_live_support(
-            _request(
-                "output-on",
-                "USB0::1::INSTR",
-                support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
-            ),
-            "keysight-e36312a",
-        )
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("case_id", ""),
-        ("suite", ""),
-        ("model_id", "keysight-edu36311a"),
-        ("command", "log"),
-        ("transport_scope", "tcpip"),
-        ("backend_scope", "pyvisa_py"),
-    ],
-)
-def test_validation_candidate_context_must_exactly_match_live_request(
-    field: str, value: str
-) -> None:
-    context = ValidationCandidateContext(
-        "run", "case", "full", "keysight-e36312a", "output-on", "usb", "system_visa"
-    )
-    request = OperationRequest(
-        "output-on",
-        RuntimeOptions(
-            resource="USB0::1::INSTR",
-            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
-            validation_candidate_context=replace(context, **{field: value}),
-        ),
-    )
-    with pytest.raises(LiveSupportPolicyError, match="context integrity"):
-        enforce_live_support(request, "keysight-e36312a")
-
-
-def test_validation_candidate_context_must_be_typed() -> None:
-    request = OperationRequest(
-        "output-on",
-        RuntimeOptions(
-            resource="USB0::1::INSTR",
-            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
-            validation_candidate_context={"command": "output-on"},  # type: ignore[arg-type]
-        ),
-    )
-    with pytest.raises(LiveSupportPolicyError, match="context integrity"):
-        enforce_live_support(request, "keysight-e36312a")
 
 
 @pytest.mark.parametrize(

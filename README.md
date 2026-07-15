@@ -101,39 +101,6 @@ product-open. E3646A product LIVE remains ASRL / RS-232 + system VISA only,
 and its `ramp-list` and step-limited `sequence` are software workflows, not
 native LIST.
 
-The maintained `full` live-validation suite now includes those implemented
-commands as exact validation candidates where the model supports them:
-E36312A adds `output-on`, `log`, resource-backed `doctor`, `measure-all`, and
-real `restore-from-snapshot`; EDU36311A adds `output-on`, `log`, and
-resource-backed `doctor`; E3646A adds `output-on` and resource-backed
-`doctor`. Product wheels, sdists, CLIs, WebUI, and Worker contain no candidate
-activation interface or capability issuer. Candidate runs require the separate
-internal `powers-tool-validation` contributor distribution, which is excluded
-from normal Product release artifacts and uploads. Inside that build, each live
-candidate invocation additionally requires a signed, run-scoped, case-scoped,
-one-time capability bound to the exact model, command, connection, case, and
-request. The ordinary pending-support switch alone cannot admit a candidate.
-
-Real validation requires a prepared, clean, isolated environment containing
-the exact reviewed Product and Validation wheels. Preparation records both
-wheel-file SHA-256 identities, installs locked runtime dependencies from a
-local wheelhouse, retains both reviewed wheels, and verifies installed files,
-METADATA, entry points, and loaded modules against those retained wheels. It makes
-every live case use the same installed Product runtime. Repository source
-fallback is PlanOnly-only; real validation rejects source-tree imports before
-VISA. HMAC verification and atomic one-time capability consumption are
-mandatory, and ordinary imports provide no permit, registry insertion, or
-verified-context minting API. The installation-identity HMAC detects accidental
-or uncoordinated changes in the maintained environment; it is not a security
-boundary against a user who rewrites the environment, manifest, and key together.
-Normal Product mode remains closed until new live artifacts are run, reviewed,
-registered, and promoted in a separate change. Existing historical evidence
-does not cover these new standalone cases, and a future passing suite does not
-promote them automatically. Direct `trigger-pulse` and `trigger-fire` remain
-closed and are not candidates; the existing Product-open E36312A
-`trigger-status`, `trigger-step`, `trigger-list`, and `trigger-abort` scopes are
-unchanged.
-
 For output commands, `voltage` means the output voltage setpoint and `current`
 means the output current limit/current setting for E36312A, EDU36311A, and
 E3646A. Core exposes official programming-range metadata from the model
@@ -155,6 +122,8 @@ real instrument model. Deterministic SIM resources, such as
 IDN/model data.
 
 ## Current Hardware Scope
+
+Internal live validation uses the Product CLI and Core directly. The wrapper loads `internal_validation_candidate_inventory()` in memory, validates the exact target, suite, command, transport, backend, safety, and cleanup scope, and enables validation policy only for relevant policy-gated commands. This evidence-only mode does not change Product capabilities, the support registry, or accepted evidence. Product mode remains fail-closed, and Worker and WebUI requests cannot select validation mode.
 
 | Lifecycle | Canonical model IDs | Current boundary |
 | --- | --- | --- |
@@ -180,13 +149,6 @@ examples, `<version>` means `[project].version` from the root `pyproject.toml`:
 - Core import: `powers_tool_core`
 - CLI import: `powers_tool_cli`
 - WebUI import: `powers_tool_webui`
-
-The `validation/` project builds the separate internal contributor-only
-`powers-tool-validation` companion at the same version. It is not included in
-Product wheels, sdists, standalone executables, or normal release folders.
-The maintained `scripts\prepare-validation-environment.ps1` workflow builds,
-inspects, hashes, and installs the exact local Product and Validation wheels
-from one clean reviewed commit without substituting another Product artifact.
 
 The import paths remain independent. Do not use a `keysight_power.*`
 namespace package.
@@ -414,15 +376,6 @@ features of that model. With a passing expanded full-suite record for the
 approved model and connection, the model's currently project-supported LIVE
 features may be opened. Disabled, unimplemented, out-of-scope, or factory-only
 features are not implied by the pass.
-
-Plan-only reports include the model-specific planned live-case inventory. The
-new candidate cases remain limited to E36312A USB/TCPIP + system VISA,
-EDU36311A USB/TCPIP + system VISA, and E3646A ASRL + system VISA; other models,
-transports, pyvisa-py, and custom backends fail closed.
-Each live candidate invocation also requires the reviewed internal validation
-build and an exact, private, signed, one-time run/case capability. The Product
-CLI does not accept candidate capability inputs, and the existing hidden
-pending-scope switch alone does not admit these command candidates.
 
 A passed `scripts\live-cli-check.ps1` run validates only the selected target
 model, connection type, suite, and cases recorded in that run's artifacts. It

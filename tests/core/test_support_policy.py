@@ -37,6 +37,7 @@ from powers_tool_core.support_policy import (
     find_live_support_scope,
     find_feature_support,
     is_live_support_policy_exempt,
+    internal_validation_candidate_inventory,
     live_support_policy_metadata,
     normalize_backend,
     normalize_support_feature_value,
@@ -1233,3 +1234,43 @@ def test_public_projection_preserves_model_and_generic_boundaries() -> None:
         live_support_policy_metadata("keysight-e36103b", {"set"})
     with pytest.raises(LiveSupportPolicyError):
         live_support_policy_metadata("keysight-unknown", {"set"})
+def test_internal_validation_candidate_inventory_is_exact_and_immutable() -> None:
+    inventory = internal_validation_candidate_inventory()
+
+    assert set(inventory) == {
+        "keysight-e36312a",
+        "keysight-edu36311a",
+        "keysight-e3646a",
+    }
+    assert "output-on" in inventory["keysight-e36312a"]["commands"]
+    with pytest.raises(TypeError):
+        inventory["keysight-e36312a"] = {}  # type: ignore[index]
+
+
+def test_validation_mode_admits_only_exact_core_candidate_scope() -> None:
+    with pytest.raises(LiveSupportPolicyError):
+        ensure_live_scope_supported(
+            model_id="keysight-e36312a",
+            command="output-on",
+            transport="USB0::fixture::INSTR",
+            backend=None,
+            support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
+        )
+
+    scope = ensure_live_scope_supported(
+        model_id="keysight-e36312a",
+        command="output-on",
+        transport="USB0::fixture::INSTR",
+        backend=None,
+        support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+    )
+    assert scope.admission_kind == "validation_candidate"
+
+    with pytest.raises(LiveSupportPolicyError):
+        ensure_live_scope_supported(
+            model_id="keysight-e36312a",
+            command="output-on",
+            transport="ASRL1::INSTR",
+            backend=None,
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        )

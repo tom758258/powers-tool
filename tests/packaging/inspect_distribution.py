@@ -15,8 +15,11 @@ ENTRY_POINTS = {
     "powers-tool-webui = powers_tool_webui.server:main",
     "powers-tool-webui-launcher = powers_tool_webui.launcher:main",
 }
-FORBIDDEN_PRODUCT_PATHS = {
-    "powers_tool_cli/candidate_capability.py",
+FORBIDDEN_WHEEL_PREFIXES = {
+    "scripts/",
+    "tests/",
+    "private/",
+    "candidate-evidence/",
 }
 
 
@@ -66,14 +69,12 @@ def inspect_distribution(
         assert "Requires-Python: >=3.10" in metadata_lines
         entry_point_lines = set(entry_points.splitlines())
         assert ENTRY_POINTS <= entry_point_lines
-        assert not any(line.startswith("powers-tool-validation") for line in entry_point_lines)
         assert not any(line.startswith("keysight-power") for line in entry_point_lines)
         for package in CANONICAL_PACKAGES:
             assert any(name.startswith(f"{package}/") for name in names), package
         for package in LEGACY_PACKAGES:
             assert not any(name.startswith(f"{package}/") for name in names), package
-        assert not any(name.startswith("powers_tool_validation/") for name in names)
-        assert not (FORBIDDEN_PRODUCT_PATHS & names)
+        assert not any(name.startswith(tuple(FORBIDDEN_WHEEL_PREFIXES)) for name in names)
         build_profile_name = "powers_tool_core/build_profile.py"
         assert build_profile_name in names
         build_profile = archive.read(build_profile_name).decode("utf-8")
@@ -100,8 +101,6 @@ def inspect_distribution(
                 assert any(name.startswith(f"{root}/src/{package}/") for name in names), package
             for package in LEGACY_PACKAGES:
                 assert not any(name.startswith(f"{root}/src/{package}/") for name in names), package
-            assert not any(name.startswith(f"{root}/validation/") for name in names)
-            assert f"{root}/src/powers_tool_cli/candidate_capability.py" not in names
             assert f"{root}/src/powers_tool_core/build_profile.py" in names
             for filename in ("index.html", "styles.css", "app.js"):
                 assert f"{root}/src/powers_tool_webui/static/{filename}" in names

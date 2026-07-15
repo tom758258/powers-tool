@@ -40,33 +40,3 @@ def test_actual_product_wheel_and_sdist_exclude_validation_runtime(
         str(out),
     )
     assert inspection.returncode == 0, inspection.stdout + inspection.stderr
-
-
-def test_actual_validation_wheel_is_separate_and_contains_internal_runtime(
-    tmp_path: Path,
-) -> None:
-    out = tmp_path / "validation"
-    result = _run(
-        sys.executable,
-        "-m",
-        "build",
-        "--no-isolation",
-        "--wheel",
-        "--outdir",
-        str(out),
-        str(ROOT / "validation"),
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    inspection = _run(
-        sys.executable,
-        str(
-            ROOT
-            / "validation"
-            / "tests"
-            / "inspect_validation_distribution.py"
-        ),
-        "--expected-version",
-        "2.0.0",
-        str(out),
-    )
-    assert inspection.returncode == 0, inspection.stdout + inspection.stderr

@@ -54,30 +54,10 @@ if ($PythonExe -ne "python" -and -not (Test-Path -LiteralPath $CliExecutable)) {
     $CliExecutable = "powers-tool"
 }
 $CliPrefix = @()
-$ValidationProject = Join-Path $RepoRoot "validation"
-$ValidationExecutable = Join-Path (Join-Path $RepoRoot ".venv-validation") "Scripts\powers-tool-validation.exe"
-$ValidationPrefix = @()
-if ($PlanOnly) {
-    $ValidationExecutable = $PythonExe
-    $ValidationPrefix = @("-m", "powers_tool_validation.cli")
-}
-elseif (-not (Test-Path -LiteralPath $ValidationExecutable)) {
-    if (-not $PlanOnly -and $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -ne "1") {
-        [Console]::Error.WriteLine("Real validation requires the prepared isolated Validation environment.")
-        exit 2
-    }
-    $ValidationExecutable = $PythonExe
-    $ValidationPrefix = @("-m", "powers_tool_validation.cli")
-}
-$ValidationSourcePath = Join-Path $ValidationProject "src"
 
 function Get-ValidationChildPythonPath {
-    if (-not $PlanOnly -and $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -ne "1") { return $null }
     $parts = New-Object System.Collections.Generic.List[string]
-    if ($env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1" -and -not [string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
-        $parts.Add($env:PYTHONPATH)
-    }
-    $parts.Add($ValidationSourcePath)
+    if (-not [string]::IsNullOrWhiteSpace($env:PYTHONPATH)) { $parts.Add($env:PYTHONPATH) }
     $parts.Add((Join-Path $RepoRoot "src"))
     return ($parts -join [System.IO.Path]::PathSeparator)
 }
@@ -535,177 +515,23 @@ function Test-CurrentConnectionUsesCandidateCapabilities {
     return $script:BackendArtifact.backend_scope -eq "system_visa"
 }
 
-function New-SecureHexValue {
-    param([int]$ByteCount = 32)
-
-    $bytes = New-Object byte[] $ByteCount
-    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    try { $generator.GetBytes($bytes) } finally { $generator.Dispose() }
-    return ([System.BitConverter]::ToString($bytes)).Replace("-", "").ToLowerInvariant()
-}
-
-function Invoke-CandidateCapabilityHelper {
-    param(
-        [Parameter(Mandatory = $true)][string[]]$Arguments
-    )
-
-    if ([string]::IsNullOrWhiteSpace($script:CandidateRunSecret)) {
-        throw "Candidate capability run secret is unavailable."
-    }
-    $environmentName = "POWERS_TOOL_VALIDATION_RUN_SECRET"
-    $hadEnvironment = $null -ne [Environment]::GetEnvironmentVariable($environmentName, "Process")
-    $oldEnvironment = [Environment]::GetEnvironmentVariable($environmentName, "Process")
-    $hadPythonPath = $null -ne [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
-    $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
-    try {
-        [Environment]::SetEnvironmentVariable($environmentName, $script:CandidateRunSecret, "Process")
-        [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
-        & $ValidationExecutable @ValidationPrefix @Arguments 1>$null 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            throw "Candidate capability helper failed."
-        }
-    }
-    finally {
-        if ($hadEnvironment) {
-            [Environment]::SetEnvironmentVariable($environmentName, $oldEnvironment, "Process")
-        }
-        else {
-            [Environment]::SetEnvironmentVariable($environmentName, $null, "Process")
-        }
-        if ($hadPythonPath) {
-            [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process")
-        }
-        else {
-            [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process")
-        }
-    }
-}
-
-function Get-CandidateRunLifetimeMinutes {
-    param([Parameter(Mandatory = $true)][object[]]$Cases)
-
-    $estimatedSeconds = 20 * 60
-    foreach ($case in $Cases) {
-        $estimatedSeconds += 45
-        $arguments = @($case.args)
-        for ($index = 0; $index -lt $arguments.Count - 1; $index++) {
-            $name = [string]$arguments[$index]
-            $value = 0.0
-            if (-not [double]::TryParse([string]$arguments[$index + 1], [ref]$value)) {
-                continue
-            }
-            if ($name -in @("--duration-ms", "--wait-timeout-ms", "--settle-ms", "--delay-ms", "--hold-ms")) {
-                $estimatedSeconds += ($value / 1000.0)
-            }
-            elseif ($name -eq "--duration-sec") {
-                $estimatedSeconds += $value
-            }
-            elseif ($name -eq "--interval-sec") {
-                $samplesIndex = [Array]::IndexOf($arguments, "--samples")
-                $samples = if ($samplesIndex -ge 0 -and $samplesIndex + 1 -lt $arguments.Count) { [double]$arguments[$samplesIndex + 1] } else { 1.0 }
-                $estimatedSeconds += ($value * [Math]::Max(1.0, $samples))
-            }
-        }
-    }
-    $minutes = [Math]::Ceiling($estimatedSeconds / 60.0)
-    return [int][Math]::Min(240, [Math]::Max(30, $minutes))
-}
-
-function Resolve-ValidationBuildAndInventory {
-    $buildInfoPath = Join-Path $script:PrivateArtifactDir "validation-build-info.json"
-    $buildInfoStderr = Join-Path $script:PrivateArtifactDir "validation-build-info.stderr.txt"
+function Load-CoreCandidateInventory {
+    $code = "import json; from powers_tool_core.support_policy import internal_validation_candidate_inventory as inventory; data=inventory(); print(json.dumps({model: {'commands': list(entry['commands']), 'connections': [list(value) for value in entry['connections']]} for model, entry in data.items()}))"
     $hadPythonPath = $null -ne [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
     $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
     try {
         [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
-        & $ValidationExecutable @ValidationPrefix "_internal-build-info" "--json" 1> $buildInfoPath 2> $buildInfoStderr
+        $inventoryJson = & $PythonExe -c $code
     }
     finally {
         if ($hadPythonPath) { [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process") }
         else { [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process") }
     }
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $buildInfoPath)) {
-        throw "Internal validation build could not be resolved."
-    }
-    try {
-        $identity = Get-Content -LiteralPath $buildInfoPath -Raw | ConvertFrom-Json
-    }
-    catch {
-        throw "Internal validation build identity is malformed."
-    }
-    $expectedCommit = Get-GitHead
-    $expectedVersion = Get-PackageVersion
-    if ($identity.build_profile -ne "validation" -or
-        $identity.distribution_name -ne "powers-tool-validation" -or
-        -not [bool]$identity.validation_runtime_available -or
-        -not [bool]$identity.candidate_inventory_available) {
-        throw "Selected executable is not the internal validation build."
-    }
-    if ($identity.source_commit -ne $expectedCommit) {
-        throw "Internal validation build source commit does not match the reviewed repository commit."
-    }
-    if ($identity.product_package_version -ne $expectedVersion -or
-        $identity.validation_distribution_version -ne $expectedVersion) {
-        throw "Product and validation distribution versions do not match."
-    }
-    if (-not $PlanOnly -and (
-        -not [bool]$identity.installed_runtime_verified -or
-        -not [bool]$identity.runtime_dependencies_verified -or
-        -not [bool]$identity.retained_wheels_verified -or
-        -not [bool]$identity.installed_files_record_verified -or
-        -not [bool]$identity.module_origins_verified -or
-        [bool]$identity.repository_source_shadowed -or
-        $identity.product_runtime_origin_kind -ne "installed-wheel" -or
-        $identity.product_cli_runtime_origin_kind -ne "installed-wheel" -or
-        $identity.validation_runtime_origin_kind -ne "installed-wheel" -or
-        [string]$identity.product_wheel_sha256 -notmatch "^[0-9a-f]{64}$" -or
-        [string]$identity.validation_wheel_sha256 -notmatch "^[0-9a-f]{64}$")) {
-        throw "Prepared installed-wheel runtime identity is invalid."
-    }
-    $script:ValidationBuildIdentity = [pscustomobject]@{
-        distribution_name = [string]$identity.distribution_name
-        validation_distribution_version = [string]$identity.validation_distribution_version
-        product_package_version = [string]$identity.product_package_version
-        build_profile = [string]$identity.build_profile
-        source_commit = [string]$identity.source_commit
-        source_dirty = [bool]$identity.source_dirty
-        artifact_kind = [string]$identity.artifact_kind
-        product_wheel_sha256 = if ($PlanOnly) { $null } else { [string]$identity.product_wheel_sha256 }
-        validation_wheel_sha256 = if ($PlanOnly) { $null } else { [string]$identity.validation_wheel_sha256 }
-        product_runtime_origin_kind = [string]$identity.product_runtime_origin_kind
-        product_cli_runtime_origin_kind = [string]$identity.product_cli_runtime_origin_kind
-        validation_runtime_origin_kind = [string]$identity.validation_runtime_origin_kind
-        repository_source_shadowed = [bool]$identity.repository_source_shadowed
-        installed_runtime_verified = [bool]$identity.installed_runtime_verified
-        runtime_dependencies_verified = [bool]$identity.runtime_dependencies_verified
-        retained_wheels_verified = [bool]$identity.retained_wheels_verified
-        installed_files_record_verified = [bool]$identity.installed_files_record_verified
-        module_origins_verified = [bool]$identity.module_origins_verified
-        validation_runtime_mode = if ($PlanOnly -and $identity.artifact_kind -eq "source-tree") { "source-plan-only" } else { "installed-wheel" }
-        entry_point = [string]$identity.entry_point
-    }
-
-    $inventoryPath = Join-Path $script:PrivateArtifactDir "validation-candidate-inventory.json"
-    $inventoryStderr = Join-Path $script:PrivateArtifactDir "validation-candidate-inventory.stderr.txt"
-    $hadPythonPath = $null -ne [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
-    $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
-    try {
-        [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
-        & $ValidationExecutable @ValidationPrefix "_internal-candidate-inventory" "--json" 1> $inventoryPath 2> $inventoryStderr
-    }
-    finally {
-        if ($hadPythonPath) { [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process") }
-        else { [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process") }
-    }
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $inventoryPath)) {
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($inventoryJson -join ""))) {
         throw "Core validation candidate inventory could not be loaded."
     }
-    try {
-        $script:CandidateInventory = Get-Content -LiteralPath $inventoryPath -Raw | ConvertFrom-Json
-    }
-    catch {
-        throw "Core validation candidate inventory is malformed."
-    }
+    try { $script:CandidateInventory = ($inventoryJson -join "`n") | ConvertFrom-Json }
+    catch { throw "Core validation candidate inventory is malformed." }
 }
 
 function Get-BaseValidationCommandArguments {
@@ -723,114 +549,6 @@ function Get-BaseValidationCommandArguments {
         $arguments = @($arguments + @("--save-json", $JsonPath))
     }
     return $arguments
-}
-
-function Ensure-CandidateManifest {
-    Ensure-ArtifactDirectories
-    if (-not [string]::IsNullOrWhiteSpace($script:CandidateManifestPath) -and
-        (Test-Path -LiteralPath $script:CandidateManifestPath)) {
-        return $script:CandidateManifestPath
-    }
-    $candidateCases = @($script:PlannedLiveCases | Where-Object { $_.phase -eq "live" -and $_.candidate_context_required })
-    if ($candidateCases.Count -eq 0) {
-        return $null
-    }
-    $entries = New-Object System.Collections.Generic.List[object]
-    foreach ($candidateCase in $candidateCases) {
-        $jsonPath = Join-Path $script:PrivateArtifactDir ((Get-CaseArtifactBaseName -Case $candidateCase) + ".json")
-        $arguments = @(Get-BaseValidationCommandArguments -Case $candidateCase -JsonPath $jsonPath)
-        $entries.Add([ordered]@{
-            case_id = $candidateCase.name
-            suite = $candidateCase.suite
-            command = $arguments[0]
-            model_id = $script:NormalizedTarget
-            transport_scope = $script:TransportScope
-            backend_scope = $script:BackendArtifact.backend_scope
-            state_changing = [bool]$candidateCase.state_changing
-            arguments = $arguments
-            request_fingerprint = ""
-            capability_id = (New-SecureHexValue -ByteCount 24)
-        })
-    }
-    $issuedAt = (Get-Date).ToUniversalTime()
-    $expiresAt = $issuedAt.AddMinutes((Get-CandidateRunLifetimeMinutes -Cases $script:PlannedLiveCases))
-    $manifestInput = Join-Path $script:PrivateArtifactDir "candidate-run-manifest-input.json"
-    $script:CandidateManifestPath = Join-Path $script:PrivateArtifactDir "candidate-run-manifest.json"
-    $manifest = [ordered]@{
-        schema_version = 1
-        run_id = $script:CandidateRunId
-        target_model_id = $script:NormalizedTarget
-        selected_suite = $Suite
-        selected_suites = @($script:SuitesToRun)
-        transport_scope = $script:TransportScope
-        backend_scope = $script:BackendArtifact.backend_scope
-        private_run_directory_identity = (Resolve-Path -LiteralPath $script:PrivateArtifactDir).Path
-        issued_at = $issuedAt.ToString("o")
-        expires_at = $expiresAt.ToString("o")
-        candidate_cases = $entries.ToArray()
-    }
-    Write-Utf8NoBomFile -LiteralPath $manifestInput -Value @($manifest | ConvertTo-Json -Depth 20)
-    try {
-        Invoke-CandidateCapabilityHelper -Arguments @(
-            "issue-manifest", "--input", $manifestInput, "--output", $script:CandidateManifestPath
-        )
-    }
-    finally {
-        Remove-Item -LiteralPath $manifestInput -Force -ErrorAction SilentlyContinue
-    }
-    Add-SensitiveValue -Value $script:CandidateManifestPath
-    try {
-        $manifestDocument = Get-Content -LiteralPath $script:CandidateManifestPath -Raw | ConvertFrom-Json
-        Add-SensitiveValue -Value ([string]$manifestDocument.manifest_signature)
-    }
-    catch {
-        throw "Signed candidate run manifest could not be read."
-    }
-    return $script:CandidateManifestPath
-}
-
-function Add-CandidateContextArguments {
-    param(
-        [Parameter(Mandatory = $true)]$Case,
-        [Parameter(Mandatory = $true)][string[]]$Arguments
-    )
-
-    if (-not $Case.candidate_context_required) { return $Arguments }
-    if ($Case.phase -ne "live") { throw "Candidate capability is valid only for live cases." }
-    if ($env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1" -and [string]::IsNullOrWhiteSpace($script:CandidateRunSecret)) {
-        $manifestPlaceholder = Join-Path $script:PrivateArtifactDir "candidate-run-manifest.json"
-        $capabilityPlaceholder = Join-Path $script:PrivateArtifactDir ("candidate-capability-" + (Get-CaseArtifactBaseName -Case $Case) + ".json")
-        return @($Arguments + @(
-            "--validation-candidate-manifest", $manifestPlaceholder,
-            "--validation-candidate-capability", $capabilityPlaceholder,
-            "--validation-candidate-context-root", $script:PrivateArtifactDir,
-            "--validation-candidate-case-id", $Case.name,
-            "--validation-candidate-suite", $Case.suite
-        ))
-    }
-    $manifestPath = Ensure-CandidateManifest
-    if ([string]::IsNullOrWhiteSpace($manifestPath)) {
-        throw "Candidate run manifest is unavailable."
-    }
-    $capabilityPath = Join-Path $script:PrivateArtifactDir ("candidate-capability-" + (Get-CaseArtifactBaseName -Case $Case) + ".json")
-    Invoke-CandidateCapabilityHelper -Arguments @(
-        "issue-capability", "--manifest", $manifestPath, "--output", $capabilityPath, "--case-id", $Case.name
-    )
-    Add-SensitiveValue -Value $capabilityPath
-    try {
-        $capabilityDocument = Get-Content -LiteralPath $capabilityPath -Raw | ConvertFrom-Json
-        Add-SensitiveValue -Value ([string]$capabilityDocument.capability_signature)
-    }
-    catch {
-        throw "Signed candidate capability could not be read."
-    }
-    return @($Arguments + @(
-        "--validation-candidate-manifest", $manifestPath,
-        "--validation-candidate-capability", $capabilityPath,
-        "--validation-candidate-context-root", $script:PrivateArtifactDir,
-        "--validation-candidate-case-id", $Case.name,
-        "--validation-candidate-suite", $Case.suite
-    ))
 }
 
 function Add-BackendArgument {
@@ -902,14 +620,10 @@ function Add-LiveExpectedModelArgument {
 function Get-ValidationCommandArguments {
     param(
         [Parameter(Mandatory = $true)]$Case,
-        [Parameter(Mandatory = $true)][string]$JsonPath,
-        [switch]$SkipCandidateContext
+        [Parameter(Mandatory = $true)][string]$JsonPath
     )
 
     $arguments = @(Get-BaseValidationCommandArguments -Case $Case -JsonPath $JsonPath)
-    if (-not $SkipCandidateContext -and $Case.phase -eq "live") {
-        $arguments = Add-CandidateContextArguments -Case $Case -Arguments $arguments
-    }
     return $arguments
 }
 
@@ -1619,9 +1333,6 @@ function Invoke-ValidationCommand {
     $nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
     $hadNativePreference = $null -ne $nativePreferenceVariable
     $oldNativePreference = $null
-    $candidateEnvironmentName = "POWERS_TOOL_VALIDATION_RUN_SECRET"
-    $hadCandidateEnvironment = $null -ne [Environment]::GetEnvironmentVariable($candidateEnvironmentName, "Process")
-    $oldCandidateEnvironment = [Environment]::GetEnvironmentVariable($candidateEnvironmentName, "Process")
     $hadPythonPath = $null -ne [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
     $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
     try {
@@ -1630,28 +1341,11 @@ function Invoke-ValidationCommand {
             $oldNativePreference = [bool]$nativePreferenceVariable.Value
             $PSNativeCommandUseErrorActionPreference = $false
         }
-        if ($Case.candidate_context_required) {
-            if ([string]::IsNullOrWhiteSpace($script:CandidateRunSecret)) {
-                throw "Candidate capability run secret is unavailable."
-            }
-            [Environment]::SetEnvironmentVariable($candidateEnvironmentName, $script:CandidateRunSecret, "Process")
-        }
         [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
-        if ($env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1" -and -not $Case.candidate_context_required) {
-            & $CliExecutable @CliPrefix @allArgs 1> $stdoutPath 2> $stderrPath
-        }
-        else {
-            & $ValidationExecutable @ValidationPrefix @allArgs 1> $stdoutPath 2> $stderrPath
-        }
+        & $CliExecutable @CliPrefix @allArgs 1> $stdoutPath 2> $stderrPath
         $exitCode = $LASTEXITCODE
     }
     finally {
-        if ($hadCandidateEnvironment) {
-            [Environment]::SetEnvironmentVariable($candidateEnvironmentName, $oldCandidateEnvironment, "Process")
-        }
-        else {
-            [Environment]::SetEnvironmentVariable($candidateEnvironmentName, $null, "Process")
-        }
         if ($hadPythonPath) {
             [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process")
         }
@@ -1687,15 +1381,11 @@ function Invoke-ValidationCommand {
     $dryRun = $null
     $errorCode = $null
     $errorMessage = $null
-    $candidateContextIntegrityValidated = $false
-    $candidateScopeAdmitted = $false
     if ($null -ne $payload) {
         $ok = [bool]$payload.ok
         $hardwareTouched = [bool]$payload.execution.hardware_touched
         $mode = [string]$payload.execution.mode
         $dryRun = [bool]$payload.execution.dry_run
-        $candidateContextIntegrityValidated = [bool](Get-PropertyValue -Object $payload.execution -Name "candidate_context_integrity_validated")
-        $candidateScopeAdmitted = [bool](Get-PropertyValue -Object $payload.execution -Name "candidate_scope_admitted")
         if ($null -ne $payload.error) {
             $errorCode = [string]$payload.error.code
             $errorMessage = [string]$payload.error.message
@@ -1811,7 +1501,6 @@ function Invoke-ValidationCommand {
         ok = $ok
         mode = $mode
         dry_run = $dryRun
-        hardware_touched = $hardwareTouched
         error_code = $errorCode
         parse_error = $parseError
         expected_success = $Case.expected_success
@@ -1824,9 +1513,6 @@ function Invoke-ValidationCommand {
         cleanup_role = $Case.cleanup_role
         state_changing = $Case.state_changing
         validation_kind = $Case.validation_kind
-        candidate_context_required = [bool]$Case.candidate_context_required
-        candidate_context_integrity_validated = $candidateContextIntegrityValidated
-        candidate_scope_admitted = $candidateScopeAdmitted
         assertion_failures = @($assertionFailures | ForEach-Object { Protect-ShareableText -Text $_ })
         generated_artifacts = $generatedArtifactPaths.ToArray()
         comparison_result = if ($Case.validation_kind -eq "snapshot-compare") { if ($assertionFailures.Count -eq 0) { "matched" } else { "mismatch" } } else { $null }
@@ -2042,9 +1728,6 @@ function Write-ValidationArtifacts {
             suite = $_.suite
             phase = $_.phase
             expected_success = $_.expected_success
-            candidate_context_required = [bool]$_.candidate_context_required
-            candidate_context_integrity_validated = [bool]$_.candidate_context_integrity_validated
-            candidate_scope_admitted = [bool]$_.candidate_scope_admitted
             result = $_.result
         }
     })
@@ -2058,7 +1741,6 @@ function Write-ValidationArtifacts {
             validation_kind = $_.validation_kind
             expected_channels = $_.expected_channels
             cleanup_role = $_.cleanup_role
-            candidate_context_required = [bool]$_.candidate_context_required
         }
     })
     if ($null -eq $script:InstrumentIdentity) {
@@ -2094,7 +1776,6 @@ function Write-ValidationArtifacts {
         promotes_live_support = $false
         plan_only = [bool]$PlanOnly
         live_executed = ($ValidationMode -eq "live")
-        hardware_touched = ($ValidationMode -eq "live")
         state_changing = $script:StateChanging
         restore_requested = [bool]$Restore
         resource = $script:ResourceDisplay
@@ -2105,7 +1786,6 @@ function Write-ValidationArtifacts {
         cleanup = $script:CleanupEvidence
         git_head = Get-GitHead
         package_version = Get-PackageVersion
-        validation_build = $script:ValidationBuildIdentity
         started_at = $StartedAt.ToUniversalTime().ToString("o")
         completed_at = $completedAt.ToUniversalTime().ToString("o")
         result = $Result
@@ -2189,10 +1869,10 @@ function Write-ValidationArtifacts {
     }
     $lines.Add("")
     $lines.Add("## Command Table")
-    $lines.Add("| Command | Exit | ok | mode | dry_run | hardware_touched | JSON | SCPI/stderr |")
-    $lines.Add("| --- | ---: | --- | --- | --- | --- | --- | --- |")
+    $lines.Add("| Command | Exit | ok | mode | dry_run | JSON | SCPI/stderr |")
+    $lines.Add("| --- | ---: | --- | --- | --- | --- | --- |")
     foreach ($command in $script:CommandRecords) {
-        $lines.Add("| ``" + $command.name + "`` | " + $command.exit_code + " | " + $command.ok + " | " + $command.mode + " | " + $command.dry_run + " | " + $command.hardware_touched + " | ``" + $command.json_path + "`` | ``" + $command.stderr_scpi_path + "`` |")
+        $lines.Add("| ``" + $command.name + "`` | " + $command.exit_code + " | " + $command.ok + " | " + $command.mode + " | " + $command.dry_run + " | ``" + $command.json_path + "`` | ``" + $command.stderr_scpi_path + "`` |")
     }
     if ($script:Failures.Count -gt 0) {
         $lines.Add("")
@@ -2210,14 +1890,10 @@ $script:InstrumentIdentity = $null
 $script:CleanupEvidence = $null
 $script:PrivateArtifactDir = $null
 $script:ShareableArtifactDir = $null
-$script:ExternalPreflight = [pscustomobject]@{ status = "not_run"; hardware_touched = $false }
+$script:ExternalPreflight = [pscustomobject]@{ status = "not_run" }
 $script:SensitiveValues = New-Object System.Collections.Generic.List[string]
 $script:PlannedLiveCases = @()
-$script:CandidateRunId = $null
-$script:CandidateRunSecret = $null
-$script:CandidateManifestPath = $null
 $script:CandidateInventory = $null
-$script:ValidationBuildIdentity = $null
 
 if ($env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -eq "1") {
     return
@@ -2275,17 +1951,17 @@ $script:StateChanging = @($SuitesToRun | Where-Object { $_ -in @("output", "prot
 $script:CommandRecords = New-Object System.Collections.Generic.List[object]
 $script:Failures = New-Object System.Collections.Generic.List[string]
 $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "planned"
-$script:ExternalPreflight = [pscustomobject]@{ status = "not_run"; hardware_touched = $false }
+$script:ExternalPreflight = [pscustomobject]@{ status = "not_run" }
 $startedAt = Get-Date
 
 Ensure-ArtifactDirectories
 try {
-    Resolve-ValidationBuildAndInventory
+    Load-CoreCandidateInventory
 }
 catch {
     $script:Failures.Add("Validation build resolution failed: $($_.Exception.Message)")
     Write-ValidationArtifacts -ValidationMode "preflight_failed" -Result "preflight_failed" -StartedAt $startedAt
-    Write-Error "Validation build resolution failed before VISA access."
+    Write-Error "Core candidate inventory load failed before VISA access."
     exit 1
 }
 $externalPreflightRoot = Join-Path $script:PrivateArtifactDir "external_preflight"
@@ -2313,7 +1989,6 @@ $externalReportPath = @(Get-ChildItem -LiteralPath $externalPreflightRoot -Filte
 $script:ExternalPreflight = [pscustomobject]@{
     status = if ($externalPreflightExit -eq 0) { "passed" } else { "failed" }
     exit_code = $externalPreflightExit
-    hardware_touched = $false
     output_root = ConvertTo-RepoRelativePath -Path $externalPreflightRoot
     report = if ($externalReportPath.Count -eq 1) { ConvertTo-RepoRelativePath -Path $externalReportPath[0].FullName } else { $null }
     stdout = ConvertTo-RepoRelativePath -Path $externalPreflightStdout
@@ -2359,13 +2034,7 @@ if ($PlanOnly) {
     exit 0
 }
 
-$acceptanceTestMode = (
-    $env:POWERS_TOOL_RUN_CLEAN_PRE_VISA_ACCEPTANCE -eq "1" -and
-    $env:POWERS_TOOL_VALIDATION_TEST_STOP_BEFORE_VISA -eq "1" -and
-    $env:PYTEST_CURRENT_TEST -eq "validation/tests/test_clean_pre_visa_acceptance.py::test_clean_pre_visa_acceptance (call)"
-)
-
-if (-not $acceptanceTestMode -and [Console]::IsInputRedirected) {
+if ([Console]::IsInputRedirected) {
     $script:Failures.Add("Interactive confirmation is required before opening VISA; stdin is redirected.")
     Write-ValidationArtifacts -ValidationMode "confirmation_required" -Result "confirmation_required" -StartedAt $startedAt
     Write-Error "Interactive confirmation is required before live execution. Re-run from an interactive PowerShell session, or use -PlanOnly."
@@ -2394,39 +2063,7 @@ Write-Host "- Confirm no DUT is connected, or only known safe loads, for state-c
 Write-Host "- Confirm output indicators are currently OFF before state-changing suites."
 Write-Host "- Confirm no OVP/OCP/error/protection abnormal indicators are shown."
 Write-Host ""
-if (-not $acceptanceTestMode) {
-    Read-Host "Press Enter to run live suite validation, or press Ctrl+C to abort"
-}
-
-if ($null -eq $script:ValidationBuildIdentity -or
-    $script:ValidationBuildIdentity.artifact_kind -ne "wheel" -or
-    [bool]$script:ValidationBuildIdentity.source_dirty -or
-    -not [bool]$script:ValidationBuildIdentity.installed_runtime_verified -or
-    [bool]$script:ValidationBuildIdentity.repository_source_shadowed) {
-    $script:Failures.Add("Real validation requires a clean, installed internal validation wheel.")
-    Write-ValidationArtifacts -ValidationMode "live" -Result "failed" -StartedAt $startedAt
-    Write-Error "Real validation requires a clean, installed internal validation wheel; no VISA resource was opened."
-    exit 1
-}
-
-if ($acceptanceTestMode) {
-    Write-ValidationArtifacts -ValidationMode "pre_visa_test" -Result "passed" -StartedAt $startedAt
-    Write-Host "Installed-wheel pre-VISA gate passed; hardware_touched=false."
-    exit 0
-}
-
-$script:CandidateRunId = New-SecureHexValue
-$script:CandidateRunSecret = New-SecureHexValue -ByteCount 32
-Add-SensitiveValue -Value $script:CandidateRunSecret
-try {
-    Ensure-CandidateManifest | Out-Null
-}
-catch {
-    $script:Failures.Add("Candidate run manifest issuance failed: $($_.Exception.Message)")
-    Write-ValidationArtifacts -ValidationMode "live" -Result "failed" -StartedAt $startedAt
-    Write-Error "Candidate run manifest issuance failed before VISA access."
-    exit 1
-}
+Read-Host "Press Enter to run live suite validation, or press Ctrl+C to abort"
 
 $liveCases = Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:$true
 foreach ($case in $liveCases) {
