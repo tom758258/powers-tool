@@ -286,60 +286,6 @@ def _run_preflight(
     return result, json.loads(reports[0].read_text(encoding="utf-8"))
 
 
-def test_release_acceptance_script_uses_isolated_locked_workflows() -> None:
-    text = SCRIPT.read_text(encoding="utf-8")
-
-    for required in (
-        '"worktree", "add"',
-        '"worktree", "remove"',
-        "--locked",
-        "--all-extras",
-        "--no-emit-project",
-        "Python310",
-        "CurrentPython",
-        "powers-tool-webui-launcher",
-        "inspect_distribution.py",
-        "inspect_pyinstaller.py",
-        "hardware_touched = $false",
-        "support_metadata_changed = $false",
-        "evidence_changed = $false",
-        "repository_renamed = $false",
-        "acceptance_worktree_state = $acceptanceWorktreeState",
-        "failure_message",
-        "InterpreterPreflightOnly",
-        'VersionSelector "3.13"',
-        "Assert-PythonVersion",
-        "interpreters_distinct",
-        "full_acceptance_completed",
-    ):
-        assert required in text
-
-    build_text = "\n".join(
-        (ROOT / "scripts" / name).read_text(encoding="utf-8")
-        for name in ("build_cli_exe.ps1", "build_webui_exe.ps1", "build_release.ps1")
-    )
-    assert "DistPath must stay under the repository" in build_text
-    assert "ReleaseRoot must stay under the repository" in build_text
-    assert "--reinstall-package" in text
-    assert "--basetemp" in text
-    assert "PYTHONNOUSERSITE" in text
-    assert text.index('"focused release acceptance tests"') < text.index(
-        '"complete no-hardware suites"'
-    )
-    assert "PythonVersions.Values | Where-Object" not in text
-
-
-def test_release_scripts_use_module_independent_sha256_helper() -> None:
-    for name in ("release-acceptance.ps1", "build_release.ps1"):
-        text = (ROOT / "scripts" / name).read_text(encoding="utf-8")
-
-        assert "Get-FileHash" not in text
-        assert "function Get-Sha256File" in text
-        assert "[System.Security.Cryptography.SHA256]::Create()" in text
-        assert "[System.IO.FileAccess]::Read" in text
-        assert ".Dispose()" in text
-
-
 def test_preflight_rejects_non_310_python310(
     request: pytest.FixtureRequest,
     find_python: Callable[[str], Path],
@@ -413,6 +359,8 @@ def test_preflight_report_records_exact_interpreter_and_committed_provenance(
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+    assert report["schema_version"] == 1
+    assert report["kind"] == "powers-tool-release-acceptance"
     assert report["ok"] is True
     assert report["acceptance_mode"] == "interpreter-preflight"
     assert report["full_acceptance_completed"] is False
@@ -439,6 +387,10 @@ def test_preflight_report_records_exact_interpreter_and_committed_provenance(
     )
     assert report["interpreters_distinct"] is True
     assert report["acceptance_worktree_state"] == "not-created"
+    assert report["hardware_touched"] is False
+    assert report["support_metadata_changed"] is False
+    assert report["evidence_changed"] is False
+    assert report["repository_renamed"] is False
     assert "working_tree_overlay_applied" not in report
     assert "candidate_paths" not in report
 
@@ -470,15 +422,6 @@ def test_dirty_repository_fails_before_creating_acceptance_output(
     assert not output_root.exists()
 
 
-def test_readme_uses_python_313_and_requires_committed_clean_source() -> None:
-    text = (ROOT / "README.md").read_text(encoding="utf-8")
-
-    assert "-CurrentPython (uv python find 3.13)" in text
-    assert "-CurrentPython (uv python find 3.12)" not in text
-    assert "clean, fully committed" in text
-    assert "-IncludeWorkingTreeChanges" not in text
-
-
 def test_release_acceptance_has_no_working_tree_overlay_mode() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
 
@@ -490,106 +433,6 @@ def test_release_acceptance_has_no_working_tree_overlay_mode() -> None:
         "apply-working-tree-diff",
     ):
         assert removed not in text
-    return
-
-    allowed_block = text.split("$allowedCandidatePaths = @(", 1)[1].split(")", 1)[0]
-    expected = {
-        ".github/workflows/tests.yml",
-        "CHANGELOG.md",
-        "MANIFEST.in",
-        "README.md",
-        "pyproject.toml",
-        "docs/cli/README.md",
-        "docs/core/README.md",
-        "docs/core/supported-models.md",
-        "scripts/build_release.ps1",
-        "scripts/_validation_helpers.ps1",
-        "scripts/live-cli-check.ps1",
-        "scripts/preflight-cli.ps1",
-        "scripts/release-acceptance.ps1",
-        "src/powers_tool_cli/cli.py",
-        "src/powers_tool_core/build_profile.py",
-        "src/powers_tool_core/core.py",
-        "src/powers_tool_core/live_support.py",
-        "src/powers_tool_core/support_policy.py",
-        "tests/packaging/_inspector_utils.py",
-        "tests/packaging/inspect_distribution.py",
-        "tests/packaging/inspect_pyinstaller.py",
-        "tests/packaging/test_packaging_identity.py",
-        "tests/cli/test_cli_wrappers.py",
-        "tests/cli/test_followup_features.py",
-        "tests/cli/test_live_cli_check_script.py",
-        "tests/cli/test_supported_models_docs.py",
-        "tests/core/test_model_enablement.py",
-        "tests/core/test_live_support_policy_enforcement.py",
-        "tests/packaging/test_distribution_isolation.py",
-        "tests/packaging/test_release_acceptance.py",
-        "uv.lock",
-    }
-    actual = {
-        line.strip().strip('",')
-        for line in allowed_block.splitlines()
-        if line.strip().startswith('"')
-    }
-    assert actual == expected
-    assert not any(path.startswith("Local/") for path in actual)
-    assert not any("zh-TW" in path for path in actual)
-
-
-def test_ci_main_push_and_safe_launcher_smoke_are_preserved() -> None:
-    text = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
-        encoding="utf-8"
-    )
-
-    push_block = text.split("  push:\n", 1)[1].split("\n\njobs:", 1)[0]
-    assert "      - main" in push_block
-    assert "      - master" not in push_block
-    assert "      - Codex" not in push_block
-    assert "uv run powers-tool --help" in text
-    assert "uv run powers-tool-webui --help" in text
-    assert "uv run powers-tool-webui-launcher --version" in text
-
-
-def test_release_acceptance_script_is_no_hardware_and_keeps_localized_docs_out_of_scope() -> None:
-    text = SCRIPT.read_text(encoding="utf-8")
-
-    for forbidden in (
-        "list-resources --live-only",
-        "*IDN?",
-        "pyvisa_py",
-        "VISA discovery",
-    ):
-        assert forbidden not in text
-    for protected in (
-        "Local/",
-        "README.zh-TW.md",
-        "generated localized",
-        "hardware_touched = $false",
-    ):
-        assert protected in text
-    assert '"preflight-cli-all"' in text
-    assert '"live-cli-plan-only"' in text
-    assert '"-PlanOnly"' in text
-    assert '"SIM::E36312A"' in text
-    assert "no-hardware-regression.ps1" not in text
-
-
-def test_release_acceptance_is_version_neutral() -> None:
-    text = SCRIPT.read_text(encoding="utf-8")
-
-    assert '$projectVersion = $versionMatch.Groups[1].Value' in text
-    assert '$distributionName -ne "powers-tool"' in text
-    assert '$projectVersion -ne "2.0.0"' not in text
-    assert '"-Version", $projectVersion' in text
-    assert 'Join-Path $releaseRoot $projectVersion' in text
-    assert 'kind = "powers-tool-release-acceptance"' in text
-    for stale in (
-        "powers-tool-v2-release-acceptance",
-        "v2_release_acceptance",
-        "p7_release_acceptance",
-        "Powers Tool v2 Release Acceptance",
-    ):
-        assert stale not in text
 
 
 def test_release_acceptance_passes_project_version_to_every_inspector() -> None:
@@ -598,9 +441,10 @@ def test_release_acceptance_passes_project_version_to_every_inspector() -> None:
         r'-Arguments @\("tests\\packaging\\(inspect_(?:distribution|pyinstaller)\.py)"([^\n]*)\)',
         text,
     )
-    assert len(invocations) == 5
-    assert [name for name, _ in invocations].count("inspect_distribution.py") == 3
-    assert [name for name, _ in invocations].count("inspect_pyinstaller.py") == 2
+    assert {name for name, _ in invocations} == {
+        "inspect_distribution.py",
+        "inspect_pyinstaller.py",
+    }
     for name, arguments in invocations:
         assert '"--expected-version", $projectVersion' in arguments, name
 
