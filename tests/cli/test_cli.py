@@ -5110,7 +5110,9 @@ def test_new_commands_simulate_without_real_visa(monkeypatch, capsys) -> None:
         )
         == 0
     )
-    assert json.loads(capsys.readouterr().out)["data"]["triggered"] is True
+    pulse = json.loads(capsys.readouterr().out)["data"]
+    assert pulse["triggered"] is True
+    assert pulse["restored"] is True
 
 
 @pytest.mark.parametrize(

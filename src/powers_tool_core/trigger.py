@@ -18,7 +18,7 @@ from powers_tool_core.core import (
     TriggerWaitTimeout,
     UnsupportedModelError,
 )
-from powers_tool_core.drivers.e36312a import E36312APowerSupply
+from powers_tool_core.drivers.e36312a import E36312APowerSupply, TriggerSnapshot
 from powers_tool_core.errors import VisaConnectionError
 from powers_tool_core.factory import create_power_supply
 from powers_tool_core.identity import resolve_physical_model_identity
@@ -637,22 +637,48 @@ def _run_trigger_pulse(
                     f"Found {type(power_supply).__name__} from *IDN? response."
                 )
             channel = int(p.get("channel", 1))
-            voltage = power_supply.programmed_voltage(channel=channel)
-            current = power_supply.programmed_current(channel=channel)
-            raise_if_cancelled(stop_requested)
-            configure_completion_output_pins(
-                power_supply,
-                pins,
-                str(p.get("polarity", "positive")),
-                exclusive_pins=bool(p.get("exclusive_pins", False)),
+            snapshots = tuple(
+                power_supply.trigger_snapshot(selected_channel)
+                for selected_channel in power_supply.capabilities.channels
             )
-            power_supply.set_triggered_current(channel=channel, current=current)
-            power_supply.set_triggered_voltage(channel=channel, voltage=voltage)
-            power_supply.set_trigger_modes(channel=channel, current_mode="STEP", voltage_mode="STEP")
-            power_supply.configure_output_trigger_source_bus(channel)
-            raise_if_cancelled(stop_requested)
-            power_supply.trigger_pulse(channel=channel)
-            _raise_on_instrument_errors(power_supply, request.command)
+            restored = False
+            try:
+                voltage = power_supply.programmed_voltage(channel=channel)
+                current = power_supply.programmed_current(channel=channel)
+                raise_if_cancelled(stop_requested)
+                abort_errors = _abort_trigger_channels(
+                    power_supply,
+                    power_supply.capabilities.channels,
+                )
+                if abort_errors:
+                    raise CoreExecutionError("trigger-pulse abort failed: " + "; ".join(abort_errors))
+                configure_completion_output_pins(
+                    power_supply,
+                    pins,
+                    str(p.get("polarity", "positive")),
+                    exclusive_pins=bool(p.get("exclusive_pins", False)),
+                )
+                power_supply.set_triggered_current(channel=channel, current=current)
+                power_supply.set_triggered_voltage(channel=channel, voltage=voltage)
+                power_supply.set_trigger_modes(channel=channel, current_mode="STEP", voltage_mode="STEP")
+                power_supply.configure_output_trigger_source_bus(channel)
+                raise_if_cancelled(stop_requested)
+                power_supply.trigger_pulse(channel=channel)
+            finally:
+                restore_errors = _restore_trigger_snapshots(power_supply, snapshots)
+                queue_error: Exception | None = None
+                try:
+                    _raise_on_instrument_errors(power_supply, request.command)
+                except Exception as exc:
+                    queue_error = exc
+                if restore_errors or queue_error is not None:
+                    details = []
+                    if restore_errors:
+                        details.append("restore failed: " + "; ".join(restore_errors))
+                    if queue_error is not None:
+                        details.append(str(queue_error))
+                    raise CoreExecutionError("trigger-pulse cleanup failed: " + "; ".join(details))
+                restored = True
             data = {
                 "_resource": request.runtime.resource,
                 "idn": idn,
@@ -661,6 +687,7 @@ def _run_trigger_pulse(
                 "channel": channel,
                 "polarity": str(p.get("polarity", "positive")),
                 "triggered": True,
+                "restored": restored,
                 "trigger_setpoints": {"current": current, "voltage": voltage},
             }
             if p.get("pin") is not None:
@@ -869,18 +896,18 @@ def _run_trigger_fire(
                 raise UnsupportedModelError(
                     unsupported_command_message("trigger-fire", _power_supply_model(power_supply), "live")
                 )
-            power_supply.fire_bus_trigger()
+            channel = p.get("channel")
             completed = False
-            if p.get("wait_complete", False):
-                channel = p.get("channel")
-                try:
+            try:
+                power_supply.fire_bus_trigger()
+                if p.get("wait_complete", False):
                     wait_for_trigger_completion(power_supply, timeout_ms=_trigger_wait_timeout_ms(p), poll_ms=_trigger_poll_interval_ms(p), sleep=sleep, stop_requested=stop_requested)
                     completed = True
-                except (TriggerInterrupted, TriggerWaitTimeout):
-                    if channel is not None:
-                        power_supply.abort_output_trigger(int(channel))
-                    raise
-            _raise_on_instrument_errors(power_supply, request.command)
+                _raise_on_instrument_errors(power_supply, request.command)
+            except (Exception, KeyboardInterrupt):
+                if channel is not None:
+                    power_supply.abort_output_trigger(int(channel))
+                raise
             return {
                 "_resource": request.runtime.resource,
                 "idn": getattr(power_supply, "_core_idn_raw", None),
@@ -897,6 +924,41 @@ def _run_trigger_fire(
             }
     except VisaConnectionError as exc:
         raise CoreIoError(f"trigger-fire failed: {exc}", opened=opened) from exc
+
+
+def _restore_trigger_snapshots(
+    power_supply: E36312APowerSupply,
+    snapshots: Sequence[TriggerSnapshot],
+) -> list[str]:
+    """Best-effort restore three channel snapshots and one global baseline."""
+
+    errors: list[str] = []
+    for snapshot in snapshots:
+        try:
+            power_supply._restore_trigger_channel_snapshot(snapshot)
+        except (Exception, KeyboardInterrupt) as exc:
+            errors.append(f"channel {snapshot.channel}: {exc}")
+    if snapshots:
+        try:
+            power_supply._restore_trigger_global_snapshot(snapshots[0])
+        except (Exception, KeyboardInterrupt) as exc:
+            errors.append(f"digital trigger state: {exc}")
+    return errors
+
+
+def _abort_trigger_channels(
+    power_supply: E36312APowerSupply,
+    channels: Sequence[int],
+) -> list[str]:
+    """Best-effort abort every selected trigger channel."""
+
+    errors: list[str] = []
+    for channel in channels:
+        try:
+            power_supply.abort_output_trigger(channel)
+        except (Exception, KeyboardInterrupt) as exc:
+            errors.append(f"channel {channel}: {exc}")
+    return errors
 
 
 def _run_trigger_abort(

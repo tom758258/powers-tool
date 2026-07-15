@@ -1,7 +1,9 @@
 import pytest
 
+from powers_tool_core import trigger as trigger_module
 from powers_tool_core.command_runner import run_core_command
-from powers_tool_core.core import CoreExecutionError, CoreValidationError, RuntimeOptions, TriggerRequest, TriggerWaitTimeout
+from powers_tool_core.core import CoreExecutionError, CoreValidationError, RuntimeOptions, TriggerInterrupted, TriggerRequest, TriggerWaitTimeout
+from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.trigger import (
     _raise_on_instrument_errors,
     trigger_list_scpi,
@@ -13,6 +15,105 @@ from powers_tool_core.trigger import (
     validate_trigger_request,
     wait_for_trigger_completion,
 )
+
+
+class TriggerSession:
+    def query(self, command: str) -> str:
+        assert command == "*IDN?"
+        return "KEYSIGHT,E36312A,SERIAL0000,1.0"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+
+class RecordingPulsePowerSupply(E36312APowerSupply):
+    def __init__(self) -> None:
+        self.events: list[str] = []
+        self.fail_pulse = False
+        self.fail_readback = False
+        self.fail_restore_channel: int | None = None
+        self.interrupt_restore_channel: int | None = None
+        self.queue_errors: list[str] = []
+
+    def trigger_snapshot(self, channel: int):
+        self.events.append(f"snapshot-{channel}")
+        return type("Snapshot", (), {"channel": channel})()
+
+    def programmed_voltage(self, *, channel: int) -> float:
+        if self.fail_readback:
+            raise RuntimeError("readback failed")
+        return 1.0
+
+    def programmed_current(self, *, channel: int) -> float:
+        return 0.05
+
+    def abort_output_trigger(self, channel: int) -> None:
+        self.events.append(f"abort-{channel}")
+
+    def configure_trigger_output_pins(self, pins, polarity) -> None:
+        self.events.append("configure-pins")
+
+    def enable_trigger_output_bus(self, enabled=True) -> None:
+        self.events.append("configure-bus")
+
+    def set_triggered_current(self, *, channel: int, current: float) -> None:
+        self.events.append("configure-current")
+
+    def set_triggered_voltage(self, *, channel: int, voltage: float) -> None:
+        self.events.append("configure-voltage")
+
+    def set_trigger_modes(self, *, channel: int, current_mode: str, voltage_mode: str) -> None:
+        self.events.append("configure-modes")
+
+    def configure_output_trigger_source_bus(self, channel: int) -> None:
+        self.events.append("configure-source")
+
+    def trigger_pulse(self, *, channel: int) -> None:
+        self.events.append("pulse")
+        if self.fail_pulse:
+            raise RuntimeError("pulse failed")
+
+    def fire_bus_trigger(self) -> None:
+        self.events.append("fire")
+
+    def _restore_trigger_channel_snapshot(self, snapshot) -> None:
+        self.events.append(f"restore-{snapshot.channel}")
+        if snapshot.channel == self.fail_restore_channel:
+            raise RuntimeError("restore failed")
+        if snapshot.channel == self.interrupt_restore_channel:
+            raise KeyboardInterrupt("restore interrupted")
+
+    def _restore_trigger_global_snapshot(self, snapshot) -> None:
+        self.events.append("restore-global")
+
+    def read_error_queue(self, max_errors: int):
+        self.events.append("error-queue")
+        return list(self.queue_errors), 1
+
+    def output_off(self, *, channel: int) -> None:
+        raise AssertionError("production trigger-pulse must not safe-off outputs")
+
+
+def _pulse_request() -> TriggerRequest:
+    return TriggerRequest(
+        command="trigger-pulse",
+        runtime=RuntimeOptions(
+            resource="USB0::SIM::E36312A::INSTR",
+            simulate=True,
+        ),
+        parameters={"pin": 1, "channel": 1, "polarity": "positive"},
+    )
+
+
+def _run_recording_pulse(monkeypatch, power_supply: RecordingPulsePowerSupply):
+    monkeypatch.setattr(trigger_module, "create_power_supply", lambda instrument, idn: power_supply)
+    return trigger_module.run_trigger(
+        _pulse_request(),
+        opener=lambda *args, **kwargs: TriggerSession(),
+    )
 
 
 def test_trigger_pulse_dry_run_scpi_preview_unchanged() -> None:
@@ -34,6 +135,91 @@ def test_trigger_pulse_dry_run_scpi_preview_unchanged() -> None:
         "INIT (@1)",
         "*TRG",
     )
+
+
+def test_trigger_pulse_snapshots_before_mutation_and_restores_all_channels(monkeypatch) -> None:
+    power_supply = RecordingPulsePowerSupply()
+
+    result = _run_recording_pulse(monkeypatch, power_supply)
+
+    assert result["restored"] is True
+    assert power_supply.events[:6] == [
+        "snapshot-1",
+        "snapshot-2",
+        "snapshot-3",
+        "abort-1",
+        "abort-2",
+        "abort-3",
+    ]
+    assert power_supply.events[-5:] == [
+        "restore-1",
+        "restore-2",
+        "restore-3",
+        "restore-global",
+        "error-queue",
+    ]
+
+
+def test_trigger_pulse_command_failure_still_restores(monkeypatch) -> None:
+    power_supply = RecordingPulsePowerSupply()
+    power_supply.fail_pulse = True
+
+    with pytest.raises(RuntimeError, match="pulse failed"):
+        _run_recording_pulse(monkeypatch, power_supply)
+
+    assert power_supply.events[-5:] == [
+        "restore-1",
+        "restore-2",
+        "restore-3",
+        "restore-global",
+        "error-queue",
+    ]
+
+
+def test_trigger_pulse_exception_after_snapshot_still_restores(monkeypatch) -> None:
+    power_supply = RecordingPulsePowerSupply()
+    power_supply.fail_readback = True
+
+    with pytest.raises(RuntimeError, match="readback failed"):
+        _run_recording_pulse(monkeypatch, power_supply)
+
+    assert power_supply.events[-5:] == [
+        "restore-1",
+        "restore-2",
+        "restore-3",
+        "restore-global",
+        "error-queue",
+    ]
+
+
+def test_trigger_pulse_restore_failure_forces_command_failure(monkeypatch) -> None:
+    power_supply = RecordingPulsePowerSupply()
+    power_supply.fail_restore_channel = 2
+
+    with pytest.raises(CoreExecutionError, match="channel 2"):
+        _run_recording_pulse(monkeypatch, power_supply)
+
+    assert "restore-3" in power_supply.events
+    assert "restore-global" in power_supply.events
+
+
+def test_trigger_pulse_restore_interruption_remains_best_effort(monkeypatch) -> None:
+    power_supply = RecordingPulsePowerSupply()
+    power_supply.interrupt_restore_channel = 2
+
+    with pytest.raises(CoreExecutionError, match="channel 2"):
+        _run_recording_pulse(monkeypatch, power_supply)
+
+    assert "restore-3" in power_supply.events
+    assert "restore-global" in power_supply.events
+
+
+def test_trigger_pulse_post_restore_error_queue_forces_command_failure(monkeypatch) -> None:
+    power_supply = RecordingPulsePowerSupply()
+    power_supply.queue_errors = ['-200,"Execution error"']
+
+    with pytest.raises(CoreExecutionError, match="instrument errors"):
+        _run_recording_pulse(monkeypatch, power_supply)
 
 
 def test_trigger_step_preview_with_wait_complete() -> None:
@@ -276,6 +462,23 @@ def test_trigger_fire_ignored_error_preserves_error_and_adds_hint() -> None:
     message = str(exc_info.value)
     assert '-211,"Trigger ignored"' in message
     assert "no armed BUS trigger" in message
+
+
+@pytest.mark.parametrize("failure", [TriggerWaitTimeout("timeout"), TriggerInterrupted("interrupted")])
+def test_trigger_fire_wait_failure_aborts_channel(monkeypatch, failure) -> None:
+    power_supply = RecordingPulsePowerSupply()
+    monkeypatch.setattr(trigger_module, "create_power_supply", lambda instrument, idn: power_supply)
+    monkeypatch.setattr(trigger_module, "wait_for_trigger_completion", lambda *args, **kwargs: (_ for _ in ()).throw(failure))
+    request = TriggerRequest(
+        command="trigger-fire",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", simulate=True),
+        parameters={"channel": 1, "wait_complete": True},
+    )
+
+    with pytest.raises(type(failure)):
+        trigger_module.run_trigger(request, opener=lambda *args, **kwargs: TriggerSession())
+
+    assert power_supply.events == ["fire", "abort-1"]
 
 
 class NeverCompletePowerSupply:

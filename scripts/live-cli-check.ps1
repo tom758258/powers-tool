@@ -489,7 +489,8 @@ function New-CommandCase {
         [AllowNull()]$ExpectedOutputEnabled = $null,
         [string[]]$GeneratedArtifacts = @(),
         [string[]]$CompareSnapshotPaths = @(),
-        [bool]$CandidateScopeRequired = $false
+        [bool]$CandidateScopeRequired = $false,
+        [bool]$OperatorInteractionRequired = $false
     )
 
     return [pscustomobject]@{
@@ -508,6 +509,7 @@ function New-CommandCase {
         generated_artifacts = @($GeneratedArtifacts)
         compare_snapshot_paths = @($CompareSnapshotPaths)
         candidate_scope_required = $CandidateScopeRequired
+        operator_interaction_required = $OperatorInteractionRequired
     }
 }
 
@@ -916,10 +918,13 @@ function Get-TriggerListCases {
     $phase = if ($Live) { "live" } else { "preflight" }
     $modeFlag = if ($Live) { @() } else { @("--simulate") }
     $stepFlag = if ($Live) { @() } else { @("--dry-run") }
+    $candidateScope = [bool]$Live
     return @(
         (New-CommandCase -Name "trigger-status" -Suite "trigger-list" -Phase $phase -Args (@("trigger-status") + $modeFlag + @("--json", "--resource", $resource, "--channel", "1", "--log-scpi")) -LiveHardwareExpected:$Live),
         (New-CommandCase -Name "trigger-step-bus" -Suite "trigger-list" -Phase $phase -Args (@("trigger-step") + $stepFlag + @("--json", "--resource", $resource, "--channel", "1", "--source", "bus", "--fire", "--wait-complete", "--log-scpi")) -StateChanging:$Live -LiveHardwareExpected:$Live),
         (New-CommandCase -Name "trigger-list-bus" -Suite "trigger-list" -Phase $phase -Args (@("trigger-list") + $modeFlag + @("--json", "--resource", $resource, "--channel", "1", "--voltage-list", "0,0.5,1", "--current-list", "0.05,0.05,0.05", "--dwell-list", "0.01,0.01,0.01", "--source", "bus", "--fire", "--wait-complete", "--log-scpi")) -StateChanging:$Live -LiveHardwareExpected:$Live),
+        (New-CommandCase -Name "trigger-fire-candidate" -Suite "trigger-list" -Phase $phase -Args (@("trigger-fire") + $stepFlag + @("--json", "--resource", $resource, "--channel", "1", "--wait-complete", "--wait-timeout-ms", "10000", "--poll-ms", "200", "--log-scpi")) -StateChanging:$Live -LiveHardwareExpected:$Live -CandidateScopeRequired:$candidateScope),
+        (New-CommandCase -Name "trigger-pulse-candidate" -Suite "trigger-list" -Phase $phase -Args (@("trigger-pulse") + $stepFlag + @("--json", "--resource", $resource, "--pin", "1", "--channel", "1", "--polarity", "positive", "--log-scpi")) -StateChanging:$Live -LiveHardwareExpected:$Live -CandidateScopeRequired:$candidateScope -OperatorInteractionRequired:$Live),
         (New-CommandCase -Name "trigger-abort" -Suite "trigger-list" -Phase $phase -Args (@("trigger-abort") + $modeFlag + @("--json", "--resource", $resource, "--channel", "1", "--log-scpi")) -StateChanging:$Live -LiveHardwareExpected:$Live)
     )
 }
@@ -1052,9 +1057,6 @@ function Assert-CandidateScopeInventory {
         }
         if ([bool]$case.candidate_scope_required -and -not $isCandidateCommand) {
             throw "Noncandidate live case '$($case.name)' is marked candidate-scope-required."
-        }
-        if ($command -in @("trigger-pulse", "trigger-fire") -and [bool]$case.candidate_scope_required) {
-            throw "Direct trigger command '$command' must not be marked candidate-scope-required."
         }
     }
     $seenCandidateCommands = @($LiveCases | Where-Object {
@@ -1571,7 +1573,7 @@ function Test-AllOutputsOff {
 }
 
 function Invoke-SafeOffCleanup {
-    param([ValidateSet("failure", "final")][string]$Role = "failure")
+    param([string]$Role = "failure")
 
     if (-not $Restore) {
         $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "live"
@@ -1580,7 +1582,8 @@ function Invoke-SafeOffCleanup {
     $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "live"
     $script:CleanupEvidence.requested = $true
     $script:CleanupEvidence.attempted = $true
-    $cleanupName = if ($Role -eq "failure") { "safe-off-failure-cleanup" } else { "safe-off-final-cleanup" }
+    $safeOffFailed = $false
+    $cleanupName = "safe-off-" + ($Role -replace '[^A-Za-z0-9_-]', '-') + "-cleanup"
     $cleanupCase = New-CommandCase -Name $cleanupName -Suite "cleanup" -Phase "live" -Args @("safe-off", "--json", "--resource", $script:RawResource, "--channel", "all", "--log-scpi") -StateChanging:$true -LiveHardwareExpected:$true -CleanupRole ($Role + "_safe_off")
     try {
         $safeOffRecord = Invoke-ValidationCommand -Case $cleanupCase
@@ -1590,7 +1593,7 @@ function Invoke-SafeOffCleanup {
         if (-not $script:CleanupEvidence.safe_off_ok) {
             $script:CleanupEvidence.status = "failed"
             $script:Failures.Add("Cleanup safe-off command failed.")
-            return
+            $safeOffFailed = $true
         }
 
         $outputStateCase = New-CommandCase -Name "cleanup-output-state" -Suite "cleanup" -Phase "live" -Args @("output-state", "--json", "--resource", $script:RawResource, "--channel", "all", "--log-scpi") -LiveHardwareExpected:$true -CleanupRole "final_output_state"
@@ -1613,7 +1616,10 @@ function Invoke-SafeOffCleanup {
             $script:Failures.Add("Cleanup could not verify the instrument error queue.")
         }
 
-        if ($script:CleanupEvidence.all_outputs_off -eq $false) {
+        if ($safeOffFailed) {
+            $script:CleanupEvidence.status = "failed"
+        }
+        elseif ($script:CleanupEvidence.all_outputs_off -eq $false) {
             $script:CleanupEvidence.status = "failed"
             $script:Failures.Add("Cleanup could not confirm that all outputs are off.")
         }
@@ -1642,6 +1648,171 @@ function Invoke-SafeOffCleanup {
         $script:CleanupEvidence.status = "failed"
         $script:Failures.Add("$Role cleanup threw: " + $_.Exception.Message)
     }
+}
+
+function New-TriggerEvidence {
+    return [pscustomobject]@{
+        fire = [pscustomobject]@{
+            armed_prerequisite = $false
+            baseline_safe = $null
+            fired = $false
+            completed = $false
+            timeout_or_interrupted = $false
+            abort_status = "not_executed"
+            trigger_restore_succeeded = $null
+            arm_error_queue_empty = $null
+            error_queue_empty = $null
+            outputs_all_off = $null
+        }
+        pulse = [pscustomobject]@{
+            operator_interaction_required = $true
+            operator_ready_confirmed = $false
+            baseline_safe = $null
+            expected_pin = 1
+            expected_polarity = "positive"
+            expected_pulse_count = 1
+            command_path_succeeded = $false
+            operator_observation = "not_requested"
+            trigger_restore_succeeded = $null
+            cleanup_succeeded = $null
+            error_queue_empty = $null
+            outputs_all_off = $null
+            validates_pulse_width = $false
+            validates_timing_accuracy = $false
+            validates_waveform_quality = $false
+        }
+    }
+}
+
+function Invoke-TriggerValidationHelper {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet("arm", "restore")][string]$Action,
+        [Parameter(Mandatory = $true)][string]$SnapshotPath
+    )
+
+    $helperPath = Join-Path $PSScriptRoot "e36312a_trigger_validation.py"
+    $stdoutPath = Join-Path $script:PrivateArtifactDir ("trigger-fire-helper-" + $Action + ".stdout.json")
+    $stderrPath = Join-Path $script:PrivateArtifactDir ("trigger-fire-helper-" + $Action + ".stderr.txt")
+    $arguments = @($helperPath, $Action, "--resource", $script:RawResource, "--snapshot-json", $SnapshotPath)
+    if (-not [string]::IsNullOrWhiteSpace($script:BackendValue)) {
+        $arguments += @("--backend", $script:BackendValue)
+    }
+    $hadPythonPath = $null -ne [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+    $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+    $oldErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
+        & $PythonExe @arguments 1> $stdoutPath 2> $stderrPath
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        if ($hadPythonPath) { [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process") }
+        else { [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process") }
+        $ErrorActionPreference = $oldErrorActionPreference
+    }
+    $payload = $null
+    try { $payload = Get-Content -LiteralPath $stdoutPath -Raw | ConvertFrom-Json }
+    catch { }
+    return [pscustomobject]@{
+        ok = [bool]($exitCode -eq 0 -and $null -ne $payload -and $payload.ok -eq $true)
+        exit_code = $exitCode
+        payload = $payload
+    }
+}
+
+function Invoke-TriggerFireCandidateCase {
+    param([Parameter(Mandatory = $true)]$Case)
+
+    Invoke-SafeOffCleanup -Role "trigger-fire-baseline"
+    if ($script:CleanupEvidence.status -ne "passed") {
+        $script:TriggerEvidence.fire.baseline_safe = $false
+        return
+    }
+    $script:TriggerEvidence.fire.baseline_safe = $true
+    $snapshotPath = Join-Path $script:PrivateArtifactDir "trigger-fire-snapshot.json"
+    $arm = $null
+    try {
+        $arm = Invoke-TriggerValidationHelper -Action "arm" -SnapshotPath $snapshotPath
+        $script:TriggerEvidence.fire.armed_prerequisite = [bool]$arm.ok
+        $script:TriggerEvidence.fire.arm_error_queue_empty = [bool]($arm.ok -and $arm.payload.error_queue_empty)
+        if (-not $arm.ok) {
+            $script:Failures.Add("trigger-fire arm helper failed before the candidate command.")
+            return
+        }
+        $record = Invoke-ValidationCommand -Case $Case
+        $script:TriggerEvidence.fire.fired = ($record.result -eq "passed")
+        $script:TriggerEvidence.fire.completed = ($record.result -eq "passed")
+        $script:TriggerEvidence.fire.timeout_or_interrupted = [bool]($record.result -ne "passed")
+        $script:TriggerEvidence.fire.abort_status = if ($record.result -eq "passed") { "not_required" } else { "command_failure_abort_attempted" }
+    }
+    finally {
+        if (Test-Path -LiteralPath $snapshotPath) {
+            $restore = Invoke-TriggerValidationHelper -Action "restore" -SnapshotPath $snapshotPath
+            $script:TriggerEvidence.fire.trigger_restore_succeeded = [bool]$restore.ok
+            if (-not $restore.ok) {
+                $script:Failures.Add("trigger-fire helper restore failed.")
+            }
+        }
+        else {
+            $script:TriggerEvidence.fire.trigger_restore_succeeded = $false
+        }
+        Invoke-SafeOffCleanup -Role "trigger-fire-final"
+        $script:TriggerEvidence.fire.outputs_all_off = $script:CleanupEvidence.all_outputs_off
+        $script:TriggerEvidence.fire.error_queue_empty = [bool](
+            $script:CleanupEvidence.error_queue_checked -and
+            @($script:CleanupEvidence.instrument_errors).Count -eq 0
+        )
+    }
+}
+
+function Invoke-TriggerPulseCandidateCase {
+    param([Parameter(Mandatory = $true)]$Case)
+
+    Write-Host ""
+    Write-Host "E36312A trigger-pulse requires external observation."
+    Write-Host "- Signal: rear Pin 1"
+    Write-Host "- Digital signal reference: rear Pin 4 Common"
+    Write-Host "- Expected result: one positive pulse"
+    Write-Host "- Connect and arm the oscilloscope or logic analyzer before continuing."
+    $ready = Read-Host "Press Enter when the external instrument is armed, or press Ctrl+C to cancel"
+    if (-not [string]::IsNullOrEmpty([string]$ready)) {
+        $script:Failures.Add("trigger-pulse operator readiness confirmation was invalid.")
+        return
+    }
+    $script:TriggerEvidence.pulse.operator_ready_confirmed = $true
+    Invoke-SafeOffCleanup -Role "trigger-pulse-baseline"
+    if ($script:CleanupEvidence.status -ne "passed") {
+        $script:TriggerEvidence.pulse.baseline_safe = $false
+        return
+    }
+    $script:TriggerEvidence.pulse.baseline_safe = $true
+    $record = $null
+    try {
+        $record = Invoke-ValidationCommand -Case $Case
+        $script:TriggerEvidence.pulse.command_path_succeeded = ($record.result -eq "passed")
+        $script:TriggerEvidence.pulse.trigger_restore_succeeded = ($record.result -eq "passed")
+    }
+    finally {
+        Invoke-SafeOffCleanup -Role "trigger-pulse-final"
+        $script:TriggerEvidence.pulse.outputs_all_off = $script:CleanupEvidence.all_outputs_off
+        $script:TriggerEvidence.pulse.error_queue_empty = [bool](
+            $script:CleanupEvidence.error_queue_checked -and
+            @($script:CleanupEvidence.instrument_errors).Count -eq 0
+        )
+        $script:TriggerEvidence.pulse.cleanup_succeeded = ($script:CleanupEvidence.status -eq "passed")
+    }
+    if ($null -eq $record -or $record.result -ne "passed" -or $script:CleanupEvidence.status -ne "passed") {
+        $script:TriggerEvidence.pulse.operator_observation = "not_requested_automatic_failure"
+        return
+    }
+    $observation = Read-Host "Did you observe exactly one positive pulse? Enter Yes or No"
+    if ([string]::Equals($observation, "Yes", [System.StringComparison]::OrdinalIgnoreCase)) {
+        $script:TriggerEvidence.pulse.operator_observation = "passed"
+        return
+    }
+    $script:TriggerEvidence.pulse.operator_observation = if ([string]::Equals($observation, "No", [System.StringComparison]::OrdinalIgnoreCase)) { "failed" } else { "invalid" }
+    $script:Failures.Add("trigger-pulse external observation did not receive an explicit Yes result.")
 }
 
 function Write-LiveConfirmationWarnings {
@@ -1741,6 +1912,7 @@ function Write-ValidationArtifacts {
             validation_kind = $_.validation_kind
             expected_channels = $_.expected_channels
             cleanup_role = $_.cleanup_role
+            operator_interaction_required = [bool]$_.operator_interaction_required
         }
     })
     if ($null -eq $script:InstrumentIdentity) {
@@ -1784,6 +1956,7 @@ function Write-ValidationArtifacts {
         backend_argument = $script:BackendArtifact.backend_argument
         instrument_identity = $script:InstrumentIdentity
         cleanup = $script:CleanupEvidence
+        trigger_evidence = $script:TriggerEvidence
         git_head = Get-GitHead
         package_version = Get-PackageVersion
         started_at = $StartedAt.ToUniversalTime().ToString("o")
@@ -1888,6 +2061,7 @@ $script:TransportScope = $null
 $script:BackendArtifact = Get-BackendArtifactFields -Value $null
 $script:InstrumentIdentity = $null
 $script:CleanupEvidence = $null
+$script:TriggerEvidence = New-TriggerEvidence
 $script:PrivateArtifactDir = $null
 $script:ShareableArtifactDir = $null
 $script:ExternalPreflight = [pscustomobject]@{ status = "not_run" }
@@ -1939,8 +2113,8 @@ else {
     }
     $SuitesToRun = @($Suite)
 }
-if (-not $PlanOnly -and -not $Restore -and "snapshot" -in $SuitesToRun) {
-    Fail-Validation "Snapshot live validation requires safe-off cleanup; -Restore:`$false is not allowed."
+if (-not $PlanOnly -and -not $Restore -and @($SuitesToRun | Where-Object { $_ -in @("snapshot", "trigger-list") }).Count -gt 0) {
+    Fail-Validation "Snapshot and trigger-list live validation require safe-off cleanup; -Restore:`$false is not allowed."
 }
 
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -1951,6 +2125,7 @@ $script:StateChanging = @($SuitesToRun | Where-Object { $_ -in @("output", "prot
 $script:CommandRecords = New-Object System.Collections.Generic.List[object]
 $script:Failures = New-Object System.Collections.Generic.List[string]
 $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "planned"
+$script:TriggerEvidence = New-TriggerEvidence
 $script:ExternalPreflight = [pscustomobject]@{ status = "not_run" }
 $startedAt = Get-Date
 
@@ -2066,21 +2241,30 @@ Write-Host ""
 Read-Host "Press Enter to run live suite validation, or press Ctrl+C to abort"
 
 $liveCases = Get-SuiteCases -Model $NormalizedTarget -Suites $SuitesToRun -Live:$true
-foreach ($case in $liveCases) {
-    try {
-        Invoke-ValidationCommand -Case $case | Out-Null
-    }
-    catch {
-        $script:Failures.Add("$($case.name) could not be prepared or executed: $($_.Exception.Message)")
-    }
-    if ($script:Failures.Count -gt 0 -and $script:StateChanging) {
-        Invoke-SafeOffCleanup -Role "failure"
-        break
+try {
+    foreach ($case in $liveCases) {
+        if ($case.name -eq "trigger-fire-candidate") {
+            Invoke-TriggerFireCandidateCase -Case $case
+        }
+        elseif ($case.name -eq "trigger-pulse-candidate") {
+            Invoke-TriggerPulseCandidateCase -Case $case
+        }
+        else {
+            Invoke-ValidationCommand -Case $case | Out-Null
+        }
+        if ($script:Failures.Count -gt 0) {
+            break
+        }
     }
 }
-
-if ($script:Failures.Count -eq 0 -and $script:StateChanging) {
-    Invoke-SafeOffCleanup -Role "final"
+catch {
+    $script:Failures.Add("Live suite execution was interrupted or failed: $($_.Exception.Message)")
+}
+finally {
+    if ($script:StateChanging) {
+        $cleanupRole = if ($script:Failures.Count -gt 0) { "failure" } else { "final" }
+        Invoke-SafeOffCleanup -Role $cleanupRole
+    }
 }
 
 if ($script:Failures.Count -gt 0) {

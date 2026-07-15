@@ -104,7 +104,15 @@ _PENDING_STATUSES = frozenset({VALIDATION_STATUS_TRANSPORT_PENDING})
 # are deliberately absent from public support metadata and accepted evidence.
 _VALIDATION_ONLY_COMMAND_CANDIDATES = {
     "keysight-e36312a": frozenset(
-        {"output-on", "log", "doctor", "measure-all", "restore-from-snapshot"}
+        {
+            "output-on",
+            "log",
+            "doctor",
+            "measure-all",
+            "restore-from-snapshot",
+            "trigger-fire",
+            "trigger-pulse",
+        }
     ),
     "keysight-edu36311a": frozenset({"output-on", "log", "doctor"}),
     "keysight-e3646a": frozenset({"output-on", "doctor"}),

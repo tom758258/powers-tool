@@ -1243,6 +1243,9 @@ def test_internal_validation_candidate_inventory_is_exact_and_immutable() -> Non
         "keysight-e3646a",
     }
     assert "output-on" in inventory["keysight-e36312a"]["commands"]
+    assert {"trigger-fire", "trigger-pulse"} <= set(
+        inventory["keysight-e36312a"]["commands"]
+    )
     with pytest.raises(TypeError):
         inventory["keysight-e36312a"] = {}  # type: ignore[index]
 
@@ -1284,11 +1287,52 @@ def test_validation_mode_admits_only_exact_core_candidate_scope() -> None:
             support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
         )
 
-    with pytest.raises(LiveSupportPolicyError):
-        ensure_live_scope_supported(
+    for command in ("trigger-fire", "trigger-pulse"):
+        candidate = ensure_live_scope_supported(
             model_id="keysight-e36312a",
-            command="trigger-pulse",
+            command=command,
             transport="USB0::fixture::INSTR",
             backend=None,
             support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
         )
+        assert candidate.admission_kind == "validation_candidate"
+        lan_candidate = ensure_live_scope_supported(
+            model_id="keysight-e36312a",
+            command=command,
+            transport="TCPIP0::fixture::INSTR",
+            backend=None,
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        )
+        assert lan_candidate.admission_kind == "validation_candidate"
+        with pytest.raises(LiveSupportPolicyError):
+            ensure_live_scope_supported(
+                model_id="keysight-e36312a",
+                command=command,
+                transport="USB0::fixture::INSTR",
+                backend=None,
+                support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
+            )
+        with pytest.raises(LiveSupportPolicyError):
+            ensure_live_scope_supported(
+                model_id="keysight-e36312a",
+                command=command,
+                transport="ASRL1::INSTR",
+                backend=None,
+                support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            )
+        with pytest.raises(LiveSupportPolicyError):
+            ensure_live_scope_supported(
+                model_id="keysight-edu36311a",
+                command=command,
+                transport="USB0::fixture::INSTR",
+                backend=None,
+                support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            )
+        with pytest.raises(LiveSupportPolicyError):
+            ensure_live_scope_supported(
+                model_id="keysight-e36312a",
+                command=command,
+                transport="USB0::fixture::INSTR",
+                backend="@py",
+                support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            )

@@ -47,7 +47,7 @@ simulator support does not imply product LIVE support.
 
 | Canonical model | Exact candidate connections | Added candidate commands |
 | --- | --- | --- |
-| `keysight-e36312a` | USB + system VISA; TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor`, `measure-all`, real `restore-from-snapshot` |
+| `keysight-e36312a` | USB + system VISA; TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor`, `measure-all`, real `restore-from-snapshot`, `trigger-fire`, `trigger-pulse` |
 | `keysight-edu36311a` | USB + system VISA; TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor` |
 | `keysight-e3646a` | ASRL + system VISA | `output-on`, resource-backed `doctor` |
 
@@ -55,9 +55,12 @@ This matrix is not Product support and is not projected as `transport_pending`
 or a new public command status. Public capabilities continue to show profile
 support with no accepted exact Product scope and `product_open=false`. Product
 mode may read `*IDN?` to make that decision, but rejects before command-specific
-SCPI or mutation. Direct `trigger-pulse` and `trigger-fire` are not candidates;
-existing Product-open E36312A `trigger-status`, `trigger-step`, `trigger-list`,
-and `trigger-abort` scopes remain unchanged.
+SCPI or mutation. Direct `trigger-pulse` and `trigger-fire` are internal
+E36312A candidates only on the exact connections above. Their Full suite
+coverage does not create accepted evidence or automatic Product promotion;
+`trigger-pulse` also requires explicit external observation of one positive
+pulse. Existing Product-open E36312A `trigger-status`, `trigger-step`,
+`trigger-list`, and `trigger-abort` scopes remain unchanged.
 
 ## Feature-Aware Exact Scopes
 
@@ -112,7 +115,7 @@ whole model.
 
 | Target | Connection scope | Supported suites in `full` | Notes |
 | --- | --- | --- | --- |
-| E36312A | USB accepted evidence; LAN accepted evidence | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` | Suite names are evidence groupings, not command permissions. Only commands in the exact matrix above are product-open. |
+| E36312A | USB accepted evidence; LAN accepted evidence | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` | The expanded trigger-list suite contains Product-closed `trigger-fire` and manually observed `trigger-pulse` candidates. Suite names are evidence groupings, not command permissions. |
 | EDU36311A | USB accepted evidence; LAN accepted evidence | `readonly`, `output`, `protection`, `software-sequence` | Suite names are evidence groupings, not command permissions. Trigger/native LIST, snapshot, and restore-from-snapshot remain unsupported. |
 | E3646A | RS-232 / ASRL only | `readonly`, `output`, `software-sequence` | CH1/CH2 only. `OUTP ON/OFF` is global. `ramp-list` and `sequence` are software workflows, not native LIST. |
 

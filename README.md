@@ -386,6 +386,12 @@ These are historical accepted full-suite records. They predate and do not
 include the newly added validation-candidate cases. The expanded suite has
 no newly run or accepted hardware evidence yet.
 
+The E36312A expanded `trigger-list` suite includes validation-candidate
+`trigger-fire` and `trigger-pulse` cases for USB or TCPIP with system VISA.
+`trigger-pulse` requires an operator to observe one positive pulse on rear
+Pin 1 after connecting Pin 4 Common as the digital signal reference. Passing
+the expanded suite does not automatically promote either command to Product.
+
 Core references these immutable historical bundles by stable evidence ID.
 Their original artifact directories remain unchanged; migrating their identity
 metadata is not new hardware validation. System-VISA evidence does not validate

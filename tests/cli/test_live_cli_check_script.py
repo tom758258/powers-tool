@@ -790,12 +790,156 @@ def test_live_cli_check_rejects_redirected_stdin_before_live_execution() -> None
     )
 
     assert result.returncode != 0
-    combined = " ".join((result.stdout + result.stderr).split())
-    assert "Interactive confirmation is required before live execution" in combined
     assert "Press Enter" not in result.stdout
     report = json.loads(_new_live_check_report(before).read_text(encoding="utf-8"))
     assert report["validation_mode"] == "confirmation_required"
     assert report["live_executed"] is False
+    assert any("stdin is redirected" in failure for failure in report["failures"])
+
+
+def test_trigger_list_plan_only_lists_manual_candidate_without_helper_or_stdin() -> None:
+    resource = "USB0::PRIVATE-PLAN::E36312A::INSTR"
+    result = _run_live_cli_check(
+        "-Target",
+        "keysight-e36312a",
+        "-Connection",
+        "USB",
+        "-Resource",
+        resource,
+        "-Suite",
+        "trigger-list",
+        "-PlanOnly",
+        stdin_text="unexpected input must not be read",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = _report_path(result.stdout, result.stderr)
+    report_text = report_path.read_text(encoding="utf-8")
+    report = json.loads(report_text)
+    planned = {case["command"]: case for case in report["planned_live_cases"]}
+    assert {"trigger-fire", "trigger-pulse"} <= set(planned)
+    assert planned["trigger-pulse"]["operator_interaction_required"] is True
+    assert not (report_path.parent.parent / "private" / "trigger-fire-snapshot.json").exists()
+    assert "Did you observe" not in result.stdout
+    assert resource not in report_text
+    assert str(Path.cwd()) not in report_text
+    assert "SERIAL" not in report_text
+
+
+def test_trigger_list_redirected_stdin_fails_before_manual_case() -> None:
+    before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
+    result = _run_live_cli_check(
+        "-Target",
+        "keysight-e36312a",
+        "-Connection",
+        "USB",
+        "-Resource",
+        "USB0::SIM::E36312A::INSTR",
+        "-Suite",
+        "trigger-list",
+        stdin_text="\n",
+    )
+
+    assert result.returncode != 0
+    report_path = _new_live_check_report(before)
+    assert not (report_path.parent.parent / "private" / "trigger-fire-snapshot.json").exists()
+    assert "Did you observe" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("connection", "backend"),
+    [("ASRL", None), ("USB", "@py"), ("USB", "@ivi")],
+)
+def test_trigger_candidates_wrong_scope_fail_during_plan_only(connection, backend) -> None:
+    before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
+    arguments = [
+        "-Target",
+        "keysight-e36312a",
+        "-Connection",
+        connection,
+        "-Resource",
+        "SIM::E36312A",
+        "-Suite",
+        "trigger-list",
+        "-PlanOnly",
+    ]
+    if backend is not None:
+        arguments += ["-Backend", backend]
+
+    result = _run_live_cli_check(*arguments)
+
+    assert result.returncode != 0
+    report = json.loads(
+        _new_live_check_report(before).read_text(encoding="utf-8")
+    )
+    assert any(
+        "Candidate scope inventory invariant failed" in failure
+        for failure in report["failures"]
+    )
+
+
+def test_trigger_pulse_observation_occurs_only_after_command_and_cleanup(tmp_path) -> None:
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:TriggerEvidence = New-TriggerEvidence
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:StateChanging = $true
+$script:Restore = $true
+$script:CleanupEvidence = New-CleanupEvidence -ValidationMode "live"
+$trace = New-Object System.Collections.Generic.List[string]
+$responses = [System.Collections.Generic.Queue[string]]::new()
+$responses.Enqueue("")
+$responses.Enqueue("No")
+function Read-Host {{ param([string]$Prompt); if ($responses.Count -eq 2) {{ $trace.Add("ready-prompt") }} else {{ $trace.Add("observation-prompt") }}; return $responses.Dequeue() }}
+function Invoke-SafeOffCleanup {{ param([string]$Role); $trace.Add("cleanup-" + $Role); $script:CleanupEvidence = [pscustomobject]@{{ status = "passed"; all_outputs_off = $true; error_queue_checked = $true; instrument_errors = @() }} }}
+function Invoke-ValidationCommand {{ param($Case); $trace.Add("command"); return [pscustomobject]@{{ result = "passed" }} }}
+$case = New-CommandCase -Name "pulse" -Suite "trigger-list" -Phase "live" -Args @("trigger-pulse")
+Invoke-TriggerPulseCandidateCase -Case $case
+[pscustomobject]@{{ trace = $trace; failures = $script:Failures.Count; observation = $script:TriggerEvidence.pulse.operator_observation; error_queue_empty = $script:TriggerEvidence.pulse.error_queue_empty; outputs_all_off = $script:TriggerEvidence.pulse.outputs_all_off }} | ConvertTo-Json -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["trace"] == [
+        "ready-prompt",
+        "cleanup-trigger-pulse-baseline",
+        "command",
+        "cleanup-trigger-pulse-final",
+        "observation-prompt",
+    ]
+    assert payload["failures"] == 1
+    assert payload["observation"] == "failed"
+    assert payload["error_queue_empty"] is True
+    assert payload["outputs_all_off"] is True
+
+
+def test_trigger_fire_wrapper_restores_again_when_candidate_fails(tmp_path) -> None:
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:PrivateArtifactDir = "{(tmp_path / 'private').as_posix()}"
+New-Item -ItemType Directory -Path $script:PrivateArtifactDir -Force | Out-Null
+$script:TriggerEvidence = New-TriggerEvidence
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:StateChanging = $true
+$script:Restore = $true
+$script:CleanupEvidence = New-CleanupEvidence -ValidationMode "live"
+$trace = New-Object System.Collections.Generic.List[string]
+function Invoke-SafeOffCleanup {{ param([string]$Role); $trace.Add("cleanup-" + $Role); $script:CleanupEvidence = [pscustomobject]@{{ status = "passed"; all_outputs_off = $true; error_queue_checked = $true; instrument_errors = @() }} }}
+function Invoke-TriggerValidationHelper {{ param([string]$Action, [string]$SnapshotPath); $trace.Add($Action); if ($Action -eq "arm") {{ New-Item -ItemType File -Path $SnapshotPath -Force | Out-Null }}; return [pscustomobject]@{{ ok = $true; payload = [pscustomobject]@{{ error_queue_empty = $true }} }} }}
+function Invoke-ValidationCommand {{ param($Case); $trace.Add("candidate"); throw "candidate failed" }}
+$case = New-CommandCase -Name "fire" -Suite "trigger-list" -Phase "live" -Args @("trigger-fire")
+try {{ Invoke-TriggerFireCandidateCase -Case $case }} catch {{ $trace.Add("caught") }}
+$trace | ConvertTo-Json -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    trace = json.loads(result.stdout)
+    assert trace.index("restore") > trace.index("candidate")
+    assert "cleanup-trigger-fire-final" in trace
 
 
 def test_live_cli_check_centrally_adds_validation_flag_only_for_policy_commands():
@@ -1155,7 +1299,15 @@ $TargetMetadata | ConvertTo-Json -Depth 8 -Compress
             "USB",
             "USB0::SIM::E36312A::INSTR",
             ["readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence"],
-            {"output-on", "log", "doctor", "measure-all", "restore-from-snapshot"},
+            {
+                "output-on",
+                "log",
+                "doctor",
+                "measure-all",
+                "restore-from-snapshot",
+                "trigger-fire",
+                "trigger-pulse",
+            },
         ),
         (
             "keysight-edu36311a",
@@ -1203,8 +1355,7 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
     candidate_commands = {
         case["command"]
         for case in planned
-        if case["command"]
-        in {"output-on", "log", "doctor", "measure-all", "restore-from-snapshot"}
+        if case["command"] in expected_candidates
     }
     assert candidate_commands == expected_candidates
     candidate_cases = [
@@ -1213,7 +1364,9 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
     ]
     internal_markers = ("candidate_" + "context_required", "candidate_scope_required")
     assert all(marker not in case for marker in internal_markers for case in candidate_cases)
-    assert not {"trigger-pulse", "trigger-fire"} & {case["command"] for case in planned}
+    if target == "keysight-e36312a":
+        pulse = next(case for case in planned if case["command"] == "trigger-pulse")
+        assert pulse["operator_interaction_required"] is True
     if target != "keysight-e36312a":
         assert not any(case["command"] == "restore-from-snapshot" for case in planned)
         assert not any(case["command"] == "measure-all" for case in planned)

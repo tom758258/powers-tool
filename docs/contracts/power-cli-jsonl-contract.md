@@ -195,5 +195,9 @@ Selected data mappings:
 - `trigger-list`: selected channel, step count, completion state, and
   `restored`; `restored: true` means the pre-run Trigger configuration and LIST
   table were written back after completion.
+- `trigger-pulse`: selected channel, pins, polarity, triggered setpoints, and
+  `restored`; `restored: true` means all three channels' pre-run Trigger/LIST
+  state plus the rear digital pin and BUS trigger-output state were restored.
+  It does not mean output channels were turned off.
 - Live trigger behavior remains IDN-driven. Live `--model` is an
   expected-model guard and does not override connected hardware.

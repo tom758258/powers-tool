@@ -391,13 +391,15 @@ class E36312APowerSupply(GenericScpiPowerSupply):
     def restore_trigger_snapshot(self, snapshot: "TriggerSnapshot") -> None:
         """Restore state captured by :meth:`trigger_snapshot`."""
 
+        self._restore_trigger_channel_snapshot(snapshot)
+        self._restore_trigger_global_snapshot(snapshot)
+
+    def _restore_trigger_channel_snapshot(self, snapshot: "TriggerSnapshot") -> None:
+        """Restore one channel's Trigger and LIST state."""
+
         channel = snapshot.channel
         self._require_output_channel(channel)
         self.abort_output_trigger(channel)
-        for pin, state in snapshot.digital_pins.items():
-            self.set_digital_pin_function(pin, str(state["function"]))
-            self.set_digital_pin_polarity(pin, str(state["polarity"]))
-        self.enable_trigger_output_bus(bool(snapshot.trigger_output_bus_enabled))
         self.set_output_trigger_source(channel=channel, source=str(snapshot.trigger["source"]))
         self.set_output_trigger_delay(channel=channel, delay=float(snapshot.trigger["delay"]))
         self.set_triggered_current(channel=channel, current=float(snapshot.trigger["triggered_current"]))
@@ -419,6 +421,14 @@ class E36312APowerSupply(GenericScpiPowerSupply):
             step_mode=str(list_state["step_mode"]),
             terminate_last=bool(list_state["terminate_last"]),
         )
+
+    def _restore_trigger_global_snapshot(self, snapshot: "TriggerSnapshot") -> None:
+        """Restore rear digital pins and the global BUS trigger output state."""
+
+        for pin, state in snapshot.digital_pins.items():
+            self.set_digital_pin_function(pin, str(state["function"]))
+            self.set_digital_pin_polarity(pin, str(state["polarity"]))
+        self.enable_trigger_output_bus(bool(snapshot.trigger_output_bus_enabled))
 
 
 @dataclass(frozen=True)

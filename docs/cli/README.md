@@ -173,7 +173,7 @@ candidates that are implemented but not Product-open:
 
 | Target and exact validation connection | Added candidate commands |
 | --- | --- |
-| E36312A USB or TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor`, `measure-all`, real `restore-from-snapshot` |
+| E36312A USB or TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor`, `measure-all`, real `restore-from-snapshot`, `trigger-fire`, `trigger-pulse` |
 | EDU36311A USB or TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor` |
 | E3646A ASRL + system VISA | `output-on`, resource-backed `doctor` |
 
@@ -189,6 +189,20 @@ outputs kept OFF and one bounded CH1 ON snapshot restored with
 `--restore-output-state --confirm`; both paths retain the canonical snapshot
 guards and require best-effort safe-off, final output-state, and error-queue
 evidence even after failure.
+
+The E36312A trigger candidates run only inside the contributor Full suite.
+`trigger-fire` uses a private snapshot/arm helper, invokes the standalone CLI
+command to fire the armed BUS trigger, and restores all three channels
+afterward. `trigger-pulse` pauses before any case-specific VISA or SCPI, then
+asks the operator to connect rear Pin 1 as the signal and rear Pin 4 Common as
+the digital signal reference, arm the oscilloscope or logic analyzer, and
+press Enter. After the command restores Trigger/LIST and rear digital state,
+the wrapper performs safe-off, output-state, and error-queue cleanup before
+asking for an explicit `Yes` or `No` observation. This wiring follows the
+[Keysight E36300 Series User's Guide](https://www.keysight.com/us/en/assets/9018-04576/user-manuals/9018-04576.pdf).
+A `Yes` records only one observed
+positive pulse; it does not validate pulse width, timing accuracy, or waveform
+quality.
 
 Historical accepted full-suite records exist for these exact connections:
 
@@ -785,7 +799,9 @@ preview trigger SCPI without opening VISA. Trigger dry-run and simulator
 behavior is E36312A-only; unsupported models do not expose trigger
 no-hardware behavior. The final `*TRG` may also trigger any already armed
 BUS-triggered instrument behavior. `trigger-pulse` has no accepted product
-LIVE exact scope, so this remains a no-hardware preview. Live trigger behavior
+LIVE exact scope, so normal Product use remains limited to no-hardware preview.
+The internal E36312A Full suite admits it only as an exact USB/TCPIP + system
+VISA validation candidate. Live trigger behavior
 for accepted commands remains IDN-driven; a live `--model` only requires the
 connected IDN model to match and never overrides connected hardware.
 
@@ -809,9 +825,9 @@ would abort it. Trigger Step keeps its existing non-wait behavior. For
 `trigger-fire`, `--channel N` is required only with `--wait-complete`; it
 selects the output channel to abort if the instrument-wide completion wait
 times out or is interrupted. It does not limit the scope of `*TRG` or the
-completion wait. Both `trigger-fire` and the legacy `trigger-pulse` helper
-remain no-hardware-only in normal product use because neither has an accepted
-exact LIVE scope.
+completion wait. Both `trigger-fire` and `trigger-pulse` remain Product-closed
+because neither has an accepted exact LIVE scope; their internal candidate
+coverage does not promote them automatically.
 Canonical Trigger LIST files and flags accept per-step `bost_list` and
 `eost_list` plus `trigger_output_pins` and `trigger_output_polarity`. Enabled
 pulses require explicit output pins. Legacy `--completion-pulse-pins` remains

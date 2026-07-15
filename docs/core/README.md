@@ -231,9 +231,12 @@ LIST execution belongs only to `trigger-list`; Ramp always uses software
 setpoint steps. Unsupported models, including EDU36311A, do not expose trigger
 dry-run or simulator behavior.
 
-Direct `trigger-pulse` and `trigger-fire` are not validation candidates and
-remain Product-closed. Existing Product-open E36312A `trigger-status`,
-`trigger-step`, `trigger-list`, and `trigger-abort` scopes are unchanged.
+Direct `trigger-pulse` and `trigger-fire` remain Product-closed but are internal
+E36312A validation candidates on USB or TCPIP with system VISA. The expanded
+Full suite requires external operator observation for `trigger-pulse`; passing
+it does not automatically promote either command. Existing Product-open
+E36312A `trigger-status`, `trigger-step`, `trigger-list`, and `trigger-abort`
+scopes are unchanged.
 
 Historical accepted full-suite records exist for E36312A USB, E36312A LAN,
 EDU36311A USB, EDU36311A LAN, and E3646A ASRL / RS-232. They predate and do

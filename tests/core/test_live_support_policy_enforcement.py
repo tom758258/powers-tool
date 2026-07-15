@@ -322,6 +322,8 @@ def test_output_without_exact_evidence_rejects_after_idn_before_write() -> None:
     ("model_id", "command", "resource", "backend"),
     [
         ("keysight-e36312a", "output-on", "USB0::1::INSTR", None),
+        ("keysight-e36312a", "trigger-pulse", "USB0::1::INSTR", None),
+        ("keysight-e36312a", "trigger-fire", "USB0::1::INSTR", None),
         ("keysight-edu36311a", "log", "TCPIP0::192.0.2.1::INSTR", None),
         ("keysight-e3646a", "doctor", "ASRL1::INSTR", None),
     ],
@@ -345,8 +347,8 @@ def test_product_mode_keeps_command_candidates_closed(
         ("keysight-edu36311a", "measure-all", "USB0::1::INSTR", None),
         ("keysight-e3646a", "log", "ASRL1::INSTR", None),
         ("keysight-e3646a", "doctor", "TCPIP0::192.0.2.1::INSTR", None),
-        ("keysight-e36312a", "trigger-pulse", "USB0::1::INSTR", None),
-        ("keysight-e36312a", "trigger-fire", "USB0::1::INSTR", None),
+        ("keysight-e36312a", "trigger-pulse", "ASRL1::INSTR", None),
+        ("keysight-e36312a", "trigger-fire", "USB0::1::INSTR", "@py"),
     ],
 )
 def test_validation_command_candidates_fail_closed_outside_exact_inventory(
