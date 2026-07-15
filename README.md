@@ -254,11 +254,10 @@ dist\powers_tool-2.0.0-py3-none-any.whl
 dist\powers_tool-2.0.0.tar.gz
 ```
 
-The Product artifact inspector rejects validation packages, candidate issuer
-modules, validation entry points, and candidate parser inputs. Normal release
-automation builds and copies only these Product artifacts. The internal
-`validation/` project is built and tested separately and is never added to the
-Product release folder.
+The Product artifact inspector rejects repository validation scripts, private
+fixtures, candidate evidence, and internal-only tests. Normal release
+automation builds and copies only these Product wheel and source-distribution
+artifacts.
 
 Standalone executables are separate PyInstaller workflows. Prepare the locked
 development environment, which includes PyInstaller, before building exe

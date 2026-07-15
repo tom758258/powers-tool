@@ -64,6 +64,27 @@ def _run_powershell_command(command: str, *, env: dict[str, str] | None = None) 
     )
 
 
+def test_live_cli_check_uses_candidate_scope_names_only() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    removed_names = (
+        "Candidate" + "ContextRequired",
+        "candidate_" + "context_required",
+        "Assert-Candidate" + "ContextInventory",
+        "Test-CurrentConnectionUsesCandidate" + "Capabilities",
+        "missing candidate " + "context",
+    )
+
+    assert all(name not in script for name in removed_names)
+    for current_name in (
+        "CandidateScopeRequired",
+        "candidate_scope_required",
+        "Assert-CandidateScopeInventory",
+        "Test-CurrentConnectionSupportsCandidates",
+        "missing candidate scope marking",
+    ):
+        assert current_name in script
+
+
 def _report_path(stdout: str, stderr: str) -> Path:
     combined = stdout + "\n" + stderr
     for line in combined.splitlines():
@@ -751,6 +772,30 @@ def test_live_cli_check_readonly_plan_only_succeeds_without_hardware(target, con
     assert report["instrument_identity"]["availability"] == "not_observed_plan_only"
     assert report["instrument_identity"]["detected_model"] is None
     assert report["cleanup"]["status"] == "not_executed_plan_only"
+    assert "hardware_touched" not in json.dumps(report)
+
+
+def test_live_cli_check_rejects_redirected_stdin_before_live_execution() -> None:
+    before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
+    result = _run_live_cli_check(
+        "-Target",
+        "keysight-e36312a",
+        "-Connection",
+        "USB",
+        "-Resource",
+        "USB0::SIM::E36312A::INSTR",
+        "-Suite",
+        "readonly",
+        stdin_text="\n",
+    )
+
+    assert result.returncode != 0
+    combined = " ".join((result.stdout + result.stderr).split())
+    assert "Interactive confirmation is required before live execution" in combined
+    assert "Press Enter" not in result.stdout
+    report = json.loads(_new_live_check_report(before).read_text(encoding="utf-8"))
+    assert report["validation_mode"] == "confirmation_required"
+    assert report["live_executed"] is False
 
 
 def test_live_cli_check_centrally_adds_validation_flag_only_for_policy_commands():
@@ -1166,7 +1211,8 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
         case for case in planned
         if case["command"] in expected_candidates and case["name"] != "restore-from-snapshot-plan"
     ]
-    assert all("candidate_context_required" not in case for case in candidate_cases)
+    internal_markers = ("candidate_" + "context_required", "candidate_scope_required")
+    assert all(marker not in case for marker in internal_markers for case in candidate_cases)
     assert not {"trigger-pulse", "trigger-fire"} & {case["command"] for case in planned}
     if target != "keysight-e36312a":
         assert not any(case["command"] == "restore-from-snapshot" for case in planned)
@@ -1183,7 +1229,8 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
     if target == "keysight-e36312a":
         names = {case["name"] for case in planned}
         assert {"restore-off-execute", "restore-on-enable-ch1", "restore-on-execute", "restore-on-immediate-safe-off"} <= names
-        assert "candidate_context_required" not in next(case for case in planned if case["name"] == "restore-on-enable-ch1")
+        restore_case = next(case for case in planned if case["name"] == "restore-on-enable-ch1")
+        assert all(marker not in restore_case for marker in internal_markers)
     case_names = {case["name"] for case in report["cases"] if case["suite"] == "software-sequence"}
     assert {
         "ramp-list-lint",

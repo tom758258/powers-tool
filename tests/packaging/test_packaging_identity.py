@@ -28,8 +28,10 @@ LEGACY_IDENTITY_TOKENS = (
 # Every retained occurrence is tied to one exact tracked file, token, count, and
 # reason. Count drift fails so a future occurrence cannot inherit an exemption.
 _ALLOWED_LEGACY_MATCHES = {
-    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[0]): (1, "V2 migration and immutable V1 history"),
-    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[1]): (2, "V2 migration and immutable V1 history"),
+    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[0]): (2, "V2 migration and immutable V1 history"),
+    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[1]): (3, "V2 migration and immutable V1 history"),
+    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[5]): (1, "V2 product rename history"),
+    ("CHANGELOG.md", LEGACY_IDENTITY_TOKENS[6]): (1, "V2 product rename history"),
     ("README.md", LEGACY_IDENTITY_TOKENS[5]): (1, "concise V2 product history"),
     ("README.md", LEGACY_IDENTITY_TOKENS[6]): (1, "concise V2 product history"),
     ("docs/migration-v2.md", LEGACY_IDENTITY_TOKENS[0]): (1, "V2 migration mapping"),

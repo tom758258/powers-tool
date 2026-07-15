@@ -1274,3 +1274,21 @@ def test_validation_mode_admits_only_exact_core_candidate_scope() -> None:
             backend=None,
             support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
         )
+
+    with pytest.raises(LiveSupportPolicyError):
+        ensure_live_scope_supported(
+            model_id="keysight-e36312a",
+            command="output-on",
+            transport="USB0::fixture::INSTR",
+            backend="@py",
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        )
+
+    with pytest.raises(LiveSupportPolicyError):
+        ensure_live_scope_supported(
+            model_id="keysight-e36312a",
+            command="trigger-pulse",
+            transport="USB0::fixture::INSTR",
+            backend=None,
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        )
