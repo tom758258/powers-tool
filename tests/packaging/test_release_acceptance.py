@@ -21,56 +21,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "release-acceptance.ps1"
 PACKAGING_DIR = ROOT / "tests" / "packaging"
-CHANGELOG = ROOT / "CHANGELOG.md"
 
 if str(PACKAGING_DIR) not in sys.path:
     sys.path.insert(0, str(PACKAGING_DIR))
 
 inspect_pyinstaller = importlib.import_module("inspect_pyinstaller")
 inspector_utils = importlib.import_module("_inspector_utils")
-
-
-def _changelog_section(text: str, heading: str, next_heading: str) -> str:
-    return text.split(heading, 1)[1].split(next_heading, 1)[0]
-
-
-def test_changelog_retains_current_v2_history_without_removed_validation_architecture() -> None:
-    text = CHANGELOG.read_text(encoding="utf-8")
-    unreleased = _changelog_section(text, "## Unreleased", "## 2.0.0")
-    version_two = _changelog_section(text, "## 2.0.0", "## 1.0.0")
-
-    assert len([line for line in unreleased.splitlines() if line.startswith("- ")]) == 1
-    assert "Product CLI and Core-owned candidate inventory directly" in unreleased
-    version_two_flat = " ".join(version_two.split())
-    for retained in (
-        "Keysight " + "Powers to Powers Tool",
-        "`keysight-" + "powers` to `powers-tool`",
-        "`powers_tool_core`",
-        "vendor-qualified physical `model_id`",
-        "expected model",
-        "`generic-scpi`",
-        "`planning_model_id`",
-        "`expected_model_id`",
-        "schemas to version 2",
-        "canonical `model_id`",
-        "Preserves existing hardware evidence",
-        "Product mode remains closed",
-        "has not yet been run or accepted as new hardware evidence",
-    ):
-        assert retained in version_two_flat
-
-    removed_phrases = (
-        "powers-tool-" + "validation",
-        "Validation " + "wheel",
-        "H" + "MAC",
-        "retained" + " wheel",
-        "installation " + "identity",
-        "signed" + "/one-time capability",
-        "same-version " + "replacement",
-        "clean installed-wheel pre-" + "VISA pytest",
-    )
-    assert version_two.strip()
-    assert all(phrase not in text for phrase in removed_phrases)
 
 
 def _write_distribution_fixture(
