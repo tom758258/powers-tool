@@ -3,7 +3,6 @@ param(
     [string]$CurrentPython = "",
     [string]$OutputRoot = ".tmp_tests\release_acceptance",
     [switch]$KeepWorktree,
-    [switch]$IncludeWorkingTreeChanges,
     [switch]$InterpreterPreflightOnly
 )
 
@@ -31,59 +30,17 @@ $sourceBranch = $null
 $projectVersion = $null
 $distributionName = $null
 $initialStatus = @()
-$cleanStatusBeforeOverlay = @()
-$candidatePaths = @()
-$candidateFileHashes = @()
-$candidatePatchSha256 = $null
-$candidatePatchPath = $null
 $resolvedPython310 = $null
 $resolvedCurrent = $null
 $python310Metadata = $null
 $currentPythonMetadata = $null
 $interpretersDistinct = $null
 $acceptanceWorktreeState = "not-created"
-$acceptanceMode = if ($InterpreterPreflightOnly -and $IncludeWorkingTreeChanges) {
-    "candidate-interpreter-preflight"
-} elseif ($InterpreterPreflightOnly) {
+$acceptanceMode = if ($InterpreterPreflightOnly) {
     "interpreter-preflight"
-} elseif ($IncludeWorkingTreeChanges) {
-    "candidate-working-tree"
 } else {
-    "final-committed-clean-head"
+    "committed-clean-head"
 }
-$allowedCandidatePaths = @(
-    ".github/workflows/tests.yml",
-    "CHANGELOG.md",
-    "MANIFEST.in",
-    "README.md",
-    "pyproject.toml",
-    "docs/cli/README.md",
-    "docs/core/README.md",
-    "docs/core/supported-models.md",
-    "scripts/build_release.ps1",
-    "scripts/_validation_helpers.ps1",
-    "scripts/live-cli-check.ps1",
-    "scripts/preflight-cli.ps1",
-    "scripts/release-acceptance.ps1",
-    "src/powers_tool_cli/cli.py",
-    "src/powers_tool_core/build_profile.py",
-    "src/powers_tool_core/core.py",
-    "src/powers_tool_core/live_support.py",
-    "src/powers_tool_core/support_policy.py",
-    "tests/packaging/_inspector_utils.py",
-    "tests/packaging/inspect_distribution.py",
-    "tests/packaging/inspect_pyinstaller.py",
-    "tests/packaging/test_packaging_identity.py",
-    "tests/cli/test_cli_wrappers.py",
-    "tests/cli/test_followup_features.py",
-    "tests/cli/test_live_cli_check_script.py",
-    "tests/cli/test_supported_models_docs.py",
-    "tests/core/test_model_enablement.py",
-    "tests/core/test_live_support_policy_enforcement.py",
-    "tests/packaging/test_distribution_isolation.py",
-    "tests/packaging/test_release_acceptance.py",
-    "uv.lock"
-)
 
 # Local/, README.zh-TW.md, and generated localized files are outside this script's write scope.
 
@@ -421,16 +378,6 @@ function Test-InstalledEntryPoints {
     }
 }
 
-function Get-StatusPath {
-    param([Parameter(Mandatory = $true)][string]$StatusLine)
-
-    $path = $StatusLine.Substring(3).Trim()
-    if ($path.Contains(" -> ")) {
-        $path = $path.Split(@(" -> "), [System.StringSplitOptions]::None)[-1]
-    }
-    return $path.Replace("\", "/")
-}
-
 try {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         throw "Git is required"
@@ -443,6 +390,9 @@ try {
     $sourceBranch = (& git -C $script:RepoRoot branch --show-current).Trim()
     if (-not $sourceBranch) { $sourceBranch = "detached" }
     $initialStatus = @(& git -C $script:RepoRoot status --short --untracked-files=all 2>&1)
+    if ($initialStatus.Count -ne 0) {
+        throw "Release acceptance requires a clean source worktree: $($initialStatus -join '; ')"
+    }
 
     $outputFull = Get-ContainedPath -BasePath $script:RepoRoot -CandidatePath $OutputRoot
     New-Item -ItemType Directory -Force -Path $outputFull | Out-Null
@@ -456,33 +406,6 @@ try {
     $env:PYTHONNOUSERSITE = "1"
     foreach ($name in @("PYTHONPATH", "PYTHONHOME", "UV_INTERNAL__PYTHONHOME", "VIRTUAL_ENV")) {
         if (Test-Path "Env:$name") { Remove-Item "Env:$name" }
-    }
-
-    if ($IncludeWorkingTreeChanges) {
-        $candidatePaths = @($initialStatus | ForEach-Object { Get-StatusPath -StatusLine ([string]$_) } | Sort-Object -Unique)
-        if ($candidatePaths.Count -eq 0) {
-            throw "IncludeWorkingTreeChanges was requested, but the source worktree is clean"
-        }
-        $unexpectedCandidatePaths = @(Compare-Object -ReferenceObject $allowedCandidatePaths `
-            -DifferenceObject $candidatePaths -PassThru | Where-Object { $_ -in $candidatePaths })
-        if ($unexpectedCandidatePaths.Count -ne 0) {
-            throw "Candidate overlay contains paths outside the release acceptance allowlist: $($unexpectedCandidatePaths -join ', ')"
-        }
-        foreach ($relative in $candidatePaths) {
-            $sourcePath = Join-Path $script:RepoRoot $relative
-            if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
-                throw "Candidate overlay may not delete or replace a file with a non-file path: $relative"
-            }
-            $candidateFileHashes += ,([ordered]@{
-                path = $relative
-                sha256 = Get-Sha256File -LiteralPath $sourcePath
-            })
-        }
-        $candidatePatchPath = Join-Path $script:RunRoot "working-tree.patch"
-        Invoke-Recorded -Name "capture-working-tree-diff" -FilePath "git" `
-            -Arguments @("-C", $script:RepoRoot, "-c", "core.autocrlf=false", "diff", "--binary", "--output=$candidatePatchPath") `
-            -WorkingDirectory $script:RepoRoot | Out-Null
-        $candidatePatchSha256 = Get-Sha256File -LiteralPath $candidatePatchPath
     }
 
     $pyprojectPath = Join-Path $script:RepoRoot "pyproject.toml"
@@ -522,31 +445,11 @@ try {
         Invoke-Recorded -Name "worktree-add" -FilePath "git" `
             -Arguments @("-C", $script:RepoRoot, "worktree", "add", "--detach", $script:WorktreePath, $sourceCommit) `
             -WorkingDirectory $script:RepoRoot | Out-Null
-        $acceptanceWorktreeState = "detached"
-        $cleanStatusBeforeOverlay = @(& git -C $script:WorktreePath status --short --untracked-files=all 2>&1)
-        if ($cleanStatusBeforeOverlay.Count -ne 0) {
-            throw "Temporary worktree is not clean before overlay: $($cleanStatusBeforeOverlay -join '; ')"
+        $worktreeStatus = @(& git -C $script:WorktreePath status --short --untracked-files=all 2>&1)
+        if ($worktreeStatus.Count -ne 0) {
+            throw "Temporary worktree is not clean: $($worktreeStatus -join '; ')"
         }
-        if ($IncludeWorkingTreeChanges) {
-            if ((Get-Item -LiteralPath $candidatePatchPath).Length -gt 0) {
-                Invoke-Recorded -Name "apply-working-tree-diff" -FilePath "git" `
-                    -Arguments @("-C", $script:WorktreePath, "-c", "core.autocrlf=false", "apply", "--binary", "--whitespace=nowarn", "--ignore-space-change", $candidatePatchPath) `
-                    -WorkingDirectory $script:WorktreePath | Out-Null
-            }
-            $untracked = @(& git -C $script:RepoRoot ls-files --others --exclude-standard)
-            foreach ($relative in $untracked) {
-                if (-not $relative) { continue }
-                $sourcePath = Join-Path $script:RepoRoot $relative
-                $targetPath = Join-Path $script:WorktreePath $relative
-                New-Item -ItemType Directory -Force -Path (Split-Path -Parent $targetPath) | Out-Null
-                Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
-            }
-            $overlayStatus = @(& git -C $script:WorktreePath status --short --untracked-files=all)
-            $overlayPaths = @($overlayStatus | ForEach-Object { Get-StatusPath -StatusLine ([string]$_) } | Sort-Object -Unique)
-            if (@(Compare-Object -ReferenceObject $candidatePaths -DifferenceObject $overlayPaths).Count -ne 0) {
-                throw "Candidate overlay paths differ from the reviewed source paths"
-            }
-        }
+        $acceptanceWorktreeState = "isolated_worktree_clean"
         $pyprojectPath = Join-Path $script:WorktreePath "pyproject.toml"
         $pyprojectText = Get-Content -LiteralPath $pyprojectPath -Raw
         $nameMatch = [regex]::Match($pyprojectText, '(?m)^name\s*=\s*"([^"]+)"')
@@ -788,8 +691,8 @@ for filename in ("index.html", "styles.css", "app.js"):
     $readme = Get-Content -LiteralPath (Join-Path $script:WorktreePath "README.md") -Raw
     $webuiReadme = Get-Content -LiteralPath (Join-Path $script:WorktreePath "docs\webui\README.md") -Raw
     Assert-Contains -Text $readme -Needle "release-acceptance.ps1" -Context "README.md"
-    Assert-Contains -Text $webuiReadme -Needle "FastAPI server console wrapper" -Context "docs/webui/README.md"
-    Assert-Contains -Text $webuiReadme -Needle "GUI launcher console wrapper" -Context "docs/webui/README.md"
+    Assert-Contains -Text $webuiReadme -Needle "powers-tool-webui" -Context "docs/webui/README.md"
+    Assert-Contains -Text $webuiReadme -Needle "powers-tool-webui-launcher" -Context "docs/webui/README.md"
     Assert-Contains -Text $webuiReadme -Needle "dist\powers-tool-webui.exe" -Context "docs/webui/README.md"
     Add-Check -Target $script:DocumentationChecks -Name "English release usage" -Passed $true -Detail "README documents the acceptance entry point"
     Run-Python -Name "stale-identity-gate" -Python $current -WorkingDirectory $script:WorktreePath `
@@ -801,10 +704,8 @@ for filename in ("index.html", "styles.css", "app.js"):
         -Arguments @("-C", $script:WorktreePath, "diff", "--check") `
         -WorkingDirectory $script:WorktreePath | Out-Null
     $finalStatus = @(& git -C $script:WorktreePath status --short --untracked-files=all)
-    $expectedFinalPaths = if ($IncludeWorkingTreeChanges) { $candidatePaths } else { @() }
-    $finalPaths = @($finalStatus | ForEach-Object { Get-StatusPath -StatusLine ([string]$_) } | Sort-Object -Unique)
-    if (@(Compare-Object -ReferenceObject $expectedFinalPaths -DifferenceObject $finalPaths).Count -ne 0) {
-        throw "Acceptance commands changed tracked or untracked source paths: $($finalPaths -join ', ')"
+    if ($finalStatus.Count -ne 0) {
+        throw "Acceptance commands changed tracked or untracked source paths: $($finalStatus -join '; ')"
     }
 
     $script:CurrentStep = "complete no-hardware suites"
@@ -884,11 +785,6 @@ finally {
             current_python_version = if ($currentPythonMetadata) { [string]$currentPythonMetadata.version } else { $null }
             interpreters_distinct = $interpretersDistinct
             initial_worktree_status = @($initialStatus)
-            clean_worktree_before_overlay = if ($InterpreterPreflightOnly) { $null } else { (@($cleanStatusBeforeOverlay).Count -eq 0) }
-            working_tree_overlay_applied = [bool]$IncludeWorkingTreeChanges
-            candidate_paths = @($candidatePaths)
-            candidate_file_hashes = @($candidateFileHashes)
-            candidate_patch_sha256 = $candidatePatchSha256
             commands = @($script:Commands)
             build_artifacts = @($script:BuildArtifacts | Select-Object -Unique)
             install_checks = @($script:InstallChecks)
@@ -905,12 +801,8 @@ finally {
         }
         $reportJson = $report | ConvertTo-Json -Depth 8
         Write-Utf8NoBomFile -LiteralPath (Join-Path $script:RunRoot "report.json") -Content $reportJson
-        $summaryTitle = if ($InterpreterPreflightOnly -and $IncludeWorkingTreeChanges) {
-            "Powers Tool Candidate Working-Tree Interpreter Preflight"
-        } elseif ($InterpreterPreflightOnly) {
+        $summaryTitle = if ($InterpreterPreflightOnly) {
             "Powers Tool Interpreter Preflight"
-        } elseif ($IncludeWorkingTreeChanges) {
-            "Powers Tool Candidate Working-Tree Validation"
         } else {
             "Powers Tool Release Acceptance"
         }
@@ -922,8 +814,7 @@ finally {
             "- Acceptance mode: ``$acceptanceMode``",
             "- Full acceptance completed: ``$($script:FullAcceptanceCompleted.ToString().ToLowerInvariant())``",
             "- Source commit: ``$sourceCommit``",
-            "- Working-tree overlay applied: ``$([bool]$IncludeWorkingTreeChanges)``",
-            "- Candidate patch SHA-256: ``$(if ($candidatePatchSha256) { $candidatePatchSha256 } else { 'null' })``",
+            "- Acceptance worktree state: ``$acceptanceWorktreeState``",
             "- Distribution: ``$distributionName`` $projectVersion",
             "- Hardware touched: ``false``",
             "- Support metadata changed: ``false``",
@@ -936,12 +827,6 @@ finally {
         if ($InterpreterPreflightOnly) {
             $summary += ""
             $summary += "This report covers interpreter preflight only; it is not release acceptance."
-            if ($IncludeWorkingTreeChanges) {
-                $summary += "This preflight records a working-tree candidate overlay; it is not committed-HEAD provenance."
-            }
-        } elseif ($IncludeWorkingTreeChanges) {
-            $summary += ""
-            $summary += "This validates the working-tree candidate only. It is not the final committed clean-HEAD acceptance."
         }
         foreach ($command in $script:Commands) {
             $summary += "| ``$($command.name)`` | $($command.exit_code) | $($command.duration_ms) |"

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import importlib
 import io
 import json
@@ -265,7 +264,6 @@ def _run_preflight(
     *,
     python310: Path,
     current_python: Path,
-    include_working_tree: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, object]]:
     command = [
         _powershell(),
@@ -282,8 +280,6 @@ def _run_preflight(
         "-OutputRoot",
         ".tmp_tests\\preflight",
     ]
-    if include_working_tree:
-        command.append("-IncludeWorkingTreeChanges")
     result = _run(command, cwd=repository, check=False)
     reports = list((repository / ".tmp_tests" / "preflight").glob("r_*/report.json"))
     assert len(reports) == 1, result.stdout + result.stderr
@@ -301,7 +297,6 @@ def test_release_acceptance_script_uses_isolated_locked_workflows() -> None:
         "--no-emit-project",
         "Python310",
         "CurrentPython",
-        "IncludeWorkingTreeChanges",
         "powers-tool-webui-launcher",
         "inspect_distribution.py",
         "inspect_pyinstaller.py",
@@ -310,8 +305,6 @@ def test_release_acceptance_script_uses_isolated_locked_workflows() -> None:
         "evidence_changed = $false",
         "repository_renamed = $false",
         "acceptance_worktree_state = $acceptanceWorktreeState",
-        "candidate_patch_sha256",
-        "candidate_file_hashes",
         "failure_message",
         "InterpreterPreflightOnly",
         'VersionSelector "3.13"',
@@ -330,9 +323,6 @@ def test_release_acceptance_script_uses_isolated_locked_workflows() -> None:
     assert "--reinstall-package" in text
     assert "--basetemp" in text
     assert "PYTHONNOUSERSITE" in text
-    assert "apply-working-tree-diff" in text
-    assert "ls-files --others --exclude-standard" in text
-    assert "outside the release acceptance allowlist" in text
     assert text.index('"focused release acceptance tests"') < text.index(
         '"complete no-hardware suites"'
     )
@@ -448,68 +438,59 @@ def test_preflight_report_records_exact_interpreter_and_committed_provenance(
         == current_python
     )
     assert report["interpreters_distinct"] is True
-    assert report["working_tree_overlay_applied"] is False
-    assert report["candidate_paths"] == []
-    assert report["candidate_patch_sha256"] is None
+    assert report["acceptance_worktree_state"] == "not-created"
+    assert "working_tree_overlay_applied" not in report
+    assert "candidate_paths" not in report
 
 
-def test_preflight_candidate_report_keeps_commit_and_patch_provenance_distinct(
+def test_dirty_repository_fails_before_creating_acceptance_output(
     request: pytest.FixtureRequest,
     find_python: Callable[[str], Path],
 ) -> None:
     repository = _make_preflight_repository(request)
     python310 = find_python("3.10")
     current_python = find_python("3.13")
-    source_commit = _run(["git", "rev-parse", "HEAD"], cwd=repository).stdout.strip()
-    (repository / "README.md").write_text("candidate change\n", encoding="utf-8")
-    result, report = _run_preflight(
-        repository,
-        python310=python310,
-        current_python=current_python,
-        include_working_tree=True,
+    (repository / "README.md").write_text("dirty change\n", encoding="utf-8")
+    output_root = repository / ".tmp_tests" / "preflight"
+    result = _run(
+        [
+            _powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+            str(repository / "scripts" / SCRIPT.name), "-InterpreterPreflightOnly",
+            "-Python310", str(python310), "-CurrentPython", str(current_python),
+            "-OutputRoot", ".tmp_tests\\preflight",
+        ],
+        cwd=repository,
+        check=False,
     )
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert report["acceptance_mode"] == "candidate-interpreter-preflight"
-    assert report["full_acceptance_completed"] is False
-    assert report["working_tree_overlay_applied"] is True
-    assert report["source_commit"] == source_commit
-    assert report["candidate_paths"] == ["README.md"]
-    candidate_hashes = {
-        item["path"]: item["sha256"] for item in report["candidate_file_hashes"]
-    }
-    assert candidate_hashes == {
-        "README.md": hashlib.sha256(
-            (repository / "README.md").read_bytes()
-        ).hexdigest()
-    }
-    patch = next(
-        (repository / ".tmp_tests" / "preflight").glob("r_*/working-tree.patch")
+    assert result.returncode == 1
+    assert "requires a clean source worktree" in " ".join(
+        (result.stdout + result.stderr).split()
     )
-    assert report["candidate_patch_sha256"] == hashlib.sha256(
-        patch.read_bytes()
-    ).hexdigest()
-    assert report["candidate_patch_sha256"] != report["source_commit"]
-    summary = next(
-        (repository / ".tmp_tests" / "preflight").glob("r_*/summary.md")
-    ).read_text(encoding="utf-8")
-    assert "Candidate Working-Tree Interpreter Preflight" in summary
-    assert "not release acceptance" in summary
-    assert "not committed-HEAD provenance" in summary
+    assert not output_root.exists()
 
 
-def test_readme_uses_python_313_and_distinguishes_candidate_from_final_acceptance(
-) -> None:
+def test_readme_uses_python_313_and_requires_committed_clean_source() -> None:
     text = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "-CurrentPython (uv python find 3.13)" in text
     assert "-CurrentPython (uv python find 3.12)" not in text
-    assert "-IncludeWorkingTreeChanges" in text
-    assert "does not replace final release\nacceptance" in text
+    assert "clean, fully committed" in text
+    assert "-IncludeWorkingTreeChanges" not in text
 
 
-def test_release_acceptance_candidate_overlay_has_an_exact_write_scope() -> None:
+def test_release_acceptance_has_no_working_tree_overlay_mode() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
+
+    for removed in (
+        "IncludeWorkingTreeChanges",
+        "allowedCandidatePaths",
+        "candidate_patch_sha256",
+        "working_tree_overlay_applied",
+        "apply-working-tree-diff",
+    ):
+        assert removed not in text
+    return
 
     allowed_block = text.split("$allowedCandidatePaths = @(", 1)[1].split(")", 1)[0]
     expected = {

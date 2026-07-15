@@ -309,7 +309,8 @@ release\<version>\powers_tool-<version>.tar.gz
 release\<version>\checksums.txt
 ```
 
-Run the final no-hardware release acceptance from an isolated clean worktree.
+Run the final no-hardware release acceptance from a clean, fully committed
+source working tree. The script validates committed HEAD in an isolated clean worktree.
 The final acceptance uses separate locked Python 3.10 and Python 3.13
 environments, builds and installs the wheel and sdist, checks all console entry
 points, builds both standalone executables, and writes `report.json` and
@@ -324,15 +325,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
 
 This acceptance script never performs VISA discovery, opens a resource, or
 sends SCPI. It does not publish a release or rename the repository.
-
-Before committing a release-tooling correction, maintainers may validate the
-working-tree candidate by adding `-IncludeWorkingTreeChanges`. That mode
-validates the recorded `source_commit` plus a candidate patch and labels its
-report as pre-commit candidate validation. It does not replace final release
-acceptance. After the corrective commit is created, rerun the command above
-from a clean working tree without `-IncludeWorkingTreeChanges`; the final
-report must identify the committed HEAD and show no overlay, candidate paths,
-or candidate patch hash.
 
 ## Test
 
