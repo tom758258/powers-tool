@@ -12,9 +12,9 @@ if ($LASTEXITCODE -ne 0 -or $head -ne $ExpectedCommit) { throw "HEAD does not ma
 if (-not [string]::IsNullOrWhiteSpace((& git -C $RepoRoot status --porcelain))) { throw "A clean repository is required." }
 $python = if ($DevelopmentPython) { [System.IO.Path]::GetFullPath($DevelopmentPython) } else { Join-Path $RepoRoot ".venv\Scripts\python.exe" }
 if (-not (Test-Path -LiteralPath $python)) { throw "The maintained Product development environment is required." }
-$productVersion = (& $python -c "import pathlib,tomllib; print(tomllib.loads(pathlib.Path(r'$RepoRoot\pyproject.toml').read_text('utf-8'))['project']['version'])").Trim()
-$validationVersion = (& $python -c "import pathlib,tomllib; print(tomllib.loads(pathlib.Path(r'$RepoRoot\validation\pyproject.toml').read_text('utf-8'))['project']['version'])").Trim()
-if (-not $productVersion -or $productVersion -ne $validationVersion) { throw "Product and Validation versions must match." }
+$productVersion = (& $python (Join-Path $PSScriptRoot "resolve_validation_version.py") (Join-Path $RepoRoot "pyproject.toml") (Join-Path $RepoRoot "validation\pyproject.toml")).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $productVersion) { throw "Product and Validation versions must be valid and match." }
+$validationVersion = $productVersion
 
 $artifacts = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $ArtifactRoot))
 $environment = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $EnvironmentPath))

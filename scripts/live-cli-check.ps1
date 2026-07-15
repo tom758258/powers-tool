@@ -2094,6 +2094,7 @@ function Write-ValidationArtifacts {
         promotes_live_support = $false
         plan_only = [bool]$PlanOnly
         live_executed = ($ValidationMode -eq "live")
+        hardware_touched = ($ValidationMode -eq "live")
         state_changing = $script:StateChanging
         restore_requested = [bool]$Restore
         resource = $script:ResourceDisplay
@@ -2358,7 +2359,13 @@ if ($PlanOnly) {
     exit 0
 }
 
-if ([Console]::IsInputRedirected) {
+$acceptanceTestMode = (
+    $env:POWERS_TOOL_RUN_CLEAN_PRE_VISA_ACCEPTANCE -eq "1" -and
+    $env:POWERS_TOOL_VALIDATION_TEST_STOP_BEFORE_VISA -eq "1" -and
+    $env:PYTEST_CURRENT_TEST -eq "validation/tests/test_clean_pre_visa_acceptance.py::test_clean_pre_visa_acceptance (call)"
+)
+
+if (-not $acceptanceTestMode -and [Console]::IsInputRedirected) {
     $script:Failures.Add("Interactive confirmation is required before opening VISA; stdin is redirected.")
     Write-ValidationArtifacts -ValidationMode "confirmation_required" -Result "confirmation_required" -StartedAt $startedAt
     Write-Error "Interactive confirmation is required before live execution. Re-run from an interactive PowerShell session, or use -PlanOnly."
@@ -2387,7 +2394,9 @@ Write-Host "- Confirm no DUT is connected, or only known safe loads, for state-c
 Write-Host "- Confirm output indicators are currently OFF before state-changing suites."
 Write-Host "- Confirm no OVP/OCP/error/protection abnormal indicators are shown."
 Write-Host ""
-Read-Host "Press Enter to run live suite validation, or press Ctrl+C to abort"
+if (-not $acceptanceTestMode) {
+    Read-Host "Press Enter to run live suite validation, or press Ctrl+C to abort"
+}
 
 if ($null -eq $script:ValidationBuildIdentity -or
     $script:ValidationBuildIdentity.artifact_kind -ne "wheel" -or
@@ -2400,7 +2409,7 @@ if ($null -eq $script:ValidationBuildIdentity -or
     exit 1
 }
 
-if ($env:POWERS_TOOL_VALIDATION_TEST_STOP_BEFORE_VISA -eq "1" -and $env:PYTEST_CURRENT_TEST) {
+if ($acceptanceTestMode) {
     Write-ValidationArtifacts -ValidationMode "pre_visa_test" -Result "passed" -StartedAt $startedAt
     Write-Host "Installed-wheel pre-VISA gate passed; hardware_touched=false."
     exit 0

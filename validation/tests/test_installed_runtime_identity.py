@@ -23,7 +23,7 @@ def test_preparation_workflow_installs_exact_local_wheels() -> None:
 def test_preparation_workflow_is_version_neutral() -> None:
     text = (ROOT / "scripts" / "prepare-validation-environment.ps1").read_text(encoding="utf-8")
     assert "pyproject.toml" in text and "validation\\pyproject.toml" in text
-    assert "$productVersion -ne $validationVersion" in text
+    assert "resolve_validation_version.py" in text
     assert "--expected-version $productVersion" in text
     assert "--expected-version $validationVersion" in text
     assert 'product_version = $productVersion' in text
@@ -52,6 +52,21 @@ def test_real_wrapper_has_one_runtime_and_no_source_fallback() -> None:
     assert "installed_runtime_verified" in text
     assert "repository_source_shadowed" in text
     assert "POWERS_TOOL_VALIDATION_TEST_STOP_BEFORE_VISA" in text
+
+
+def test_pre_visa_acceptance_bypass_is_exact_and_after_installed_runtime_gates() -> None:
+    text = (ROOT / "scripts" / "live-cli-check.ps1").read_text(encoding="utf-8")
+    opt_in = text.index('POWERS_TOOL_RUN_CLEAN_PRE_VISA_ACCEPTANCE -eq "1"')
+    stop_marker = text.index('POWERS_TOOL_VALIDATION_TEST_STOP_BEFORE_VISA -eq "1"')
+    pytest_call = text.index(
+        'validation/tests/test_clean_pre_visa_acceptance.py::test_clean_pre_visa_acceptance (call)'
+    )
+    redirected = text.index("[Console]::IsInputRedirected")
+    installed_gate = text.index("Real validation requires a clean, installed internal validation wheel.")
+    stop = text.index('Write-ValidationArtifacts -ValidationMode "pre_visa_test"')
+    secret = text.index("$script:CandidateRunSecret = New-SecureHexValue -ByteCount 32")
+    assert opt_in < redirected and stop_marker < redirected and pytest_call < redirected
+    assert installed_gate < stop < secret
 
 
 def test_product_entry_point_is_not_replaced() -> None:

@@ -20,7 +20,6 @@ where = ["src"]
 include = ["powers_tool_validation*"]
 
 [tool.pytest.ini_options]
-addopts = "--basetemp=.tmp_tests/pytest_validation"
 testpaths = ["tests"]
 pythonpath = ["src", "../src"]
 
