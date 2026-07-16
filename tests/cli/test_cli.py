@@ -2713,8 +2713,31 @@ def test_output_state_real_e36312a_reads_channel_state(monkeypatch, capsys, chan
     payload = json.loads(captured.out)
     assert session.queries == ["*IDN?", f"OUTP? (@{channel})"]
     assert session.writes == []
-    assert payload["data"]["output"] == {"enabled": True}
+    assert payload["data"]["channel"] == int(channel)
+    assert payload["data"]["output_enabled"] is True
+    assert "output" not in payload["data"]
+    assert "outputs" not in payload["data"]
     assert f"USB0::SIM::E36312A::INSTR SCPI >> OUTP? (@{channel})" in captured.err
+
+
+def test_output_state_real_e36312a_all_uses_canonical_outputs(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
+        query_responses={"OUTP? (@1)": "ON", "OUTP? (@2)": "OFF", "OUTP? (@3)": "ON"},
+    )
+    monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["output-state", "--json", "--resource", OUTPUT_RESOURCE, "--channel", "all"]) == 0
+
+    data = json.loads(capsys.readouterr().out)["data"]
+    assert data["channel"] == "all"
+    assert data["outputs"] == [
+        {"channel": 1, "enabled": True},
+        {"channel": 2, "enabled": False},
+        {"channel": 3, "enabled": True},
+    ]
+    assert "output" not in data
+    assert "output_enabled" not in data
 
 
 def test_safe_off_real_e36312a_expands_all_channels(monkeypatch, capsys) -> None:
@@ -4257,7 +4280,7 @@ def test_output_state_real_edu36311a_reads_channel_state(monkeypatch, capsys) ->
 
     payload = json.loads(capsys.readouterr().out)
     assert session.queries == ["*IDN?", "OUTP? (@3)"]
-    assert payload["data"]["output"]["enabled"] is False
+    assert payload["data"]["output_enabled"] is False
 
 
 def test_cycle_output_real_invalid_duration_rejected(capsys) -> None:
@@ -5074,10 +5097,19 @@ def test_new_commands_simulate_without_real_visa(monkeypatch, capsys) -> None:
         )
         == 0
     )
-    assert json.loads(capsys.readouterr().out)["data"]["channels"][1]["measurements"] == {
+    measure_all_data = json.loads(capsys.readouterr().out)["data"]
+    assert measure_all_data["channels"][1]["measurements"] == {
         "voltage": 2.2,
         "current": 0.22,
     }
+    assert measure_all_data["idn"] == {
+        "manufacturer": "KEYSIGHT",
+        "model": "E36312A",
+        "serial": "SIM000003",
+        "firmware": "1.0",
+        "parse_ok": True,
+    }
+    assert "raw" not in measure_all_data["idn"]
 
     assert (
         cli.main(
@@ -5241,6 +5273,31 @@ def test_measure_all_policy_rejects_before_scpi_failure(monkeypatch, capsys) -> 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert_live_scope_rejected(payload, session)
+
+
+@pytest.mark.parametrize("idn_raw", [None, 123, {"model": "E36312A"}])
+def test_measure_all_rejects_invalid_core_identity(monkeypatch, capsys, idn_raw) -> None:
+    monkeypatch.setattr(
+        cli.readonly_core,
+        "run_readonly",
+        lambda *args, **kwargs: {"resource": OUTPUT_RESOURCE, "channels": [], "idn_raw": idn_raw},
+    )
+
+    assert cli.main(["measure-all", "--simulate", "--json", "--resource", "USB0::SIM::E36312A::INSTR"]) == 3
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"] == {
+        "type": "execution",
+        "code": "invalid_core_result",
+        "message": "measure-all Core result did not include a valid observed IDN string.",
+        "retryable": False,
+    }
+
+
+def test_measure_all_dry_run_has_no_observed_identity(capsys) -> None:
+    assert cli.main(["measure-all", "--dry-run", "--json", "--model", "keysight-e36312a"]) == 0
+    assert "idn" not in json.loads(capsys.readouterr().out)["data"]
 
 
 def test_trigger_pulse_policy_rejects_before_write_failure(monkeypatch, capsys) -> None:

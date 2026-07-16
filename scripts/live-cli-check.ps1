@@ -680,6 +680,100 @@ function Get-PropertyValue {
     return $property.Value
 }
 
+function Normalize-OutputStateEvidence {
+    param(
+        [AllowNull()]$Data,
+        [Parameter(Mandatory = $true)][int[]]$ExpectedChannels
+    )
+
+    $records = New-Object System.Collections.Generic.List[object]
+    $failures = New-Object System.Collections.Generic.List[string]
+    $outputsProperty = if ($null -eq $Data) { $null } else { $Data.PSObject.Properties["outputs"] }
+    $items = $null
+    if ($null -ne $outputsProperty) {
+        $value = $outputsProperty.Value
+        if ($null -eq $value -or $value -is [string] -or $value -is [System.Collections.IDictionary] -or
+            $value -is [pscustomobject] -or -not ($value -is [System.Collections.IEnumerable])) {
+            $failures.Add("output-state data.outputs must be a non-null collection.")
+        }
+        else {
+            $items = @($value)
+            if ($items.Count -eq 0) {
+                $failures.Add("output-state data.outputs must not be empty.")
+            }
+        }
+    }
+    elseif ($ExpectedChannels.Count -eq 1) {
+        $enabledProperty = if ($null -eq $Data) { $null } else { $Data.PSObject.Properties["output_enabled"] }
+        if ($null -eq $enabledProperty -or -not ($enabledProperty.Value -is [System.Boolean])) {
+            $failures.Add("single-channel output-state data.output_enabled must be an exact boolean.")
+        }
+        else {
+            $records.Add([pscustomobject]@{ channel = $ExpectedChannels[0]; enabled = $enabledProperty.Value })
+        }
+    }
+    else {
+        $failures.Add("all-channel output-state data.outputs is required.")
+    }
+
+    if ($null -ne $items) {
+        $seen = @{}
+        foreach ($item in $items) {
+            if ($null -eq $item) {
+                $failures.Add("output-state data.outputs contains a null record.")
+                continue
+            }
+            $channelProperty = $item.PSObject.Properties["channel"]
+            $enabledProperty = $item.PSObject.Properties["enabled"]
+            if ($null -eq $channelProperty -or $null -eq $enabledProperty) {
+                $failures.Add("each output-state record must contain channel and enabled.")
+                continue
+            }
+            $channelValue = $channelProperty.Value
+            $channel = 0
+            $numericChannel = $false
+            if ($channelValue -isnot [System.Boolean] -and $channelValue -isnot [string] -and $channelValue -is [System.ValueType]) {
+                try {
+                    $number = [Convert]::ToDouble($channelValue, [Globalization.CultureInfo]::InvariantCulture)
+                    if (-not [double]::IsNaN($number) -and -not [double]::IsInfinity($number) -and $number -gt 0 -and $number -eq [Math]::Truncate($number) -and $number -le [int]::MaxValue) {
+                        $channel = [int]$number
+                        $numericChannel = $true
+                    }
+                }
+                catch {}
+            }
+            if (-not $numericChannel) {
+                $failures.Add("output-state record channel must be a finite positive integer number.")
+                continue
+            }
+            if ($channel -notin $ExpectedChannels) {
+                $failures.Add("output-state record contains unknown channel $channel.")
+                continue
+            }
+            if ($seen.ContainsKey($channel)) {
+                $failures.Add("output-state records contain duplicate channel $channel.")
+                continue
+            }
+            if ($enabledProperty.Value -isnot [System.Boolean]) {
+                $failures.Add("output-state record enabled must be an exact boolean.")
+                continue
+            }
+            $seen[$channel] = $true
+            $records.Add([pscustomobject]@{ channel = $channel; enabled = $enabledProperty.Value })
+        }
+        foreach ($expectedChannel in $ExpectedChannels) {
+            if (-not $seen.ContainsKey($expectedChannel)) {
+                $failures.Add("output-state records are missing expected channel $expectedChannel.")
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        records = @($records.ToArray())
+        failures = @($failures.ToArray())
+    }
+}
+
 function New-CleanupEvidence {
     param([Parameter(Mandatory = $true)][string]$ValidationMode)
 
@@ -774,7 +868,7 @@ function Get-ReadOnlyCases {
     $cases.Add((New-CommandCase -Name "error" -Suite "readonly" -Phase $phase -Args (@("error") + $modeFlag + @("--json", "--resource", $resource, "--max-reads", "20", "--log-scpi")) -LiveHardwareExpected:$Live))
     foreach ($channel in Get-TargetChannels -Model $Model) {
         $cases.Add((New-CommandCase -Name ("measure-ch" + $channel) -Suite "readonly" -Phase $phase -Args (@("measure") + $modeFlag + @("--json", "--resource", $resource, "--channel", [string]$channel, "--log-scpi")) -LiveHardwareExpected:$Live))
-        $cases.Add((New-CommandCase -Name ("output-state-ch" + $channel) -Suite "readonly" -Phase $phase -Args (@("output-state") + $modeFlag + @("--json", "--resource", $resource, "--channel", [string]$channel, "--log-scpi")) -LiveHardwareExpected:$Live))
+        $cases.Add((New-CommandCase -Name ("output-state-ch" + $channel) -Suite "readonly" -Phase $phase -Args (@("output-state") + $modeFlag + @("--json", "--resource", $resource, "--channel", [string]$channel, "--log-scpi")) -LiveHardwareExpected:$Live -ExpectedChannels @($channel)))
     }
     $cases.Add((New-CommandCase -Name "read-status" -Suite "readonly" -Phase $phase -Args (@("read-status") + $modeFlag + @("--json", "--resource", $resource, "--all", "--log-scpi")) -LiveHardwareExpected:$Live))
     $cases.Add((New-CommandCase -Name "readback" -Suite "readonly" -Phase $phase -Args (@("readback") + $modeFlag + @("--json", "--resource", $resource, "--all", "--log-scpi")) -LiveHardwareExpected:$Live))
@@ -1114,9 +1208,9 @@ function Get-CaseAssertionFailures {
                 $expected = ($channel -eq 1)
             }
             else {
-                $expected = [bool]$Case.expected_output_enabled
+                $expected = $Case.expected_output_enabled
             }
-            if ($null -eq $enabled -or [bool]$enabled -ne $expected) {
+            if ($enabled -isnot [System.Boolean] -or $enabled -ne $expected) {
                 $failures.Add("$($Case.name) expected channel $channel output enabled=$expected.")
             }
         }
@@ -1436,6 +1530,7 @@ function Invoke-ValidationCommand {
 
     $identity = $null
     $outputStates = $null
+    $outputStateNormalizationFailures = @()
     $instrumentErrors = $null
     if ($null -ne $payload) {
         $data = Get-PropertyValue -Object $payload -Name "data"
@@ -1445,9 +1540,10 @@ function Invoke-ValidationCommand {
             if ($null -eq $identity) {
                 $identity = Get-PropertyValue -Object $data -Name "idn"
             }
-            $outputStates = Get-PropertyValue -Object $data -Name "outputs"
-            if ($null -eq $outputStates) {
-                $outputStates = Get-PropertyValue -Object $data -Name "output"
+            if ($Case.phase -eq "live" -and $Case.args.Count -gt 0 -and $Case.args[0] -eq "output-state") {
+                $normalizedOutputStates = Normalize-OutputStateEvidence -Data $data -ExpectedChannels @($Case.expected_channels)
+                $outputStates = @($normalizedOutputStates.records)
+                $outputStateNormalizationFailures = @($normalizedOutputStates.failures)
             }
             $instrumentErrors = Get-PropertyValue -Object $data -Name "errors"
         }
@@ -1499,9 +1595,9 @@ function Invoke-ValidationCommand {
         }
     }
 
-    $assertionFailures = @()
+    $assertionFailures = @($outputStateNormalizationFailures)
     if ($casePassed) {
-        $assertionFailures = @(Get-CaseAssertionFailures -Case $Case -Payload $payload -Identity $identity -OutputStates $outputStates -InstrumentErrors $instrumentErrors -StderrPath $stderrPath)
+        $assertionFailures += @(Get-CaseAssertionFailures -Case $Case -Payload $payload -Identity $identity -OutputStates $outputStates -InstrumentErrors $instrumentErrors -StderrPath $stderrPath)
         if ($assertionFailures.Count -gt 0) {
             $casePassed = $false
             $failure = $assertionFailures -join " "
@@ -1595,18 +1691,11 @@ function Test-AllOutputsOff {
         return $null
     }
     foreach ($item in $items) {
-        if ($item -is [bool]) {
-            if ($item) { return $false }
-            continue
-        }
         $enabled = Get-PropertyValue -Object $item -Name "enabled"
-        if ($null -eq $enabled) {
-            $enabled = Get-PropertyValue -Object $item -Name "output"
-        }
-        if ($null -eq $enabled) {
+        if ($enabled -isnot [System.Boolean]) {
             return $null
         }
-        if ([bool]$enabled) {
+        if ($enabled) {
             return $false
         }
     }
@@ -1637,7 +1726,7 @@ function Invoke-SafeOffCleanup {
             $safeOffFailed = $true
         }
 
-        $outputStateCase = New-CommandCase -Name "cleanup-output-state" -Suite "cleanup" -Phase "live" -Args @("output-state", "--json", "--resource", $script:RawResource, "--channel", "all", "--log-scpi") -LiveHardwareExpected:$true -CleanupRole "final_output_state"
+        $outputStateCase = New-CommandCase -Name "cleanup-output-state" -Suite "cleanup" -Phase "live" -Args @("output-state", "--json", "--resource", $script:RawResource, "--channel", "all", "--log-scpi") -LiveHardwareExpected:$true -ExpectedChannels @(Get-TargetChannels -Model $script:NormalizedTarget) -CleanupRole "final_output_state"
         $outputStateRecord = Invoke-ValidationCommand -Case $outputStateCase
         if ($outputStateRecord.result -eq "passed") {
             $script:CleanupEvidence.output_state_checked = $true

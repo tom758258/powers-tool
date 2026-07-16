@@ -155,16 +155,26 @@ Selected data mappings:
 - `read-status`: `resource`, `errors`, `read_count`, and `outputs`.
 - `readback`: `resource`, `idn_raw`, and `channels[].setpoints`.
 - `measure`: selected channel measurements.
-- `measure-all`: all E36312A channel measurements.
+- `measure-all`: all supported channel measurements. Non-dry-run results,
+  including simulator execution, also contain `data.idn` derived from the
+  observed Core `idn_raw`. This sanitized object contains only `manufacturer`,
+  `model`, `serial`, `firmware`, and `parse_ok`; it never contains the raw IDN
+  string. Dry-run plans do not contain observed identity.
 - `set`: request arguments contain `channel` plus `voltage`, `current`, or
   both. Omitted setpoints are left unchanged, not defaulted. Successful results
   include `updated_setpoints` with only the setpoints actually written; full
   set requests also keep the existing top-level `voltage` and `current` fields.
-- `output-on`, `output-off`, `output-state`, and `cycle-output`: single-channel
-  responses keep the existing `channel` plus `output` shape. With
-  `channel: "all"`, responses keep `channel: "all"` and add `outputs[]` entries
-  keyed by `channel`. `cycle-output` enables all channels, waits once for
-  `duration_ms`, then disables all channels.
+- `output-state`: single-channel responses contain `channel` and the exact
+  boolean `output_enabled`; they do not contain `output` or `outputs`.
+  All-channel responses contain `channel: "all"` and a non-empty `outputs[]`
+  whose entries contain `channel` and exact boolean `enabled`; they do not
+  contain `output` or top-level `output_enabled`.
+- Other output-family commands retain their existing payloads. In particular,
+  `output-on`, `output-off`, and `cycle-output` single-channel responses keep
+  the existing `channel` plus `output` shape. Their `channel: "all"` responses
+  keep `channel: "all"` and add `outputs[]` entries keyed by `channel`.
+  `cycle-output` enables all channels, waits once for `duration_ms`, then
+  disables all channels.
 - `protection-status`: aggregate protection flags calculated as the OR of the
   selected channels, true per-channel protection flags, and output state.
 - `snapshot`: a `schema_version: 2`, `kind: "powers-tool-snapshot"` document

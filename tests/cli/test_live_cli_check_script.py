@@ -64,6 +64,51 @@ def _run_powershell_command(command: str, *, env: dict[str, str] | None = None) 
     )
 
 
+@pytest.mark.parametrize(
+    ("data", "expected_channels", "valid"),
+    [
+        ({"output_enabled": True}, [1], True),
+        ({"output_enabled": False}, [1], True),
+        ({"outputs": [{"channel": 1, "enabled": True}]}, [1], True),
+        ({"outputs": None, "output_enabled": True}, [1], False),
+        ({"outputs": "bad"}, [1], False),
+        ({"outputs": {"channel": 1, "enabled": True}}, [1], False),
+        ({"outputs": []}, [1], False),
+        ({"outputs": [None]}, [1], False),
+        ({"outputs": [{"channel": 1}]}, [1], False),
+        ({"outputs": [{"channel": "1", "enabled": True}]}, [1], False),
+        ({"outputs": [{"channel": True, "enabled": True}]}, [1], False),
+        ({"outputs": [{"channel": 1.5, "enabled": True}]}, [1], False),
+        ({"outputs": [{"channel": 0, "enabled": True}]}, [1], False),
+        ({"outputs": [{"channel": 1, "enabled": "false"}]}, [1], False),
+        ({"outputs": [{"channel": 1, "enabled": False}, {"channel": 1, "enabled": False}]}, [1], False),
+        ({"outputs": [{"channel": 2, "enabled": False}]}, [1], False),
+        ({"outputs": [{"channel": 1, "enabled": False}]}, [1, 2], False),
+        ({"output": {"enabled": False}}, [1], False),
+        ({"outputs": [{"channel": 1, "enabled": False}], "output_enabled": True}, [1], True),
+    ],
+)
+def test_live_cli_check_strictly_normalizes_output_state_evidence(data, expected_channels, valid):
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$data = @'
+{json.dumps(data)}
+'@ | ConvertFrom-Json
+$result = Normalize-OutputStateEvidence -Data $data -ExpectedChannels @({','.join(map(str, expected_channels))})
+$result | ConvertTo-Json -Depth 10 -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    normalized = json.loads(result.stdout.strip())
+    failures = normalized["failures"] if isinstance(normalized["failures"], list) else [normalized["failures"]]
+    assert (len(failures) == 0) is valid
+    if valid:
+        records = normalized["records"] if isinstance(normalized["records"], list) else [normalized["records"]]
+        assert records == [{"channel": 1, "enabled": data.get("outputs", [{}])[0].get("enabled", data.get("output_enabled"))}]
+
+
 def test_live_cli_check_uses_candidate_scope_names_only() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
     removed_names = (
@@ -1751,7 +1796,11 @@ def _cleanup_fixture_cli_path(
             "safe_off_ok": safe_off_ok,
             "output_state_ok": output_state_ok,
             "error_queue_ok": error_queue_ok,
-            "output_states": [{"channel": 1, "enabled": False}] if output_states is None else output_states,
+            "output_states": [
+                {"channel": 1, "enabled": False},
+                {"channel": 2, "enabled": False},
+                {"channel": 3, "enabled": False},
+            ] if output_states is None else output_states,
             "instrument_errors": [] if instrument_errors is None else instrument_errors,
         }
     )
@@ -1896,10 +1945,10 @@ def test_live_cli_check_shareable_artifacts_recursively_redact_private_live_fixt
 @pytest.mark.parametrize(
     ("safe_off_ok", "output_states", "instrument_errors", "cleanup_status", "failure_fragment"),
     [
-        (False, [{"channel": 1, "enabled": False}], [], "failed", "Cleanup safe-off command failed."),
-        (True, [{"channel": 1, "enabled": True}], [], "failed", "Cleanup could not confirm that all outputs are off."),
-        (True, [{"channel": 1, "enabled": None}], [], "partial", "Cleanup did not produce verifiable output-state evidence."),
-        (True, [{"channel": 1, "enabled": False}], ["-200,Instrument error"], "partial", "Cleanup finished with instrument errors."),
+        (False, [{"channel": 1, "enabled": False}, {"channel": 2, "enabled": False}, {"channel": 3, "enabled": False}], [], "failed", "Cleanup safe-off command failed."),
+        (True, [{"channel": 1, "enabled": True}, {"channel": 2, "enabled": False}, {"channel": 3, "enabled": False}], [], "failed", "Cleanup could not confirm that all outputs are off."),
+        (True, [{"channel": 1, "enabled": None}, {"channel": 2, "enabled": False}, {"channel": 3, "enabled": False}], [], "partial", "Cleanup did not produce verifiable output-state evidence."),
+        (True, [{"channel": 1, "enabled": False}, {"channel": 2, "enabled": False}, {"channel": 3, "enabled": False}], ["-200,Instrument error"], "partial", "Cleanup finished with instrument errors."),
     ],
 )
 def test_live_cli_check_required_state_cleanup_incomplete_forces_failed_result(

@@ -343,6 +343,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_output_resource_arguments(measure_all_parser)
     _add_json_argument(measure_all_parser)
     _add_simulate_argument(measure_all_parser)
+    _add_dry_run_argument(measure_all_parser)
     _add_model_argument(measure_all_parser)
     _add_safety_config_argument(measure_all_parser)
     _add_backend_argument(measure_all_parser)
@@ -1448,7 +1449,30 @@ def _run_measure_all(args: argparse.Namespace) -> int:
             message=str(exc),
         )
 
-    data.pop("idn_raw", None)
+    if not args.dry_run:
+        idn_raw = data.pop("idn_raw", None)
+        if not isinstance(idn_raw, str):
+            if args.json:
+                emit_json_error(
+                    command=args.command,
+                    execution=execution,
+                    request=request,
+                    error_type="execution",
+                    code="invalid_core_result",
+                    message="measure-all Core result did not include a valid observed IDN string.",
+                    retryable=False,
+                )
+            else:
+                print("measure-all Core result did not include a valid observed IDN string.", file=sys.stderr)
+            return 3
+        observed = parse_idn(idn_raw)
+        data["idn"] = {
+            "manufacturer": observed.manufacturer,
+            "model": observed.model,
+            "serial": observed.serial,
+            "firmware": observed.firmware,
+            "parse_ok": observed.parse_ok,
+        }
     if args.json:
         emit_json_success(
             command=args.command,
@@ -7737,7 +7761,7 @@ def _output_state_resource_payload(
     enabled: bool,
     outputs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    payload = {
+    payload: dict[str, Any] = {
         "resource": _resource_payload(
             args.resource,
             simulated=args.simulate,
@@ -7745,12 +7769,11 @@ def _output_state_resource_payload(
             idn_raw=idn_raw,
         ),
         "channel": args.channel,
-        "output": {
-            "enabled": enabled,
-        },
     }
     if outputs is not None:
         payload["outputs"] = outputs
+    else:
+        payload["output_enabled"] = enabled
     return payload
 
 
@@ -7964,7 +7987,11 @@ def _print_core_output_result(args: argparse.Namespace, resource_data: dict[str,
     if args.command == "output-state":
         print(f"Resource: {args.resource}")
         print(f"Channel: {args.channel}")
-        print(f"Output enabled: {str(resource_data['output']['enabled']).lower()}")
+        if args.channel == "all":
+            for output in resource_data["outputs"]:
+                print(f"Channel {output['channel']}: Output enabled: {str(output['enabled']).lower()}")
+        else:
+            print(f"Output enabled: {str(resource_data['output_enabled']).lower()}")
         return
     if args.command == "cycle-output":
         print(f"Resource: {args.resource}")
