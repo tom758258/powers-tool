@@ -482,9 +482,11 @@ def _execute_output_write(
             raise_if_cancelled(stop_requested)
             validate_channel(selected_channel, _safety_limits(request, channel=selected_channel, model=parse_idn(idn).model))
             outputs.append({"channel": selected_channel, "enabled": power_supply.output_state(channel=selected_channel)})
-        data = _resource_payload(request, idn, channel=channel, output_enabled=outputs[0]["enabled"])
+        data = _resource_payload(request, idn, channel=channel)
         if channel == "all":
             data["outputs"] = outputs
+        else:
+            data["output_enabled"] = outputs[0]["enabled"]
         return data
 
     if command == "cycle-output":

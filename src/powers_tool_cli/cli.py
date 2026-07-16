@@ -192,6 +192,10 @@ class _MeasureChannelUnsupported(ValueError):
     """Raised when a measure channel is outside conservative driver capability."""
 
 
+class _InvalidCoreResult(ValueError):
+    """Raised when a successful Core result violates the CLI adapter contract."""
+
+
 class _ScpiLoggingSession:
     """Session proxy that logs SCPI traffic while preserving driver behavior."""
 
@@ -5006,7 +5010,15 @@ def _run_core_output_real(args: argparse.Namespace) -> int:
             message=str(exc),
         )
 
-    resource_data = _core_output_resource_data(args, data)
+    try:
+        resource_data = _core_output_resource_data(args, data)
+    except _InvalidCoreResult as exc:
+        return _emit_invalid_core_result(
+            args,
+            request=request,
+            execution=execution,
+            message=str(exc),
+        )
     if args.json:
         emit_json_success(
             command=args.command,
@@ -7758,7 +7770,7 @@ def _safe_off_resource_payload(
 def _output_state_resource_payload(
     args: argparse.Namespace,
     idn_raw: str,
-    enabled: bool,
+    enabled: bool | None,
     outputs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
@@ -7773,6 +7785,8 @@ def _output_state_resource_payload(
     if outputs is not None:
         payload["outputs"] = outputs
     else:
+        if type(enabled) is not bool:
+            raise _InvalidCoreResult("output-state Core result did not contain an exact boolean output_enabled value.")
         payload["output_enabled"] = enabled
     return payload
 
@@ -7919,8 +7933,85 @@ def _output_on_resource_payload(
     return payload
 
 
+def _normalize_positive_integral_core_channel(value: Any, *, field: str) -> int:
+    if type(value) is int:
+        if value > 0:
+            return value
+    elif type(value) is float:
+        if math.isfinite(value) and value > 0 and value.is_integer():
+            return int(value)
+    raise _InvalidCoreResult(f"output-state Core result {field} must be a positive integer.")
+
+
+def _detected_output_state_channels(data: Any) -> tuple[str, tuple[int, ...]]:
+    if type(data) is not dict:
+        raise _InvalidCoreResult("output-state Core result must be a dictionary.")
+    idn = data.get("idn")
+    if type(idn) is not dict:
+        raise _InvalidCoreResult("output-state Core result must contain an observed identity dictionary.")
+    idn_raw = idn.get("raw")
+    if type(idn_raw) is not str or not idn_raw.strip():
+        raise _InvalidCoreResult("output-state Core result must contain a non-empty observed IDN string.")
+    try:
+        selection = select_driver(idn_raw)
+    except (TypeError, ValueError, UnsupportedModelError) as exc:
+        raise _InvalidCoreResult("output-state Core result observed identity did not resolve to a supported model.") from exc
+    if getattr(selection, "reason", None) != "model_specific_driver" or getattr(selection, "physical_identity", None) is None:
+        raise _InvalidCoreResult("output-state Core result observed identity did not resolve to a supported model.")
+    capabilities = getattr(selection, "capabilities", None)
+    channels = getattr(capabilities, "real_measure_channels", None)
+    if type(channels) is not tuple or not channels:
+        raise _InvalidCoreResult("output-state detected real_measure_channels must be a non-empty tuple.")
+    if any(type(channel) is not int or channel <= 0 for channel in channels):
+        raise _InvalidCoreResult("output-state detected real_measure_channels contains an invalid channel.")
+    if len(set(channels)) != len(channels):
+        raise _InvalidCoreResult("output-state detected real_measure_channels contains duplicate channels.")
+    return idn_raw, channels
+
+
+def _normalize_output_state_core_result(
+    args: argparse.Namespace,
+    data: Any,
+) -> tuple[str, bool | None, list[dict[str, Any]] | None]:
+    idn_raw, expected_channels = _detected_output_state_channels(data)
+    requested_channel = args.channel
+    if requested_channel != "all":
+        channel = _normalize_positive_integral_core_channel(requested_channel, field="requested channel")
+        if "output_enabled" not in data or type(data["output_enabled"]) is not bool:
+            raise _InvalidCoreResult("output-state Core result must contain an exact boolean output_enabled value.")
+        if "outputs" in data:
+            raise _InvalidCoreResult("single-channel output-state Core result must not contain outputs.")
+        args.channel = channel
+        return idn_raw, data["output_enabled"], None
+
+    if "output_enabled" in data:
+        raise _InvalidCoreResult("all-channel output-state Core result must not contain output_enabled.")
+    if "outputs" not in data or type(data["outputs"]) is not list or not data["outputs"]:
+        raise _InvalidCoreResult("all-channel output-state Core result must contain a non-empty outputs list.")
+
+    by_channel: dict[int, dict[str, Any]] = {}
+    for record in data["outputs"]:
+        if type(record) is not dict or set(record) != {"channel", "enabled"}:
+            raise _InvalidCoreResult("each output-state Core result record must contain only channel and enabled.")
+        channel = _normalize_positive_integral_core_channel(record["channel"], field="record channel")
+        if type(record["enabled"]) is not bool:
+            raise _InvalidCoreResult("each output-state Core result record enabled value must be an exact boolean.")
+        if channel in by_channel:
+            raise _InvalidCoreResult("output-state Core result contains duplicate channels.")
+        if channel not in expected_channels:
+            raise _InvalidCoreResult("output-state Core result contains an unknown channel.")
+        by_channel[channel] = {"channel": channel, "enabled": record["enabled"]}
+    if set(by_channel) != set(expected_channels):
+        raise _InvalidCoreResult("output-state Core result does not cover every detected output-state channel.")
+    return idn_raw, None, [by_channel[channel] for channel in expected_channels]
+
+
 def _core_output_resource_data(args: argparse.Namespace, data: dict[str, Any]) -> dict[str, Any]:
-    idn_raw = data["idn"]["raw"]
+    if args.command == "output-state":
+        idn_raw, output_enabled, outputs = _normalize_output_state_core_result(args, data)
+        payload = _output_state_resource_payload(args, idn_raw, output_enabled, outputs)
+    else:
+        idn_raw = data["idn"]["raw"]
     if args.command == "set":
         payload = _set_resource_payload(args, idn_raw)
     elif args.command == "apply":
@@ -7933,7 +8024,7 @@ def _core_output_resource_data(args: argparse.Namespace, data: dict[str, Any]) -
     elif args.command == "safe-off":
         payload = _safe_off_resource_payload(args, idn_raw, data["outputs"])
     elif args.command == "output-state":
-        payload = _output_state_resource_payload(args, idn_raw, data["output_enabled"], data.get("outputs"))
+        pass
     elif args.command == "cycle-output":
         payload = _cycle_output_resource_payload(args, idn_raw, data.get("outputs"))
     elif args.command == "ramp":
@@ -9432,6 +9523,28 @@ def _emit_cli_error(
     else:
         print(message, file=sys.stderr)
     return 2
+
+
+def _emit_invalid_core_result(
+    args: argparse.Namespace,
+    *,
+    request: dict[str, Any],
+    execution: dict[str, Any],
+    message: str,
+) -> int:
+    if args.json:
+        emit_json_error(
+            command=args.command,
+            execution=execution,
+            request=request,
+            error_type="execution",
+            code="invalid_core_result",
+            message=message,
+            retryable=False,
+        )
+    else:
+        print(message, file=sys.stderr)
+    return 3
 
 
 def _emit_safe_io_error(

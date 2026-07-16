@@ -774,6 +774,37 @@ function Normalize-OutputStateEvidence {
     }
 }
 
+function Normalize-InstrumentErrorEvidence {
+    param([AllowNull()]$Data)
+
+    $failures = New-Object System.Collections.Generic.List[string]
+    $records = $null
+    $errorsProperty = if ($null -eq $Data) { $null } else { $Data.PSObject.Properties["errors"] }
+    if ($null -eq $errorsProperty) {
+        $failures.Add("instrument error evidence is missing data.errors.")
+    }
+    elseif ($null -eq $errorsProperty.Value) {
+        $failures.Add("instrument error evidence data.errors must not be null.")
+    }
+    elseif ($errorsProperty.Value -is [string] -or
+        $errorsProperty.Value -is [System.Collections.IDictionary] -or
+        $errorsProperty.Value -is [pscustomobject] -or
+        -not ($errorsProperty.Value -is [System.Collections.IEnumerable])) {
+        $failures.Add("instrument error evidence data.errors must be a collection.")
+    }
+    else {
+        $records = @($errorsProperty.Value)
+        if ($records.Count -ne 0) {
+            $failures.Add("instrument error evidence reported a non-empty error queue.")
+        }
+    }
+
+    return [pscustomobject]@{
+        records = $records
+        failures = @($failures.ToArray())
+    }
+}
+
 function New-CleanupEvidence {
     param([Parameter(Mandatory = $true)][string]$ValidationMode)
 
@@ -865,7 +896,7 @@ function Get-ReadOnlyCases {
     $cases.Add((New-CommandCase -Name "verify" -Suite "readonly" -Phase $phase -Args (@("verify") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi")) -LiveHardwareExpected:$Live))
     $cases.Add((New-CommandCase -Name "identify" -Suite "readonly" -Phase $phase -Args (@("identify") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi")) -LiveHardwareExpected:$Live))
     $cases.Add((New-CommandCase -Name "clear" -Suite "readonly" -Phase $phase -Args (@("clear") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi")) -LiveHardwareExpected:$Live))
-    $cases.Add((New-CommandCase -Name "error" -Suite "readonly" -Phase $phase -Args (@("error") + $modeFlag + @("--json", "--resource", $resource, "--max-reads", "20", "--log-scpi")) -LiveHardwareExpected:$Live))
+    $cases.Add((New-CommandCase -Name "error" -Suite "readonly" -Phase $phase -Args (@("error") + $modeFlag + @("--json", "--resource", $resource, "--max-reads", "20", "--log-scpi")) -LiveHardwareExpected:$Live -ValidationKind "empty-errors"))
     foreach ($channel in Get-TargetChannels -Model $Model) {
         $cases.Add((New-CommandCase -Name ("measure-ch" + $channel) -Suite "readonly" -Phase $phase -Args (@("measure") + $modeFlag + @("--json", "--resource", $resource, "--channel", [string]$channel, "--log-scpi")) -LiveHardwareExpected:$Live))
         $cases.Add((New-CommandCase -Name ("output-state-ch" + $channel) -Suite "readonly" -Phase $phase -Args (@("output-state") + $modeFlag + @("--json", "--resource", $resource, "--channel", [string]$channel, "--log-scpi")) -LiveHardwareExpected:$Live -ExpectedChannels @($channel)))
@@ -886,7 +917,7 @@ function Get-ReadOnlyCases {
     if ($Model -eq "keysight-e36312a") {
         $cases.Add((New-CommandCase -Name "measure-all" -Suite "readonly" -Phase $phase -Args (@("measure-all") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi")) -LiveHardwareExpected:$Live -ValidationKind "measure-all" -ExpectedChannels $channels -CandidateScopeRequired:($Live -and (Test-CurrentConnectionSupportsCandidates))))
         if ($Live) {
-            $cases.Add((New-CommandCase -Name "measure-all-error-queue" -Suite "readonly" -Phase $phase -Args @("error", "--json", "--resource", $resource, "--max-reads", "20", "--log-scpi") -LiveHardwareExpected:$true -ValidationKind "empty-errors"))
+            $cases.Add((New-CommandCase -Name "readonly-error-queue-checkpoint" -Suite "readonly" -Phase $phase -Args @("error", "--json", "--resource", $resource, "--max-reads", "20", "--log-scpi") -LiveHardwareExpected:$true -ValidationKind "empty-errors"))
         }
     }
     if ($Model -in @("keysight-e36312a", "keysight-edu36311a")) {
@@ -1532,6 +1563,7 @@ function Invoke-ValidationCommand {
     $outputStates = $null
     $outputStateNormalizationFailures = @()
     $instrumentErrors = $null
+    $instrumentErrorNormalizationFailures = @()
     if ($null -ne $payload) {
         $data = Get-PropertyValue -Object $payload -Name "data"
         if ($null -ne $data) {
@@ -1545,7 +1577,13 @@ function Invoke-ValidationCommand {
                 $outputStates = @($normalizedOutputStates.records)
                 $outputStateNormalizationFailures = @($normalizedOutputStates.failures)
             }
-            $instrumentErrors = Get-PropertyValue -Object $data -Name "errors"
+            if ($Case.validation_kind -eq "empty-errors") {
+                $normalizedInstrumentErrors = Normalize-InstrumentErrorEvidence -Data $data
+                if ($null -ne $normalizedInstrumentErrors.records) {
+                    $instrumentErrors = @($normalizedInstrumentErrors.records)
+                }
+                $instrumentErrorNormalizationFailures = @($normalizedInstrumentErrors.failures)
+            }
         }
     }
     if ($null -ne $identity) {
@@ -1595,7 +1633,7 @@ function Invoke-ValidationCommand {
         }
     }
 
-    $assertionFailures = @($outputStateNormalizationFailures)
+    $assertionFailures = @($outputStateNormalizationFailures) + @($instrumentErrorNormalizationFailures)
     if ($casePassed) {
         $assertionFailures += @(Get-CaseAssertionFailures -Case $Case -Payload $payload -Identity $identity -OutputStates $outputStates -InstrumentErrors $instrumentErrors -StderrPath $stderrPath)
         if ($assertionFailures.Count -gt 0) {
@@ -1736,9 +1774,10 @@ function Invoke-SafeOffCleanup {
             $script:Failures.Add("Cleanup did not produce verifiable output-state evidence.")
         }
 
-        $errorCase = New-CommandCase -Name "cleanup-error-queue" -Suite "cleanup" -Phase "live" -Args @("error", "--json", "--resource", $script:RawResource, "--max-reads", "20", "--log-scpi") -LiveHardwareExpected:$true -CleanupRole "final_error_queue"
+        $errorCase = New-CommandCase -Name "cleanup-error-queue" -Suite "cleanup" -Phase "live" -Args @("error", "--json", "--resource", $script:RawResource, "--max-reads", "20", "--log-scpi") -LiveHardwareExpected:$true -CleanupRole "final_error_queue" -ValidationKind "empty-errors"
         $errorRecord = Invoke-ValidationCommand -Case $errorCase
-        if ($errorRecord.result -eq "passed") {
+        if ($errorRecord.result -eq "passed" -or
+            ($null -ne $errorRecord.instrument_errors_observed -and @($errorRecord.instrument_errors_observed).Count -gt 0)) {
             $script:CleanupEvidence.error_queue_checked = $true
             $script:CleanupEvidence.instrument_errors = $errorRecord.instrument_errors_observed
         }

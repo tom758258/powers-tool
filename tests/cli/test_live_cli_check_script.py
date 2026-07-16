@@ -1856,6 +1856,98 @@ sys.exit(0 if payload["ok"] else 2)
     return tmp_path
 
 
+def _error_evidence_fixture_cli_path(tmp_path: Path, data: object) -> Path:
+    fixture_cli = tmp_path / "powers_tool_cli"
+    fixture_cli.mkdir()
+    (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
+    (fixture_cli / "cli.py").write_text(
+        f"""
+import json
+import sys
+
+payload = {{
+    "ok": True,
+    "error": None,
+    "execution": {{"mode": "real", "dry_run": False, "hardware_touched": True}},
+    "data": json.loads({json.dumps(json.dumps(data))}),
+}}
+save_path = sys.argv[sys.argv.index("--save-json") + 1]
+with open(save_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+print(json.dumps(payload))
+""".lstrip(),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    ("data", "expected_result"),
+    [
+        ({}, "failed"),
+        ({"errors": None}, "failed"),
+        ({"errors": []}, "passed"),
+        ({"errors": ["-200,Instrument error"]}, "failed"),
+        ({"errors": "-200,Instrument error"}, "failed"),
+        ({"errors": {"code": -200}}, "failed"),
+    ],
+)
+def test_live_cli_check_error_evidence_is_fail_closed_in_report(
+    tmp_path, data, expected_result
+) -> None:
+    fixture_path = _error_evidence_fixture_cli_path(tmp_path, data)
+    output_dir = tmp_path / "out"
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
+$script:OutputDir = "{output_dir}"
+New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
+$script:RawResource = "USB0::FIXTURE::INSTR"
+$script:ResourceDisplay = "USB:<redacted-resource>"
+$script:ConnectionLabel = "USB"
+$script:TransportScope = "usb"
+$script:BackendArtifact = Get-BackendArtifactFields -Value $null
+$script:BackendValue = $null
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:SuitesToRun = @("readonly")
+$script:Suite = "readonly"
+$script:StateChanging = $false
+$script:Restore = $false
+$script:PlanOnly = $false
+$case = New-CommandCase -Name "readonly-error-queue-checkpoint" -Suite "readonly" -Phase "live" -Args @("error", "--json", "--resource", $script:RawResource, "--max-reads", "20") -LiveHardwareExpected:$true -ValidationKind "empty-errors"
+$record = Invoke-ValidationCommand -Case $case
+$result = if ($script:Failures.Count -eq 0) {{ "passed" }} else {{ "failed" }}
+Write-ValidationArtifacts -ValidationMode "live" -Result $result -StartedAt (Get-Date)
+Write-Output (Join-Path $script:ShareableArtifactDir "report.json")
+'''
+    result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(Path(result.stdout.strip().splitlines()[-1]).read_text(encoding="utf-8"))
+    assert report["result"] == expected_result
+    record = next(
+        command
+        for command in report["commands"]
+        if command["name"] == "readonly-error-queue-checkpoint"
+    )
+    assert record["result"] == expected_result
+    if data == {"errors": []}:
+        assert isinstance(record["instrument_errors_observed"], list)
+        assert record["instrument_errors_observed"] == []
+
+
+def test_live_cli_check_uses_readonly_error_queue_checkpoint_name() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+
+    assert 'New-CommandCase -Name "readonly-error-queue-checkpoint"' in script
+    assert 'New-CommandCase -Name "measure-all-error-queue"' not in script
+
+
 def _run_state_changing_fixture(
     output_dir: Path,
     *,

@@ -119,7 +119,25 @@ def test_e3646a_output_state_all_is_read_only_real_operation() -> None:
 
     assert data["channel"] == "all"
     assert data["outputs"] == [{"channel": 1, "enabled": False}, {"channel": 2, "enabled": False}]
+    assert "output_enabled" not in data
     assert session.writes == ["INST:NSEL 1", "INST:NSEL 1", "INST:NSEL 2", "INST:NSEL 1"]
+
+
+def test_e36312a_output_state_single_returns_only_output_enabled() -> None:
+    session = FakeSession(responses={"OUTP? (@2)": "1"})
+    core_request = OperationRequest(
+        command="output-state",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR"),
+        parameters={"channel": 2},
+    )
+
+    data = run_operation(core_request, opener=lambda *args, **kwargs: session)
+
+    assert data["channel"] == 2
+    assert data["output_enabled"] is True
+    assert "outputs" not in data
+    assert session.queries == ["*IDN?", "OUTP? (@2)"]
+    assert session.writes == []
 
 
 def test_real_set_voltage_only_writes_only_voltage() -> None:

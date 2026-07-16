@@ -168,7 +168,12 @@ Selected data mappings:
   boolean `output_enabled`; they do not contain `output` or `outputs`.
   All-channel responses contain `channel: "all"` and a non-empty `outputs[]`
   whose entries contain `channel` and exact boolean `enabled`; they do not
-  contain `output` or top-level `output_enabled`.
+  contain `output` or top-level `output_enabled`. After a Core success, the CLI
+  validates the observed IDN, detected output-state channel inventory, and
+  command-specific result shape before building this public payload. A missing,
+  unsupported, or malformed observed identity, channel inventory, or result
+  produces a schema-2 execution error with `code: "invalid_core_result"`,
+  `retryable: false`, and exit code 3 instead of a success envelope.
 - Other output-family commands retain their existing payloads. In particular,
   `output-on`, `output-off`, and `cycle-output` single-channel responses keep
   the existing `channel` plus `output` shape. Their `channel: "all"` responses

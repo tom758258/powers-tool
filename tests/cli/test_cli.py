@@ -1,5 +1,6 @@
 import json
 import csv
+from types import SimpleNamespace
 
 import pytest
 
@@ -2738,6 +2739,245 @@ def test_output_state_real_e36312a_all_uses_canonical_outputs(monkeypatch, capsy
     ]
     assert "output" not in data
     assert "output_enabled" not in data
+
+
+def _output_state_core_result(*, channel=1, output_enabled=False, outputs=None):
+    data = {
+        "resource": OUTPUT_RESOURCE,
+        "resource_alias": None,
+        "idn": {"raw": "KEYSIGHT,E36312A,SERIAL0000,1.0"},
+        "channel": channel,
+    }
+    if output_enabled is not None:
+        data["output_enabled"] = output_enabled
+    if outputs is not None:
+        data["outputs"] = outputs
+    return data
+
+
+def _run_output_state_core_result(monkeypatch, capsys, data, *, channel="1"):
+    monkeypatch.setattr(cli.operations, "run_operation", lambda *args, **kwargs: data)
+    exit_code = cli.main(
+        ["output-state", "--json", "--resource", OUTPUT_RESOURCE, "--channel", channel]
+    )
+    captured = capsys.readouterr()
+    return exit_code, json.loads(captured.out), captured.err
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_output_state_core_result_accepts_exact_single_boolean(
+    monkeypatch, capsys, enabled
+) -> None:
+    exit_code, payload, stderr = _run_output_state_core_result(
+        monkeypatch,
+        capsys,
+        _output_state_core_result(output_enabled=enabled),
+    )
+
+    assert exit_code == 0
+    assert payload["data"]["channel"] == 1
+    assert payload["data"]["output_enabled"] is enabled
+    assert "output" not in payload["data"]
+    assert "outputs" not in payload["data"]
+    assert stderr == ""
+
+
+def test_output_state_core_result_accepts_complete_all_records(monkeypatch, capsys) -> None:
+    data = _output_state_core_result(
+        channel="all",
+        output_enabled=None,
+        outputs=[
+            {"channel": 3.0, "enabled": True},
+            {"channel": 1, "enabled": False},
+            {"channel": 2, "enabled": True},
+        ],
+    )
+
+    exit_code, payload, stderr = _run_output_state_core_result(
+        monkeypatch, capsys, data, channel="all"
+    )
+
+    assert exit_code == 0
+    assert payload["data"]["channel"] == "all"
+    assert payload["data"]["outputs"] == [
+        {"channel": 1, "enabled": False},
+        {"channel": 2, "enabled": True},
+        {"channel": 3, "enabled": True},
+    ]
+    assert "output" not in payload["data"]
+    assert "output_enabled" not in payload["data"]
+    assert stderr == ""
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        None,
+        [],
+        {},
+        {"idn": None},
+        {"idn": "KEYSIGHT,E36312A,SERIAL0000,1.0"},
+        {"idn": {}},
+        {"idn": {"raw": None}},
+        {"idn": {"raw": 123}},
+        {"idn": {"raw": ""}},
+        {"idn": {"raw": "not-an-idn"}},
+        {"idn": {"raw": "KEYSIGHT,UNKNOWN,SERIAL0000,1.0"}},
+    ],
+)
+def test_output_state_core_result_rejects_invalid_observed_identity(
+    monkeypatch, capsys, data
+) -> None:
+    _assert_invalid_output_state_core_result(monkeypatch, capsys, data)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        _output_state_core_result(output_enabled=None),
+        _output_state_core_result(output_enabled="false"),
+        _output_state_core_result(output_enabled=0),
+        _output_state_core_result(output_enabled=1),
+        {**_output_state_core_result(output_enabled=None), "output_enabled": None},
+        _output_state_core_result(
+            output_enabled=False,
+            outputs=[{"channel": 1, "enabled": False}],
+        ),
+    ],
+)
+def test_output_state_core_result_rejects_malformed_single_data(
+    monkeypatch, capsys, data
+) -> None:
+    _assert_invalid_output_state_core_result(monkeypatch, capsys, data)
+
+
+@pytest.mark.parametrize(
+    "outputs",
+    [
+        None,
+        [],
+        1,
+        "bad",
+        {"channel": 1, "enabled": False},
+        [None],
+        ["bad"],
+        [{"enabled": False}],
+        [{"channel": 1}],
+        [{"channel": 1, "enabled": False, "extra": "bad"}],
+        [{"channel": 1, "enabled": "false"}],
+        [{"channel": 1, "enabled": 0}],
+        [{"channel": 1, "enabled": 1}],
+        [{"channel": 1, "enabled": None}],
+        [{"channel": "1", "enabled": False}],
+        [{"channel": True, "enabled": False}],
+        [{"channel": 1.5, "enabled": False}],
+        [{"channel": float("nan"), "enabled": False}],
+        [{"channel": float("inf"), "enabled": False}],
+        [{"channel": 0, "enabled": False}],
+        [{"channel": -1, "enabled": False}],
+        [
+            {"channel": 1, "enabled": False},
+            {"channel": 1, "enabled": False},
+            {"channel": 2, "enabled": False},
+            {"channel": 3, "enabled": False},
+        ],
+        [
+            {"channel": 1, "enabled": False},
+            {"channel": 2, "enabled": False},
+            {"channel": 4, "enabled": False},
+        ],
+        [
+            {"channel": 1, "enabled": False},
+            {"channel": 2, "enabled": False},
+        ],
+    ],
+)
+def test_output_state_core_result_rejects_malformed_all_records(
+    monkeypatch, capsys, outputs
+) -> None:
+    data = _output_state_core_result(
+        channel="all", output_enabled=None, outputs=outputs
+    )
+    if outputs is None:
+        data["outputs"] = None
+    _assert_invalid_output_state_core_result(
+        monkeypatch, capsys, data, channel="all"
+    )
+
+
+def test_output_state_core_result_rejects_all_with_top_level_output_enabled(
+    monkeypatch, capsys
+) -> None:
+    data = _output_state_core_result(
+        channel="all",
+        output_enabled=False,
+        outputs=[
+            {"channel": 1, "enabled": False},
+            {"channel": 2, "enabled": False},
+            {"channel": 3, "enabled": False},
+        ],
+    )
+
+    _assert_invalid_output_state_core_result(
+        monkeypatch, capsys, data, channel="all"
+    )
+
+
+@pytest.mark.parametrize(
+    "capabilities",
+    [
+        SimpleNamespace(),
+        SimpleNamespace(real_measure_channels=None),
+        SimpleNamespace(real_measure_channels=()),
+        SimpleNamespace(real_measure_channels=[1, 2, 3]),
+        SimpleNamespace(real_measure_channels=(1, 1, 2)),
+        SimpleNamespace(real_measure_channels=(True, 2, 3)),
+        SimpleNamespace(real_measure_channels=("1", 2, 3)),
+        SimpleNamespace(real_measure_channels=(1.0, 2, 3)),
+        SimpleNamespace(real_measure_channels=(0, 2, 3)),
+        SimpleNamespace(real_measure_channels=(-1, 2, 3)),
+    ],
+)
+def test_output_state_core_result_rejects_invalid_detected_channels(
+    monkeypatch, capsys, capabilities
+) -> None:
+    selection = SimpleNamespace(
+        physical_identity=SimpleNamespace(model_id="keysight-e36312a"),
+        reason="model_specific_driver",
+        capabilities=capabilities,
+    )
+    monkeypatch.setattr(cli, "select_driver", lambda idn_raw: selection)
+    data = _output_state_core_result(
+        channel="all",
+        output_enabled=None,
+        outputs=[
+            {"channel": 1, "enabled": False},
+            {"channel": 2, "enabled": False},
+            {"channel": 3, "enabled": False},
+        ],
+    )
+
+    _assert_invalid_output_state_core_result(
+        monkeypatch, capsys, data, channel="all"
+    )
+
+
+def _assert_invalid_output_state_core_result(
+    monkeypatch, capsys, data, *, channel="1"
+) -> None:
+    exit_code, payload, stderr = _run_output_state_core_result(
+        monkeypatch, capsys, data, channel=channel
+    )
+
+    assert exit_code == 3
+    assert payload["schema_version"] == 2
+    assert payload["ok"] is False
+    assert payload["status"] == "error"
+    assert payload["data"] is None
+    assert payload["error"]["type"] == "execution"
+    assert payload["error"]["code"] == "invalid_core_result"
+    assert payload["error"]["retryable"] is False
+    assert "Traceback" not in stderr
 
 
 def test_safe_off_real_e36312a_expands_all_channels(monkeypatch, capsys) -> None:
