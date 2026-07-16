@@ -680,6 +680,45 @@ function Get-PropertyValue {
     return $property.Value
 }
 
+function ConvertTo-IdentityLookupKey {
+    param(
+        [AllowNull()]$Value,
+        [switch]$Model
+    )
+
+    if ($Value -isnot [string]) {
+        return $null
+    }
+    try {
+        $normalized = $Value.Normalize([System.Text.NormalizationForm]::FormKC)
+    }
+    catch {
+        return $null
+    }
+    foreach ($character in $normalized.ToCharArray()) {
+        $category = [System.Globalization.CharUnicodeInfo]::GetUnicodeCategory($character)
+        if (
+            $category -in @(
+                [System.Globalization.UnicodeCategory]::Control,
+                [System.Globalization.UnicodeCategory]::Format,
+                [System.Globalization.UnicodeCategory]::Surrogate,
+                [System.Globalization.UnicodeCategory]::PrivateUse,
+                [System.Globalization.UnicodeCategory]::OtherNotAssigned
+            ) -and -not [char]::IsWhiteSpace($character)
+        ) {
+            return $null
+        }
+    }
+    $normalized = ((@($normalized.Trim() -split '\s+') | Where-Object { $_ -ne "" }) -join " ")
+    if ([string]::IsNullOrWhiteSpace($normalized)) {
+        return $null
+    }
+    if ($Model -and $normalized -cmatch '[^\x20-\x7e]') {
+        return $null
+    }
+    return $normalized.ToLowerInvariant()
+}
+
 function Normalize-ObservedIdentityEvidence {
     param(
         [AllowNull()]$Data,
@@ -692,6 +731,8 @@ function Normalize-ObservedIdentityEvidence {
     $resolvedIdentity = $null
     $identityValue = $null
     $resolvedValue = $null
+    $reportedCanonicalVendorId = $null
+    $reportedCanonicalModelId = $null
     $snapshotIdentity = $Command -in @("snapshot", "restore-from-snapshot")
 
     if ($null -eq $Data -or $Data -isnot [pscustomobject]) {
@@ -711,6 +752,18 @@ function Normalize-ObservedIdentityEvidence {
         }
         else {
             $identityValue = $reportedProperty.Value
+            $allowedReportedFields = @("manufacturer", "model", "serial", "firmware", "parse_ok")
+            $reportedFieldNames = @($identityValue.PSObject.Properties | ForEach-Object { $_.Name })
+            foreach ($field in $allowedReportedFields) {
+                if (-not ($reportedFieldNames -ccontains $field)) {
+                    $failures.Add("observed identity evidence data.reported_identity is missing exact field $field.")
+                }
+            }
+            foreach ($field in $reportedFieldNames) {
+                if (-not ($allowedReportedFields -ccontains $field)) {
+                    $failures.Add("observed identity evidence data.reported_identity contains unexpected field $field.")
+                }
+            }
         }
         if ($null -eq $resolvedProperty) {
             $failures.Add("observed identity evidence is missing data.resolved_identity.")
@@ -723,6 +776,18 @@ function Normalize-ObservedIdentityEvidence {
         }
         else {
             $resolvedValue = $resolvedProperty.Value
+            $allowedResolvedFields = @("vendor_id", "model_id", "model_name", "display_name")
+            $resolvedFieldNames = @($resolvedValue.PSObject.Properties | ForEach-Object { $_.Name })
+            foreach ($field in $allowedResolvedFields) {
+                if (-not ($resolvedFieldNames -ccontains $field)) {
+                    $failures.Add("observed identity evidence data.resolved_identity is missing exact field $field.")
+                }
+            }
+            foreach ($field in $resolvedFieldNames) {
+                if (-not ($allowedResolvedFields -ccontains $field)) {
+                    $failures.Add("observed identity evidence data.resolved_identity contains unexpected field $field.")
+                }
+            }
         }
     }
     else {
@@ -766,7 +831,7 @@ function Normalize-ObservedIdentityEvidence {
             $identityFields["parse_ok"] = $true
         }
         $rawProperty = $identityValue.PSObject.Properties["raw"]
-        if ($null -ne $rawProperty) {
+        if (-not $snapshotIdentity -and $null -ne $rawProperty) {
             if ($rawProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($rawProperty.Value)) {
                 $failures.Add("observed identity evidence raw must be a non-empty string when present.")
             }
@@ -774,8 +839,30 @@ function Normalize-ObservedIdentityEvidence {
                 $identityFields["raw"] = $rawProperty.Value
             }
         }
+        $manufacturerProperty = $identityValue.PSObject.Properties["manufacturer"]
         $modelProperty = $identityValue.PSObject.Properties["model"]
-        if ($null -ne $modelProperty -and $modelProperty.Value -is [string] -and $modelProperty.Value -cne [string]$TargetProfile.model) {
+        if ($snapshotIdentity) {
+            $manufacturerKey = if ($null -eq $manufacturerProperty) { $null } else { ConvertTo-IdentityLookupKey -Value $manufacturerProperty.Value }
+            $modelKey = if ($null -eq $modelProperty) { $null } else { ConvertTo-IdentityLookupKey -Value $modelProperty.Value -Model }
+            $targetModelKey = ConvertTo-IdentityLookupKey -Value $TargetProfile.model -Model
+            $manufacturerMatched = $false
+            if ($null -ne $manufacturerKey) {
+                foreach ($alias in @($TargetProfile.reported_manufacturer_aliases)) {
+                    if ($manufacturerKey -ceq (ConvertTo-IdentityLookupKey -Value $alias)) {
+                        $manufacturerMatched = $true
+                        break
+                    }
+                }
+            }
+            if (-not $manufacturerMatched -or $null -eq $modelKey -or $modelKey -cne $targetModelKey) {
+                $failures.Add("observed reported manufacturer and model do not resolve to the target canonical identity.")
+            }
+            else {
+                $reportedCanonicalVendorId = [string]$TargetProfile.vendor_id
+                $reportedCanonicalModelId = [string]$TargetProfile.model_id
+            }
+        }
+        elseif ($null -ne $modelProperty -and $modelProperty.Value -is [string] -and $modelProperty.Value -cne [string]$TargetProfile.model) {
             $failures.Add("observed identity model does not match target model $($TargetProfile.model).")
         }
         if ($failures.Count -eq 0) {
@@ -797,6 +884,7 @@ function Normalize-ObservedIdentityEvidence {
         $vendorIdProperty = $resolvedValue.PSObject.Properties["vendor_id"]
         $modelIdProperty = $resolvedValue.PSObject.Properties["model_id"]
         $modelNameProperty = $resolvedValue.PSObject.Properties["model_name"]
+        $displayNameProperty = $resolvedValue.PSObject.Properties["display_name"]
         if ($null -ne $vendorIdProperty -and $vendorIdProperty.Value -is [string] -and $vendorIdProperty.Value -cne [string]$TargetProfile.vendor_id) {
             $failures.Add("observed resolved identity vendor_id does not match target vendor_id $($TargetProfile.vendor_id).")
         }
@@ -806,10 +894,24 @@ function Normalize-ObservedIdentityEvidence {
         if ($null -ne $modelNameProperty -and $modelNameProperty.Value -is [string] -and $modelNameProperty.Value -cne [string]$TargetProfile.model) {
             $failures.Add("observed resolved identity model_name does not match target model $($TargetProfile.model).")
         }
-        $reportedModel = if ($null -eq $identityValue) { $null } else { $identityValue.PSObject.Properties["model"] }
-        $resolvedModel = $modelNameProperty
-        if ($null -ne $reportedModel -and $null -ne $resolvedModel -and $reportedModel.Value -cne $resolvedModel.Value) {
-            $failures.Add("observed reported and resolved identity models conflict.")
+        if ($null -ne $displayNameProperty -and $displayNameProperty.Value -is [string] -and $displayNameProperty.Value -cne [string]$TargetProfile.canonical_display_name) {
+            $failures.Add("observed resolved identity display_name does not match target canonical display_name $($TargetProfile.canonical_display_name).")
+        }
+        if (
+            $null -ne $reportedCanonicalVendorId -and
+            $null -ne $vendorIdProperty -and
+            $vendorIdProperty.Value -is [string] -and
+            $vendorIdProperty.Value -cne $reportedCanonicalVendorId
+        ) {
+            $failures.Add("observed reported and resolved identity vendor IDs conflict.")
+        }
+        if (
+            $null -ne $reportedCanonicalModelId -and
+            $null -ne $modelIdProperty -and
+            $modelIdProperty.Value -is [string] -and
+            $modelIdProperty.Value -cne $reportedCanonicalModelId
+        ) {
+            $failures.Add("observed reported and resolved identity model IDs conflict.")
         }
         if ($failures.Count -eq 0) {
             $resolvedIdentity = [pscustomobject]$resolvedFields

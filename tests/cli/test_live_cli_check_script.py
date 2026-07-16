@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from powers_tool_cli import cli
+from powers_tool_core.identity import PHYSICAL_MODELS, VENDORS
 from powers_tool_core.support_evidence import SUPPORT_EVIDENCE_MANIFEST
 
 
@@ -122,6 +123,220 @@ RESOLVED_E36312A_IDENTITY = {
     "model_name": "E36312A",
     "display_name": "Keysight E36312A",
 }
+
+
+def _reported_identity(manufacturer: str, model: str) -> dict[str, object]:
+    return {
+        "manufacturer": manufacturer,
+        "model": model,
+        "serial": "SN",
+        "firmware": "2.10",
+        "parse_ok": True,
+    }
+
+
+def _resolved_identity(model_id: str, model_name: str, display_name: str) -> dict[str, str]:
+    return {
+        "vendor_id": "keysight",
+        "model_id": model_id,
+        "model_name": model_name,
+        "display_name": display_name,
+    }
+
+
+def _normalize_observed_identity(
+    target: str, command_name: str, data: object
+) -> dict[str, object]:
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$data = @'
+{json.dumps(data)}
+'@ | ConvertFrom-Json
+$profile = $script:ValidationTargetProfiles["{target}"]
+$result = Normalize-ObservedIdentityEvidence -Data $data -Command "{command_name}" -TargetProfile $profile
+$result | ConvertTo-Json -Depth 10 -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout.strip())
+
+
+def _normalization_succeeded(result: dict[str, object]) -> bool:
+    failures = result["failures"]
+    if not isinstance(failures, list):
+        failures = [failures]
+    return len(failures) == 0
+
+
+def test_live_cli_check_identity_metadata_matches_core_frozen_registry() -> None:
+    command = r'''
+. .\scripts\_validation_helpers.ps1
+@($script:ValidationTargetProfiles.Values | ForEach-Object {
+    [pscustomobject]@{
+        model_id = $_.model_id
+        reported_manufacturer_aliases = @($_.reported_manufacturer_aliases)
+        canonical_display_name = $_.canonical_display_name
+    }
+}) | ConvertTo-Json -Depth 5 -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    profiles = {item["model_id"]: item for item in json.loads(result.stdout)}
+    vendors = {vendor.vendor_id: vendor for vendor in VENDORS}
+    models = {model.model_id: model for model in PHYSICAL_MODELS}
+    assert set(profiles) == {
+        "keysight-e36312a",
+        "keysight-edu36311a",
+        "keysight-e3646a",
+    }
+    for model_id, profile in profiles.items():
+        model = models[model_id]
+        vendor = vendors[model.vendor_id]
+        assert profile["reported_manufacturer_aliases"] == [
+            vendor.canonical_manufacturer,
+            *vendor.manufacturer_aliases,
+            *model.manufacturer_aliases,
+        ]
+        assert profile["canonical_display_name"] == model.display_name
+
+
+@pytest.mark.parametrize("command_name", ["snapshot", "restore-from-snapshot"])
+@pytest.mark.parametrize(
+    ("target", "manufacturer", "model", "resolved", "valid"),
+    [
+        (
+            "keysight-e36312a",
+            "ＫＥＹＳＩＧＨＴ",
+            " e36312a ",
+            _resolved_identity("keysight-e36312a", "E36312A", "Keysight E36312A"),
+            True,
+        ),
+        (
+            "keysight-edu36311a",
+            "  Keysight   Technologies  ",
+            " edu36311a ",
+            _resolved_identity("keysight-edu36311a", "EDU36311A", "Keysight EDU36311A"),
+            True,
+        ),
+        (
+            "keysight-e3646a",
+            "KEYSIGHT",
+            "E3646A",
+            _resolved_identity("keysight-e3646a", "E3646A", "Keysight E3646A"),
+            True,
+        ),
+        (
+            "keysight-e3646a",
+            "Agilent Technologies",
+            "E3646A",
+            _resolved_identity("keysight-e3646a", "E3646A", "Keysight E3646A"),
+            True,
+        ),
+        (
+            "keysight-e36312a",
+            "Agilent Technologies",
+            "E36312A",
+            _resolved_identity("keysight-e36312a", "E36312A", "Keysight E36312A"),
+            False,
+        ),
+        (
+            "keysight-edu36311a",
+            "Agilent Technologies",
+            "EDU36311A",
+            _resolved_identity("keysight-edu36311a", "EDU36311A", "Keysight EDU36311A"),
+            False,
+        ),
+        (
+            "keysight-e36312a",
+            "Keysight-Technologies",
+            "E36312A",
+            _resolved_identity("keysight-e36312a", "E36312A", "Keysight E36312A"),
+            False,
+        ),
+        (
+            "keysight-e36312a",
+            "Keysight Technologies, Inc.",
+            "E36312A",
+            _resolved_identity("keysight-e36312a", "E36312A", "Keysight E36312A"),
+            False,
+        ),
+    ],
+)
+def test_snapshot_restore_identity_uses_core_normalization_and_model_specific_aliases(
+    command_name, target, manufacturer, model, resolved, valid
+):
+    normalized = _normalize_observed_identity(
+        target,
+        command_name,
+        {
+            "reported_identity": _reported_identity(manufacturer, model),
+            "resolved_identity": resolved,
+        },
+    )
+
+    assert _normalization_succeeded(normalized) is valid
+
+
+@pytest.mark.parametrize("command_name", ["snapshot", "restore-from-snapshot"])
+@pytest.mark.parametrize(
+    "data",
+    [
+        {
+            "reported_identity": {**REPORTED_E36312A_IDENTITY, "raw": "raw-idn"},
+            "resolved_identity": RESOLVED_E36312A_IDENTITY,
+        },
+        {
+            "reported_identity": {**REPORTED_E36312A_IDENTITY, "extra": "unexpected"},
+            "resolved_identity": RESOLVED_E36312A_IDENTITY,
+        },
+        {
+            "reported_identity": {
+                "Manufacturer": REPORTED_E36312A_IDENTITY["manufacturer"],
+                **{
+                    key: value
+                    for key, value in REPORTED_E36312A_IDENTITY.items()
+                    if key != "manufacturer"
+                },
+            },
+            "resolved_identity": RESOLVED_E36312A_IDENTITY,
+        },
+        {
+            "reported_identity": REPORTED_E36312A_IDENTITY,
+            "resolved_identity": {**RESOLVED_E36312A_IDENTITY, "extra": "unexpected"},
+        },
+        {
+            "reported_identity": REPORTED_E36312A_IDENTITY,
+            "resolved_identity": {
+                "Display_Name": RESOLVED_E36312A_IDENTITY["display_name"],
+                **{
+                    key: value
+                    for key, value in RESOLVED_E36312A_IDENTITY.items()
+                    if key != "display_name"
+                },
+            },
+        },
+        {
+            "reported_identity": REPORTED_E36312A_IDENTITY,
+            "resolved_identity": {
+                **RESOLVED_E36312A_IDENTITY,
+                "display_name": "Keysight Technologies E36312A",
+            },
+        },
+        {
+            "reported_identity": _reported_identity("Agilent Technologies", "E3646A"),
+            "resolved_identity": RESOLVED_E36312A_IDENTITY,
+        },
+    ],
+)
+def test_snapshot_restore_identity_rejects_non_allowlisted_or_conflicting_fields(
+    command_name, data
+):
+    normalized = _normalize_observed_identity("keysight-e36312a", command_name, data)
+
+    assert _normalization_succeeded(normalized) is False
 
 
 @pytest.mark.parametrize(

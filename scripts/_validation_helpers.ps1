@@ -6,6 +6,8 @@ $script:ValidationTargetProfiles = [ordered]@{
         vendor_id = "keysight"
         model = "E36312A"
         model_name = "E36312A"
+        reported_manufacturer_aliases = @("KEYSIGHT", "KEYSIGHT TECHNOLOGIES")
+        canonical_display_name = "Keysight E36312A"
         channels = @(1, 2, 3)
         simulator_resource = "USB0::SIM::E36312A::INSTR"
         suites = @("readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence")
@@ -15,6 +17,8 @@ $script:ValidationTargetProfiles = [ordered]@{
         vendor_id = "keysight"
         model = "EDU36311A"
         model_name = "EDU36311A"
+        reported_manufacturer_aliases = @("KEYSIGHT", "KEYSIGHT TECHNOLOGIES")
+        canonical_display_name = "Keysight EDU36311A"
         channels = @(1, 2, 3)
         simulator_resource = "USB0::SIM::EDU36311A::INSTR"
         suites = @("readonly", "output", "protection", "software-sequence")
@@ -24,6 +28,8 @@ $script:ValidationTargetProfiles = [ordered]@{
         vendor_id = "keysight"
         model = "E3646A"
         model_name = "E3646A"
+        reported_manufacturer_aliases = @("KEYSIGHT", "KEYSIGHT TECHNOLOGIES", "Agilent Technologies")
+        canonical_display_name = "Keysight E3646A"
         channels = @(1, 2)
         simulator_resource = "ASRL1::SIM::E3646A::INSTR"
         suites = @("readonly", "output", "software-sequence")
@@ -41,6 +47,17 @@ function Get-ValidationTargetProfiles {
         }
         if ($seen.ContainsKey($profile.model_id)) {
             throw "Duplicate validation target model_id '$($profile.model_id)'."
+        }
+        if (@($profile.reported_manufacturer_aliases).Count -eq 0) {
+            throw "Validation target reported_manufacturer_aliases must not be empty: '$($profile.model_id)'."
+        }
+        foreach ($alias in @($profile.reported_manufacturer_aliases)) {
+            if ($alias -isnot [string] -or [string]::IsNullOrWhiteSpace($alias)) {
+                throw "Validation target reported_manufacturer_aliases contains an invalid value: '$($profile.model_id)'."
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$profile.canonical_display_name)) {
+            throw "Validation target canonical_display_name must not be empty: '$($profile.model_id)'."
         }
         $seen[$profile.model_id] = $true
     }
