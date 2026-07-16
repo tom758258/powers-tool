@@ -311,6 +311,54 @@ def test_restore_request_propagates_validation_mode_without_public_request_param
     assert "validation_allow_pending_live_support" not in json.dumps(payload)
 
 
+def test_restore_json_preserves_observed_identity_from_core(monkeypatch, capsys) -> None:
+    reported_identity = {
+        "manufacturer": "Keysight Technologies",
+        "model": "E36312A",
+        "serial": "SN",
+        "firmware": "2.10",
+        "parse_ok": True,
+    }
+    resolved_identity = {
+        "vendor_id": "keysight",
+        "model_id": "keysight-e36312a",
+        "model_name": "E36312A",
+        "display_name": "Keysight E36312A",
+    }
+
+    monkeypatch.setattr(
+        cli.restore_core,
+        "run_restore",
+        lambda request, **kwargs: {
+            "resource": request.runtime.resource,
+            "restored_channels": [1],
+            "plan": {},
+            "reported_identity": reported_identity,
+            "resolved_identity": resolved_identity,
+        },
+    )
+
+    assert (
+        cli.main(
+            [
+                "restore-from-snapshot",
+                "--json",
+                "--resource",
+                OUTPUT_RESOURCE,
+                "--snapshot",
+                "snapshot.json",
+                "--channel",
+                "1",
+                "--confirm",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["reported_identity"] == reported_identity
+    assert payload["data"]["resolved_identity"] == resolved_identity
+
+
 def expected_idn(raw: str) -> dict[str, object]:
     manufacturer, model, serial, firmware = raw.split(",", maxsplit=3)
     return {

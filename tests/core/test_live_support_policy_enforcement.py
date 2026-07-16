@@ -650,6 +650,38 @@ def test_validation_mode_restore_keeps_identity_and_confirmation_guards() -> Non
     assert unsafe_session.closed
 
 
+def test_validation_mode_restore_success_reports_current_identity_without_changing_scpi() -> None:
+    session = FakeSession("Keysight Technologies,E36312A,SN,2.10")
+    request = OperationRequest(
+        "restore-from-snapshot",
+        RuntimeOptions(
+            resource="USB0::0x2A8D::0x1102::SN::0::INSTR",
+            confirm=True,
+            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+        ),
+        {"document": _restore_document(), "channel": 1},
+    )
+
+    result = run_restore(request, opener=lambda *args, **kwargs: session)
+
+    assert result["reported_identity"] == {
+        "manufacturer": "Keysight Technologies",
+        "model": "E36312A",
+        "serial": "SN",
+        "firmware": "2.10",
+        "parse_ok": True,
+    }
+    assert result["resolved_identity"] == {
+        "vendor_id": "keysight",
+        "model_id": "keysight-e36312a",
+        "model_name": "E36312A",
+        "display_name": "Keysight E36312A",
+    }
+    assert session.queries == ["*IDN?", "SYST:ERR?"]
+    assert session.writes == ["OUTP OFF,(@1)", "CURR 0.1,(@1)", "VOLT 1,(@1)"]
+    assert session.closed
+
+
 def _ramp_list_document(*, channel: int = 1) -> dict[str, object]:
     return {
         "kind": RAMP_LIST_KIND,

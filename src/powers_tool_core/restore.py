@@ -76,7 +76,8 @@ def run_restore(
             opened = True
             session = ScpiLoggingSession(resource, instrument, scpi_logger) if request.runtime.log_scpi and scpi_logger is not None else instrument
             idn_raw = session.query(IDN_QUERY)
-            _validate_restore_identity(parse_idn(idn_raw), snapshot)
+            parsed_idn = parse_idn(idn_raw)
+            resolved_identity = _validate_restore_identity(parsed_idn, snapshot)
             enforce_live_support_for_idn(request, idn_raw)
             power_supply = create_power_supply(session, idn_raw)
             if not isinstance(power_supply, E36312APowerSupply):
@@ -94,7 +95,25 @@ def run_restore(
         raise CoreIoError(f"{'restore-from-snapshot failed' if opened else 'Could not open resource for restore-from-snapshot'}: {exc}", opened=opened) from exc
     except (ValueError, TypeError) as exc:
         raise CoreIoError(f"restore-from-snapshot failed: {exc}", opened=opened) from exc
-    return {"resource": resource, "restored_channels": list(channels), "plan": plan}
+    model_info = IDENTITY_INDEXES.models_by_id[resolved_identity.model_id]
+    return {
+        "resource": resource,
+        "restored_channels": list(channels),
+        "plan": plan,
+        "reported_identity": {
+            "manufacturer": parsed_idn.manufacturer,
+            "model": parsed_idn.model,
+            "serial": parsed_idn.serial,
+            "firmware": parsed_idn.firmware,
+            "parse_ok": parsed_idn.parse_ok,
+        },
+        "resolved_identity": {
+            "vendor_id": resolved_identity.vendor_id,
+            "model_id": resolved_identity.model_id,
+            "model_name": resolved_identity.canonical_model,
+            "display_name": model_info.display_name,
+        },
+    }
 
 
 def restore_plan(
@@ -378,7 +397,7 @@ def _validate_restore_setpoints(power_supply: E36312APowerSupply, plan: dict[str
         )
 
 
-def _validate_restore_identity(idn: Any, snapshot: dict[str, Any]) -> None:
+def _validate_restore_identity(idn: Any, snapshot: dict[str, Any]) -> Any:
     expected_model_id = snapshot["resolved_identity"]["model_id"]
     expected_serial = snapshot["reported_identity"]["serial"]
     try:
@@ -394,6 +413,7 @@ def _validate_restore_identity(idn: Any, snapshot: dict[str, Any]) -> None:
         )
     if idn.serial != expected_serial:
         raise CoreValidationError(f"connected serial {idn.serial!r} does not match snapshot serial {expected_serial!r}")
+    return connected
 
 
 def _raise_on_instrument_errors(power_supply: E36312APowerSupply) -> None:

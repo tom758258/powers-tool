@@ -7,7 +7,7 @@ import pytest
 from powers_tool_core.command_runner import run_core_command, validate_request_admission
 from powers_tool_core.core import CoreValidationError, OperationRequest, RuntimeOptions
 from powers_tool_core.models import parse_idn
-from powers_tool_core.restore import _validate_restore_identity, restore_plan, validate_snapshot_document
+from powers_tool_core.restore import _validate_restore_identity, restore_plan, run_restore, validate_snapshot_document
 
 
 def _snapshot() -> dict[str, object]:
@@ -147,6 +147,39 @@ def test_restore_output_state_omission_defaults_to_false() -> None:
     )
 
     assert result["restore_output_state"] is False
+    assert "reported_identity" not in result
+    assert "resolved_identity" not in result
+
+
+@pytest.mark.parametrize(
+    "runtime",
+    [
+        RuntimeOptions(dry_run=True),
+        RuntimeOptions(simulate=True, resource="USB0::SIM::E36312A::INSTR"),
+    ],
+)
+def test_restore_no_hardware_plans_do_not_open_or_report_observed_identity(
+    runtime: RuntimeOptions,
+) -> None:
+    opened = False
+
+    def forbidden_opener(*args: object, **kwargs: object) -> object:
+        nonlocal opened
+        opened = True
+        raise AssertionError("opener must not be called")
+
+    result = run_restore(
+        OperationRequest(
+            "restore-from-snapshot",
+            runtime,
+            {"document": _snapshot(), "channel": 1},
+        ),
+        opener=forbidden_opener,
+    )
+
+    assert opened is False
+    assert "reported_identity" not in result
+    assert "resolved_identity" not in result
 
 
 @pytest.mark.parametrize("value", ["false", "true", 0, 1, 0.0, 1.0, None, [], {}])

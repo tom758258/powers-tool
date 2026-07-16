@@ -109,6 +109,336 @@ $result | ConvertTo-Json -Depth 10 -Compress
         assert records == [{"channel": 1, "enabled": data.get("outputs", [{}])[0].get("enabled", data.get("output_enabled"))}]
 
 
+REPORTED_E36312A_IDENTITY = {
+    "manufacturer": "Keysight Technologies",
+    "model": "E36312A",
+    "serial": "SN",
+    "firmware": "2.10",
+    "parse_ok": True,
+}
+RESOLVED_E36312A_IDENTITY = {
+    "vendor_id": "keysight",
+    "model_id": "keysight-e36312a",
+    "model_name": "E36312A",
+    "display_name": "Keysight E36312A",
+}
+
+
+@pytest.mark.parametrize(
+    ("command_name", "data", "valid"),
+    [
+        ("measure-all", {"idn": REPORTED_E36312A_IDENTITY}, True),
+        ("output-state", {"resource": {"idn": {**REPORTED_E36312A_IDENTITY, "raw": "Keysight Technologies,E36312A,SN,2.10"}}}, True),
+        ("measure-all", {"idn": "Keysight Technologies,E36312A,SN,2.10"}, False),
+        ("measure-all", {"idn": None}, False),
+        ("measure-all", {"idn": []}, False),
+        (
+            "measure-all",
+            {
+                "resource": {"idn": "bad"},
+                "idn": REPORTED_E36312A_IDENTITY,
+            },
+            False,
+        ),
+        ("snapshot", {"reported_identity": REPORTED_E36312A_IDENTITY, "resolved_identity": RESOLVED_E36312A_IDENTITY}, True),
+        ("restore-from-snapshot", {"reported_identity": REPORTED_E36312A_IDENTITY, "resolved_identity": RESOLVED_E36312A_IDENTITY}, True),
+        ("snapshot", {}, False),
+        ("snapshot", {"reported_identity": None, "resolved_identity": RESOLVED_E36312A_IDENTITY}, False),
+        ("snapshot", {"reported_identity": REPORTED_E36312A_IDENTITY, "resolved_identity": None}, False),
+        ("snapshot", {"reported_identity": "bad", "resolved_identity": RESOLVED_E36312A_IDENTITY}, False),
+        ("snapshot", {"reported_identity": REPORTED_E36312A_IDENTITY, "resolved_identity": []}, False),
+        ("snapshot", {"reported_identity": {key: value for key, value in REPORTED_E36312A_IDENTITY.items() if key != "model"}, "resolved_identity": RESOLVED_E36312A_IDENTITY}, False),
+        ("snapshot", {"reported_identity": {**REPORTED_E36312A_IDENTITY, "parse_ok": "true"}, "resolved_identity": RESOLVED_E36312A_IDENTITY}, False),
+        ("snapshot", {"reported_identity": REPORTED_E36312A_IDENTITY, "resolved_identity": {key: value for key, value in RESOLVED_E36312A_IDENTITY.items() if key != "model_id"}}, False),
+        ("snapshot", {"reported_identity": {**REPORTED_E36312A_IDENTITY, "model": "EDU36311A"}, "resolved_identity": RESOLVED_E36312A_IDENTITY}, False),
+        ("snapshot", {"reported_identity": REPORTED_E36312A_IDENTITY, "resolved_identity": {**RESOLVED_E36312A_IDENTITY, "model_id": "keysight-edu36311a"}}, False),
+        ("snapshot", {"reported_identity": REPORTED_E36312A_IDENTITY, "resolved_identity": {**RESOLVED_E36312A_IDENTITY, "vendor_id": "other"}}, False),
+        ("snapshot", {"reported_identity": REPORTED_E36312A_IDENTITY, "resolved_identity": {**RESOLVED_E36312A_IDENTITY, "model_name": "EDU36311A"}}, False),
+        ("snapshot", {"idn": REPORTED_E36312A_IDENTITY}, False),
+    ],
+)
+def test_live_cli_check_strictly_normalizes_observed_identity_evidence(
+    command_name, data, valid
+):
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$data = @'
+{json.dumps(data)}
+'@ | ConvertFrom-Json
+$profile = $script:ValidationTargetProfiles["keysight-e36312a"]
+$result = Normalize-ObservedIdentityEvidence -Data $data -Command "{command_name}" -TargetProfile $profile
+$result | ConvertTo-Json -Depth 10 -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    normalized = json.loads(result.stdout.strip())
+    failures = normalized["failures"] if isinstance(normalized["failures"], list) else [normalized["failures"]]
+    assert (len(failures) == 0) is valid
+    if valid:
+        assert normalized["identity"]["model"] == "E36312A"
+
+
+def _observed_identity_fixture_cli_path(tmp_path: Path, data: object) -> Path:
+    fixture_cli = tmp_path / "powers_tool_cli"
+    fixture_cli.mkdir()
+    (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
+    (fixture_cli / "cli.py").write_text(
+        f"""
+import json
+import sys
+
+payload = {{
+    "ok": True,
+    "error": None,
+    "execution": {{"mode": "real", "dry_run": False, "hardware_touched": True}},
+    "data": json.loads({json.dumps(json.dumps(data))}),
+}}
+save_path = sys.argv[sys.argv.index("--save-json") + 1]
+with open(save_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    ("command_name", "live_hardware_value", "data", "expected_result"),
+    [
+        ("snapshot", "$true", {}, "failed"),
+        ("snapshot", "$true", None, "failed"),
+        ("restore-from-snapshot", "$true", {}, "failed"),
+        (
+            "snapshot",
+            "$true",
+            {
+                "reported_identity": REPORTED_E36312A_IDENTITY,
+                "resolved_identity": RESOLVED_E36312A_IDENTITY,
+            },
+            "passed",
+        ),
+        (
+            "restore-from-snapshot",
+            "$true",
+            {
+                "reported_identity": {**REPORTED_E36312A_IDENTITY, "model": "EDU36311A"},
+                "resolved_identity": RESOLVED_E36312A_IDENTITY,
+            },
+            "failed",
+        ),
+        ("snapshot", "$false", {}, "passed"),
+        ("snapshot", "$null", {}, "passed"),
+        ("snapshot", '"true"', {}, "passed"),
+        ("restore-from-snapshot", "$false", {}, "passed"),
+    ],
+)
+def test_snapshot_restore_identity_requirement_uses_exact_live_hardware_expected(
+    tmp_path, command_name, live_hardware_value, data, expected_result
+):
+    fixture_path = _observed_identity_fixture_cli_path(tmp_path, data)
+    output_dir = tmp_path / "out"
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
+$script:OutputDir = "{output_dir}"
+New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
+$script:RawResource = "USB0::FIXTURE::INSTR"
+$script:ResourceDisplay = "USB:<redacted-resource>"
+$script:ConnectionLabel = "USB"
+$script:TransportScope = "usb"
+$script:BackendArtifact = Get-BackendArtifactFields -Value $null
+$script:BackendValue = $null
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:InstrumentIdentity = $null
+$case = New-CommandCase -Name "identity-case" -Suite "snapshot" -Phase "live" -Args @("{command_name}", "--json", "--resource", $script:RawResource)
+$case.live_hardware_expected = {live_hardware_value}
+$record = Invoke-ValidationCommand -Case $case
+$record | ConvertTo-Json -Depth 10 -Compress
+'''
+    result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    record = json.loads(result.stdout.strip())
+    assert record["result"] == expected_result
+    assert record["identity_observed"] is (expected_result == "passed" and bool(data))
+
+
+def _snapshot_workflow_fixture_cli_path(tmp_path: Path) -> Path:
+    fixture_cli = tmp_path / "powers_tool_cli"
+    fixture_cli.mkdir()
+    (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
+    (fixture_cli / "cli.py").write_text(
+        r'''
+import json
+import sys
+from pathlib import Path
+
+reported = {
+    "manufacturer": "Keysight Technologies",
+    "model": "E36312A",
+    "serial": "SN",
+    "firmware": "2.10",
+    "parse_ok": True,
+}
+resolved = {
+    "vendor_id": "keysight",
+    "model_id": "keysight-e36312a",
+    "model_name": "E36312A",
+    "display_name": "Keysight E36312A",
+}
+
+def snapshot_document(mutated=False):
+    return {
+        "schema_version": 2,
+        "kind": "powers-tool-snapshot",
+        "resource": "USB0::FIXTURE::INSTR",
+        "reported_identity": reported,
+        "resolved_identity": resolved,
+        "errors": [],
+        "read_count": 1,
+        "outputs": [{"channel": channel, "enabled": False} for channel in (1, 2, 3)],
+        "readback": [
+            {
+                "channel": channel,
+                "setpoints": {
+                    "voltage": 0.5 if mutated else 1.0,
+                    "current": 0.04 if mutated else 0.05,
+                },
+            }
+            for channel in (1, 2, 3)
+        ],
+        "measurements": [
+            {"channel": channel, "measurements": {"voltage": 0.0, "current": 0.0}}
+            for channel in (1, 2, 3)
+        ],
+        "protection": {"over_voltage_tripped": False, "over_current_tripped": False},
+        "protection_settings": [
+            {
+                "channel": channel,
+                "protection": {
+                    "ovp_voltage": 4.0 if mutated else 5.0,
+                    "ocp_enabled": False if mutated else True,
+                    "ocp_delay": None,
+                    "ocp_delay_trigger": None,
+                },
+            }
+            for channel in (1, 2, 3)
+        ],
+    }
+
+command = sys.argv[1]
+dry_run = "--dry-run" in sys.argv
+data = {
+    "resource": {
+        "idn": {
+            **reported,
+            "raw": "Keysight Technologies,E36312A,SN,2.10",
+        }
+    }
+}
+if command == "snapshot":
+    mutated = False
+    if "--snapshot-json" in sys.argv:
+        snapshot_path = Path(sys.argv[sys.argv.index("--snapshot-json") + 1])
+        mutated = snapshot_path.name == "restore-off-snapshot-b.json"
+        document = snapshot_document(mutated=mutated)
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        snapshot_path.write_text(json.dumps(document), encoding="utf-8")
+        data = document
+    else:
+        data = snapshot_document()
+        if "--compare" in sys.argv:
+            data["comparison"] = {"passed": True, "differences": []}
+elif command == "restore-from-snapshot":
+    if dry_run:
+        data = {"plan": {}, "restored_channels": [1, 2, 3], "restore_output_state": False}
+    else:
+        data = {
+            "resource": "USB0::FIXTURE::INSTR",
+            "restored_channels": [1, 2, 3],
+            "plan": {},
+            "reported_identity": reported,
+            "resolved_identity": resolved,
+        }
+
+payload = {
+    "ok": True,
+    "error": None,
+    "execution": {
+        "mode": "real",
+        "dry_run": dry_run,
+        "hardware_touched": not dry_run,
+    },
+    "data": data,
+}
+save_path = Path(sys.argv[sys.argv.index("--save-json") + 1])
+save_path.parent.mkdir(parents=True, exist_ok=True)
+save_path.write_text(json.dumps(payload), encoding="utf-8")
+'''.lstrip(),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_actual_snapshot_cases_run_through_restore_off_save_c(tmp_path):
+    fixture_path = _snapshot_workflow_fixture_cli_path(tmp_path)
+    output_dir = tmp_path / "out"
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
+$script:OutputDir = "{output_dir}"
+$script:RawResource = "USB0::FIXTURE::INSTR"
+$script:ResourceDisplay = "USB:<redacted-resource>"
+$script:ConnectionLabel = "USB"
+$script:TransportScope = "usb"
+$script:BackendArtifact = Get-BackendArtifactFields -Value $null
+$script:BackendValue = $null
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:InstrumentIdentity = $null
+$script:StateChanging = $true
+$script:Restore = $true
+$script:PlanOnly = $false
+Ensure-ArtifactDirectories
+$executed = New-Object System.Collections.Generic.List[string]
+foreach ($case in @(Get-SnapshotCases -Model "keysight-e36312a" -Live $true)) {{
+    Invoke-ValidationCommand -Case $case | Out-Null
+    $executed.Add($case.name)
+    if ($case.name -eq "restore-off-save-c") {{ break }}
+}}
+[pscustomobject]@{{
+    executed = $executed.ToArray()
+    failures = $script:Failures.ToArray()
+    records = $script:CommandRecords.ToArray()
+}} | ConvertTo-Json -Depth 20 -Compress
+'''
+    result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    run = json.loads(result.stdout.strip())
+    assert run["failures"] == []
+    assert run["executed"][-3:] == [
+        "restore-off-save-b",
+        "restore-off-execute",
+        "restore-off-save-c",
+    ]
+    records = {record["name"]: record for record in run["records"]}
+    for name in ("restore-off-save-b", "restore-off-execute", "restore-off-save-c"):
+        assert records[name]["result"] == "passed"
+        assert records[name]["identity_observed"] is True
+
+
 def test_live_cli_check_uses_candidate_scope_names_only() -> None:
     script = SCRIPT.read_text(encoding="utf-8")
     removed_names = (

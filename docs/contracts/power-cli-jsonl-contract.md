@@ -203,10 +203,15 @@ Selected data mappings:
   argparse errors. Completion pulse results report `native: false`.
 - `restore-from-snapshot`: accepts only the schema-2 snapshot document,
   validates canonical model identity and serial before writes, and returns
-  restored channels and the restore plan. Legacy and unversioned snapshots
-  are rejected rather than converted. Restore-relevant booleans must be exact
-  JSON booleans, channels must be unique positive integers, and setpoints must
-  be finite numbers; no persisted value is interpreted by truthiness.
+  restored channels and the restore plan. Successful real execution also
+  returns `reported_identity` and `resolved_identity` derived from that
+  command's observed instrument IDN; these fields are not copied from the
+  snapshot document and do not include the raw IDN string. Dry-run and
+  simulator plans do not contain observed identity. Legacy and unversioned
+  snapshots are rejected rather than converted. Restore-relevant booleans
+  must be exact JSON booleans, channels must be unique positive integers, and
+  setpoints must be finite numbers; no persisted value is interpreted by
+  truthiness.
 - `trigger-list`: selected channel, step count, completion state, and
   `restored`; `restored: true` means the pre-run Trigger configuration and LIST
   table were written back after completion.

@@ -680,6 +680,149 @@ function Get-PropertyValue {
     return $property.Value
 }
 
+function Normalize-ObservedIdentityEvidence {
+    param(
+        [AllowNull()]$Data,
+        [Parameter(Mandatory = $true)][string]$Command,
+        [Parameter(Mandatory = $true)]$TargetProfile
+    )
+
+    $failures = New-Object System.Collections.Generic.List[string]
+    $identity = $null
+    $resolvedIdentity = $null
+    $identityValue = $null
+    $resolvedValue = $null
+    $snapshotIdentity = $Command -in @("snapshot", "restore-from-snapshot")
+
+    if ($null -eq $Data -or $Data -isnot [pscustomobject]) {
+        $failures.Add("observed identity evidence data must be an object.")
+    }
+    elseif ($snapshotIdentity) {
+        $reportedProperty = $Data.PSObject.Properties["reported_identity"]
+        $resolvedProperty = $Data.PSObject.Properties["resolved_identity"]
+        if ($null -eq $reportedProperty) {
+            $failures.Add("observed identity evidence is missing data.reported_identity.")
+        }
+        elseif ($null -eq $reportedProperty.Value) {
+            $failures.Add("observed identity evidence data.reported_identity must not be null.")
+        }
+        elseif ($reportedProperty.Value -isnot [pscustomobject]) {
+            $failures.Add("observed identity evidence data.reported_identity must be an object.")
+        }
+        else {
+            $identityValue = $reportedProperty.Value
+        }
+        if ($null -eq $resolvedProperty) {
+            $failures.Add("observed identity evidence is missing data.resolved_identity.")
+        }
+        elseif ($null -eq $resolvedProperty.Value) {
+            $failures.Add("observed identity evidence data.resolved_identity must not be null.")
+        }
+        elseif ($resolvedProperty.Value -isnot [pscustomobject]) {
+            $failures.Add("observed identity evidence data.resolved_identity must be an object.")
+        }
+        else {
+            $resolvedValue = $resolvedProperty.Value
+        }
+    }
+    else {
+        $resourceProperty = $Data.PSObject.Properties["resource"]
+        $resourceIdnProperty = $null
+        if ($null -ne $resourceProperty -and $resourceProperty.Value -is [pscustomobject]) {
+            $resourceIdnProperty = $resourceProperty.Value.PSObject.Properties["idn"]
+        }
+        $dataIdnProperty = $Data.PSObject.Properties["idn"]
+        $idnProperty = if ($null -ne $resourceIdnProperty) { $resourceIdnProperty } else { $dataIdnProperty }
+        if ($null -eq $idnProperty) {
+            $failures.Add("observed identity evidence requires object data.resource.idn or data.idn.")
+        }
+        elseif ($null -eq $idnProperty.Value) {
+            $failures.Add("observed identity evidence IDN object must not be null.")
+        }
+        elseif ($idnProperty.Value -isnot [pscustomobject]) {
+            $failures.Add("observed identity evidence IDN value must be an object.")
+        }
+        else {
+            $identityValue = $idnProperty.Value
+        }
+    }
+
+    if ($null -ne $identityValue) {
+        $identityFields = [ordered]@{}
+        foreach ($field in @("manufacturer", "model", "serial", "firmware")) {
+            $property = $identityValue.PSObject.Properties[$field]
+            if ($null -eq $property -or $property.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($property.Value)) {
+                $failures.Add("observed identity evidence $field must be a non-empty string.")
+            }
+            else {
+                $identityFields[$field] = $property.Value
+            }
+        }
+        $parseOkProperty = $identityValue.PSObject.Properties["parse_ok"]
+        if ($null -eq $parseOkProperty -or $parseOkProperty.Value -isnot [System.Boolean] -or $parseOkProperty.Value -ne $true) {
+            $failures.Add("observed identity evidence parse_ok must be exact boolean true.")
+        }
+        else {
+            $identityFields["parse_ok"] = $true
+        }
+        $rawProperty = $identityValue.PSObject.Properties["raw"]
+        if ($null -ne $rawProperty) {
+            if ($rawProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($rawProperty.Value)) {
+                $failures.Add("observed identity evidence raw must be a non-empty string when present.")
+            }
+            else {
+                $identityFields["raw"] = $rawProperty.Value
+            }
+        }
+        $modelProperty = $identityValue.PSObject.Properties["model"]
+        if ($null -ne $modelProperty -and $modelProperty.Value -is [string] -and $modelProperty.Value -cne [string]$TargetProfile.model) {
+            $failures.Add("observed identity model does not match target model $($TargetProfile.model).")
+        }
+        if ($failures.Count -eq 0) {
+            $identity = [pscustomobject]$identityFields
+        }
+    }
+
+    if ($null -ne $resolvedValue) {
+        $resolvedFields = [ordered]@{}
+        foreach ($field in @("vendor_id", "model_id", "model_name", "display_name")) {
+            $property = $resolvedValue.PSObject.Properties[$field]
+            if ($null -eq $property -or $property.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($property.Value)) {
+                $failures.Add("observed resolved identity $field must be a non-empty string.")
+            }
+            else {
+                $resolvedFields[$field] = $property.Value
+            }
+        }
+        $vendorIdProperty = $resolvedValue.PSObject.Properties["vendor_id"]
+        $modelIdProperty = $resolvedValue.PSObject.Properties["model_id"]
+        $modelNameProperty = $resolvedValue.PSObject.Properties["model_name"]
+        if ($null -ne $vendorIdProperty -and $vendorIdProperty.Value -is [string] -and $vendorIdProperty.Value -cne [string]$TargetProfile.vendor_id) {
+            $failures.Add("observed resolved identity vendor_id does not match target vendor_id $($TargetProfile.vendor_id).")
+        }
+        if ($null -ne $modelIdProperty -and $modelIdProperty.Value -is [string] -and $modelIdProperty.Value -cne [string]$TargetProfile.model_id) {
+            $failures.Add("observed resolved identity model_id does not match target model_id $($TargetProfile.model_id).")
+        }
+        if ($null -ne $modelNameProperty -and $modelNameProperty.Value -is [string] -and $modelNameProperty.Value -cne [string]$TargetProfile.model) {
+            $failures.Add("observed resolved identity model_name does not match target model $($TargetProfile.model).")
+        }
+        $reportedModel = if ($null -eq $identityValue) { $null } else { $identityValue.PSObject.Properties["model"] }
+        $resolvedModel = $modelNameProperty
+        if ($null -ne $reportedModel -and $null -ne $resolvedModel -and $reportedModel.Value -cne $resolvedModel.Value) {
+            $failures.Add("observed reported and resolved identity models conflict.")
+        }
+        if ($failures.Count -eq 0) {
+            $resolvedIdentity = [pscustomobject]$resolvedFields
+        }
+    }
+
+    return [pscustomobject]@{
+        identity = $identity
+        resolved_identity = $resolvedIdentity
+        failures = @($failures.ToArray())
+    }
+}
+
 function Normalize-OutputStateEvidence {
     param(
         [AllowNull()]$Data,
@@ -1212,14 +1355,6 @@ function Get-CaseAssertionFailures {
         return $failures.ToArray()
     }
     $data = Get-PropertyValue -Object $Payload -Name "data"
-    if ($Case.phase -eq "live" -and $kind -ne "empty-errors") {
-        $observedModel = [string](Get-PropertyValue -Object $Identity -Name "model")
-        $expectedModel = [string]$TargetMetadata[$script:NormalizedTarget].model
-        if ($observedModel -ne $expectedModel) {
-            $failures.Add("$($Case.name) did not report the expected detected model $expectedModel.")
-        }
-    }
-
     if ($kind -in @("output-state", "output-state-one-on")) {
         $states = @($OutputStates)
         if ($states.Count -eq 0 -and $Case.expected_channels.Count -eq 1) {
@@ -1560,18 +1695,37 @@ function Invoke-ValidationCommand {
     }
 
     $identity = $null
+    $identityObserved = $false
+    $identityNormalizationFailures = @()
     $outputStates = $null
     $outputStateNormalizationFailures = @()
     $instrumentErrors = $null
     $instrumentErrorNormalizationFailures = @()
     if ($null -ne $payload) {
         $data = Get-PropertyValue -Object $payload -Name "data"
+        $commandName = if ($Case.args.Count -gt 0) { [string]$Case.args[0] } else { "" }
+        $snapshotIdentityCommand = $commandName -in @("snapshot", "restore-from-snapshot")
+        $exactLiveHardwareExpected = $Case.live_hardware_expected -is [System.Boolean] -and $Case.live_hardware_expected -eq $true
+        $identityRequired = if ($snapshotIdentityCommand) {
+            $exactLiveHardwareExpected
+        }
+        else {
+            $Case.phase -eq "live" -and -not [string]::IsNullOrWhiteSpace([string]$Case.validation_kind) -and $Case.validation_kind -ne "empty-errors"
+        }
+        $normalizedIdentity = Normalize-ObservedIdentityEvidence -Data $data -Command $commandName -TargetProfile $TargetMetadata[$script:NormalizedTarget]
+        if (-not $snapshotIdentityCommand -or $exactLiveHardwareExpected) {
+            $identity = $normalizedIdentity.identity
+        }
+        if ($identityRequired) {
+            $identityNormalizationFailures = @($normalizedIdentity.failures)
+        }
+        if ($snapshotIdentityCommand) {
+            $identityObserved = [bool]($exactLiveHardwareExpected -and $null -ne $identity -and $identityNormalizationFailures.Count -eq 0)
+        }
+        else {
+            $identityObserved = [bool]($Case.phase -eq "live" -and $null -ne $identity -and $normalizedIdentity.failures.Count -eq 0)
+        }
         if ($null -ne $data) {
-            $resourceData = Get-PropertyValue -Object $data -Name "resource"
-            $identity = Get-PropertyValue -Object $resourceData -Name "idn"
-            if ($null -eq $identity) {
-                $identity = Get-PropertyValue -Object $data -Name "idn"
-            }
             if ($Case.phase -eq "live" -and $Case.args.Count -gt 0 -and $Case.args[0] -eq "output-state") {
                 $normalizedOutputStates = Normalize-OutputStateEvidence -Data $data -ExpectedChannels @($Case.expected_channels)
                 $outputStates = @($normalizedOutputStates.records)
@@ -1633,9 +1787,9 @@ function Invoke-ValidationCommand {
         }
     }
 
-    $assertionFailures = @($outputStateNormalizationFailures) + @($instrumentErrorNormalizationFailures)
+    $assertionFailures = @($identityNormalizationFailures) + @($outputStateNormalizationFailures) + @($instrumentErrorNormalizationFailures)
     if ($casePassed) {
-        $assertionFailures += @(Get-CaseAssertionFailures -Case $Case -Payload $payload -Identity $identity -OutputStates $outputStates -InstrumentErrors $instrumentErrors -StderrPath $stderrPath)
+        $assertionFailures += @(Get-CaseAssertionFailures -Case $Case -Payload $payload -OutputStates $outputStates -InstrumentErrors $instrumentErrors -StderrPath $stderrPath)
         if ($assertionFailures.Count -gt 0) {
             $casePassed = $false
             $failure = $assertionFailures -join " "
@@ -1683,7 +1837,7 @@ function Invoke-ValidationCommand {
         support_policy_mode = if ($allArgs -contains "--validation-allow-pending-live-support") { "validation" } else { $null }
         transport_scope = $script:TransportScope
         backend_scope = $backendScope
-        identity_observed = [bool]($Case.phase -eq "live" -and $null -ne $identity)
+        identity_observed = $identityObserved
         output_states_observed = $outputStates
         instrument_errors_observed = $instrumentErrors
         trigger = $triggerRecord
@@ -1703,7 +1857,7 @@ function Invoke-ValidationCommand {
     if (-not $casePassed) {
         $script:Failures.Add($failure)
     }
-    if ($casePassed -and $Case.phase -eq "live" -and $null -ne $identity -and ($null -eq $script:InstrumentIdentity -or $script:InstrumentIdentity.availability -ne "observed")) {
+    if ($casePassed -and $identityObserved -and $null -ne $identity -and ($null -eq $script:InstrumentIdentity -or $script:InstrumentIdentity.availability -ne "observed")) {
         $serial = Get-PropertyValue -Object $identity -Name "serial"
         $script:InstrumentIdentity = [pscustomobject]@{
             availability = "observed"
