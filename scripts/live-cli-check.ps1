@@ -1808,17 +1808,29 @@ function Invoke-ValidationCommand {
         $commandName = if ($Case.args.Count -gt 0) { [string]$Case.args[0] } else { "" }
         $snapshotIdentityCommand = $commandName -in @("snapshot", "restore-from-snapshot")
         $exactLiveHardwareExpected = $Case.live_hardware_expected -is [System.Boolean] -and $Case.live_hardware_expected -eq $true
+        $generalIdentityEvidencePresent = $false
+        if (-not $snapshotIdentityCommand -and $data -is [pscustomobject]) {
+            $dataIdnProperty = $data.PSObject.Properties["idn"]
+            $resourceProperty = $data.PSObject.Properties["resource"]
+            $resourceIdnProperty = if ($null -ne $resourceProperty -and $resourceProperty.Value -is [pscustomobject]) {
+                $resourceProperty.Value.PSObject.Properties["idn"]
+            }
+            else {
+                $null
+            }
+            $generalIdentityEvidencePresent = $null -ne $dataIdnProperty -or $null -ne $resourceIdnProperty
+        }
         $identityRequired = if ($snapshotIdentityCommand) {
             $exactLiveHardwareExpected
         }
         else {
-            $Case.phase -eq "live" -and -not [string]::IsNullOrWhiteSpace([string]$Case.validation_kind) -and $Case.validation_kind -ne "empty-errors"
+            $Case.phase -eq "live" -and $commandName -ne "readback" -and -not [string]::IsNullOrWhiteSpace([string]$Case.validation_kind) -and $Case.validation_kind -ne "empty-errors"
         }
         $normalizedIdentity = Normalize-ObservedIdentityEvidence -Data $data -Command $commandName -TargetProfile $TargetMetadata[$script:NormalizedTarget]
         if (-not $snapshotIdentityCommand -or $exactLiveHardwareExpected) {
             $identity = $normalizedIdentity.identity
         }
-        if ($identityRequired) {
+        if ($identityRequired -or ($Case.phase -eq "live" -and $generalIdentityEvidencePresent)) {
             $identityNormalizationFailures = @($normalizedIdentity.failures)
         }
         if ($snapshotIdentityCommand) {

@@ -485,6 +485,64 @@ $record | ConvertTo-Json -Depth 10 -Compress
     assert record["identity_observed"] is (expected_result == "passed" and bool(data))
 
 
+@pytest.mark.parametrize(
+    ("identity_present", "identity", "expected_result", "identity_observed"),
+    [
+        (False, None, "passed", False),
+        (True, REPORTED_E36312A_IDENTITY, "passed", True),
+        (True, None, "failed", False),
+        (True, "bad", "failed", False),
+        (True, {**REPORTED_E36312A_IDENTITY, "model": "EDU36311A"}, "failed", False),
+    ],
+)
+def test_snapshot_readback_allows_missing_identity_but_validates_present_evidence(
+    tmp_path, identity_present, identity, expected_result, identity_observed
+):
+    channels = [
+        {
+            "channel": channel,
+            "setpoints": {"voltage": 1.0, "current": 0.05},
+        }
+        for channel in (1, 2, 3)
+    ]
+    data = {"resource": "USB0::FIXTURE::INSTR", "channels": channels}
+    if identity_present:
+        data["idn"] = identity
+    fixture_path = _observed_identity_fixture_cli_path(tmp_path, data)
+    snapshot_path = tmp_path / "snapshot.json"
+    snapshot_path.write_text(json.dumps({"readback": channels}), encoding="utf-8")
+    output_dir = tmp_path / "out"
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
+$script:OutputDir = "{output_dir}"
+New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
+$script:RawResource = "USB0::FIXTURE::INSTR"
+$script:ResourceDisplay = "USB:<redacted-resource>"
+$script:ConnectionLabel = "USB"
+$script:TransportScope = "usb"
+$script:BackendArtifact = Get-BackendArtifactFields -Value $null
+$script:BackendValue = $null
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:InstrumentIdentity = $null
+$case = New-CommandCase -Name "restore-on-readback" -Suite "snapshot" -Phase "live" -Args @("readback", "--json", "--resource", $script:RawResource, "--channel", "all") -LiveHardwareExpected:$true -ValidationKind "snapshot-readback" -ExpectedChannels @(1,2,3) -CompareSnapshotPaths @("{snapshot_path}")
+$record = Invoke-ValidationCommand -Case $case
+$record | ConvertTo-Json -Depth 10 -Compress
+'''
+    result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    record = json.loads(result.stdout.strip())
+    assert record["result"] == expected_result
+    assert record["identity_observed"] is identity_observed
+    assert (record["assertion_failures"] == []) is (expected_result == "passed")
+
+
 def _snapshot_workflow_fixture_cli_path(tmp_path: Path) -> Path:
     fixture_cli = tmp_path / "powers_tool_cli"
     fixture_cli.mkdir()
@@ -550,6 +608,7 @@ def snapshot_document(mutated=False):
 
 command = sys.argv[1]
 dry_run = "--dry-run" in sys.argv
+save_path = Path(sys.argv[sys.argv.index("--save-json") + 1])
 data = {
     "resource": {
         "idn": {
@@ -582,6 +641,23 @@ elif command == "restore-from-snapshot":
             "reported_identity": reported,
             "resolved_identity": resolved,
         }
+elif command == "readback":
+    data = {
+        "resource": "USB0::FIXTURE::INSTR",
+        "channels": snapshot_document()["readback"],
+    }
+elif command == "output-state":
+    one_on = save_path.name == "live-restore-on-assert.json"
+    data = {
+        "resource": {"idn": {**reported, "raw": "Keysight Technologies,E36312A,SN,2.10"}},
+        "channel": "all",
+        "outputs": [
+            {"channel": channel, "enabled": one_on and channel == 1}
+            for channel in (1, 2, 3)
+        ],
+    }
+elif command == "error":
+    data = {"resource": "USB0::FIXTURE::INSTR", "errors": [], "read_count": 1}
 
 payload = {
     "ok": True,
@@ -593,7 +669,6 @@ payload = {
     },
     "data": data,
 }
-save_path = Path(sys.argv[sys.argv.index("--save-json") + 1])
 save_path.parent.mkdir(parents=True, exist_ok=True)
 save_path.write_text(json.dumps(payload), encoding="utf-8")
 '''.lstrip(),
@@ -602,7 +677,7 @@ save_path.write_text(json.dumps(payload), encoding="utf-8")
     return tmp_path
 
 
-def test_actual_snapshot_cases_run_through_restore_off_save_c(tmp_path):
+def test_actual_snapshot_cases_complete_full_workflow(tmp_path):
     fixture_path = _snapshot_workflow_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
     command = rf'''
@@ -630,7 +705,6 @@ $executed = New-Object System.Collections.Generic.List[string]
 foreach ($case in @(Get-SnapshotCases -Model "keysight-e36312a" -Live $true)) {{
     Invoke-ValidationCommand -Case $case | Out-Null
     $executed.Add($case.name)
-    if ($case.name -eq "restore-off-save-c") {{ break }}
 }}
 [pscustomobject]@{{
     executed = $executed.ToArray()
@@ -643,15 +717,14 @@ foreach ($case in @(Get-SnapshotCases -Model "keysight-e36312a" -Live $true)) {{
     assert result.returncode == 0, result.stdout + result.stderr
     run = json.loads(result.stdout.strip())
     assert run["failures"] == []
-    assert run["executed"][-3:] == [
-        "restore-off-save-b",
-        "restore-off-execute",
-        "restore-off-save-c",
-    ]
+    assert run["executed"][-1] == "restore-error-queue"
     records = {record["name"]: record for record in run["records"]}
     for name in ("restore-off-save-b", "restore-off-execute", "restore-off-save-c"):
         assert records[name]["result"] == "passed"
         assert records[name]["identity_observed"] is True
+    assert records["restore-on-readback"]["result"] == "passed"
+    assert records["restore-on-readback"]["identity_observed"] is False
+    assert records["restore-on-readback"]["assertion_failures"] == []
 
 
 def test_live_cli_check_uses_candidate_scope_names_only() -> None:
