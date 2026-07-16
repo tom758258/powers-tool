@@ -797,18 +797,27 @@ function Normalize-ObservedIdentityEvidence {
             $resourceIdnProperty = $resourceProperty.Value.PSObject.Properties["idn"]
         }
         $dataIdnProperty = $Data.PSObject.Properties["idn"]
-        $idnProperty = if ($null -ne $resourceIdnProperty) { $resourceIdnProperty } else { $dataIdnProperty }
-        if ($null -eq $idnProperty) {
-            $failures.Add("observed identity evidence requires object data.resource.idn or data.idn.")
+        $resourceIdnAttempted = $null -ne $resourceIdnProperty -and -not [object]::ReferenceEquals($null, $resourceIdnProperty.Value)
+        $dataIdnAttempted = $null -ne $dataIdnProperty -and -not [object]::ReferenceEquals($null, $dataIdnProperty.Value)
+        if ($resourceIdnAttempted -and $dataIdnAttempted) {
+            $failures.Add("observed identity evidence contains ambiguous duplicate data.resource.idn and data.idn values.")
         }
-        elseif ($null -eq $idnProperty.Value) {
-            $failures.Add("observed identity evidence IDN object must not be null.")
-        }
-        elseif ($idnProperty.Value -isnot [pscustomobject]) {
-            $failures.Add("observed identity evidence IDN value must be an object.")
+        elseif (-not $resourceIdnAttempted -and -not $dataIdnAttempted) {
+            if ($null -ne $resourceIdnProperty -or $null -ne $dataIdnProperty) {
+                $failures.Add("observed identity evidence IDN object must not be null.")
+            }
+            else {
+                $failures.Add("observed identity evidence requires object data.resource.idn or data.idn.")
+            }
         }
         else {
-            $identityValue = $idnProperty.Value
+            $idnProperty = if ($resourceIdnAttempted) { $resourceIdnProperty } else { $dataIdnProperty }
+            if ($idnProperty.Value -isnot [pscustomobject]) {
+                $failures.Add("observed identity evidence IDN value must be an object.")
+            }
+            else {
+                $identityValue = $idnProperty.Value
+            }
         }
     }
 
@@ -1808,7 +1817,7 @@ function Invoke-ValidationCommand {
         $commandName = if ($Case.args.Count -gt 0) { [string]$Case.args[0] } else { "" }
         $snapshotIdentityCommand = $commandName -in @("snapshot", "restore-from-snapshot")
         $exactLiveHardwareExpected = $Case.live_hardware_expected -is [System.Boolean] -and $Case.live_hardware_expected -eq $true
-        $generalIdentityEvidencePresent = $false
+        $generalIdentityEvidenceAttempted = $false
         if (-not $snapshotIdentityCommand -and $data -is [pscustomobject]) {
             $dataIdnProperty = $data.PSObject.Properties["idn"]
             $resourceProperty = $data.PSObject.Properties["resource"]
@@ -1818,7 +1827,10 @@ function Invoke-ValidationCommand {
             else {
                 $null
             }
-            $generalIdentityEvidencePresent = $null -ne $dataIdnProperty -or $null -ne $resourceIdnProperty
+            $generalIdentityEvidenceAttempted = (
+                ($null -ne $dataIdnProperty -and -not [object]::ReferenceEquals($null, $dataIdnProperty.Value)) -or
+                ($null -ne $resourceIdnProperty -and -not [object]::ReferenceEquals($null, $resourceIdnProperty.Value))
+            )
         }
         $identityRequired = if ($snapshotIdentityCommand) {
             $exactLiveHardwareExpected
@@ -1830,7 +1842,7 @@ function Invoke-ValidationCommand {
         if (-not $snapshotIdentityCommand -or $exactLiveHardwareExpected) {
             $identity = $normalizedIdentity.identity
         }
-        if ($identityRequired -or ($Case.phase -eq "live" -and $generalIdentityEvidencePresent)) {
+        if ($identityRequired -or ($Case.phase -eq "live" -and $generalIdentityEvidenceAttempted)) {
             $identityNormalizationFailures = @($normalizedIdentity.failures)
         }
         if ($snapshotIdentityCommand) {

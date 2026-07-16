@@ -349,6 +349,21 @@ def test_snapshot_restore_identity_rejects_non_allowlisted_or_conflicting_fields
         ("measure-all", {"idn": []}, False),
         (
             "measure-all",
+            {"resource": {"idn": None}, "idn": REPORTED_E36312A_IDENTITY},
+            True,
+        ),
+        (
+            "measure-all",
+            {"resource": {"idn": REPORTED_E36312A_IDENTITY}, "idn": None},
+            True,
+        ),
+        (
+            "measure-all",
+            {"resource": {"idn": REPORTED_E36312A_IDENTITY}, "idn": REPORTED_E36312A_IDENTITY},
+            False,
+        ),
+        (
+            "measure-all",
             {
                 "resource": {"idn": "bad"},
                 "idn": REPORTED_E36312A_IDENTITY,
@@ -417,6 +432,136 @@ with open(save_path, "w", encoding="utf-8") as handle:
         encoding="utf-8",
     )
     return tmp_path
+
+
+def _invoke_optional_identity_case(
+    tmp_path: Path, *, target: str, data: object
+) -> dict[str, object]:
+    fixture_path = _observed_identity_fixture_cli_path(tmp_path, data)
+    output_dir = tmp_path / "out"
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "{target}"
+$script:OutputDir = "{output_dir}"
+New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
+$script:RawResource = "ASRL1::FIXTURE::INSTR"
+$script:ResourceDisplay = "ASRL:<redacted-resource>"
+$script:ConnectionLabel = "ASRL"
+$script:TransportScope = "asrl"
+$script:BackendArtifact = Get-BackendArtifactFields -Value $null
+$script:BackendValue = $null
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:InstrumentIdentity = $null
+$case = New-CommandCase -Name "optional-identity" -Suite "readonly" -Phase "live" -Args @("clear", "--json", "--resource", $script:RawResource) -LiveHardwareExpected:$true
+$record = Invoke-ValidationCommand -Case $case
+$record | ConvertTo-Json -Depth 10 -Compress
+'''
+    result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout.strip())
+
+
+@pytest.mark.parametrize(
+    ("data", "expected_result", "identity_observed"),
+    [
+        ({}, "passed", False),
+        ({"idn": None}, "passed", False),
+        ({"resource": {"idn": None}}, "passed", False),
+        ({"resource": {"idn": None}, "idn": None}, "passed", False),
+        (
+            {"resource": {"idn": None}, "idn": REPORTED_E36312A_IDENTITY},
+            "passed",
+            True,
+        ),
+        (
+            {"resource": {"idn": REPORTED_E36312A_IDENTITY}, "idn": None},
+            "passed",
+            True,
+        ),
+        ({"resource": {"idn": None}, "idn": "bad"}, "failed", False),
+        ({"resource": {"idn": "bad"}, "idn": None}, "failed", False),
+        ({"resource": {"idn": None}, "idn": []}, "failed", False),
+        ({"resource": {"idn": []}, "idn": None}, "failed", False),
+        (
+            {
+                "resource": {"idn": None},
+                "idn": {
+                    key: value
+                    for key, value in REPORTED_E36312A_IDENTITY.items()
+                    if key != "model"
+                },
+            },
+            "failed",
+            False,
+        ),
+        (
+            {
+                "resource": {"idn": REPORTED_E36312A_IDENTITY},
+                "idn": REPORTED_E36312A_IDENTITY,
+            },
+            "failed",
+            False,
+        ),
+        (
+            {
+                "resource": {"idn": REPORTED_E36312A_IDENTITY},
+                "idn": {**REPORTED_E36312A_IDENTITY, "model": "EDU36311A"},
+            },
+            "failed",
+            False,
+        ),
+        (
+            {"resource": {"idn": "bad"}, "idn": REPORTED_E36312A_IDENTITY},
+            "failed",
+            False,
+        ),
+        (
+            {"resource": {"idn": REPORTED_E36312A_IDENTITY}, "idn": []},
+            "failed",
+            False,
+        ),
+    ],
+)
+def test_optional_observed_identity_uses_exactly_one_non_null_path(
+    tmp_path, data, expected_result, identity_observed
+):
+    record = _invoke_optional_identity_case(
+        tmp_path, target="keysight-e36312a", data=data
+    )
+
+    assert record["result"] == expected_result
+    assert record["identity_observed"] is identity_observed
+    assert (record["assertion_failures"] == []) is (expected_result == "passed")
+    resource = data.get("resource") if isinstance(data, dict) else None
+    resource_idn = resource.get("idn") if isinstance(resource, dict) else None
+    data_idn = data.get("idn") if isinstance(data, dict) else None
+    if resource_idn is not None and data_idn is not None:
+        assert record["assertion_failures"] == [
+            "observed identity evidence contains ambiguous duplicate "
+            "data.resource.idn and data.idn values."
+        ]
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["keysight-e36312a", "keysight-edu36311a", "keysight-e3646a"],
+)
+def test_optional_null_identity_placeholder_is_absent_for_all_targets(
+    tmp_path, target
+):
+    record = _invoke_optional_identity_case(
+        tmp_path, target=target, data={"resource": {"idn": None}}
+    )
+
+    assert record["result"] == "passed"
+    assert record["identity_observed"] is False
+    assert record["assertion_failures"] == []
 
 
 @pytest.mark.parametrize(
@@ -490,7 +635,7 @@ $record | ConvertTo-Json -Depth 10 -Compress
     [
         (False, None, "passed", False),
         (True, REPORTED_E36312A_IDENTITY, "passed", True),
-        (True, None, "failed", False),
+        (True, None, "passed", False),
         (True, "bad", "failed", False),
         (True, {**REPORTED_E36312A_IDENTITY, "model": "EDU36311A"}, "failed", False),
     ],
@@ -2474,6 +2619,57 @@ sys.exit(0 if payload["ok"] else 2)
     return tmp_path
 
 
+def _e3646a_null_identity_cleanup_fixture_cli_path(
+    tmp_path: Path, *, malformed_identity: bool = False
+) -> Path:
+    fixture_cli = tmp_path / "powers_tool_cli"
+    fixture_cli.mkdir()
+    (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
+    identity = "bad" if malformed_identity else None
+    (fixture_cli / "cli.py").write_text(
+        f'''
+import json
+import sys
+
+command = sys.argv[1]
+resource = {{
+    "idn": {identity!r},
+    "interface": "ASRL",
+    "model_id": "keysight-e3646a",
+    "name": "ASRL1::FIXTURE::E3646A::INSTR",
+    "reachable": True,
+    "simulated": False,
+    "vendor_id": "keysight",
+}}
+data = {{"resource": resource}}
+if command == "clear":
+    data["cleared"] = True
+elif command == "output-state":
+    data.update({{
+        "channel": "all",
+        "outputs": [
+            {{"channel": 1, "enabled": False}},
+            {{"channel": 2, "enabled": False}},
+        ],
+    }})
+elif command == "error":
+    data.update({{"errors": [], "max_reads": 20, "read_count": 1}})
+
+payload = {{
+    "ok": True,
+    "error": None,
+    "execution": {{"mode": "real", "dry_run": False, "hardware_touched": True}},
+    "data": data,
+}}
+save_path = sys.argv[sys.argv.index("--save-json") + 1]
+with open(save_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+'''.lstrip(),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
 def _error_evidence_fixture_cli_path(tmp_path: Path, data: object) -> Path:
     fixture_cli = tmp_path / "powers_tool_cli"
     fixture_cli.mkdir()
@@ -2564,6 +2760,84 @@ def test_live_cli_check_uses_readonly_error_queue_checkpoint_name() -> None:
 
     assert 'New-CommandCase -Name "readonly-error-queue-checkpoint"' in script
     assert 'New-CommandCase -Name "measure-all-error-queue"' not in script
+
+
+def _run_e3646a_null_identity_cleanup_fixture(
+    tmp_path: Path, *, malformed_identity: bool = False, cleanup: bool = True
+) -> dict[str, object]:
+    fixture_path = _e3646a_null_identity_cleanup_fixture_cli_path(
+        tmp_path, malformed_identity=malformed_identity
+    )
+    output_dir = tmp_path / "out"
+    cleanup_command = "Invoke-SafeOffCleanup -Role \"final\"" if cleanup else ""
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e3646a"
+$script:OutputDir = "{output_dir}"
+New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
+$script:RawResource = "ASRL1::FIXTURE::E3646A::INSTR"
+$script:ResourceDisplay = "ASRL:<redacted-resource>"
+$script:ConnectionLabel = "ASRL"
+$script:TransportScope = "asrl"
+$script:BackendArtifact = Get-BackendArtifactFields -Value $null
+$script:BackendValue = $null
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:InstrumentIdentity = $null
+$script:SuitesToRun = @("readonly", "output")
+$script:Suite = "full"
+$script:StateChanging = $true
+$script:Restore = $true
+$script:PlanOnly = $false
+$case = New-CommandCase -Name "clear" -Suite "readonly" -Phase "live" -Args @("clear", "--json", "--resource", $script:RawResource) -LiveHardwareExpected:$true
+$clearRecord = Invoke-ValidationCommand -Case $case
+{cleanup_command}
+[pscustomobject]@{{
+    clear = $clearRecord
+    cleanup = $script:CleanupEvidence
+    failures = $script:Failures.ToArray()
+    commands = $script:CommandRecords.ToArray()
+}} | ConvertTo-Json -Depth 20 -Compress
+'''
+    result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout.strip())
+
+
+def test_e3646a_null_identity_placeholder_does_not_break_cleanup_error_evidence(
+    tmp_path,
+):
+    run = _run_e3646a_null_identity_cleanup_fixture(tmp_path)
+
+    assert run["clear"]["result"] == "passed"
+    assert run["clear"]["identity_observed"] is False
+    assert run["cleanup"]["status"] == "passed"
+    assert run["cleanup"]["error_queue_checked"] is True
+    assert run["cleanup"]["instrument_errors"] == []
+    error_record = next(
+        record for record in run["commands"] if record["name"] == "cleanup-error-queue"
+    )
+    assert error_record["result"] == "passed"
+    assert error_record["identity_observed"] is False
+    assert error_record["instrument_errors_observed"] == []
+    assert "Cleanup could not verify the instrument error queue." not in run["failures"]
+
+
+def test_e3646a_non_null_malformed_identity_placeholder_fails_closed(tmp_path):
+    run = _run_e3646a_null_identity_cleanup_fixture(
+        tmp_path, malformed_identity=True, cleanup=False
+    )
+
+    assert run["clear"]["result"] == "failed"
+    assert run["clear"]["identity_observed"] is False
+    assert run["clear"]["assertion_failures"] == [
+        "observed identity evidence IDN value must be an object."
+    ]
 
 
 def _run_state_changing_fixture(
