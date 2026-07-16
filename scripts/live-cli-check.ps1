@@ -1423,12 +1423,14 @@ function Invoke-ValidationCommand {
         $payloadData = Get-PropertyValue -Object $payload -Name "data"
         $payloadTrigger = Get-PropertyValue -Object $payloadData -Name "trigger"
         if ($null -ne $payloadTrigger) {
-            $triggerRecord = [pscustomobject]@{
-                mode = Get-PropertyValue -Object $payloadTrigger -Name "mode"
-                channel = Get-PropertyValue -Object $payloadTrigger -Name "channel"
-                fired = Get-PropertyValue -Object $payloadTrigger -Name "fired"
-                completed = Get-PropertyValue -Object $payloadTrigger -Name "completed"
+            $triggerRecordFields = [ordered]@{}
+            foreach ($triggerField in @("mode", "channel", "fired", "completed", "abort_attempted", "abort_succeeded", "abort_errors")) {
+                $triggerProperty = $payloadTrigger.PSObject.Properties[$triggerField]
+                if ($null -ne $triggerProperty) {
+                    $triggerRecordFields[$triggerField] = $triggerProperty.Value
+                }
             }
+            $triggerRecord = [pscustomobject]$triggerRecordFields
         }
     }
 
@@ -1698,6 +1700,9 @@ function New-TriggerEvidence {
             completed = $false
             timeout_or_interrupted = $false
             abort_status = "not_executed"
+            abort_attempted = $null
+            abort_succeeded = $null
+            abort_errors = $null
             trigger_restore_succeeded = $null
             arm_error_queue_empty = $null
             error_queue_empty = $null
@@ -1779,28 +1784,38 @@ function Invoke-TriggerFireCandidateCase {
             $script:Failures.Add("trigger-fire arm helper failed before the candidate command.")
             return
         }
+        $script:TriggerEvidence.fire.abort_status = "unknown"
         $record = Invoke-ValidationCommand -Case $Case
         $recordTrigger = Get-PropertyValue -Object $record -Name "trigger"
-        $recordMode = Get-PropertyValue -Object $recordTrigger -Name "mode"
-        $recordChannel = Get-PropertyValue -Object $recordTrigger -Name "channel"
-        $recordFired = Get-PropertyValue -Object $recordTrigger -Name "fired"
-        $recordCompleted = Get-PropertyValue -Object $recordTrigger -Name "completed"
-        $recordChannelIsNumber = $recordChannel -is [byte] -or $recordChannel -is [sbyte] -or
-            $recordChannel -is [int16] -or $recordChannel -is [uint16] -or
-            $recordChannel -is [int32] -or $recordChannel -is [uint32] -or
-            $recordChannel -is [int64] -or $recordChannel -is [uint64] -or
-            $recordChannel -is [single] -or $recordChannel -is [double] -or $recordChannel -is [decimal]
-        $firePayloadValid = [bool](
-            $record.result -eq "passed" -and
-            $recordMode -is [string] -and $recordMode -ceq "fire" -and
-            $recordChannelIsNumber -and $recordChannel -eq 1 -and
-            $recordFired -is [bool] -and $recordFired -eq $true -and
-            $recordCompleted -is [bool] -and $recordCompleted -eq $true
+        $recordFiredProperty = if ($null -eq $recordTrigger) { $null } else { $recordTrigger.PSObject.Properties["fired"] }
+        $recordCompletedProperty = if ($null -eq $recordTrigger) { $null } else { $recordTrigger.PSObject.Properties["completed"] }
+        if ($null -ne $recordFiredProperty -and $recordFiredProperty.Value -is [bool]) {
+            $script:TriggerEvidence.fire.fired = $recordFiredProperty.Value
+        }
+        if ($null -ne $recordCompletedProperty -and $recordCompletedProperty.Value -is [bool]) {
+            $script:TriggerEvidence.fire.completed = $recordCompletedProperty.Value
+        }
+        foreach ($abortField in @("abort_attempted", "abort_succeeded", "abort_errors")) {
+            $abortProperty = if ($null -eq $recordTrigger) { $null } else { $recordTrigger.PSObject.Properties[$abortField] }
+            if ($null -ne $abortProperty) {
+                $script:TriggerEvidence.fire.$abortField = $abortProperty.Value
+            }
+        }
+        $script:TriggerEvidence.fire.timeout_or_interrupted = [bool](
+            $record.error_code -ceq "wait_timeout" -or $record.error_code -ceq "interrupted"
         )
-        $script:TriggerEvidence.fire.fired = $firePayloadValid
-        $script:TriggerEvidence.fire.completed = $firePayloadValid
-        $script:TriggerEvidence.fire.timeout_or_interrupted = [bool]($record.result -ne "passed")
-        $script:TriggerEvidence.fire.abort_status = if ($record.result -eq "passed") { "not_required" } else { "command_failure_abort_attempted" }
+        $abortAttemptedProperty = if ($null -eq $recordTrigger) { $null } else { $recordTrigger.PSObject.Properties["abort_attempted"] }
+        $abortSucceededProperty = if ($null -eq $recordTrigger) { $null } else { $recordTrigger.PSObject.Properties["abort_succeeded"] }
+        if ($record.result -eq "passed") {
+            $script:TriggerEvidence.fire.abort_status = "not_required"
+        }
+        elseif ($null -ne $abortAttemptedProperty -and $abortAttemptedProperty.Value -is [bool] -and $abortAttemptedProperty.Value -eq $false) {
+            $script:TriggerEvidence.fire.abort_status = "not_attempted"
+        }
+        elseif ($null -ne $abortAttemptedProperty -and $abortAttemptedProperty.Value -is [bool] -and $abortAttemptedProperty.Value -eq $true -and
+            $null -ne $abortSucceededProperty -and $abortSucceededProperty.Value -is [bool]) {
+            $script:TriggerEvidence.fire.abort_status = if ($abortSucceededProperty.Value) { "succeeded" } else { "failed" }
+        }
     }
     finally {
         if (Test-Path -LiteralPath $snapshotPath) {

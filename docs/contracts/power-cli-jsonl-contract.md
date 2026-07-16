@@ -199,9 +199,11 @@ Selected data mappings:
   `restored`; `restored: true` means all three channels' pre-run Trigger/LIST
   state plus the rear digital pin and BUS trigger-output state were restored.
   It does not mean output channels were turned off.
-- Failed `trigger-fire` envelopes include `data.trigger` with the observed
-  `fired` and `completed` state plus `abort_attempted`, `abort_succeeded`, and
+- Failed post-admission `trigger-fire` execution envelopes that reach the
+  fire/abort path include `data.trigger` with the observed `fired` and
+  `completed` state plus `abort_attempted`, `abort_succeeded`, and
   `abort_errors`. Abort is best effort; an abort failure is diagnostic and does
-  not replace the original trigger failure.
+  not replace the original trigger failure. Validation, argument, connection,
+  and admission failures do not guarantee `data.trigger`.
 - Live trigger behavior remains IDN-driven. Live `--model` is an
   expected-model guard and does not override connected hardware.

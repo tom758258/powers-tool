@@ -161,6 +161,46 @@ with open(save_path, "w", encoding="utf-8") as handle:
     return tmp_path
 
 
+def _trigger_record_fixture_cli_path(tmp_path: Path) -> Path:
+    fixture_cli = tmp_path / "powers_tool_cli"
+    fixture_cli.mkdir()
+    (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
+    (fixture_cli / "cli.py").write_text(
+        r'''
+import json
+import sys
+
+command = sys.argv[1]
+trigger = {
+    "mode": "fire",
+    "channel": 1,
+    "fired": True,
+    "completed": command == "success",
+}
+if command == "abort-empty":
+    trigger.update({"abort_attempted": True, "abort_succeeded": True, "abort_errors": []})
+elif command == "abort-missing":
+    trigger.update({"abort_attempted": True, "abort_succeeded": False})
+
+ok = command == "success"
+payload = {
+    "ok": ok,
+    "error": None if ok else {"code": "trigger_fire_failed", "message": "fixture trigger failure"},
+    "execution": {"mode": "simulate", "dry_run": False, "hardware_touched": False},
+}
+if command != "no-trigger":
+    payload["data"] = {"trigger": trigger}
+
+save_path = sys.argv[sys.argv.index("--save-json") + 1]
+with open(save_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle)
+sys.exit(0 if ok else 1)
+'''.lstrip(),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
 def _artifact_privacy_fixture_cli_path(tmp_path: Path) -> Path:
     fixture_cli = tmp_path / "powers_tool_cli"
     fixture_cli.mkdir()
@@ -953,7 +993,8 @@ $payloads = @(
     '{{"data":{{"trigger":{{"mode":"fire","channel":1,"fired":false,"completed":true}}}}}}',
     '{{"data":{{}}}}',
     '{{"data":{{"trigger":{{"mode":"fire","channel":"1","fired":true,"completed":true}}}}}}',
-    '{{"data":{{"trigger":{{"mode":"step","channel":1,"fired":true,"completed":true}}}}}}'
+    '{{"data":{{"trigger":{{"mode":"step","channel":1,"fired":true,"completed":true}}}}}}',
+    '{{"data":{{"trigger":{{"mode":"fire","channel":1,"fired":"true","completed":1}}}}}}'
 )
 $counts = @($payloads | ForEach-Object {{
     $payload = $_ | ConvertFrom-Json
@@ -964,7 +1005,63 @@ $counts | ConvertTo-Json -Compress
     result = _run_powershell_command(command)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert json.loads(result.stdout) == [0, 1, 1, 4, 1, 1]
+    assert json.loads(result.stdout) == [0, 1, 1, 4, 1, 1, 2]
+
+
+def test_trigger_fire_command_record_preserves_diagnostics_and_property_presence(tmp_path) -> None:
+    fixture_path = _trigger_record_fixture_cli_path(tmp_path)
+    output_dir = tmp_path / "out"
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
+$script:OutputDir = "{output_dir}"
+New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
+$script:RawResource = "USB0::FIXTURE::INSTR"
+$script:ResourceDisplay = "USB:<redacted-resource>"
+$script:BackendValue = $null
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$caseEmpty = New-CommandCase -Name "abort-empty" -Suite "trigger-list" -Phase "preflight" -Args @("abort-empty", "--json") -ValidationKind "trigger-fire"
+$caseMissing = New-CommandCase -Name "abort-missing" -Suite "trigger-list" -Phase "preflight" -Args @("abort-missing", "--json") -ValidationKind "trigger-fire"
+$caseNoTrigger = New-CommandCase -Name "no-trigger" -Suite "trigger-list" -Phase "preflight" -Args @("no-trigger", "--json") -ValidationKind "trigger-fire"
+$empty = Invoke-ValidationCommand -Case $caseEmpty
+$missing = Invoke-ValidationCommand -Case $caseMissing
+$noTrigger = Invoke-ValidationCommand -Case $caseNoTrigger
+[pscustomobject]@{{
+    empty = $empty.trigger
+    empty_has_abort_errors = $null -ne $empty.trigger.PSObject.Properties["abort_errors"]
+    missing = $missing.trigger
+    missing_has_abort_errors = $null -ne $missing.trigger.PSObject.Properties["abort_errors"]
+    no_trigger = $noTrigger.trigger
+}} | ConvertTo-Json -Depth 10 -Compress
+'''
+    result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["empty"] == {
+        "mode": "fire",
+        "channel": 1,
+        "fired": True,
+        "completed": False,
+        "abort_attempted": True,
+        "abort_succeeded": True,
+        "abort_errors": [],
+    }
+    assert payload["empty_has_abort_errors"] is True
+    assert payload["missing"] == {
+        "mode": "fire",
+        "channel": 1,
+        "fired": True,
+        "completed": False,
+        "abort_attempted": True,
+        "abort_succeeded": False,
+    }
+    assert payload["missing_has_abort_errors"] is False
+    assert payload["no_trigger"] is None
 
 
 def test_trigger_fire_evidence_comes_only_from_recorded_payload(tmp_path) -> None:
@@ -979,22 +1076,23 @@ $script:Restore = $true
 $script:CleanupEvidence = New-CleanupEvidence -ValidationMode "live"
 function Invoke-SafeOffCleanup {{ param([string]$Role); $script:CleanupEvidence = [pscustomobject]@{{ status = "passed"; all_outputs_off = $true; error_queue_checked = $true; instrument_errors = @() }} }}
 function Invoke-TriggerValidationHelper {{ param([string]$Action, [string]$SnapshotPath); if ($Action -eq "arm") {{ New-Item -ItemType File -Path $SnapshotPath -Force | Out-Null }}; return [pscustomobject]@{{ ok = $true; payload = [pscustomobject]@{{ error_queue_empty = $true }} }} }}
-$script:CurrentTrigger = $null
-function Invoke-ValidationCommand {{ param($Case); return [pscustomobject]@{{ result = "passed"; trigger = $script:CurrentTrigger }} }}
+$script:CurrentRecord = $null
+function Invoke-ValidationCommand {{ param($Case); return $script:CurrentRecord }}
 $case = New-CommandCase -Name "fire" -Suite "trigger-list" -Phase "live" -Args @("trigger-fire")
-$triggers = @(
-    ('{{"mode":"fire","channel":1,"fired":true,"completed":true}}' | ConvertFrom-Json),
-    ('{{"mode":"fire","channel":1,"fired":true,"completed":false}}' | ConvertFrom-Json),
-    ('{{"mode":"fire","channel":1,"fired":false,"completed":true}}' | ConvertFrom-Json),
-    $null,
-    ('{{"mode":"fire","channel":2,"fired":true,"completed":true}}' | ConvertFrom-Json),
-    ('{{"mode":"step","channel":1,"fired":true,"completed":true}}' | ConvertFrom-Json)
+$records = @(
+    [pscustomobject]@{{ result = "passed"; error_code = $null; trigger = ('{{"mode":"fire","channel":1,"fired":true,"completed":true}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ result = "failed"; error_code = $null; trigger = ('{{"mode":"fire","channel":1,"fired":true,"completed":false}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ result = "failed"; error_code = $null; trigger = ('{{"mode":"fire","channel":1,"fired":false,"completed":true}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ result = "failed"; error_code = $null; trigger = $null }},
+    [pscustomobject]@{{ result = "failed"; error_code = $null; trigger = ('{{"mode":"fire","channel":2,"fired":true,"completed":true}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ result = "failed"; error_code = $null; trigger = ('{{"mode":"step","channel":1,"fired":true,"completed":true}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ result = "failed"; error_code = $null; trigger = ('{{"mode":"fire","channel":1,"fired":"true","completed":1}}' | ConvertFrom-Json) }}
 )
-$evidence = @($triggers | ForEach-Object {{
-    $script:CurrentTrigger = $_
+$evidence = @($records | ForEach-Object {{
+    $script:CurrentRecord = $_
     $script:TriggerEvidence = New-TriggerEvidence
     Invoke-TriggerFireCandidateCase -Case $case
-    [pscustomobject]@{{ fired = $script:TriggerEvidence.fire.fired; completed = $script:TriggerEvidence.fire.completed }}
+    [pscustomobject]@{{ fired = $script:TriggerEvidence.fire.fired; completed = $script:TriggerEvidence.fire.completed; abort_status = $script:TriggerEvidence.fire.abort_status }}
 }})
 $evidence | ConvertTo-Json -Compress
 '''
@@ -1002,13 +1100,86 @@ $evidence | ConvertTo-Json -Compress
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout) == [
-        {"fired": True, "completed": True},
-        {"fired": False, "completed": False},
-        {"fired": False, "completed": False},
-        {"fired": False, "completed": False},
-        {"fired": False, "completed": False},
-        {"fired": False, "completed": False},
+        {"fired": True, "completed": True, "abort_status": "not_required"},
+        {"fired": True, "completed": False, "abort_status": "unknown"},
+        {"fired": False, "completed": True, "abort_status": "unknown"},
+        {"fired": False, "completed": False, "abort_status": "unknown"},
+        {"fired": True, "completed": True, "abort_status": "unknown"},
+        {"fired": True, "completed": True, "abort_status": "unknown"},
+        {"fired": False, "completed": False, "abort_status": "unknown"},
     ]
+
+
+def test_trigger_fire_abort_and_error_evidence_comes_from_recorded_diagnostics(tmp_path) -> None:
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:PrivateArtifactDir = "{(tmp_path / 'private').as_posix()}"
+New-Item -ItemType Directory -Path $script:PrivateArtifactDir -Force | Out-Null
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:StateChanging = $true
+$script:Restore = $true
+$script:CleanupEvidence = New-CleanupEvidence -ValidationMode "live"
+function Invoke-SafeOffCleanup {{ param([string]$Role); $script:CleanupEvidence = [pscustomobject]@{{ status = "passed"; all_outputs_off = $true; error_queue_checked = $true; instrument_errors = @() }} }}
+function Invoke-TriggerValidationHelper {{ param([string]$Action, [string]$SnapshotPath); if ($Action -eq "arm") {{ New-Item -ItemType File -Path $SnapshotPath -Force | Out-Null }}; return [pscustomobject]@{{ ok = $true; payload = [pscustomobject]@{{ error_queue_empty = $true }} }} }}
+$script:CurrentRecord = $null
+function Invoke-ValidationCommand {{ param($Case); return $script:CurrentRecord }}
+$case = New-CommandCase -Name "fire" -Suite "trigger-list" -Phase "live" -Args @("trigger-fire")
+$records = @(
+    [pscustomobject]@{{ name = "timeout"; result = "failed"; error_code = "wait_timeout"; trigger = ('{{"fired":true,"completed":false,"abort_attempted":true,"abort_succeeded":true,"abort_errors":[]}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ name = "interrupted"; result = "failed"; error_code = "interrupted"; trigger = ('{{"fired":true,"completed":false,"abort_attempted":true,"abort_succeeded":false,"abort_errors":["abort failed"]}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ name = "not-attempted"; result = "failed"; error_code = "trigger_fire_failed"; trigger = ('{{"fired":false,"completed":false,"abort_attempted":false}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ name = "general-fire"; result = "failed"; error_code = "trigger_fire_failed"; trigger = ('{{"fired":false,"completed":false}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ name = "error-queue"; result = "failed"; error_code = "trigger_fire_failed"; trigger = ('{{"fired":true,"completed":false,"abort_attempted":true,"abort_succeeded":false,"abort_errors":["queue abort failed"]}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ name = "assertion"; result = "failed"; error_code = $null; trigger = ('{{"fired":true,"completed":true}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ name = "success"; result = "passed"; error_code = $null; trigger = ('{{"fired":true,"completed":true}}' | ConvertFrom-Json) }},
+    [pscustomobject]@{{ name = "missing"; result = "failed"; error_code = "trigger_fire_failed"; trigger = $null }}
+)
+$evidence = @($records | ForEach-Object {{
+    $script:CurrentRecord = $_
+    $script:TriggerEvidence = New-TriggerEvidence
+    Invoke-TriggerFireCandidateCase -Case $case
+    [pscustomobject]@{{
+        name = $_.name
+        timeout_or_interrupted = $script:TriggerEvidence.fire.timeout_or_interrupted
+        abort_status = $script:TriggerEvidence.fire.abort_status
+        abort_attempted = $script:TriggerEvidence.fire.abort_attempted
+        abort_succeeded = $script:TriggerEvidence.fire.abort_succeeded
+        abort_errors = $script:TriggerEvidence.fire.abort_errors
+    }}
+}})
+$notExecuted = New-TriggerEvidence
+[pscustomobject]@{{ evidence = $evidence; not_executed = $notExecuted.fire.abort_status }} | ConvertTo-Json -Depth 10 -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    evidence = {item["name"]: item for item in payload["evidence"]}
+    assert evidence["timeout"] == {
+        "name": "timeout",
+        "timeout_or_interrupted": True,
+        "abort_status": "succeeded",
+        "abort_attempted": True,
+        "abort_succeeded": True,
+        "abort_errors": [],
+    }
+    assert evidence["interrupted"]["timeout_or_interrupted"] is True
+    assert evidence["interrupted"]["abort_status"] == "failed"
+    assert evidence["interrupted"]["abort_errors"] == ["abort failed"]
+    assert evidence["not-attempted"]["abort_status"] == "not_attempted"
+    assert evidence["not-attempted"]["timeout_or_interrupted"] is False
+    assert evidence["general-fire"]["abort_status"] == "unknown"
+    assert evidence["general-fire"]["timeout_or_interrupted"] is False
+    assert evidence["error-queue"]["abort_status"] == "failed"
+    assert evidence["error-queue"]["timeout_or_interrupted"] is False
+    assert evidence["assertion"]["abort_status"] == "unknown"
+    assert evidence["assertion"]["timeout_or_interrupted"] is False
+    assert evidence["success"]["abort_status"] == "not_required"
+    assert evidence["success"]["timeout_or_interrupted"] is False
+    assert evidence["missing"]["abort_status"] == "unknown"
+    assert evidence["missing"]["abort_errors"] is None
+    assert payload["not_executed"] == "not_executed"
 
 
 def test_live_cli_check_centrally_adds_validation_flag_only_for_policy_commands():
