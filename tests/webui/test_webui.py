@@ -5,6 +5,9 @@ from __future__ import annotations
 import ast
 import json
 import re
+import shutil
+import subprocess
+import textwrap
 import threading
 import time
 from pathlib import Path
@@ -164,6 +167,28 @@ def extract_js_function(app_js: str, function_name: str) -> str:
     raise AssertionError(f"Could not extract function {function_name}")
 
 
+def run_frontend_javascript_assertions(assertions: str) -> None:
+    node = shutil.which("node")
+    assert node is not None, "Node.js is required for WebUI JavaScript behavior tests."
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    bootstrap = """
+globalThis.window = {};
+globalThis.document = {
+  addEventListener() {},
+  getElementById() { return { value: "" }; }
+};
+"""
+    completed = subprocess.run(
+        [node, "--input-type=commonjs"],
+        input=f"{bootstrap}\n{app_js}\n{assertions}",
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr or completed.stdout
+
+
 # Guard test: Ensure WebUI source does not depend on the CLI adapter.
 def test_guard_no_cli_import():
     package_root = Path(__file__).parents[2] / "src" / "powers_tool_webui"
@@ -289,9 +314,9 @@ def test_static_device_resource_summary_uses_model_wording():
     assert "const expectedText = expectedModelSummary();" in summary
     assert '[resourceText, liveText, expectedText, supportText].filter(Boolean).join(" / ")' in summary
     assert "exactSupportContextSummary(resource)" in summary
-    assert "detectedResourceModel(resource)" in live_summary
+    assert "detectedResourceDisplayModel(resource)" in live_summary
     assert "return `live ${detected}`;" in live_summary
-    assert 'return expected ? `Require ${expected}` : "Auto-detect";' in expected_summary
+    assert "physicalModelDisplayName(expected)" in expected_summary
     assert "resourceDisplayModels: {}" in app_js
     assert "state.resourceDisplayModels[resource] = detectedModel;" in app_js
 
@@ -308,7 +333,7 @@ def test_static_model_profile_change_refreshes_effective_ui_model():
 
     assert 'document.getElementById("expected-model-id")?.addEventListener("change", handleExpectedModelChanged);' in bind
     assert 'return valueOrNull("expected-model-id");' in selected_expected
-    assert 'return expected ? `Require ${expected}` : "Auto-detect";' in selected_expected_label
+    assert "physicalModelDisplayName(expected)" in selected_expected_label
     assert "state.commandSupportByModel?.[expected]" in selected_command
     assert "return detectedCommandModelForResource(valueOrNull(\"resource\"));" in selected_command
     assert "state.channelCapabilitiesByModel?.[expected]" in selected_channel
@@ -811,6 +836,159 @@ def test_static_pulse_child_fields_and_rear_pin_select_contracts():
     assert "function updatePulseChildVisibility(command)" in app_js
 
 
+def test_frontend_workflow_pulse_model_behavior_uses_canonical_ids() -> None:
+    assertions = textwrap.dedent(
+        r"""
+        const strictAssert = require("node:assert/strict");
+        const testElements = new Map([
+          ["expected-model-id", { value: "" }],
+          ["resource", { value: "" }],
+          ["resource-select", { value: "", options: [{ textContent: "" }] }],
+          ["device-resource-summary", { textContent: "", title: "" }]
+        ]);
+        document.getElementById = (id) => testElements.get(id) || { value: "" };
+
+        const modelMetadata = [
+          { model_id: "keysight-e36312a", model_name: "E36312A", display_name: "Keysight E36312A" },
+          { model_id: "keysight-edu36311a", model_name: "EDU36311A", display_name: "Keysight EDU36311A" },
+          { model_id: "keysight-e3646a", model_name: "E3646A", display_name: "Keysight E3646A" }
+        ];
+        const modelIds = modelMetadata.map((model) => model.model_id);
+        state.physicalModels = modelMetadata;
+        state.commands = { "trigger-pulse": { description: "Standalone trigger pulse" } };
+        state.commandSupportByModel = Object.fromEntries(modelIds.map((modelId) => [modelId, {
+          "trigger-pulse": { real: modelId === "keysight-e36312a" },
+          probe: { marker: modelId }
+        }]));
+        state.channelCapabilitiesByModel = Object.fromEntries(modelIds.map((modelId) => [modelId, {
+          channels: modelId === "keysight-e3646a" ? [1, 2] : [1, 2, 3],
+          output_control_scope: modelId === "keysight-e3646a" ? "global" : "per_channel"
+        }]));
+        state.electricalRatingsByModel = Object.fromEntries(modelIds.map((modelId) => [modelId, {
+          channels: [{ channel: 1, max_voltage: modelId === "keysight-e3646a" ? 20 : 6, max_current: 1 }]
+        }]));
+
+        function setExpected(modelId) {
+          testElements.get("expected-model-id").value = modelId || "";
+        }
+
+        function setUndetectedResource(resource) {
+          testElements.get("resource").value = resource;
+          testElements.get("resource-select").value = resource;
+          delete state.resourceModels[resource];
+          delete state.resourceChannelModels[resource];
+          delete state.resourceDisplayModels[resource];
+        }
+
+        function setDetectedResource(resource, modelId, reportedModel) {
+          testElements.get("resource").value = resource;
+          testElements.get("resource-select").value = resource;
+          state.resourceModels[resource] = modelId && state.commandSupportByModel[modelId] ? modelId : null;
+          state.resourceChannelModels[resource] = modelId && state.channelCapabilitiesByModel[modelId] ? modelId : null;
+          state.resourceDisplayModels[resource] = reportedModel;
+        }
+
+        const workflowPulseRequests = {
+          "cycle-output": { completion_pulse_pins: [1] },
+          ramp: { completion_pulse_pins: [1] },
+          "ramp-list": { document: { completion_pulse: { timing: "segment", pins: [1], polarity: "positive" } } },
+          sequence: { document: { steps: [{ action: "trigger-pulse", pins: [1], polarity: "positive" }] } }
+        };
+        const workflowSurfaces = ["cycle-output", "ramp", "ramp-list", "sequence"];
+
+        setExpected("keysight-e36312a");
+        setUndetectedResource("USB0::EXPECTED::INSTR");
+        strictAssert.equal(selectedCommandModel(), "keysight-e36312a");
+        strictAssert.equal(selectedChannelModel(), "keysight-e36312a");
+        strictAssert.equal(selectedElectricalRatingModel(), "keysight-e36312a");
+        strictAssert.equal(selectedCommandSupport("probe").marker, "keysight-e36312a");
+        strictAssert.equal(channelCapabilityForCurrentModel().channels.length, 3);
+        strictAssert.equal(selectedChannelRatingFor("1").max_voltage, 6);
+        strictAssert.equal(pulseControlsUnavailableReason(), "");
+        for (const surface of workflowSurfaces) {
+          const input = { disabled: true, title: "stale" };
+          applyWorkflowPulseControlState(input);
+          strictAssert.equal(input.disabled, false, `${surface} control should be enabled for E36312A`);
+          strictAssert.equal(input.title, "");
+          strictAssert.equal(workflowPulseGuardReason(surface, workflowPulseRequests[surface]), "");
+        }
+        strictAssert.equal(commandRequestsPulse("trigger-pulse", { pins: [1] }), false);
+        strictAssert.notEqual(commandMeta("trigger-pulse").disabled, true);
+
+        setExpected("");
+        setDetectedResource("USB0::DETECTED::INSTR", "keysight-e36312a", "E36312A");
+        strictAssert.equal(selectedChannelModel(), "keysight-e36312a");
+        strictAssert.equal(pulseControlsUnavailableReason(), "");
+        for (const surface of workflowSurfaces) {
+          strictAssert.equal(workflowPulseGuardReason(surface, workflowPulseRequests[surface]), "");
+        }
+
+        for (const [modelId, displayName] of [
+          ["keysight-edu36311a", "Keysight EDU36311A"],
+          ["keysight-e3646a", "Keysight E3646A"]
+        ]) {
+          setExpected(modelId);
+          setUndetectedResource(`USB0::${modelId}::INSTR`);
+          const reason = pulseControlsUnavailableReason();
+          strictAssert.match(reason, new RegExp(displayName));
+          strictAssert.equal(reason.includes(modelId), false);
+          const input = { disabled: false, title: "" };
+          applyWorkflowPulseControlState(input);
+          strictAssert.equal(input.disabled, true);
+          strictAssert.equal(input.title, reason);
+          for (const surface of workflowSurfaces) {
+            strictAssert.equal(Boolean(workflowPulseGuardReason(surface, workflowPulseRequests[surface])), true);
+          }
+        }
+
+        setExpected("");
+        setDetectedResource("USB0::UNKNOWN::INSTR", null, "UNKNOWN");
+        strictAssert.match(pulseControlsUnavailableReason(), /no supported model is selected or detected/);
+        for (const surface of workflowSurfaces) {
+          strictAssert.equal(Boolean(workflowPulseGuardReason(surface, workflowPulseRequests[surface])), true);
+        }
+
+        setExpected("keysight-e36312a");
+        setDetectedResource("USB0::MISMATCH::INSTR", "keysight-edu36311a", "EDU36311A");
+        const mismatchReason = pulseControlsUnavailableReason();
+        strictAssert.match(mismatchReason, /Keysight E36312A/);
+        strictAssert.match(mismatchReason, /Keysight EDU36311A/);
+        strictAssert.equal(mismatchReason.includes("keysight-"), false);
+        updateDeviceResourceSummary();
+        strictAssert.match(testElements.get("device-resource-summary").title, /does not match/);
+
+        setDetectedResource("USB0::MISMATCH::INSTR", "keysight-e36312a", "E36312A");
+        updateDeviceResourceSummary();
+        strictAssert.equal(testElements.get("device-resource-summary").title.includes("does not match"), false);
+        strictAssert.equal(pulseControlsUnavailableReason(), "");
+
+        setExpected("");
+        setDetectedResource("USB0::SWITCH-A::INSTR", "keysight-e3646a", "E3646A");
+        strictAssert.equal(Boolean(pulseControlsUnavailableReason()), true);
+        setDetectedResource("USB0::SWITCH-B::INSTR", "keysight-e36312a", "E36312A");
+        strictAssert.equal(selectedChannelModel(), "keysight-e36312a");
+        strictAssert.equal(pulseControlsUnavailableReason(), "");
+        """
+    )
+    run_frontend_javascript_assertions(assertions)
+
+
+def test_static_workflow_pulse_gates_do_not_compare_display_model_names() -> None:
+    _index_html, app_js, _styles_css = read_static_texts()
+
+    assert 'const REAR_TRIGGER_PULSE_MODEL_ID = "keysight-e36312a";' in app_js
+    for display_name in ("E36312A", "EDU36311A", "E3646A"):
+        assert not re.search(
+            rf'(?:===|!==)\s*["\']{display_name}["\']|["\']{display_name}["\']\s*(?:===|!==)',
+            app_js,
+        )
+    assert "applyWorkflowPulseControlState(input);" in extract_js_function(app_js, "renderForm")
+    assert "applyWorkflowPulseControlState(input, prerequisiteReason);" in extract_js_function(app_js, "renderRampListForm")
+    assert "applyWorkflowPulseControlState(input);" in extract_js_function(app_js, "sequenceStepFields")
+    assert "workflowPulseGuardReason(state.selected, parameters)" in extract_js_function(app_js, "updateSelectedCommandState")
+    assert 'command === "trigger-pulse"' not in extract_js_function(app_js, "commandRequestsPulse")
+
+
 def test_static_frontend_uses_command_support_to_disable_unsupported_model_commands():
     _index_html, app_js, _styles_css = read_static_texts()
     command_meta = extract_js_function(app_js, "commandMeta")
@@ -955,7 +1133,7 @@ def test_static_commands_disable_by_selected_resource_model():
     assert "!next.stale && updateResourceModel(next.resource, next.model_id, next.model)" in app_js
     assert "support?.real === false" in app_js
     assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
-    assert "runButton.disabled = Boolean(meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard);" in app_js
+    assert "runButton.disabled = Boolean(meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard || workflowPulseGuard);" in app_js
     assert 'error: "Command unavailable"' in app_js
 
 

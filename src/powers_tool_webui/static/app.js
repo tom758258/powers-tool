@@ -75,6 +75,7 @@ const TRIGGER_COMMANDS = new Set([
 ]);
 const STATE_CLASS_NAMES = ["state-ok", "state-warning", "state-error", "state-idle"];
 const DEFAULT_CHANNELS = [1, 2, 3];
+const REAR_TRIGGER_PULSE_MODEL_ID = "keysight-e36312a";
 
 const PARAMS = {
   "list-resources": [{ name: "live_only", type: "checkbox", label: "Live only" }],
@@ -337,9 +338,9 @@ function updateDeviceResourceSummary() {
   const supportText = exactSupportContextSummary(resource);
   summary.textContent = [resourceText, liveText, expectedText, supportText].filter(Boolean).join(" / ");
   summary.title = summary.textContent;
-  const detected = detectedResourceModel(resource);
+  const detected = detectedCommandModelForResource(resource);
   const expected = selectedExpectedModel();
-  if (detected && expected && detected !== expected) {
+  if (expected && resourceModelDetectionRecorded(resource) && detected !== expected) {
     summary.title = "Selected expected model does not match the last scanned model. Live commands will fail before setup/write SCPI.";
   }
   if (clearedExactSupport) {
@@ -351,7 +352,7 @@ function updateDeviceResourceSummary() {
 
 function liveResourceSummary(resource, select) {
   if (!resource) return "not scanned";
-  const detected = detectedResourceModel(resource);
+  const detected = detectedResourceDisplayModel(resource);
   if (detected) return `live ${detected}`;
   const selectedLiveResource = Boolean(select.value.trim() && select.value.trim() === resource);
   if (selectedLiveResource) return "live selected";
@@ -362,7 +363,7 @@ function liveResourceSummary(resource, select) {
 
 function expectedModelSummary() {
   const expected = selectedExpectedModel();
-  return expected ? `Require ${expected}` : "Auto-detect";
+  return expected ? `Require ${physicalModelDisplayName(expected)}` : "Auto-detect";
 }
 
 function selectedExpectedModel() {
@@ -371,12 +372,23 @@ function selectedExpectedModel() {
 
 function selectedExpectedModelLabel() {
   const expected = selectedExpectedModel();
-  return expected ? `Require ${expected}` : "Auto-detect";
+  return expected ? `Require ${physicalModelDisplayName(expected)}` : "Auto-detect";
 }
 
-function detectedResourceModel(resource) {
+function physicalModelDisplayName(modelId) {
+  const canonicalModelId = String(modelId || "").trim();
+  if (!canonicalModelId) return "Unknown model";
+  const metadata = state.physicalModels.find((model) => model?.model_id === canonicalModelId);
+  return metadata?.display_name || metadata?.model_name || canonicalModelId;
+}
+
+function detectedResourceDisplayModel(resource) {
   if (!resource) return null;
   return state.resourceDisplayModels[resource] || null;
+}
+
+function resourceModelDetectionRecorded(resource) {
+  return Boolean(resource) && Object.prototype.hasOwnProperty.call(state.resourceChannelModels, resource);
 }
 
 function detectedCommandModelForResource(resource) {
@@ -609,10 +621,7 @@ function renderForm(command) {
     if (param.value !== undefined) input.value = param.value;
     applyParameterConstraint(input, param.name);
     applyElectricalRatingConstraint(input, param.name);
-    if (param.name.includes("completion_pulse") && pulseControlsUnavailableReason()) {
-      input.disabled = true;
-      input.title = pulseControlsUnavailableReason();
-    }
+    if (param.name.includes("completion_pulse")) applyWorkflowPulseControlState(input);
     input.addEventListener("change", () => {
       enforcePulseFormRules(command, param.name, input);
       refreshElectricalRatingConstraints();
@@ -906,13 +915,10 @@ function renderRampListForm(form) {
       : String(state.rampListCompletionPulse?.[definition.name] || (definition.name === "polarity" ? "positive" : ""));
     input.id = `ramp-list-pulse-${definition.name}`;
     input.addEventListener("change", () => updateRampListPulse(definition.name, input.value));
-    if (definition.name !== "timing" && !state.rampListCompletionPulse) {
-      input.disabled = true;
-      input.title = "Select a pulse timing to configure this field.";
-    } else if (pulseControlsUnavailableReason()) {
-      input.disabled = true;
-      input.title = pulseControlsUnavailableReason();
-    }
+    const prerequisiteReason = definition.name !== "timing" && !state.rampListCompletionPulse
+      ? "Select a pulse timing to configure this field."
+      : "";
+    applyWorkflowPulseControlState(input, prerequisiteReason);
     label.appendChild(input);
     pulseFields.appendChild(label);
   });
@@ -1858,10 +1864,7 @@ function sequenceStepFields(step, index, card, title, summary) {
       : String(step[definition.name] ?? definition.value);
     input.dataset.sequenceField = definition.name;
     applyParameterConstraint(input, definition.name);
-    if (step.action === "trigger-pulse" && pulseControlsUnavailableReason()) {
-      input.disabled = true;
-      input.title = pulseControlsUnavailableReason();
-    }
+    if (step.action === "trigger-pulse") applyWorkflowPulseControlState(input);
     input.addEventListener("input", () => {
       step[definition.name] = sequenceFieldValue(definition, input);
       summary.textContent = sequenceStepSummary(step);
@@ -3112,9 +3115,10 @@ function supportedModelKey(model) {
 
 function commandDisabledReason(support, model) {
   const validation = support?.hardware_validation;
-  if (validation === "planning_only") return `Planning only on ${model}`;
-  if (validation === "not_supported_by_model") return `Not supported on ${model}`;
-  return `Unavailable on ${model}`;
+  const displayModel = physicalModelDisplayName(model);
+  if (validation === "planning_only") return `Planning only on ${displayModel}`;
+  if (validation === "not_supported_by_model") return `Not supported on ${displayModel}`;
+  return `Unavailable on ${displayModel}`;
 }
 
 function exactSupportContextSummary(resource) {
@@ -3160,7 +3164,7 @@ function isNumericChannel(channel) {
 function channelUnsupportedReason(channel) {
   if (isChannelSupported(channel)) return "";
   const model = currentChannelCapabilityModel();
-  return model ? `${model} does not support channel ${channel}` : "";
+  return model ? `${physicalModelDisplayName(model)} does not support channel ${channel}` : "";
 }
 
 function channelCapabilityForCurrentModel() {
@@ -3236,7 +3240,7 @@ function outputControlScopeForCurrentModel() {
 
 function globalOutputHintText() {
   const model = currentChannelCapabilityModel();
-  return model ? `${model} output enable is global for supported channels.` : "Output enable is global for supported channels.";
+  return model ? `${physicalModelDisplayName(model)} output enable is global for supported channels.` : "Output enable is global for supported channels.";
 }
 
 function toggleResultPanel() {
@@ -3898,6 +3902,7 @@ function updateSelectedCommandState() {
   const setGuard = setRequiresSetpointGuardReason(state.selected, parameters);
   const triggerControlGuard = triggerControlGuardReason(state.selected, parameters);
   const triggerFireWaitGuard = triggerFireWaitGuardReason(state.selected, parameters);
+  const workflowPulseGuard = workflowPulseGuardReason(state.selected, parameters);
   const tripWarning = tripContextWarning(state.selected);
   const runButton = document.getElementById("run");
   const commandDescription = document.getElementById("command-description");
@@ -3905,7 +3910,7 @@ function updateSelectedCommandState() {
   commandDescription.textContent = descriptionText;
   commandDescription.title = descriptionText;
   renderCommandGuidance(state.selected, parameters);
-  runButton.disabled = Boolean(meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard);
+  runButton.disabled = Boolean(meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard || workflowPulseGuard);
   runButton.disabled ||= !validateConstrainedInputs();
   if (state.selected === "restore-from-snapshot") {
     const restoreValid = isLoadedRestoreSnapshotValid();
@@ -3927,10 +3932,7 @@ function updateSelectedCommandState() {
       runButton.disabled = true;
     }
   }
-  if (pulseControlsUnavailableReason() && commandRequestsPulse(state.selected, parameters)) {
-    runButton.disabled = true;
-    commandDescription.textContent = [descriptionText, pulseControlsUnavailableReason()].filter(Boolean).join(" ");
-  }
+  if (workflowPulseGuard) commandDescription.textContent = [descriptionText, workflowPulseGuard].filter(Boolean).join(" ");
   document.getElementById("confirm-banner").classList.toggle("visible", Boolean(meta.requires_confirm));
 }
 
@@ -3989,11 +3991,12 @@ function electricalRatingGuardReason(command, parameters) {
   const model = selectedElectricalRatingModel();
   const ratings = state.electricalRatingsByModel?.[model]?.channels;
   if (!Array.isArray(ratings)) return "";
+  const displayModel = physicalModelDisplayName(model);
   const check = (channel, voltage, current) => {
     const selected = channel === "all" ? ratings : ratings.filter((rating) => String(rating.channel) === String(channel));
     for (const rating of selected) {
-      if (voltage !== undefined && voltage !== null && Number(voltage) > Number(rating.max_voltage)) return `Voltage ${voltage} exceeds official DC output rating ${rating.max_voltage} V for ${model} channel ${rating.channel}.`;
-      if (current !== undefined && current !== null && Number(current) > Number(rating.max_current)) return `Current ${current} exceeds official DC output rating ${rating.max_current} A for ${model} channel ${rating.channel}.`;
+      if (voltage !== undefined && voltage !== null && Number(voltage) > Number(rating.max_voltage)) return `Voltage ${voltage} exceeds official DC output rating ${rating.max_voltage} V for ${displayModel} channel ${rating.channel}.`;
+      if (current !== undefined && current !== null && Number(current) > Number(rating.max_current)) return `Current ${current} exceeds official DC output rating ${rating.max_current} A for ${displayModel} channel ${rating.channel}.`;
     }
     return "";
   };
@@ -4008,8 +4011,28 @@ function electricalRatingGuardReason(command, parameters) {
 }
 
 function pulseControlsUnavailableReason() {
+  const resource = valueOrNull("resource");
+  const expected = selectedExpectedModel();
+  const detected = detectedChannelModelForResource(resource);
+  const supportedModel = physicalModelDisplayName(REAR_TRIGGER_PULSE_MODEL_ID);
+  if (expected && resourceModelDetectionRecorded(resource) && detected !== expected) {
+    const detectedModel = detected ? physicalModelDisplayName(detected) : "an unknown model";
+    return `Expected ${physicalModelDisplayName(expected)} does not match detected ${detectedModel}. Rear trigger pulse is only supported on ${supportedModel}.`;
+  }
   const model = selectedChannelModel();
-  return model && model !== "E36312A" ? `Rear trigger pulse is only supported on E36312A, not ${model}.` : "";
+  if (model === REAR_TRIGGER_PULSE_MODEL_ID) return "";
+  if (!model) return `Rear trigger pulse is only supported on ${supportedModel}; no supported model is selected or detected.`;
+  return `Rear trigger pulse is only supported on ${supportedModel}, not ${physicalModelDisplayName(model)}.`;
+}
+
+function applyWorkflowPulseControlState(input, prerequisiteReason = "") {
+  const reason = pulseControlsUnavailableReason() || prerequisiteReason;
+  input.disabled = Boolean(reason);
+  input.title = reason;
+}
+
+function workflowPulseGuardReason(command, parameters) {
+  return commandRequestsPulse(command, parameters) ? pulseControlsUnavailableReason() : "";
 }
 
 function commandRequestsPulse(command, parameters) {
