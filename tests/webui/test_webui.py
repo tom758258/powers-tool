@@ -277,6 +277,10 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert 'name="execution-mode" value="dry-run"' in html
     assert 'class="device-resource-title-row"' in html
     assert 'id="execution-mode-badge" class="execution-mode-badge real-locked" aria-live="polite">Real · Writes locked</span>' in html
+    badge_tag = static_tag_with_id(html, "execution-mode-badge")
+    assert badge_tag.startswith("<span ")
+    assert "onclick" not in badge_tag
+    assert 'getElementById("execution-mode-badge").addEventListener' not in app_js
     title_row = html[html.index('class="device-resource-title-row"'):html.index('</div>', html.index('class="device-resource-title-row"'))]
     title_end = title_row.index("</strong>")
     badge_start = title_row.index('id="execution-mode-badge"')
@@ -305,6 +309,32 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "runtime.serial_remote = true" in runtime_block
     assert "runtime.serial_local_on_close = true" in runtime_block
     assert ".serial-grid" in styles_css
+
+
+def test_static_command_forms_do_not_repeat_real_write_authorization_warning() -> None:
+    index_html, app_js, styles_css = read_static_texts()
+    update_selected = extract_js_function(app_js, "updateSelectedCommandState")
+    runtime_block = extract_js_function(app_js, "runtimePayload")
+    submit_selected = extract_js_function(app_js, "runSelected")
+    submit_basic = extract_js_function(app_js, "submitBasicJob")
+
+    assert "confirm-banner" not in index_html
+    assert "confirm-banner" not in app_js
+    assert "confirm-banner" not in styles_css
+    assert "Enable real hardware writes in Device options before running this command." not in app_js
+    assert "renderCommandGuidance(state.selected, parameters);" in update_selected
+    assert "meta.live_support_status" in update_selected
+    assert "confirm: hasRealWriteAuthorization()" in runtime_block
+    assert 'meta.requires_confirm && state.executionMode === "real" && !payload.runtime.confirm' in submit_selected
+    assert 'meta.requires_confirm && state.executionMode === "real" && !payload.runtime.confirm' in submit_basic
+    for function_name in (
+        "clearRealWriteAuthorization",
+        "handleExpectedModelChanged",
+        "handleExecutionModeChange",
+        "syncSelectedResource",
+        "updateResourceModel",
+    ):
+        assert "clearRealWriteAuthorization()" in extract_js_function(app_js, function_name)
 
 
 def test_static_normal_model_dropdown_policy() -> None:

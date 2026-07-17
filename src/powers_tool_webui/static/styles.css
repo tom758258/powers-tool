@@ -991,30 +991,6 @@ button.utility-icon-button:hover {
 
 .sequence-step-error { color: #c62828; }
 
-/* ─── Confirm Banner ─────────────────────────────────────────────────────── */
-.confirm-banner {
-  display: none;
-  margin: 12px 16px 0;
-  padding: 12px 14px;
-  background: var(--warning);
-  border: 1px solid #f0d060;
-  border-radius: var(--radius-sm);
-}
-
-.confirm-banner.visible { display: block; }
-
-.confirm-banner label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #6d4c00;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 13px;
-}
-
-.confirm-banner input { width: auto; height: auto; }
-
 /* ─── Panel Stack ────────────────────────────────────────────────────────── */
 .panel-stack { display: grid; gap: 14px; min-width: 0; }
 .button-row { display: flex; gap: 6px; }

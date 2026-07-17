@@ -4492,10 +4492,6 @@ function updateSelectedCommandState() {
     }
   }
   if (workflowPulseGuard) commandDescription.textContent = [descriptionText, workflowPulseGuard].filter(Boolean).join(" ");
-  const confirmationBanner = document.getElementById("confirm-banner");
-  const needsAuthorization = state.executionMode === "real" && Boolean(meta.requires_confirm) && !hasRealWriteAuthorization();
-  confirmationBanner.classList.toggle("visible", needsAuthorization);
-  confirmationBanner.textContent = needsAuthorization ? "Enable real hardware writes in Device options before running this command." : "";
 }
 
 function syncTriggerImmediateControls(command) {

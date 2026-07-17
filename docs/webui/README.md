@@ -218,7 +218,10 @@ Device / Resource summary shows the detected live model separately from the
 expected model selection, such as `live E3646A / Auto-detect` or `live E3646A /
 Require E36312A`. A selected model never overrides the IDN-selected live
 driver; Core remains the authority for live mismatch rejection before setup or
-write SCPI.
+write SCPI. The Device / Resource header displays the page-local write
+authorization state as `Real · Writes locked` or `Real · Writes enabled`; the
+badge is not interactive, and authorization remains controlled by Device
+options.
 The serial fields are optional; blank fields are omitted from the runtime
 payload and do not override VISA backend or Connection Expert settings.
 Read/write termination fields accept `CR`, `LF`, `CRLF`, and `NONE` aliases.

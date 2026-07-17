@@ -161,8 +161,10 @@ channel.
 The ON controls reflect fresh Live Data when available. An unlit ON control
 means OFF or unknown; it is not a confirmed OFF state unless Live Data is
 fresh. Real output-affecting actions require enabling `Enable real hardware
-writes for this resource` in Device options. The authorization clears when
-the resource, expected model, detected identity, mode, or page changes.
+writes for this resource` in Device options. The Device / Resource header shows
+`Real · Writes locked` or `Real · Writes enabled`; it is a status indicator,
+not a control. The authorization clears when the resource, expected model,
+detected identity, mode, or page changes.
 
 Before enabling output:
 
