@@ -788,16 +788,20 @@ def test_static_ramp_list_editor_contract():
     assert "start_voltage: previous.stop_voltage" in app_js
     assert "stop_voltage: previous.stop_voltage" in app_js
     assert 'kind: "powers-tool-ramp-list"' in app_js
-    assert "version: 2" in extract_js_function(app_js, "rampListDocument")
+    ramp_document = extract_js_function(app_js, "rampListDocument")
+    assert "version: 3" in ramp_document
+    assert "enable_output: state.rampListEnableOutput" in ramp_document
     validator = extract_js_function(app_js, "validateRampListDocument")
     assert 'document.kind !== "powers-tool-ramp-list"' in validator
-    assert "document.version !== 2" in validator
+    assert "![2, 3].includes(document.version)" in validator
+    assert 'typeof document.enable_output !== "boolean"' in validator
     assert "document.version !== 1" not in validator
     assert "window.showOpenFilePicker" in app_js
     assert "window.showSaveFilePicker" in app_js
     assert "const normalized = validateRampListDocument(JSON.parse(text));" in app_js
     assert "state.rampListSegments = normalized.segments;" in app_js
     assert "state.rampListCompletionPulse = normalized.completionPulse;" in app_js
+    assert "state.rampListEnableOutput = normalized.enableOutput;" in app_js
     assert 'name: "completion_pulse_segment"' in app_js
     assert 'name: "completion_pulse_step"' in app_js
     assert "state.rampListCompletionPulse = normalized.completionPulse;" in app_js
@@ -810,6 +814,27 @@ def test_static_ramp_list_editor_contract():
     assert ".ramp-list-pulse-hint { grid-column: 1 / -1; }" in styles_css
     assert 'if (state.selected === "ramp-list") return { document: rampListDocument() };' in app_js
     assert 'command === "ramp-list"' in app_js
+
+
+def test_static_workflow_run_button_state_contract():
+    index_html, app_js, styles_css = read_static_texts()
+
+    assert 'id="run" type="button" aria-label="Run"' in index_html
+    assert 'const STOPPABLE_WORKFLOWS = new Set(["ramp", "ramp-list", "sequence"]);' in app_js
+    assert '"Stop the active workflow and safely turn all outputs off."' in app_js
+    workflow_button = extract_js_function(app_js, "updateWorkflowRunButton")
+    for label in ('"Run"', '"Starting..."', '"Stop"', '"Stopping..."'):
+        assert label in workflow_button
+    assert 'button.classList.toggle("workflow-stop"' in workflow_button
+    assert 'fetchJson(`/api/jobs/${encodeURIComponent(jobId)}/cancel`' in extract_js_function(
+        app_js, "stopActiveWorkflow"
+    )
+    assert 'event.type === "cancel_requested"' in extract_js_function(app_js, "handleJobEvent")
+    assert "Waiting for safe-off and cleanup" in app_js
+    assert "Failed  cleanup_failed" in app_js
+    assert "button#run.workflow-stop" in styles_css
+    assert 'label: "Enable output after first setpoint"' in app_js
+    assert "Enable each channel at its first segment" in app_js
 
 
 def test_static_pulse_child_fields_and_rear_pin_select_contracts():
@@ -1132,7 +1157,7 @@ def test_static_commands_disable_by_selected_resource_model():
     assert "const next = supportedModelKey(modelId);" in app_js
     assert "!next.stale && updateResourceModel(next.resource, next.model_id, next.model)" in app_js
     assert "support?.real === false" in app_js
-    assert "button.disabled = Boolean(effectiveMeta.disabled);" in app_js
+    assert 'button.disabled = Boolean(effectiveMeta.disabled || state.workflowControl.phase !== "idle");' in app_js
     assert "runButton.disabled = Boolean(meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard || workflowPulseGuard);" in app_js
     assert 'error: "Command unavailable"' in app_js
 
@@ -3495,7 +3520,7 @@ def test_api_accepts_zero_delay_ramp_list_step_pulse(client: TestClient):
     assert response.status_code == 200
 
 
-@pytest.mark.parametrize("version", [1, "2", True, False, 2.0, 3, None])
+@pytest.mark.parametrize("version", [1, "2", True, False, 2.0, None])
 def test_api_rejects_invalid_ramp_list_version_before_submission(
     client: TestClient,
     monkeypatch,
@@ -4299,6 +4324,43 @@ def test_running_cancel_keeps_hardware_lock_until_cleanup_completes():
         await manager.complete_cancel(job_id)
         assert manager.jobs[job_id].status == JobStatus.CANCELLED
         assert manager.active_job_id is None
+        assert manager.jobs[job_id].events[-1]["data"] == {
+            "message": "Cancelled",
+            "cleanup_completed": True,
+            "hardware_lock_released": True,
+        }
+
+    asyncio.run(check_lifecycle())
+
+
+def test_cleanup_failure_releases_lock_and_preserves_error_code():
+    import asyncio
+
+    from powers_tool_webui.jobs import JobManager, JobStatus
+
+    async def check_lifecycle() -> None:
+        manager = JobManager()
+        job_id = await manager.submit_job(
+            "ramp",
+            {"resource": "USB0::FAKE::INSTR", "simulate": False, "dry_run": False},
+            {"channel": 1},
+        )
+        assert await manager.start_job(job_id) is True
+        assert await manager.cancel_job(job_id) is True
+
+        await manager.fail_job(
+            job_id,
+            "workflow cancellation cleanup failed",
+            code="cleanup_failed",
+            result={"status": "failed", "original_reason": "user_cancelled"},
+        )
+
+        job = manager.jobs[job_id]
+        assert job.status == JobStatus.FAILED
+        assert job.error_code == "cleanup_failed"
+        assert job.result["original_reason"] == "user_cancelled"
+        assert manager.active_job_id is None
+        assert job.events[-1]["data"]["hardware_lock_released"] is True
 
     asyncio.run(check_lifecycle())
 

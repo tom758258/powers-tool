@@ -315,13 +315,35 @@ async def _execute_job_background(job_id: str):
         else:
             result = await asyncio.to_thread(execute_job_command, job)
         if job.cancel_requested:
-            await job_manager.complete_cancel(job_id)
+            if job.command in {"ramp", "ramp-list", "sequence"} and job.requires_hardware_lock:
+                await job_manager.fail_job(
+                    job_id,
+                    "Cancellation arrived after the VISA session had closed",
+                    code="cleanup_failed",
+                    result={
+                        "status": "failed",
+                        "original_reason": "user_cancelled",
+                        "cleanup": [{
+                            "operation": "workflow_safe_off",
+                            "status": "failed",
+                            "message": "cancellation arrived after the VISA session had closed",
+                        }],
+                        "partial_result": result,
+                    },
+                )
+            else:
+                await job_manager.complete_cancel(job_id, result)
         else:
             await job_manager.finish_job(job_id, result)
-    except CommandCancelled:
-        await job_manager.complete_cancel(job_id)
+    except CommandCancelled as e:
+        await job_manager.complete_cancel(job_id, dict(getattr(e, "data", {}) or {}))
     except StopCleanupError as e:
-        await job_manager.fail_job(job_id, str(e))
+        await job_manager.fail_job(
+            job_id,
+            str(e),
+            code="cleanup_failed",
+            result=dict(getattr(e, "data", {}) or {}),
+        )
     except Exception as e:
         error_msg = str(e)
         await job_manager.fail_job(job_id, error_msg)

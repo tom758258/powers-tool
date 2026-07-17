@@ -1,5 +1,5 @@
 import pytest
-from powers_tool_core.core import CoreValidationError, SequenceRequest, RuntimeOptions
+from powers_tool_core.core import CommandCancelled, CoreValidationError, SequenceRequest, RuntimeOptions
 from powers_tool_core.support_policy import (
     LiveSupportPolicyError,
     SUPPORT_POLICY_MODE_VALIDATION,
@@ -39,6 +39,8 @@ class FakeSession:
             "VOLT? (@3)": "1.0",
             "CURR? (@3)": "0.1",
             "OUTP? (@1)": "0",
+            "OUTP? (@2)": "0",
+            "OUTP? (@3)": "0",
         }
         return responses.get(command, '0,"No error"')
 
@@ -178,12 +180,17 @@ def test_sequence_keyboard_interrupt_safe_off_cleanup() -> None:
     def interrupting_sleep(seconds: float) -> None:
         raise KeyboardInterrupt
 
-    data = run_sequence(core_request, opener=lambda *args, **kwargs: session, sleep=interrupting_sleep)
+    with pytest.raises(CommandCancelled) as raised:
+        run_sequence(core_request, opener=lambda *args, **kwargs: session, sleep=interrupting_sleep)
 
-    assert data["status"] == "stopped"
-    assert data["failed_step"] == {"index": 1, "action": "wait", "code": "interrupted"}
-    assert data["cleanup"]["safe_off_attempted"] is True
+    assert raised.value.data["status"] == "cancelled"
+    assert raised.value.data["partial_result"]["failed_step"] == {
+        "index": 1,
+        "action": "wait",
+        "code": "interrupted",
+    }
     assert session.writes == ["OUTP OFF,(@1)", "OUTP OFF,(@2)", "OUTP OFF,(@3)"]
+    assert session.queries[-4:] == ["OUTP? (@1)", "OUTP? (@2)", "OUTP? (@3)", "SYST:ERR?"]
 
 
 def test_sequence_cleanup_errors_do_not_replace_original_failure() -> None:

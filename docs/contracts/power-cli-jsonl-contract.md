@@ -191,8 +191,13 @@ Selected data mappings:
   are used, their paths must differ. Resource redaction applies to the raw
   snapshot too, and restore never depends on the saved resource field.
 - `sequence`: lint/plan/execution status, step results, and stop/failure details.
-- `ramp-list`: version, segment count, completed segment count, ordered segment
-  plans/results, and failed segment details when execution stops or fails.
+- `ramp` and `ramp-list`: requested `enable_output`, whether output enable was
+  executed, successfully enabled channels, final output states from a normal
+  completion readback, and cancellation cleanup diagnostics. Without output
+  enable, final state is unchanged/not observed and no new output-state query
+  is issued.
+- `ramp-list`: document version, segment count, completed segment count,
+  ordered segment plans/results, and failed segment details.
 - Ramp and Ramp List every-step pulse results use ordered `triggers` entries
   containing step index, voltage, and trigger result. Single completion pulses
   remain under `trigger`; Ramp List pulse results are stored per segment.
@@ -201,6 +206,10 @@ Selected data mappings:
   `completion_pulse_channel`, `leave_trigger_configured`, and
   `completion_pulse_timing`. Removed Native LIST/trigger-wait options are
   argparse errors. Completion pulse results report `native: false`.
+- Direct Ramp, Ramp List, and Sequence Ctrl+C is cooperative. Schema-2
+  cancellation uses top-level `status: "error"` with error code `cancelled`;
+  cleanup failure uses `cleanup_failed`. Both use the existing runtime exit
+  code `3` and include the original cancellation reason and cleanup details.
 - `restore-from-snapshot`: accepts only the schema-2 snapshot document,
   validates canonical model identity and serial before writes, and returns
   restored channels and the restore plan. Successful real execution also

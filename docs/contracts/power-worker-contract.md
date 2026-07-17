@@ -6,9 +6,16 @@ This contract extends `common-worker-protocol.md` for Powers Tool power-supply o
 
 - `GET /status`: lifecycle status only. It is non-mutating and never opens VISA.
 - `POST /command`: asynchronous Power command submission.
+- `POST /cancel`: cooperative cancellation of the exact active workflow job.
 - `POST /stop`: priority cooperative stop request.
 
 `/trigger`, `trigger_url`, `--default-action`, and default-action config are not supported.
+
+`POST /cancel` requires exactly schema version 2 and the active
+`worker_job_id` (plus an optional string reason). Wrong, stale, completed, or
+non-workflow identity fails closed. Ramp, Ramp List, and Sequence cancellation
+does not shut down the Worker; successful cleanup returns it to `ready`.
+`GET /status` does not need a `cancel_url` because the route is fixed.
 
 ## Power Stop Cleanup
 
@@ -24,6 +31,15 @@ follows runner completion. `release_to_local` uses device-specific PyVISA GPIB
 local control only when available. USB/LAN are `unsupported`; simulated or
 unopened sessions are `not_applicable`. `cleanup_release_to_local` is
 post-close bookkeeping and must not access the closed VISA session.
+
+User cancellation of Ramp, Ramp List, or Sequence first stops future steps and
+completion pulses. On the workflow's existing session it requests output OFF
+for every supported channel, verifies each OFF, and drains the instrument error
+queue to the no-error sentinel with a maximum of 20 reads. Session close and
+hardware-lock release follow. Terminal `cancelled` is allowed only when every
+stage succeeds; otherwise terminal status is `failed`, error code is
+`cleanup_failed`, and result diagnostics preserve `original_reason:
+user_cancelled`. Blocking VISA I/O is not forcibly interrupted.
 
 Each result is emitted as a structured `power_cleanup` JSONL event.
 Unsupported cleanup is a warning. Any failed release, close, or post-cleanup
@@ -208,9 +224,12 @@ Expert settings. `read_termination` and `write_termination` accept `CR`, `LF`,
 settings `serial_remote` and `serial_local_on_close` request explicit
 `SYST:REM` and best-effort cleanup `SYST:LOC` for ASRL resources only.
 
-Ramp List documents are JSON objects with `kind: "powers-tool-ramp-list"`,
-`version: 2`, and 1 to 10 ordered `segments`. Version 1 Ramp List documents are
-rejected without conversion or fallback. Each segment contains `channel`,
+Ramp List version 2 documents remain accepted with fixed
+`enable_output: false` semantics. Version 3 requires `kind:
+"powers-tool-ramp-list"`, exact boolean `enable_output`, and 1 to 10 ordered
+`segments`. Version 1, missing or non-boolean v3 fields, unknown top-level
+fields, and future versions are rejected without conversion or fallback. Each
+segment contains `channel`,
 `current`, `start_voltage`, `stop_voltage`, `step_voltage`, `delay_ms`, and
 `hold_ms`. An optional global `completion_pulse` contains `timing`
 (`segment` or `step`), E36312A rear digital `pins`, and `polarity`.

@@ -24,6 +24,7 @@ from powers_tool_core.model_resolution import (
 from powers_tool_core.live_support import enforce_live_support_for_idn
 from powers_tool_core.safety import SafetyConfigError, SafetyLimits, SafetyValidationError, resolve_safety_config, validate_channel, validate_setpoint
 from powers_tool_core.setpoint_limits import validate_effective_setpoint
+from powers_tool_core.stop_cleanup import CleanupReporter, cancel_workflow_with_safe_off
 from powers_tool_core.support_features import (
     SEQUENCE_ACTIONS,
     sequence_feature_requirements,
@@ -43,6 +44,7 @@ def run_sequence(
     sleep: Callable[[float], None] = time.sleep,
     scpi_logger: Callable[[str, str, str], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
+    cleanup_reporter: CleanupReporter | None = None,
 ) -> dict[str, Any]:
     """Lint, plan, or execute a sequence request."""
 
@@ -88,7 +90,15 @@ def run_sequence(
             "cleanup": {"safe_off_attempted": False, "errors": []},
         }
 
-    return execute_sequence(request, plan, opener=opener, sleep=sleep, scpi_logger=scpi_logger, stop_requested=stop_requested)
+    return execute_sequence(
+        request,
+        plan,
+        opener=opener,
+        sleep=sleep,
+        scpi_logger=scpi_logger,
+        stop_requested=stop_requested,
+        cleanup_reporter=cleanup_reporter,
+    )
 
 
 def load_sequence_document(path: str) -> dict[str, Any]:
@@ -313,6 +323,7 @@ def execute_sequence(
     sleep: Callable[[float], None],
     scpi_logger: Callable[[str, str, str], None] | None = None,
     stop_requested: Callable[[], bool] | None = None,
+    cleanup_reporter: CleanupReporter | None = None,
 ) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     completed_steps = 0
@@ -347,9 +358,20 @@ def execute_sequence(
                     results.append(result)
                     completed_steps += 1
                 except (CommandCancelled, KeyboardInterrupt):
-                    stopped = True
-                    failed_step = {"index": step["index"], "action": step["action"], "code": "interrupted"}
-                    break
+                    cancel_workflow_with_safe_off(
+                        power_supply,
+                        partial_result={
+                            "sequence_version": plan["version"],
+                            "completed_steps": completed_steps,
+                            "results": results,
+                            "failed_step": {
+                                "index": step["index"],
+                                "action": step["action"],
+                                "code": "interrupted",
+                            },
+                        },
+                        reporter=cleanup_reporter,
+                    )
                 except (VisaConnectionError, ValueError, SafetyValidationError, CoreValidationError) as exc:
                     failed_step = {
                         "index": step["index"],
@@ -358,7 +380,24 @@ def execute_sequence(
                         "message": str(exc),
                     }
                     break
-            if stopped or failed_step is not None:
+            if failed_step is None:
+                try:
+                    raise_if_cancelled(stop_requested)
+                except CommandCancelled as exc:
+                    cancel_workflow_with_safe_off(
+                        power_supply,
+                        partial_result={
+                            "sequence_version": plan["version"],
+                            "completed_steps": completed_steps,
+                            "results": results,
+                            "failed_step": {
+                                "code": "interrupted",
+                                "message": str(exc),
+                            },
+                        },
+                        reporter=cleanup_reporter,
+                    )
+            if failed_step is not None:
                 cleanup = sequence_cleanup_safe_off(power_supply)
                 safe_off_attempted = cleanup["safe_off_attempted"]
                 cleanup_errors = cleanup["errors"]

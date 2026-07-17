@@ -6,7 +6,7 @@ import pytest
 
 import powers_tool_core.connection as connection
 import powers_tool_cli.cli as cli
-from powers_tool_core.core import CoreExecutionError
+from powers_tool_core.core import CommandCancelled, CoreExecutionError, StopCleanupError
 from powers_tool_core.errors import VisaConnectionError
 
 
@@ -8449,6 +8449,89 @@ def test_ramp_rejects_more_than_1000_voltage_writes(capsys) -> None:
     assert "1000 voltage steps" in payload["error"]["message"]
 
 
+def test_ramp_enable_output_shapes_dry_run_request_and_plan(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "ramp",
+                "--dry-run",
+                "--json",
+                "--model",
+                "keysight-e36312a",
+                "--channel",
+                "1",
+                "--start-voltage",
+                "0",
+                "--stop-voltage",
+                "1",
+                "--step-voltage",
+                "1",
+                "--current",
+                "0.1",
+                "--enable-output",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["request"]["enable_output"] is True
+    assert payload["data"]["plan"]["enable_output"] is True
+    assert [step["action"] for step in payload["data"]["plan"]["steps"][:4]] == [
+        "set_current_limit",
+        "set_voltage",
+        "output_on",
+        "output_state",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("exception", "code"),
+    [
+        (
+            CommandCancelled(
+                "workflow cancelled by user",
+                data={"status": "cancelled", "original_reason": "user_cancelled", "cleanup": []},
+            ),
+            "cancelled",
+        ),
+        (
+            StopCleanupError(
+                "workflow cancellation cleanup failed",
+                results=({"operation": "output_state", "status": "failed", "message": "still on"},),
+            ),
+            "cleanup_failed",
+        ),
+    ],
+)
+def test_ramp_cancellation_json_envelope(monkeypatch, capsys, exception, code) -> None:
+    monkeypatch.setattr(cli, "run_core_command", lambda *args, **kwargs: (_ for _ in ()).throw(exception))
+
+    exit_code = cli.main([
+        "ramp",
+        "--json",
+        "--resource",
+        OUTPUT_RESOURCE,
+        "--channel",
+        "1",
+        "--start-voltage",
+        "0",
+        "--stop-voltage",
+        "1",
+        "--step-voltage",
+        "1",
+        "--current",
+        "0.1",
+    ])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 3
+    assert payload["schema_version"] == 2
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == code
+    assert payload["data"]["original_reason"] == "user_cancelled"
+
+
 def test_ramp_list_lint_inline_does_not_open_resource(monkeypatch, capsys) -> None:
     def fail_open_resource(*args, **kwargs):
         raise AssertionError("VISA resource should not be opened for ramp-list lint")
@@ -8487,6 +8570,64 @@ def test_ramp_list_lint_inline_does_not_open_resource(monkeypatch, capsys) -> No
     assert payload["data"]["segment_count"] == 2
     assert payload["data"]["plan"]["version"] == 2
     assert payload["data"]["segments"][1]["hold_ms"] == 250
+
+
+def test_ramp_list_inline_enable_output_builds_v3(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "ramp-list",
+                "--lint",
+                "--json",
+                "--enable-output",
+                "--segment",
+                "1",
+                "0.1",
+                "0",
+                "1",
+                "0.5",
+                "0",
+                "0",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["plan"]["version"] == 3
+    assert payload["data"]["plan"]["enable_output"] is True
+
+
+def test_ramp_list_file_rejects_enable_output_override(tmp_path, capsys) -> None:
+    ramp_file = tmp_path / "example.ramp-list.json"
+    ramp_file.write_text(
+        json.dumps({
+            "kind": "powers-tool-ramp-list",
+            "version": 2,
+            "segments": [{
+                "channel": 1,
+                "current": 0.1,
+                "start_voltage": 0,
+                "stop_voltage": 1,
+                "step_voltage": 0.5,
+                "delay_ms": 0,
+                "hold_ms": 0,
+            }],
+        }),
+        encoding="utf-8",
+    )
+
+    assert cli.main([
+        "ramp-list",
+        "--lint",
+        "--json",
+        "--file",
+        str(ramp_file),
+        "--enable-output",
+    ]) == 2
+    assert "--file cannot be combined with --enable-output" in json.loads(
+        capsys.readouterr().out
+    )["error"]["message"]
 
 
 def test_ramp_list_dry_run_file_uses_versioned_document(tmp_path, capsys) -> None:

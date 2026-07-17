@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from powers_tool_core.core import StopCleanupError
-from powers_tool_core.stop_cleanup import StopCleanupResult, stop_aware_opener
+from powers_tool_core.core import CommandCancelled, StopCleanupError
+from powers_tool_core.stop_cleanup import (
+    MAX_WORKFLOW_CLEANUP_ERROR_READS,
+    StopCleanupResult,
+    cancel_workflow_with_safe_off,
+    stop_aware_opener,
+)
 
 
 class FakeSession:
@@ -149,3 +154,54 @@ def test_close_failure_still_finishes_post_cleanup() -> None:
         ("close_session", "failed"),
         ("cleanup_release_to_local", "succeeded"),
     ]
+
+
+class FakePowerSupply:
+    capabilities = type("Capabilities", (), {"channels": (1, 2, 3)})()
+
+    def __init__(self, *, error_queue: tuple[list[str], int] = ([], 1)) -> None:
+        self.events: list[str] = []
+        self.error_queue = error_queue
+
+    def output_off(self, *, channel: int) -> None:
+        self.events.append(f"off:{channel}")
+
+    def output_state(self, *, channel: int) -> bool:
+        self.events.append(f"state:{channel}")
+        return False
+
+    def read_error_queue(self, max_reads: int) -> tuple[list[str], int]:
+        self.events.append(f"errors:{max_reads}")
+        return self.error_queue
+
+
+def test_workflow_cancel_safe_off_order_and_bounded_error_drain() -> None:
+    supply = FakePowerSupply()
+
+    with pytest.raises(CommandCancelled) as raised:
+        cancel_workflow_with_safe_off(supply)
+
+    assert supply.events == [
+        "off:1", "off:2", "off:3",
+        "state:1", "state:2", "state:3",
+        f"errors:{MAX_WORKFLOW_CLEANUP_ERROR_READS}",
+    ]
+    assert raised.value.data["status"] == "cancelled"
+
+
+def test_workflow_cancel_error_queue_limit_is_cleanup_failed() -> None:
+    errors = [f"{index},error" for index in range(MAX_WORKFLOW_CLEANUP_ERROR_READS)]
+    supply = FakePowerSupply(
+        error_queue=(errors, MAX_WORKFLOW_CLEANUP_ERROR_READS),
+    )
+
+    with pytest.raises(StopCleanupError) as raised:
+        cancel_workflow_with_safe_off(supply)
+
+    assert raised.value.data["status"] == "failed"
+    queue_result = next(
+        result for result in raised.value.data["cleanup"]
+        if result["operation"] == "error_queue"
+    )
+    assert queue_result["status"] == "failed"
+    assert queue_result["details"]["no_error_sentinel_seen"] is False

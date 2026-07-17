@@ -49,6 +49,7 @@ class Job:
         self.status = JobStatus.ACCEPTED
         self.result: Optional[Dict[str, Any]] = None
         self.error: Optional[str] = None
+        self.error_code: Optional[str] = None
         self.events: List[Dict[str, Any]] = []
         self.cancel_requested = False
         self.io_in_progress = False
@@ -85,6 +86,7 @@ class Job:
             "status": self.status.value,
             "result": self.result,
             "error": self.error,
+            "error_code": self.error_code,
             "cleanup": self.cleanup,
             "warnings": self.warnings,
             "created_at": self.created_at,
@@ -154,24 +156,45 @@ class JobManager:
             if self.active_job_id == job_id:
                 self.active_job_id = None
 
-    async def complete_cancel(self, job_id: str) -> None:
+    async def complete_cancel(self, job_id: str, result: Optional[Dict[str, Any]] = None) -> None:
         async with self._lock:
+            if self.active_job_id == job_id:
+                self.active_job_id = None
             job = self.jobs.get(job_id)
             if job:
                 job.status = JobStatus.CANCELLED
-                job.add_event("cancelled", {"message": "Job cancellation and cleanup completed"})
+                job.result = result
+                job.add_event("cancelled", {
+                    "message": "Cancelled",
+                    "cleanup_completed": True,
+                    "hardware_lock_released": True,
+                })
+
+    async def fail_job(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        code: Optional[str] = None,
+        result: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        async with self._lock:
             if self.active_job_id == job_id:
                 self.active_job_id = None
-
-    async def fail_job(self, job_id: str, error: str) -> None:
-        async with self._lock:
             job = self.jobs.get(job_id)
             if job:
                 job.status = JobStatus.FAILED
                 job.error = error
-                job.add_event("failed", {"error": error})
-            if self.active_job_id == job_id:
-                self.active_job_id = None
+                job.error_code = code
+                job.result = result
+                event_data: Dict[str, Any] = {
+                    "error": error,
+                    "cleanup_completed": True,
+                    "hardware_lock_released": True,
+                }
+                if code is not None:
+                    event_data["code"] = code
+                job.add_event("failed", event_data)
 
     async def cancel_job(self, job_id: str) -> bool:
         async with self._lock:
@@ -188,7 +211,7 @@ class JobManager:
                     job.add_event("cancelled", {"message": "Live data cancelled between reads"})
                 else:
                     job.status = JobStatus.CANCEL_REQUESTED
-                    job.add_event("cancel_requested", {"message": "Cancellation requested; waiting for command cleanup"})
+                    job.add_event("cancel_requested", {"message": "Waiting for safe-off and cleanup"})
                 return True
             return False
 

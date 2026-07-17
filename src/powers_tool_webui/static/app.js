@@ -28,6 +28,7 @@ const state = {
   resultCollapsed: true,
   jobResultCollapsed: false,
   rampListSegments: [defaultRampSegment()],
+  rampListEnableOutput: false,
   rampListCompletionPulse: null,
   triggerListActiveChannel: 1,
   triggerListControls: defaultTriggerListControls(),
@@ -42,7 +43,12 @@ const state = {
   restoreChannel: "all",
   restoreOutputState: false,
   restorePlanPreview: null,
-  restorePlanPreviewStatus: "idle"
+  restorePlanPreviewStatus: "idle",
+  workflowControl: {
+    phase: "idle",
+    jobId: null,
+    command: null
+  }
 };
 
 const COMMAND_CATEGORIES = ["output", "workflow", "protection", "trigger", "artifact", "discovery"];
@@ -76,6 +82,8 @@ const TRIGGER_COMMANDS = new Set([
 const STATE_CLASS_NAMES = ["state-ok", "state-warning", "state-error", "state-idle"];
 const DEFAULT_CHANNELS = [1, 2, 3];
 const REAR_TRIGGER_PULSE_MODEL_ID = "keysight-e36312a";
+const STOPPABLE_WORKFLOWS = new Set(["ramp", "ramp-list", "sequence"]);
+const WORKFLOW_STOP_DESCRIPTION = "Stop the active workflow and safely turn all outputs off.";
 
 const PARAMS = {
   "list-resources": [{ name: "live_only", type: "checkbox", label: "Live only" }],
@@ -109,6 +117,7 @@ const PARAMS = {
     { name: "stop_voltage", type: "number", label: "Stop voltage(V)", value: 1 },
     { name: "step_voltage", type: "number", label: "Step voltage(V)", value: 0.1 },
     { name: "delay_ms", type: "number", label: "Delay(ms)", value: 0 },
+    { name: "enable_output", type: "checkbox", label: "Enable output after first setpoint", description: "Output is enabled only after the first safe setpoint is written and verified. It remains ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation." },
     { name: "completion_pulse_segment", type: "checkbox", label: "Segment complete pulse", pulseToggle: true },
     { name: "completion_pulse_step", type: "checkbox", label: "Every-step pulse", pulseToggle: true },
     { name: "completion_pulse_pins", type: "select", label: "Rear pins", options: REAR_PIN_OPTIONS, value: "1", parser: "intList", pulseChild: true },
@@ -550,7 +559,7 @@ function renderCommands() {
       const effectiveMeta = commandMeta(name);
       const button = document.createElement("button");
       button.className = `command-button${state.selected === name ? " active" : ""}`;
-      button.disabled = Boolean(effectiveMeta.disabled);
+      button.disabled = Boolean(effectiveMeta.disabled || state.workflowControl.phase !== "idle");
       button.innerHTML = `<span>${commandDisplayName(name)}</span><small>${effectiveMeta.disabled_reason || effectiveMeta.live_support_status || ""}</small>`;
       button.addEventListener("click", () => selectCommand(name));
       list.appendChild(button);
@@ -558,6 +567,7 @@ function renderCommands() {
 }
 
 function selectCommand(name) {
+  if (state.workflowControl.phase !== "idle") return;
   state.selected = name;
   document.getElementById("selected-command").textContent = commandDisplayName(name);
   renderForm(name);
@@ -890,6 +900,22 @@ function renderRampListForm(form) {
     toolbar.appendChild(button);
   });
   editor.appendChild(toolbar);
+  const enableLabel = document.createElement("label");
+  enableLabel.className = "checkbox-field";
+  enableLabel.textContent = "Enable each channel at its first segment";
+  const enableInput = document.createElement("input");
+  enableInput.type = "checkbox";
+  enableInput.id = "ramp-list-enable-output";
+  enableInput.checked = state.rampListEnableOutput;
+  enableInput.addEventListener("change", () => {
+    state.rampListEnableOutput = enableInput.checked;
+    updateSelectedCommandState();
+  });
+  enableLabel.appendChild(enableInput);
+  appendFieldDescription(enableLabel, {
+    description: "Each channel is enabled only after its first safe segment setpoint is written and verified. Outputs remain ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation."
+  });
+  editor.appendChild(enableLabel);
   const pulseFields = document.createElement("div");
   pulseFields.className = "ramp-segment-fields";
   [
@@ -1028,7 +1054,8 @@ function moveRampSegment(index, offset) {
 function rampListDocument() {
   const document = {
     kind: "powers-tool-ramp-list",
-    version: 2,
+    version: 3,
+    enable_output: state.rampListEnableOutput,
     segments: state.rampListSegments.map((segment) => ({ ...segment }))
   };
   if (state.rampListCompletionPulse) document.completion_pulse = { ...state.rampListCompletionPulse };
@@ -1036,11 +1063,17 @@ function rampListDocument() {
 }
 
 function validateRampListDocument(document) {
-  if (!document || document.kind !== "powers-tool-ramp-list" || document.version !== 2) {
+  if (!document || document.kind !== "powers-tool-ramp-list" || ![2, 3].includes(document.version)) {
     throw new Error("Invalid Ramp List kind or version.");
   }
-  if (Object.keys(document).some((field) => !["kind", "version", "completion_pulse", "segments"].includes(field))) {
+  const topLevelFields = document.version === 3
+    ? ["kind", "version", "enable_output", "completion_pulse", "segments"]
+    : ["kind", "version", "completion_pulse", "segments"];
+  if (Object.keys(document).some((field) => !topLevelFields.includes(field))) {
     throw new Error("Ramp List contains unsupported fields.");
+  }
+  if (document.version === 3 && typeof document.enable_output !== "boolean") {
+    throw new Error("Ramp List version 3 requires boolean enable_output.");
   }
   if (!Array.isArray(document.segments) || document.segments.length < 1 || document.segments.length > 10) {
     throw new Error("Ramp List requires 1 to 10 segments.");
@@ -1068,7 +1101,11 @@ function validateRampListDocument(document) {
     }
     completionPulse = { timing: pulse.timing, pins: [...pulse.pins], polarity: pulse.polarity };
   }
-  return { segments, completionPulse };
+  return {
+    segments,
+    completionPulse,
+    enableOutput: document.version === 3 ? document.enable_output : false
+  };
 }
 
 async function loadRampList() {
@@ -1080,6 +1117,7 @@ async function loadRampList() {
     const normalized = validateRampListDocument(JSON.parse(text));
     state.rampListSegments = normalized.segments;
     state.rampListCompletionPulse = normalized.completionPulse;
+    state.rampListEnableOutput = normalized.enableOutput;
     renderForm("ramp-list");
     updateSelectedCommandState();
   } catch (error) {
@@ -2187,6 +2225,11 @@ function failBasicAction(actionKey, error, detail, context = {}) {
 
 async function runSelected() {
   if (!state.selected) return;
+  if (state.workflowControl.phase === "active") {
+    await stopActiveWorkflow();
+    return;
+  }
+  if (state.workflowControl.phase !== "idle") return;
 
   let validatedSequenceDocument = null;
   if (state.selected === "sequence") {
@@ -2287,12 +2330,112 @@ async function runSelected() {
     });
     return;
   }
-  const response = await submitJob(payload);
-  addHistory(response.job_id, state.selected, "accepted");
-  if (state.selected === "snapshot") {
-    refreshSnapshotFormIfVisible(response.job_id);
+  const submittedCommand = state.selected;
+  if (STOPPABLE_WORKFLOWS.has(submittedCommand)) {
+    setWorkflowControl("submitting", { command: submittedCommand });
   }
-  subscribeToJob(response.job_id, "/api/events");
+  try {
+    const response = await submitJob(payload);
+    addHistory(response.job_id, submittedCommand, "accepted");
+    if (submittedCommand === "snapshot") {
+      refreshSnapshotFormIfVisible(response.job_id);
+    }
+    if (STOPPABLE_WORKFLOWS.has(submittedCommand)) {
+      setWorkflowControl("active", { command: submittedCommand, jobId: response.job_id });
+    }
+    subscribeToJob(response.job_id, "/api/events");
+  } catch (error) {
+    if (STOPPABLE_WORKFLOWS.has(submittedCommand)) {
+      setWorkflowControl("idle");
+    }
+    renderClientResult(submittedCommand, "failed", error.message || String(error), {
+      error: "Submit failed",
+      detail: error.message || String(error),
+      command: submittedCommand
+    });
+  }
+}
+
+async function stopActiveWorkflow() {
+  const control = state.workflowControl;
+  if (control.phase !== "active" || !control.jobId || !STOPPABLE_WORKFLOWS.has(control.command)) return;
+  const jobId = control.jobId;
+  setWorkflowControl("stopping", { command: control.command, jobId });
+  updateJobResult(jobId, "cancel_requested", "Waiting for safe-off and cleanup");
+  try {
+    await fetchJson(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
+      method: "POST",
+      body: "{}"
+    });
+  } catch (error) {
+    await reconcileWorkflowJob(jobId, error);
+  }
+}
+
+function setWorkflowControl(phase, values = {}) {
+  state.workflowControl = phase === "idle"
+    ? { phase: "idle", jobId: null, command: null }
+    : {
+        phase,
+        jobId: values.jobId ?? state.workflowControl.jobId,
+        command: values.command ?? state.workflowControl.command
+      };
+  updateWorkflowRunButton();
+  renderCommands();
+  if (phase === "idle" && state.selected) updateSelectedCommandState();
+}
+
+function updateWorkflowRunButton() {
+  const button = document.getElementById("run");
+  if (!button) return;
+  const { phase, command } = state.workflowControl;
+  const activeWorkflow = STOPPABLE_WORKFLOWS.has(command);
+  button.classList.toggle("workflow-stop", activeWorkflow && phase === "active");
+  button.textContent = phase === "submitting"
+    ? "Starting..."
+    : phase === "active" && activeWorkflow
+      ? "Stop"
+      : phase === "stopping"
+        ? "Stopping..."
+        : "Run";
+  const stopMeaning = activeWorkflow && ["active", "stopping"].includes(phase);
+  button.title = stopMeaning ? WORKFLOW_STOP_DESCRIPTION : "";
+  button.setAttribute("aria-label", stopMeaning ? WORKFLOW_STOP_DESCRIPTION : button.textContent);
+  if (phase === "active" && activeWorkflow) button.disabled = false;
+  if (phase === "submitting" || phase === "stopping") button.disabled = true;
+  const guidance = document.getElementById("command-guidance");
+  if (guidance && stopMeaning) {
+    guidance.textContent = phase === "stopping"
+      ? "Waiting for safe-off and cleanup"
+      : WORKFLOW_STOP_DESCRIPTION;
+    guidance.hidden = false;
+  }
+}
+
+async function reconcileWorkflowJob(jobId, originalError = null) {
+  try {
+    const job = await fetchJson(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (["finished", "failed", "cancelled"].includes(job.status)) {
+      const code = job.error_code ? `  ${job.error_code}` : "";
+      updateJobResult(jobId, job.status, job.status === "failed" ? `Failed${code}` : statusLabel(job.status));
+      setWorkflowControl("idle");
+      return;
+    }
+    if (job.status === "cancel_requested") {
+      setWorkflowControl("stopping", { command: job.command, jobId });
+      return;
+    }
+  } catch (error) {
+    if (!originalError) originalError = error;
+  }
+  if (originalError) {
+    renderClientResult(
+      state.workflowControl.command || "workflow",
+      "failed",
+      originalError.message || String(originalError),
+      { error: "Cancellation request failed", detail: originalError.message || String(originalError) }
+    );
+  }
 }
 
 function runtimePayload() {
@@ -2629,18 +2772,39 @@ function submitJob(payload) {
 function subscribeToJob(jobId, baseUrl) {
   closeEventSource("events");
   state.events = new EventSource(`${baseUrl}?job_id=${encodeURIComponent(jobId)}`);
-  ["accepted", "started", "progress", "finished", "failed", "cancelled", "error"].forEach((type) => {
+  ["accepted", "started", "progress", "cancel_requested", "finished", "failed", "cancelled", "error"].forEach((type) => {
     state.events.addEventListener(type, (event) => handleJobEvent(jobId, JSON.parse(event.data)));
   });
+  state.events.onerror = () => {
+    if (state.workflowControl.jobId === jobId && state.workflowControl.phase !== "idle") {
+      reconcileWorkflowJob(jobId);
+    }
+  };
 }
 
 async function handleJobEvent(jobId, event) {
   updateHistory(jobId, event.type);
+  if (state.workflowControl.jobId === jobId) {
+    if (event.type === "cancel_requested") {
+      setWorkflowControl("stopping", { jobId, command: state.workflowControl.command });
+      updateJobResult(jobId, "cancel_requested", "Waiting for safe-off and cleanup");
+    } else if (["started", "progress"].includes(event.type) && state.workflowControl.phase !== "stopping") {
+      setWorkflowControl("active", { jobId, command: state.workflowControl.command });
+    }
+  }
   if (jobCommand(jobId) === "snapshot" && (event.type === "accepted" || event.type === "started" || event.type === "progress")) {
     refreshSnapshotFormIfVisible(jobId);
   }
   if (event.type === "finished" || event.type === "failed" || event.type === "cancelled") {
     const job = await renderJobDetail(jobId, event);
+    if (state.workflowControl.jobId === jobId && job && ["finished", "failed", "cancelled"].includes(job.status)) {
+      if (job.status === "failed" && job.error_code === "cleanup_failed") {
+        updateJobResult(jobId, "failed", "Failed  cleanup_failed");
+      } else if (job.status === "cancelled") {
+        updateJobResult(jobId, "cancelled", "Cancelled");
+      }
+      setWorkflowControl("idle");
+    }
     let healthState = null;
     if (event.type === "finished" && jobCommand(jobId) === "list-resources") {
       populateResourceSelect(event.data?.result?.resources || []);
@@ -3910,6 +4074,11 @@ function updateSelectedCommandState() {
   commandDescription.textContent = descriptionText;
   commandDescription.title = descriptionText;
   renderCommandGuidance(state.selected, parameters);
+  if (state.workflowControl.phase !== "idle") {
+    runButton.disabled = state.workflowControl.phase !== "active";
+    updateWorkflowRunButton();
+    return;
+  }
   runButton.disabled = Boolean(meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard || workflowPulseGuard);
   runButton.disabled ||= !validateConstrainedInputs();
   if (state.selected === "restore-from-snapshot") {
@@ -4173,15 +4342,18 @@ function renderHistory() {
 
 function jobSummary(job, event = null) {
   const status = job?.status || event?.type;
+  if (status === "failed" && (job?.error_code || event?.data?.code) === "cleanup_failed") return "Failed  cleanup_failed";
   if (status === "failed") return job?.error || event?.data?.error || "Command failed";
-  if (status === "cancelled") return "Job cancelled";
+  if (status === "cancelled") return "Cancelled";
   if (status !== "finished") return statusSummary(status);
   return successfulJobSummary(job);
 }
 
 function eventSummary(event) {
+  if (event?.type === "cancel_requested") return "Waiting for safe-off and cleanup";
+  if (event?.type === "failed" && event.data?.code === "cleanup_failed") return "Failed  cleanup_failed";
   if (event?.type === "failed") return event.data?.error || "Command failed";
-  if (event?.type === "cancelled") return "Job cancelled";
+  if (event?.type === "cancelled") return "Cancelled";
   return statusSummary(event?.type);
 }
 
@@ -4317,7 +4489,8 @@ function statusSummary(status) {
   if (status === "accepted") return "Accepted";
   if (status === "started") return "Started";
   if (status === "progress" || status === "running") return "Running";
-  if (status === "cancelled") return "Job cancelled";
+  if (status === "cancel_requested") return "Waiting for safe-off and cleanup";
+  if (status === "cancelled") return "Cancelled";
   if (status === "failed" || status === "error") return "Command failed";
   if (status === "finished") return "Command completed successfully";
   return status || "Pending";

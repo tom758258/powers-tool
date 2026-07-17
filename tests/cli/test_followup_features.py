@@ -503,7 +503,11 @@ def test_edu_clear_protection_simulate_is_plan_only(capsys):
 def test_sequence_interrupt_attempts_safe_off_and_closes(monkeypatch, tmp_path, capsys):
     sequence = tmp_path / "sequence.yaml"
     sequence.write_text("version: 1\nsteps:\n  - action: wait\n    seconds: 1\n", encoding="utf-8")
-    session = FakeSession()
+    session = FakeSession(query_responses={
+        "OUTP? (@1)": "0",
+        "OUTP? (@2)": "0",
+        "OUTP? (@3)": "0",
+    })
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     def interrupting_sleep(seconds):
@@ -522,14 +526,22 @@ def test_sequence_interrupt_attempts_safe_off_and_closes(monkeypatch, tmp_path, 
                 str(sequence),
             ]
         )
-        == 0
+        == 3
     )
 
     payload = _payload(capsys)
-    assert payload["data"]["status"] == "stopped"
-    assert payload["data"]["failed_step"]["code"] == "interrupted"
-    assert payload["data"]["cleanup"] == {"safe_off_attempted": True, "errors": []}
+    assert payload["status"] == "error"
+    assert payload["error"]["code"] == "cancelled"
+    assert payload["data"]["status"] == "cancelled"
+    assert payload["data"]["partial_result"]["failed_step"]["code"] == "interrupted"
+    assert all(item["status"] != "failed" for item in payload["data"]["cleanup"])
     assert session.writes == ["OUTP OFF,(@1)", "OUTP OFF,(@2)", "OUTP OFF,(@3)"]
+    assert session.queries[-4:] == [
+        "OUTP? (@1)",
+        "OUTP? (@2)",
+        "OUTP? (@3)",
+        "SYST:ERR?",
+    ]
     assert session.closed is True
 
 

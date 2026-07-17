@@ -10,7 +10,15 @@ import pytest
 
 import powers_tool_cli.worker as worker_mod
 import powers_tool_cli.cli as cli
-from powers_tool_cli.worker import WorkerState, _run_job_impl, _write_json_artifact_atomic, load_worker_config, run_worker
+from powers_tool_cli.worker import (
+    WorkerHTTPHandler,
+    WorkerHTTPServer,
+    WorkerState,
+    _run_job_impl,
+    _write_json_artifact_atomic,
+    load_worker_config,
+    run_worker,
+)
 from powers_tool_cli.cli import build_parser
 from powers_tool_core.command_runner import run_core_command
 from powers_tool_core.core import OperationRequest, RuntimeOptions
@@ -1239,6 +1247,63 @@ def test_worker_stop_shutdown_lifecycle(tmp_path):
         urllib.request.urlopen(url, timeout=0.1)
 
 
+def test_worker_job_cancel_validates_identity_without_shutdown(tmp_path):
+    config = {
+        "id": "cancel-test",
+        "mode": "simulate",
+        "settings": {},
+        "artifacts_dir": str(tmp_path),
+        "events_jsonl": str(tmp_path / "events.jsonl"),
+    }
+    server = WorkerHTTPServer(("127.0.0.1", 0), WorkerHTTPHandler)
+    state = WorkerState(config, server.server_address[1])
+    server.state = state
+    state.server = server
+    state.status = "busy"
+    state.active_job = {
+        "job_id": "client-1",
+        "worker_job_id": "worker-1",
+        "command": "ramp",
+        "status": "running",
+    }
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        cancel_url = f"http://127.0.0.1:{state.port}/cancel"
+        wrong = urllib.request.Request(
+            cancel_url,
+            data=json.dumps({
+                "schema_version": 2,
+                "worker_job_id": "stale-worker-id",
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with pytest.raises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(wrong)
+        assert raised.value.code == 409
+        assert state.job_cancel_event.is_set() is False
+
+        valid = urllib.request.Request(
+            cancel_url,
+            data=json.dumps({
+                "schema_version": 2,
+                "worker_job_id": "worker-1",
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(valid) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        assert response.status == 202
+        assert payload["status"] == "stopping"
+        assert state.job_cancel_event.is_set() is True
+        assert state.active_job["status"] == "stopping"
+        assert state.shutdown_flag is False
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=1)
+
+
 def test_sequence_stop_wait_interrupt(running_worker):
     # Verify sequence wait steps can be interrupted quickly by stop requests
     port = running_worker["port"]
@@ -1486,7 +1551,7 @@ def test_worker_ramp_list_v1_is_rejected_before_artifact_creation(running_worker
     assert not jobs_dir.exists() or not list(jobs_dir.iterdir())
 
 
-@pytest.mark.parametrize("version", ["2", True, False, 2.0, 3, None])
+@pytest.mark.parametrize("version", ["2", True, False, 2.0, None])
 def test_worker_ramp_list_rejects_invalid_version_type_before_enqueue(version):
     config = {
         "mode": "simulate",

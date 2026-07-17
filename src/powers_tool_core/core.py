@@ -92,13 +92,33 @@ class CoreExecutionError(RuntimeError):
 class CommandCancelled(CoreExecutionError):
     """A command stopped cooperatively after a cancellation request."""
 
+    def __init__(self, message: str, *, data: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.data = data or {
+            "status": "cancelled",
+            "cancelled_by_user": True,
+            "original_reason": "user_cancelled",
+            "cleanup": [],
+        }
+
 
 class StopCleanupError(CoreExecutionError):
     """Stop cleanup failed after all remaining cleanup steps were attempted."""
 
-    def __init__(self, message: str, *, results: tuple[dict[str, Any], ...]) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        results: tuple[dict[str, Any], ...],
+        data: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.results = results
+        self.data = data or {
+            "status": "failed",
+            "original_reason": "user_cancelled",
+            "cleanup": list(results),
+        }
 
 
 class CoreVerificationError(CoreExecutionError):

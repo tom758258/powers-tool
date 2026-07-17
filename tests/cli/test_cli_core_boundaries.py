@@ -38,7 +38,7 @@ def test_active_restore_trigger_and_sequence_adapters_delegate_scpi_to_core() ->
 
     assert "restore_core.run_restore" in restore_source
     assert "trigger_core.run_trigger" in trigger_source
-    assert "sequence.run_sequence" in sequence_source
+    assert "run_core_command" in sequence_source
     assert "_open_resource(" not in restore_source
     assert "create_power_supply(" not in restore_source
     assert not any(token in restore_source for token in ("OUTP ", "VOLT:", "CURR:", "SYST:ERR?"))

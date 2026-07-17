@@ -318,7 +318,9 @@ class WorkerState:
         self.lock = threading.Condition()
         self.shutdown_event = threading.Event()
         self.stop_event = threading.Event()
+        self.job_cancel_event = threading.Event()
         self.next_job: dict[str, Any] | None = None
+        self.pending_terminal_event: tuple[str, dict[str, Any]] | None = None
         self.shutdown_flag = False
         self.server: WorkerHTTPServer | None = None
         self.run_id = str(uuid.uuid4())
@@ -411,6 +413,76 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "message": "Stop requested"})
             return
 
+        if self.path == "/cancel":
+            allowed_fields = {"schema_version", "worker_job_id", "reason"}
+            schema_version = body_data.get("schema_version")
+            worker_job_id = body_data.get("worker_job_id")
+            if (
+                set(body_data) - allowed_fields
+                or type(schema_version) is not int
+                or schema_version != WORKER_SCHEMA_VERSION
+                or not isinstance(worker_job_id, str)
+                or not worker_job_id
+            ):
+                self._send_json(400, {
+                    "schema_version": WORKER_SCHEMA_VERSION,
+                    "ok": False,
+                    "error": {
+                        "code": "invalid_cancel_request",
+                        "message": "cancel requires schema_version 2 and a non-empty worker_job_id",
+                    },
+                })
+                return
+            reason = body_data.get("reason", "user cancellation")
+            if not isinstance(reason, str):
+                self._send_json(400, {
+                    "schema_version": WORKER_SCHEMA_VERSION,
+                    "ok": False,
+                    "error": {"code": "invalid_cancel_request", "message": "cancel reason must be a string"},
+                })
+                return
+            with state.lock:
+                active = state.active_job
+                if (
+                    state.status != "busy"
+                    or active is None
+                    or active.get("worker_job_id") != worker_job_id
+                    or active.get("command") not in {"ramp", "ramp-list", "sequence"}
+                ):
+                    self._send_json(409, {
+                        "schema_version": WORKER_SCHEMA_VERSION,
+                        "ok": False,
+                        "error": {
+                            "code": "job_not_active",
+                            "message": "worker_job_id does not identify an active cancellable workflow",
+                        },
+                    })
+                    return
+                already_requested = state.job_cancel_event.is_set()
+                state.job_cancel_event.set()
+                state.active_job = {
+                    **active,
+                    "status": "stopping",
+                    "cancellation_reason": reason,
+                }
+                state.lock.notify_all()
+            if not already_requested:
+                emit_event(state.config, "status", {
+                    "status": "stopping",
+                    "job_id": active.get("job_id"),
+                    "worker_job_id": worker_job_id,
+                    "command": active.get("command"),
+                    "reason": reason,
+                    "message": "Waiting for safe-off and cleanup",
+                })
+            self._send_json(202, {
+                "schema_version": WORKER_SCHEMA_VERSION,
+                "ok": True,
+                "status": "stopping",
+                "worker_job_id": worker_job_id,
+            })
+            return
+
         if self.path == "/command":
             validation = _validate_command_body(body_data, state)
             if validation[0] != 202:
@@ -458,6 +530,8 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
 
                 # Transition to busy
                 state.status = "busy"
+                state.job_cancel_event.clear()
+                state.pending_terminal_event = None
                 artifact_path = str(job_dir.resolve())
                 now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
                 state.active_job = {
@@ -592,18 +666,23 @@ def job_runner(state: WorkerState) -> None:
             state.next_job = None
 
         if job:
-            state.stop_event.clear()
             _run_job_impl(state, job)
 
             should_shutdown = False
+            terminal_event: tuple[str, dict[str, Any]] | None = None
             with state.lock:
                 state.active_job = None
                 if state.cleanup_failed:
                     state.status = "error"
                 elif state.status == "busy":
                     state.status = "ready"
+                state.job_cancel_event.clear()
+                terminal_event = state.pending_terminal_event
+                state.pending_terminal_event = None
                 should_shutdown = state.shutdown_flag
 
+            if terminal_event is not None:
+                emit_event(state.config, terminal_event[0], terminal_event[1])
             if should_shutdown:
                 record_no_session_stop_cleanup(state)
                 request_worker_shutdown(state.server, state)
@@ -622,7 +701,7 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
         if state.active_job is not None and state.active_job.get("worker_job_id") == worker_job_id:
             state.active_job = {
                 **state.active_job,
-                "status": "running",
+                "status": "stopping" if state.job_cancel_event.is_set() else "running",
                 "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
             }
     emit_event(config, "job_started", {"job_id": client_job_id, "worker_job_id": worker_job_id, "command": cmd, "run_id": state.run_id})
@@ -704,9 +783,36 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
         result_data = run_core_command(
             req,
             opener=opener,
-            stop_requested=lambda: state.stop_event.is_set(),
+            stop_requested=lambda: state.stop_event.is_set() or state.job_cancel_event.is_set(),
             cleanup_reporter=report_cleanup,
         )
+        if state.job_cancel_event.is_set() and cmd in {"ramp", "ramp-list", "sequence"}:
+            if config["mode"] == "simulate" or runtime.dry_run:
+                raise CommandCancelled(
+                    "workflow cancelled after no-hardware planning completed",
+                    data={
+                        "status": "cancelled",
+                        "cancelled_by_user": True,
+                        "original_reason": "user_cancelled",
+                        "cleanup": [],
+                        "partial_result": result_data,
+                    },
+                )
+            late_result = {
+                "operation": "workflow_safe_off",
+                "status": "failed",
+                "message": "cancellation arrived after the VISA session had closed",
+            }
+            raise StopCleanupError(
+                "workflow cancellation cleanup failed",
+                results=(late_result,),
+                data={
+                    "status": "failed",
+                    "original_reason": "user_cancelled",
+                    "cleanup": [late_result],
+                    "partial_result": result_data,
+                },
+            )
         if cmd == "sequence":
             if result_data.get("status") == "stopped":
                 raise KeyboardInterrupt("sequence wait interrupted")
@@ -753,9 +859,9 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             err_type = "io"
             code = "cleanup_failed"
             retryable = True
-        elif isinstance(exc, (CommandCancelled, KeyboardInterrupt)) or exc.__class__.__name__ in {"TriggerInterrupted", "SequenceStopped"} or state.stop_event.is_set():
+        elif isinstance(exc, (CommandCancelled, KeyboardInterrupt)) or exc.__class__.__name__ in {"TriggerInterrupted", "SequenceStopped"} or state.stop_event.is_set() or state.job_cancel_event.is_set():
             err_type = "execution"
-            code = "stopped"
+            code = "cancelled" if state.job_cancel_event.is_set() and cmd in {"ramp", "ramp-list", "sequence"} else "stopped"
             retryable = True
 
         error_payload = {
@@ -764,7 +870,9 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             "message": "Execution was stopped by user request" if isinstance(exc, KeyboardInterrupt) else str(exc),
             "retryable": retryable,
         }
-        final_status = "cancelled" if code == "stopped" else "failed"
+        final_status = "cancelled" if code in {"cancelled", "stopped"} else "failed"
+        if isinstance(exc, (CommandCancelled, StopCleanupError)):
+            result_data = dict(getattr(exc, "data", {}) or {})
 
     duration_ms = round((time.perf_counter() - start_perf) * 1000, 3)
 
@@ -847,7 +955,8 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
                 "artifact_available": artifact_path is not None,
                 "artifact_path": artifact_dir,
             }
-        emit_event(config, "job_finished", event_payload)
+        with state.lock:
+            state.pending_terminal_event = ("job_finished", event_payload)
     else:
         event_payload = {
             "job_id": client_job_id,
@@ -873,7 +982,11 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
                 state.last_job["artifact_error"] = artifact_error
             elif artifact_path is not None:
                 state.last_job["artifact_path"] = artifact_dir
-        emit_event(config, "job_cancelled" if final_status == "cancelled" else "job_failed", event_payload)
+        with state.lock:
+            state.pending_terminal_event = (
+                "job_cancelled" if final_status == "cancelled" else "job_failed",
+                event_payload,
+            )
 
 
 def load_worker_config(args: argparse.Namespace) -> dict[str, Any]:

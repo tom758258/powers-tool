@@ -1,7 +1,12 @@
 import pytest
 
-from powers_tool_core.core import CoreValidationError, OperationRequest, RuntimeOptions
-from powers_tool_core.ramp_list import RAMP_LIST_KIND, RAMP_LIST_VERSION, run_ramp_list
+from powers_tool_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions
+from powers_tool_core.ramp_list import (
+    RAMP_LIST_KIND,
+    RAMP_LIST_VERSION,
+    RAMP_LIST_VERSION_V2,
+    run_ramp_list,
+)
 
 
 class FakeSession:
@@ -25,7 +30,32 @@ class FakeSession:
         self.queries.append(command)
         if command == "*IDN?":
             return "KEYSIGHT,E36312A,SERIAL0000,1.0"
+        if command.startswith("OUTP?"):
+            return "0"
         return '0,"No error"'
+
+
+class OutputTrackingSession(FakeSession):
+    def __init__(self) -> None:
+        super().__init__()
+        self.output_states = {1: False, 2: False, 3: False}
+        self.events: list[str] = []
+
+    def write(self, command: str) -> None:
+        self.events.append(f"W:{command}")
+        super().write(command)
+        if command.startswith("OUTP ON,(@"):
+            self.output_states[int(command.rsplit("(@", 1)[1].rstrip(")"))] = True
+        if command.startswith("OUTP OFF,(@"):
+            self.output_states[int(command.rsplit("(@", 1)[1].rstrip(")"))] = False
+
+    def query(self, command: str) -> str:
+        self.events.append(f"Q:{command}")
+        if command.startswith("OUTP? (@"):
+            self.queries.append(command)
+            channel = int(command.rsplit("(@", 1)[1].rstrip(")"))
+            return "1" if self.output_states[channel] else "0"
+        return super().query(command)
 
 
 def document(*segments):
@@ -60,10 +90,58 @@ def request(doc, **runtime):
     )
 
 
-def test_ramp_list_v2_contract_identity() -> None:
+def test_ramp_list_contract_versions_are_explicit() -> None:
     assert RAMP_LIST_KIND == "powers-tool-ramp-list"
-    assert RAMP_LIST_VERSION == 2
+    assert RAMP_LIST_VERSION_V2 == 2
+    assert RAMP_LIST_VERSION == 3
     assert type(RAMP_LIST_VERSION) is int
+
+
+@pytest.mark.parametrize("value", ["true", "false", 1, 0, 1.0, None, [], {}])
+def test_ramp_list_v3_requires_exact_boolean_enable_output(value: object) -> None:
+    doc = {
+        "kind": RAMP_LIST_KIND,
+        "version": 3,
+        "enable_output": value,
+        "segments": [segment()],
+    }
+    with pytest.raises(CoreValidationError, match="must be a boolean"):
+        run_ramp_list(request(doc, dry_run=True))
+
+
+def test_ramp_list_v2_means_enable_output_false() -> None:
+    data = run_ramp_list(request(document(segment()), dry_run=True))
+
+    assert data["ramp_list_version"] == 2
+    assert data["enable_output"] is False
+    assert data["output_enable_executed"] is False
+
+
+def test_ramp_list_v3_enables_each_channel_only_at_first_segment() -> None:
+    session = OutputTrackingSession()
+    doc = {
+        "kind": RAMP_LIST_KIND,
+        "version": 3,
+        "enable_output": True,
+        "segments": [
+            segment(channel=1, start_voltage=0, stop_voltage=0),
+            segment(channel=1, start_voltage=0.5, stop_voltage=0.5),
+            segment(channel=2, start_voltage=0, stop_voltage=0),
+            segment(channel=1, start_voltage=1, stop_voltage=1),
+        ],
+    }
+
+    data = run_ramp_list(
+        request(doc),
+        opener=lambda *args, **kwargs: session,
+        sleep=lambda seconds: None,
+    )
+
+    assert session.writes.count("OUTP ON,(@1)") == 1
+    assert session.writes.count("OUTP ON,(@2)") == 1
+    assert data["enabled_channels"] == [1, 2]
+    assert [item["channel"] for item in data["final_output_states"]] == [1, 2]
+    assert all(item["enabled"] is True for item in data["final_output_states"])
 
 
 def test_ramp_list_lint_validates_without_opening_visa() -> None:
@@ -196,7 +274,7 @@ def test_ramp_list_failure_stops_later_segments_without_output_off() -> None:
     assert not any("(@2)" in command for command in session.writes)
 
 
-def test_ramp_list_cancellation_stops_later_segments_without_output_off() -> None:
+def test_ramp_list_cancellation_safe_offs_all_channels_and_stops_later_segments() -> None:
     session = FakeSession()
     cancelled = False
 
@@ -204,17 +282,21 @@ def test_ramp_list_cancellation_stops_later_segments_without_output_off() -> Non
         nonlocal cancelled
         cancelled = True
 
-    data = run_ramp_list(
-        request(document(segment(delay_ms=100), segment(channel=2))),
-        opener=lambda *args, **kwargs: session,
-        sleep=sleep,
-        stop_requested=lambda: cancelled,
-    )
+    with pytest.raises(CommandCancelled) as raised:
+        run_ramp_list(
+            request(document(segment(delay_ms=100), segment(channel=2))),
+            opener=lambda *args, **kwargs: session,
+            sleep=sleep,
+            stop_requested=lambda: cancelled,
+        )
 
-    assert data["status"] == "stopped"
-    assert data["failed_segment"]["index"] == 1
-    assert not any(command.startswith("OUTP") for command in session.writes)
-    assert not any("(@2)" in command for command in session.writes)
+    assert raised.value.data["status"] == "cancelled"
+    assert session.writes[-3:] == ["OUTP OFF,(@1)", "OUTP OFF,(@2)", "OUTP OFF,(@3)"]
+    assert session.queries[-4:] == ["OUTP? (@1)", "OUTP? (@2)", "OUTP? (@3)", "SYST:ERR?"]
+    assert not any(
+        command.startswith(("CURR", "VOLT")) and "(@2)" in command
+        for command in session.writes
+    )
 
 
 @pytest.mark.parametrize(
@@ -228,7 +310,7 @@ def test_ramp_list_cancellation_stops_later_segments_without_output_off() -> Non
         ({"kind": RAMP_LIST_KIND, "version": False, "segments": [segment()]}, "version"),
         ({"kind": RAMP_LIST_KIND, "version": 2.0, "segments": [segment()]}, "version"),
         ({"kind": RAMP_LIST_KIND, "segments": [segment()]}, "version"),
-        ({"kind": RAMP_LIST_KIND, "version": 3, "segments": [segment()]}, "version"),
+        ({"kind": RAMP_LIST_KIND, "version": 3, "segments": [segment()]}, "requires enable_output"),
         (document(), "1 to 10"),
         (document(*(segment() for _ in range(11))), "at most 10"),
         (document(segment(delay_ms=-1)), "delay_ms"),
@@ -243,7 +325,7 @@ def test_ramp_list_rejects_invalid_documents(doc, message) -> None:
         run_ramp_list(request(doc, dry_run=True))
 
 
-@pytest.mark.parametrize("version", [1, "2", True, False, 2.0, 3, None])
+@pytest.mark.parametrize("version", [1, "2", True, False, 2.0, None])
 def test_ramp_list_rejects_invalid_version_before_opening_visa(version: object) -> None:
     opened = False
 

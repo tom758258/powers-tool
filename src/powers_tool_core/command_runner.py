@@ -72,6 +72,7 @@ def run_core_command(
     opener: Callable[..., Any] | None = None,
     resource_lister: Callable[..., tuple[str, ...]] | None = None,
     stop_requested: Callable[[], bool] | None = None,
+    sleep: Callable[[float], None] | None = None,
     scpi_logger: Callable[[str, str, str], None] | None = None,
     cleanup_reporter: CleanupReporter | None = None,
 ) -> dict[str, Any]:
@@ -85,14 +86,26 @@ def run_core_command(
             reporter=cleanup_reporter,
         )
     if isinstance(request, SequenceRequest) or command == "sequence":
-        kwargs: dict[str, Any] = {"stop_requested": stop_requested}
+        kwargs: dict[str, Any] = {
+            "stop_requested": stop_requested,
+            "scpi_logger": scpi_logger,
+            "cleanup_reporter": cleanup_reporter,
+        }
         if opener is not None:
             kwargs["opener"] = opener
+        if sleep is not None:
+            kwargs["sleep"] = sleep
         return run_sequence(request, **kwargs)
     if command == "ramp-list":
-        kwargs = {"stop_requested": stop_requested, "scpi_logger": scpi_logger}
+        kwargs = {
+            "stop_requested": stop_requested,
+            "scpi_logger": scpi_logger,
+            "cleanup_reporter": cleanup_reporter,
+        }
         if opener is not None:
             kwargs["opener"] = opener
+        if sleep is not None:
+            kwargs["sleep"] = sleep
         return run_ramp_list(request, **kwargs)
     if isinstance(request, TriggerRequest) or command.startswith("trigger-"):
         kwargs = {"stop_requested": stop_requested, "scpi_logger": scpi_logger}
@@ -122,7 +135,10 @@ def run_core_command(
             kwargs["opener"] = opener
         return run_snapshot(request, **kwargs)
     if command == "restore-from-snapshot":
-        kwargs = {"scpi_logger": scpi_logger, "stop_requested": stop_requested}
+        kwargs = {
+            "scpi_logger": scpi_logger,
+            "stop_requested": stop_requested,
+        }
         if opener is not None:
             kwargs["opener"] = opener
         return run_restore(request, **kwargs)
@@ -132,9 +148,15 @@ def run_core_command(
             kwargs["opener"] = opener
         return run_readonly(request, **kwargs)
     if command in {"set", "apply", "output-on", "output-off", "safe-off", "output-state", "cycle-output", "ramp", "smoke-output"}:
-        kwargs = {"scpi_logger": scpi_logger, "stop_requested": stop_requested}
+        kwargs = {
+            "scpi_logger": scpi_logger,
+            "stop_requested": stop_requested,
+            "cleanup_reporter": cleanup_reporter,
+        }
         if opener is not None:
             kwargs["opener"] = opener
+        if sleep is not None:
+            kwargs["sleep"] = sleep
         return run_operation(request, **kwargs)
     raise CoreValidationError(f"unsupported core command {command!r}")
 

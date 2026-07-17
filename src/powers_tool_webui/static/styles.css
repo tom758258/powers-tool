@@ -404,6 +404,18 @@ button#run:hover {
   box-shadow: 0 4px 16px rgba(0, 113, 227, .30), inset 0 1px 0 rgba(255, 255, 255, .22);
 }
 
+button#run.workflow-stop {
+  border-color: #a71922;
+  background: linear-gradient(180deg, #ef4d58 0%, #c8202a 100%);
+  box-shadow: 0 3px 12px rgba(200, 32, 42, .24), inset 0 1px 0 rgba(255, 255, 255, .24);
+}
+
+button#run.workflow-stop:hover {
+  border-color: #8f111a;
+  background: linear-gradient(180deg, #dc3c47 0%, #a71922 100%);
+  box-shadow: 0 4px 16px rgba(167, 25, 34, .3), inset 0 1px 0 rgba(255, 255, 255, .2);
+}
+
 /* Icon button */
 button.icon-button {
   width: 30px;

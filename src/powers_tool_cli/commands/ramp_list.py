@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from powers_tool_core.core import OperationRequest, RuntimeOptions
-from powers_tool_core.ramp_list import RAMP_LIST_KIND, RAMP_LIST_VERSION
+from powers_tool_core.ramp_list import RAMP_LIST_KIND, RAMP_LIST_VERSION, RAMP_LIST_VERSION_V2
 
 
 def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any) -> None:
@@ -30,6 +30,16 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     parser.add_argument("--completion-pulse-timing", choices=("segment", "step"), help="Emit a pulse after each segment or voltage step.")
     parser.add_argument("--completion-pulse-pins", type=runtime._trigger_pins_list, help="Comma-separated E36312A rear digital pulse pins.")
     parser.add_argument("--completion-pulse-polarity", choices=("positive", "negative"), default="positive", help="Completion pulse polarity.")
+    parser.add_argument(
+        "--enable-output",
+        action="store_true",
+        help="Enable each channel after its first validated segment setpoint.",
+    )
+    parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Confirm real output enable when configured thresholds require it.",
+    )
     runtime._add_json_argument(parser)
     runtime._add_simulate_argument(parser)
     runtime._add_dry_run_argument(parser)
@@ -54,6 +64,7 @@ def request_for_args(args: argparse.Namespace, runtime: Any) -> dict[str, Any]:
         "backend": getattr(args, "backend", None),
         "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
         "lint": getattr(args, "lint", False),
+        "enable_output": getattr(args, "enable_output", False),
     })
 
 
@@ -66,6 +77,7 @@ def request_from_argv(argv: Sequence[str], runtime: Any) -> dict[str, Any]:
         "backend": runtime._option_value(argv, "--backend"),
         "timeout_ms": runtime._timeout_from_argv(argv),
         "lint": "--lint" in argv,
+        "enable_output": "--enable-output" in argv,
     })
 
 
@@ -74,12 +86,17 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRe
     pulse_requested = getattr(args, "completion_pulse_timing", None) is not None or getattr(args, "completion_pulse_pins", None) is not None
     if getattr(args, "file", None) is not None and pulse_requested:
         raise ValueError("--file Ramp List completion_pulse settings must come from the document")
+    if getattr(args, "file", None) is not None and getattr(args, "enable_output", False):
+        raise ValueError("--file cannot be combined with --enable-output; the document controls enable_output")
     if getattr(args, "segment", None) is not None:
+        enable_output = getattr(args, "enable_output", False)
         document: dict[str, Any] = {
             "kind": RAMP_LIST_KIND,
-            "version": RAMP_LIST_VERSION,
+            "version": RAMP_LIST_VERSION if enable_output else RAMP_LIST_VERSION_V2,
             "segments": [_segment_document(values) for values in args.segment],
         }
+        if enable_output:
+            document["enable_output"] = True
         if pulse_requested:
             if getattr(args, "completion_pulse_pins", None) is None:
                 raise ValueError("--completion-pulse-pins is required when --completion-pulse-timing is used")
@@ -102,6 +119,7 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRe
             backend=getattr(args, "backend", None),
             timeout_ms=getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
+            confirm=getattr(args, "confirm", False),
             serial_options=runtime._serial_options_for_args(args),
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),

@@ -21,6 +21,9 @@ Power Worker, and WebUI Commands. Adapter defaults are not limits.
 - `step_voltage` must be finite and greater than zero.
 - Ramp and Ramp List `delay_ms` is the additional delay after each voltage
   step completes before starting the next step. It is a non-negative integer.
+- Ramp `enable_output` is an optional exact boolean and defaults to `false`.
+  Ramp List version 2 always means `false`; version 3 requires an exact
+  top-level JSON boolean. Adapters must not coerce strings or numbers.
 - `hold_ms`, settle delays, and Sequence waits are non-negative.
 - Cycle Output, Smoke Output, and Sequence Cycle `duration_ms` are positive
   integers.
@@ -62,6 +65,13 @@ step interval.
 
 Segment-complete and every-step completion pulses are mutually exclusive.
 Every-step pulses accept `delay_ms = 0`.
+
+With `enable_output: true`, Ramp validates every effective setpoint before
+writes, then orders current, first voltage, output ON, mandatory ON readback,
+remaining voltage steps, the existing completion pulse, and final output-state
+readback. Ramp List applies the same first-setpoint rule once per channel and
+does not repeat output ON for later segments on that channel. Completion pulse
+timing otherwise remains unchanged.
 
 ## Effective Electrical Limits
 

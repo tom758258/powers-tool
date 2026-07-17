@@ -539,9 +539,18 @@ every voltage write and accepts `--delay-ms 0`.
 Rear pulse pins are not output channels. Pulse workflows are E36312A-only, and
 `*TRG` may affect other already armed BUS-triggered behavior.
 
-Ramp List version 2 uses `kind: "powers-tool-ramp-list"` and may contain a
-global `completion_pulse` object. Version 1 Ramp List documents are rejected
-without conversion or fallback. Inline `--segment` usage accepts
+Ramp and inline Ramp List accept `--enable-output`. Ramp writes current and
+the first voltage before enabling and verifying output. Ramp List enables each
+channel only on its first segment. Normal completion leaves those outputs ON;
+omitting the option preserves the prior output state.
+
+Ramp List version 2 remains accepted and always means `enable_output: false`.
+Version 3 requires an exact top-level JSON boolean `enable_output` and may
+contain a global `completion_pulse` object. Version 1, malformed booleans,
+unknown fields, and future versions are rejected without conversion or
+fallback. Inline `--segment --enable-output` builds version 3; inline segments
+without the option build version 2. `--file` takes `enable_output` only from
+the document and cannot be combined with the CLI flag. Inline usage accepts
 `--completion-pulse-timing`, `--completion-pulse-pins`, and
 `--completion-pulse-polarity`; with `--file`, the document is authoritative
 and CLI pulse overrides are rejected.
@@ -580,6 +589,13 @@ Worker provides no identity default.
 `POST /stop` is cooperative: the handler only sets stop state and wakes the
 runner. The Worker emits structured `power_cleanup` JSONL events and does not
 emit its final `summary` or stop the HTTP server until runner cleanup finishes.
+
+`POST /cancel` is the fixed job-specific cancellation endpoint. It requires
+schema 2 and the exact active `worker_job_id`; missing, stale, or mismatched
+identity fails closed. It safely cancels Ramp, Ramp List, or Sequence without
+shutting down the Worker. `/stop` keeps its existing whole-Worker shutdown
+meaning. Direct CLI Ctrl+C for those three workflows requests the same
+cooperative cleanup; it cannot force-interrupt blocking VISA I/O.
 
 When started, it outputs a `ready` event on stdout containing the dynamically
 assigned control endpoints.

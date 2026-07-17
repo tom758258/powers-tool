@@ -11,6 +11,7 @@ from powers_tool_core import capabilities
 from powers_tool_core.connection import open_resource, serial_open_kwargs
 from powers_tool_core.cancellation import StopRequested, interruptible_sleep, raise_if_cancelled
 from powers_tool_core.core import (
+    CommandCancelled,
     ConfirmationRequiredError,
     CoreExecutionError,
     CoreIoError,
@@ -41,6 +42,7 @@ from powers_tool_core.safety import (
     validate_setpoint,
 )
 from powers_tool_core.setpoint_limits import validate_effective_setpoint
+from powers_tool_core.stop_cleanup import CleanupReporter, cancel_workflow_with_safe_off
 from powers_tool_core.trigger import run_post_action_completion_pulse
 from powers_tool_core.workflow_validation import (
     validate_completion_pulse_planning_model,
@@ -84,6 +86,7 @@ def run_operation(
     sleep: Callable[[float], None] = time.sleep,
     scpi_logger: Callable[[str, str, str], None] | None = None,
     stop_requested: StopRequested = None,
+    cleanup_reporter: CleanupReporter | None = None,
 ) -> dict[str, Any]:
     """Run an operation command and return parser-neutral data."""
 
@@ -112,6 +115,7 @@ def run_operation(
             sleep=sleep,
             scpi_logger=scpi_logger,
             stop_requested=stop_requested,
+            cleanup_reporter=cleanup_reporter,
         )
 
     raise CoreValidationError(f"unsupported operation command {request.command!r}")
@@ -209,11 +213,24 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
         _require_plan_channels(request, channel)
         voltages = ramp_voltages(p["start_voltage"], p["stop_voltage"], p["step_voltage"])
         _validate_ramp_completion_pulse(request)
+        enable_output = p.get("enable_output", False)
         steps = [_driver_step(1, "set_current_limit", channel=channel, current=_json_safe_number(p["current"]))]
         index = 2
         for voltage_index, voltage in enumerate(voltages):
             steps.append(_driver_step(index, "set_voltage", channel=channel, voltage=_json_safe_number(voltage)))
             index += 1
+            if voltage_index == 0 and enable_output:
+                steps.append(_driver_step(index, "output_on", channel=channel))
+                index += 1
+                steps.append(
+                    _driver_step(
+                        index,
+                        "output_state",
+                        channel=channel,
+                        expected_enabled=True,
+                    )
+                )
+                index += 1
             if _step_completion_pulse_requested(request):
                 steps.append(
                     _driver_step(
@@ -236,7 +253,51 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
             steps.append(_driver_step(index, "programmed_voltage", channel=channel))
             index += 1
             steps.append(_driver_step(index, "programmed_current", channel=channel))
+            index += 1
+        if (
+            enable_output
+            and _completion_pulse_requested(request)
+            and not _step_completion_pulse_requested(request)
+        ):
+            steps.append(
+                _driver_step(
+                    index,
+                    "completion_pulse",
+                    channel=channel,
+                    pins=list(p.get("completion_pulse_pins") or ()),
+                    polarity=p.get("completion_pulse_polarity", "positive"),
+                    mode="post-action",
+                )
+            )
+            index += 1
+        if enable_output:
+            steps.append(
+                _driver_step(
+                    index,
+                    "output_state",
+                    channel=channel,
+                    final=True,
+                )
+            )
         plan["steps"] = steps
+        plan["description"] = (
+            "Preview setting current and the first voltage, enabling and verifying output, "
+            "then stepping remaining voltage setpoints."
+            if enable_output
+            else "Preview setting current, then stepping voltage setpoints without changing output state."
+        )
+        plan["enable_output"] = enable_output
+        plan["output_enable_executed"] = False
+        plan["enabled_channels"] = []
+        plan["final_output_states"] = [
+            {
+                "channel": channel,
+                "enabled": None,
+                "verified": False,
+                "unchanged_by_workflow": not enable_output,
+            }
+        ]
+        plan["cancellation_cleanup"] = None
     elif command == "smoke-output":
         _require_plan_channels(request, channel)
         plan["steps"] = [
@@ -284,6 +345,7 @@ def _run_output_write_operation(
     sleep: Callable[[float], None],
     scpi_logger: Callable[[str, str, str], None] | None,
     stop_requested: StopRequested,
+    cleanup_reporter: CleanupReporter | None,
 ) -> dict[str, Any]:
     _validate_real_gate(request)
     opened = False
@@ -330,6 +392,7 @@ def _run_output_write_operation(
                 idn=idn,
                 sleep=sleep,
                 stop_requested=stop_requested,
+                cleanup_reporter=cleanup_reporter,
             )
     except VisaConnectionError as exc:
         prefix = f"{request.command} failed" if opened else f"Could not open resource for {request.command}"
@@ -347,6 +410,7 @@ def _execute_output_write(
     idn: str,
     sleep: Callable[[float], None],
     stop_requested: StopRequested,
+    cleanup_reporter: CleanupReporter | None,
 ) -> dict[str, Any]:
     command = request.command
     p = request.parameters
@@ -539,39 +603,101 @@ def _execute_output_write(
         _require_channel(power_supply, channel, command)
         voltages = ramp_voltages(p["start_voltage"], p["stop_voltage"], p["step_voltage"])
         _validate_ramp_completion_pulse(request)
+        enable_output = p.get("enable_output", False)
         for voltage in voltages:
             _validate_setpoint_for_request(request, idn, channel, voltage=voltage, current=p["current"])
+            if enable_output:
+                _require_confirmation_if_needed(request, voltage, p["current"], channel, idn)
         trigger: dict[str, Any] | None = None
         verification = {"passed": True, "checks": [], "differences": []}
         _validate_requested_completion_pulse_power_supply(request, power_supply)
-        power_supply.set_current_limit(channel=channel, current=p["current"])
+        completed_voltages: list[float] = []
+        output_enable_executed = False
         triggers: list[dict[str, Any]] = []
-        for index, voltage in enumerate(voltages):
+        try:
             raise_if_cancelled(stop_requested)
-            power_supply.set_voltage(channel=channel, voltage=voltage)
-            if _step_completion_pulse_requested(request):
-                step_trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
-                if step_trigger is not None:
-                    triggers.append({"step_index": index, "voltage": voltage, "trigger": step_trigger})
-            if p.get("delay_ms", 0) > 0 and index < len(voltages) - 1:
-                interruptible_sleep(
-                    p["delay_ms"] / 1000,
-                    sleep=sleep,
-                    stop_requested=stop_requested,
+            power_supply.set_current_limit(channel=channel, current=p["current"])
+            for index, voltage in enumerate(voltages):
+                raise_if_cancelled(stop_requested)
+                power_supply.set_voltage(channel=channel, voltage=voltage)
+                completed_voltages.append(voltage)
+                if index == 0 and enable_output:
+                    power_supply.output_on(channel=channel)
+                    output_enable_executed = True
+                    on_verification = _verify_output_state_after_write(
+                        request,
+                        power_supply,
+                        expected=True,
+                        channel=channel,
+                        required=True,
+                    )
+                    _raise_verification_failed(on_verification)
+                if _step_completion_pulse_requested(request):
+                    step_trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
+                    if step_trigger is not None:
+                        triggers.append({"step_index": index, "voltage": voltage, "trigger": step_trigger})
+                if p.get("delay_ms", 0) > 0 and index < len(voltages) - 1:
+                    interruptible_sleep(
+                        p["delay_ms"] / 1000,
+                        sleep=sleep,
+                        stop_requested=stop_requested,
+                    )
+            _settle_after_write(request, sleep, stop_requested)
+            verification = _verify_setpoints_after_write(
+                request,
+                power_supply,
+                channels=(channel,),
+                expected_voltage=p["stop_voltage"],
+            )
+            _raise_verification_failed(verification)
+            if not _step_completion_pulse_requested(request):
+                trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
+            final_output_states = (
+                [{
+                    "channel": channel,
+                    "enabled": power_supply.output_state(channel=channel),
+                    "verified": True,
+                    "unchanged_by_workflow": False,
+                }]
+                if enable_output
+                else [{
+                    "channel": channel,
+                    "enabled": None,
+                    "verified": False,
+                    "unchanged_by_workflow": True,
+                }]
+            )
+            if enable_output and final_output_states[0]["enabled"] is not True:
+                raise CoreVerificationError(
+                    "final output-state verification failed",
+                    verification={
+                        "operation": "ramp-final-output-state",
+                        "passed": False,
+                        "checks": final_output_states,
+                        "differences": final_output_states,
+                    },
                 )
-        _settle_after_write(request, sleep, stop_requested)
-        verification = _verify_setpoints_after_write(
-            request,
-            power_supply,
-            channels=(channel,),
-            expected_voltage=p["stop_voltage"],
-        )
-        _raise_verification_failed(verification)
-        if not _step_completion_pulse_requested(request):
-            trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
-        _raise_on_instrument_errors(power_supply, command)
+            _raise_on_instrument_errors(power_supply, command)
+            raise_if_cancelled(stop_requested)
+        except (CommandCancelled, KeyboardInterrupt):
+            cancel_workflow_with_safe_off(
+                power_supply,
+                partial_result={
+                    "enable_output": enable_output,
+                    "output_enable_executed": output_enable_executed,
+                    "enabled_channels": [channel] if output_enable_executed else [],
+                    "completed_voltages": completed_voltages,
+                    "triggers": triggers,
+                },
+                reporter=cleanup_reporter,
+            )
         data = _resource_payload(request, idn, channel=channel, voltages=voltages)
         data["steps"] = len(voltages)
+        data["enable_output"] = enable_output
+        data["output_enable_executed"] = output_enable_executed
+        data["enabled_channels"] = [channel] if output_enable_executed else []
+        data["final_output_states"] = final_output_states
+        data["cancellation_cleanup"] = None
         _attach_trigger_if_present(data, trigger)
         if _step_completion_pulse_requested(request):
             data["triggers"] = triggers
@@ -848,8 +974,9 @@ def _verify_output_state_after_write(
     *,
     expected: bool,
     channel: int | None = None,
+    required: bool = False,
 ) -> dict[str, Any]:
-    if not request.parameters.get("verify_after_write", False):
+    if not required and not request.parameters.get("verify_after_write", False):
         return {"passed": True, "checks": [], "differences": []}
     selected_channel = request.parameters.get("channel") if channel is None else channel
     actual = power_supply.output_state(channel=selected_channel)

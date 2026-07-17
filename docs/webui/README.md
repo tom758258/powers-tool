@@ -182,6 +182,14 @@ the current thread I/O and Core stop cleanup finish. Only then does the job
 become `cancelled`; cleanup failure makes it `failed`. Accepted jobs that have
 not started can become `cancelled` immediately.
 
+For Ramp, Ramp List, and Sequence, the primary Run button is stateful:
+`Run`, `Starting...`, red `Stop`, `Stopping...`, then `Run` only after the
+terminal SSE event confirms the active job was cleared. Stop means “Stop the
+active workflow and safely turn all outputs off.” While cleanup runs, the UI
+shows `Waiting for safe-off and cleanup` and keeps command switching and Live
+Data hardware access blocked. SSE interruption uses job-status reconciliation;
+normal completion does not require an extra health/lock poll.
+
 ## UI
 
 The static UI is a three-panel dashboard:
@@ -291,10 +299,11 @@ readback and one-shot post-command refreshes.
 
 The frontend keeps one job SSE controller and one live-data SSE controller.
 Ramp List uses a dedicated segment-card editor with versioned JSON Load/Save.
-Its persisted contract is `kind: "powers-tool-ramp-list"` with version 2;
-version 1 and malformed documents are rejected without conversion. The editor
-supports up to 10 ordered segments and full-list trip guarding before
-submission.
+It loads version 2 as output-enable unchecked and saves version 3 with an
+explicit boolean `enable_output`. Version 3 requires that exact boolean;
+version 1, malformed, unknown-field, and future-version documents are rejected
+without conversion. The editor supports up to 10 ordered segments and
+full-list trip guarding before submission.
 Sequence uses collapsed step cards with JSON Load/Save and supports up to 250
 steps in the WebUI. Loaded Sequence JSON is normalized to the canonical
 `{"version": 1, "steps": [...]}` shape before saving or running. CLI and Core

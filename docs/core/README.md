@@ -291,9 +291,26 @@ the selected output channel. Ramp supports `segment` timing for one completion
 pulse and `step` timing for a software post-action pulse after every voltage
 write, including the final write. Every-step timing accepts `delay_ms = 0`.
 
-Ramp List version 2 uses `kind: "powers-tool-ramp-list"` and may include a
+Ramp and Ramp List leave output state unchanged by default. Optional
+`enable_output: true` enables an output only after the current limit and first
+voltage setpoint are validated and written, then requires an ON readback.
+Normal completion leaves enabled outputs ON and reads their final state again.
+
+Ramp List version 2 keeps `kind: "powers-tool-ramp-list"` and remains accepted
+with fixed `enable_output: false` semantics. Version 3 requires an exact top-level JSON boolean
+`enable_output`; missing, non-boolean, unknown, legacy, and future-version
+fields are rejected before hardware I/O. Both versions may include a
 document-level `completion_pulse` object with `timing`, `pins`, and `polarity`.
-Version 1 Ramp List documents are rejected without conversion or fallback.
+Version 1 is rejected without conversion or fallback.
+
+Ramp, Ramp List, and Sequence cancellation is cooperative. After the current
+VISA call returns, Core stops future workflow steps and pulses, uses the same
+session to request OFF on every supported channel, verifies every channel OFF,
+drains the error queue with a 20-read bound, and then lets the owning session
+close. Only complete cleanup reports cancellation; an OFF, readback, error
+queue, or session-close failure reports `cleanup_failed`. This workflow stop
+is not a hardware emergency stop and is separate from `trigger-abort`, which
+aborts Trigger/LIST execution without guaranteeing output OFF.
 Sequence documents accept the canonical `trigger-pulse` action. Software
 pulses snapshot and restore trigger/digital pin settings unless
 `leave_trigger_configured` is explicitly requested.

@@ -261,6 +261,16 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     ramp_parser.add_argument("--step-voltage", required=True, type=runtime._positive_float, help="Positive voltage step size.")
     ramp_parser.add_argument("--current", required=True, type=float, help="Current limit.")
     ramp_parser.add_argument("--delay-ms", type=runtime._nonnegative_int, default=0, help="Additional delay after each voltage step before starting the next step.")
+    ramp_parser.add_argument(
+        "--enable-output",
+        action="store_true",
+        help="Enable output after the first validated setpoint and verify it is on.",
+    )
+    ramp_parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Confirm real output enable when configured thresholds require it.",
+    )
     runtime._add_json_argument(ramp_parser)
     runtime._add_simulate_argument(ramp_parser)
     runtime._add_dry_run_argument(ramp_parser)

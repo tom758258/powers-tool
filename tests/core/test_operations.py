@@ -916,6 +916,81 @@ def test_ramp_real_always_uses_software_voltage_writes(step_voltage: float) -> N
     assert session.writes[-1] == "VOLT 1,(@1)"
     assert not any(command.startswith("LIST:") for command in session.writes)
     assert data["steps"] in {51, 101, 201}
+    assert data["enable_output"] is False
+    assert data["output_enable_executed"] is False
+    assert not any(command.startswith("OUTP ON") for command in session.writes)
+    assert not any(command.startswith("OUTP?") for command in session.queries)
+
+
+def test_ramp_enable_output_orders_first_setpoint_before_on_and_rechecks_final_state() -> None:
+    session = OutputStateSession(
+        idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
+        output_enabled=False,
+    )
+    params = request(
+        "ramp",
+        start_voltage=0.0,
+        stop_voltage=1.0,
+        step_voltage=0.5,
+        current=0.05,
+        delay_ms=0,
+        enable_output=True,
+    ).parameters
+
+    data = run_operation(
+        OperationRequest(
+            command="ramp",
+            runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+            parameters=params,
+        ),
+        opener=lambda *args, **kwargs: session,
+        sleep=lambda seconds: None,
+    )
+
+    workflow_events = [
+        event for event in session.events
+        if event.startswith(("W:CURR", "W:VOLT", "W:OUTP", "Q:OUTP"))
+    ]
+    assert workflow_events == [
+        "W:CURR 0.05,(@1)",
+        "W:VOLT 0,(@1)",
+        "W:OUTP ON,(@1)",
+        "Q:OUTP? (@1)",
+        "W:VOLT 0.5,(@1)",
+        "W:VOLT 1,(@1)",
+        "Q:OUTP? (@1)",
+    ]
+    assert data["enable_output"] is True
+    assert data["output_enable_executed"] is True
+    assert data["enabled_channels"] == [1]
+    assert data["final_output_states"] == [{
+        "channel": 1,
+        "enabled": True,
+        "verified": True,
+        "unchanged_by_workflow": False,
+    }]
+
+
+def test_ramp_enable_output_dry_run_shows_safe_order() -> None:
+    plan = output_plan(
+        request(
+            "ramp",
+            start_voltage=0,
+            stop_voltage=1,
+            step_voltage=1,
+            current=0.1,
+            enable_output=True,
+        )
+    )
+
+    assert [step["action"] for step in plan["steps"][:6]] == [
+        "set_current_limit",
+        "set_voltage",
+        "output_on",
+        "output_state",
+        "set_voltage",
+        "output_state",
+    ]
 
 
 @pytest.mark.parametrize("field", ["completion_pulse_mode", "completion_pulse_dwell_ms", "wait_timeout_ms", "poll_ms"])

@@ -10,13 +10,16 @@ import json
 import math
 import os
 import platform
+import signal
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -42,7 +45,9 @@ from powers_tool_cli.cli_io import (
     set_json_start_time,
 )
 from powers_tool_core.connection import DEFAULT_TIMEOUT_MS, SerialOptions, list_resources, normalize_serial_termination, open_resource
+from powers_tool_core.command_runner import run_core_command
 from powers_tool_core.core import (
+    CommandCancelled,
     ConfirmationRequiredError,
     CoreExecutionError,
     CoreIoError,
@@ -51,6 +56,7 @@ from powers_tool_core.core import (
     OperationRequest,
     RuntimeOptions,
     SequenceRequest,
+    StopCleanupError,
     TriggerInterrupted,
     TriggerRequest,
     TriggerWaitTimeout,
@@ -3869,6 +3875,53 @@ def _run_log(args: argparse.Namespace) -> int:
     return 0
 
 
+@contextmanager
+def _cooperative_workflow_interrupt() -> Iterator[threading.Event]:
+    stop_event = threading.Event()
+    installed = threading.current_thread() is threading.main_thread()
+    previous_handler: Any = None
+
+    if installed:
+        previous_handler = signal.getsignal(signal.SIGINT)
+
+        def request_stop(_signum: int, _frame: Any) -> None:
+            stop_event.set()
+
+        signal.signal(signal.SIGINT, request_stop)
+    try:
+        yield stop_event
+    finally:
+        if installed:
+            signal.signal(signal.SIGINT, previous_handler)
+
+
+def _emit_workflow_interruption(
+    args: argparse.Namespace,
+    *,
+    request: dict[str, Any],
+    execution: dict[str, Any],
+    exc: CommandCancelled | StopCleanupError,
+) -> int:
+    cleanup_failed = isinstance(exc, StopCleanupError)
+    code = "cleanup_failed" if cleanup_failed else "cancelled"
+    data = dict(getattr(exc, "data", {}) or {})
+    data.setdefault("original_reason", "user cancellation")
+    if args.json:
+        emit_json_error(
+            command=args.command,
+            execution=execution,
+            request=request,
+            error_type="execution",
+            code=code,
+            message=str(exc),
+            retryable=cleanup_failed,
+            data=data,
+        )
+    else:
+        print(f"{args.command} {code}: {exc}", file=sys.stderr)
+    return 3
+
+
 def _run_sequence(args: argparse.Namespace) -> int:
     request = _request_for_args(args)
     execution = _execution_for_args(args, hardware_intent=True)
@@ -3887,11 +3940,22 @@ def _run_sequence(args: argparse.Namespace) -> int:
         )
 
     try:
-        data = sequence.run_sequence(
-            core_request,
-            opener=_core_opener_for_args(args),
-            sleep=time.sleep,
-            scpi_logger=_log_scpi,
+        with _cooperative_workflow_interrupt() as stop_event:
+            data = run_core_command(
+                core_request,
+                opener=_core_opener_for_args(args),
+                stop_requested=stop_event.is_set,
+                sleep=time.sleep,
+                scpi_logger=_log_scpi,
+            )
+    except (CommandCancelled, StopCleanupError) as exc:
+        return _emit_workflow_interruption(args, request=request, execution=execution, exc=exc)
+    except KeyboardInterrupt:
+        return _emit_workflow_interruption(
+            args,
+            request=request,
+            execution=execution,
+            exc=CommandCancelled("sequence cancelled before a VISA session was opened"),
         )
     except CoreIoError as exc:
         return _emit_safe_io_error(
@@ -3954,11 +4018,27 @@ def _run_ramp_list(args: argparse.Namespace) -> int:
         _resolve_optional_resource_alias(args)
         request = _request_for_args(args)
         core_request = _ramp_list_request_for_args(args)
-        data = ramp_list_core.run_ramp_list(
-            core_request,
-            opener=_core_opener_for_args(args),
-            sleep=time.sleep,
-            scpi_logger=_log_scpi,
+        with _cooperative_workflow_interrupt() as stop_event:
+            data = run_core_command(
+                core_request,
+                opener=_core_opener_for_args(args),
+                stop_requested=stop_event.is_set,
+                sleep=time.sleep,
+                scpi_logger=_log_scpi,
+            )
+    except (CommandCancelled, StopCleanupError) as exc:
+        return _emit_workflow_interruption(
+            args,
+            request=request,
+            execution=_execution_for_args(args, hardware_intent=not getattr(args, "lint", False)),
+            exc=exc,
+        )
+    except KeyboardInterrupt:
+        return _emit_workflow_interruption(
+            args,
+            request=request,
+            execution=_execution_for_args(args, hardware_intent=not getattr(args, "lint", False)),
+            exc=CommandCancelled("ramp-list cancelled before a VISA session was opened"),
         )
     except CoreValidationError as exc:
         return _emit_cli_error(
@@ -4928,11 +5008,32 @@ def _run_core_output_real(args: argparse.Namespace) -> int:
         )
 
     try:
-        data = operations.run_operation(
-            _operation_request_for_args(args),
-            opener=opener,
-            sleep=time.sleep,
-            scpi_logger=_log_scpi,
+        if args.command == "ramp":
+            with _cooperative_workflow_interrupt() as stop_event:
+                data = run_core_command(
+                    _operation_request_for_args(args),
+                    opener=opener,
+                    stop_requested=stop_event.is_set,
+                    sleep=time.sleep,
+                    scpi_logger=_log_scpi,
+                )
+        else:
+            data = operations.run_operation(
+                _operation_request_for_args(args),
+                opener=opener,
+                sleep=time.sleep,
+                scpi_logger=_log_scpi,
+            )
+    except (CommandCancelled, StopCleanupError) as exc:
+        return _emit_workflow_interruption(args, request=request, execution=execution, exc=exc)
+    except KeyboardInterrupt:
+        if args.command != "ramp":
+            raise
+        return _emit_workflow_interruption(
+            args,
+            request=request,
+            execution=execution,
+            exc=CommandCancelled("ramp cancelled before a VISA session was opened"),
         )
     except ConfirmationRequiredError as exc:
         return _emit_cli_error(
@@ -8619,6 +8720,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "step_voltage": _json_safe_number(args.step_voltage),
             "current": _json_safe_number(args.current),
             "delay_ms": args.delay_ms,
+            "enable_output": getattr(args, "enable_output", False),
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
@@ -8905,6 +9007,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "step_voltage": _number_from_argv(argv, "--step-voltage"),
             "current": _number_from_argv(argv, "--current"),
             "delay_ms": _int_option_from_argv(argv, "--delay-ms", 0),
+            "enable_output": "--enable-output" in argv,
             "safety_config": _option_value(argv, "--safety-config"),
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
@@ -9600,6 +9703,7 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
         "stop_voltage": getattr(args, "stop_voltage", None),
         "step_voltage": getattr(args, "step_voltage", None),
         "delay_ms": getattr(args, "delay_ms", 0),
+        "enable_output": getattr(args, "enable_output", False),
         "completion_pulse_pins": _completion_pulse_pins(args) if hasattr(args, "completion_pulse_pins") else (),
         "completion_pulse_channel": getattr(args, "completion_pulse_channel", None),
         "completion_pulse_polarity": getattr(args, "completion_pulse_polarity", "positive"),

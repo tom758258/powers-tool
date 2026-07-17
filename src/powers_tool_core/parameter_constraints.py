@@ -76,6 +76,8 @@ def validate_request_parameters(request: OperationRequest | TriggerRequest | Seq
         )
     if request.command == "restore-from-snapshot":
         strict_boolean_parameter(request.parameters, "restore_output_state", default=False)
+    if request.command == "ramp":
+        strict_boolean_parameter(request.parameters, "enable_output", default=False)
 
     for name, constraint in PARAMETER_CONSTRAINTS.items():
         if name not in request.parameters or request.parameters[name] is None:
