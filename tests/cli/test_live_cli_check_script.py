@@ -1169,10 +1169,10 @@ def test_live_cli_check_malformed_missing_and_error_only_artifacts_fail_closed(t
     shareable_dir = report_path.parent
     private_dir = shareable_dir.parent / "private"
     malformed_placeholder = json.loads(
-        (shareable_dir / "live-malformed.json").read_text(encoding="utf-8")
+        (shareable_dir / "live-malformed-attempt-1.json").read_text(encoding="utf-8")
     )
     missing_placeholder = json.loads(
-        (shareable_dir / "live-missing.json").read_text(encoding="utf-8")
+        (shareable_dir / "live-missing-attempt-1.json").read_text(encoding="utf-8")
     )
     assert malformed_placeholder == {
         "artifact_available": False,
@@ -1185,7 +1185,7 @@ def test_live_cli_check_malformed_missing_and_error_only_artifacts_fail_closed(t
     assert missing_placeholder["parse_status"] == "missing"
     assert missing_placeholder["private_raw_artifact_retained"] is False
     assert "TCPIP0::192.168.50.77::5025::SOCKET" in (
-        private_dir / "live-malformed.json"
+        private_dir / "live-malformed-attempt-1.json"
     ).read_text(encoding="utf-8")
 
     shareable_text = "\n".join(
@@ -1252,8 +1252,8 @@ def test_live_cli_check_keeps_keysight_technologies_malformed_json_private(tmp_p
     shareable_dir = report_path.parent
     private_dir = shareable_dir.parent / "private"
     raw_idn = "Keysight Technologies,E36312A,MY12345678,2.10"
-    assert raw_idn in (private_dir / "live-keysight-tech-malformed.json").read_text(encoding="utf-8")
-    assert json.loads((shareable_dir / "live-keysight-tech-malformed.json").read_text(encoding="utf-8"))["parse_status"] == "failed"
+    assert raw_idn in (private_dir / "live-keysight-tech-malformed-attempt-1.json").read_text(encoding="utf-8")
+    assert json.loads((shareable_dir / "live-keysight-tech-malformed-attempt-1.json").read_text(encoding="utf-8"))["parse_status"] == "failed"
     shareable_text = _shareable_text(shareable_dir)
     assert raw_idn not in shareable_text
     assert "MY12345678" not in shareable_text
@@ -1275,7 +1275,7 @@ def test_live_cli_check_redacts_zero_serial_without_corrupting_numeric_evidence(
     assert "1.<redacted>" not in shareable_text
     assert "<redacted>.05" not in shareable_text
     assert "exit_code = <redacted>" not in shareable_text
-    payload = json.loads((shareable_dir / "live-agilent-zero.json").read_text(encoding="utf-8"))
+    payload = json.loads((shareable_dir / "live-agilent-zero-attempt-1.json").read_text(encoding="utf-8"))
     assert payload["data"]["idn"]["serial"] == "<redacted>"
     assert payload["data"]["evidence"] == {
         "firmware": "1.0",
@@ -2920,7 +2920,7 @@ def test_live_cli_check_shareable_artifacts_recursively_redact_private_live_fixt
     assert all(value not in shareable_text for value in forbidden)
     for expected in ("KEYSIGHT", "E36312A", "2.10", "fixture-set", "transport_scope", "backend_scope"):
         assert expected in shareable_text
-    shareable_payload = json.loads((shareable_dir / "live-fixture-set.json").read_text(encoding="utf-8"))
+    shareable_payload = json.loads((shareable_dir / "live-fixture-set-attempt-1.json").read_text(encoding="utf-8"))
     assert shareable_payload["data"]["resource"]["idn"]["raw"] == "<redacted-idn>"
     assert shareable_payload["data"]["resource"]["idn"]["serial"] == "<redacted>"
     assert (shareable_dir.parent / "private").is_dir()
@@ -3087,3 +3087,468 @@ def test_english_docs_describe_suite_scoped_validation_and_e3646a_boundaries():
     assert "preflight-cli.ps1" in docs
     assert "software workflows, not native LIST" in normalized
     assert "OUTP ON/OFF" in docs
+
+
+def _tcpip_session_fixture_cli_path(tmp_path: Path) -> Path:
+    fixture_cli = tmp_path / "powers_tool_cli"
+    fixture_cli.mkdir()
+    (fixture_cli / "__init__.py").write_text("", encoding="utf-8")
+    (fixture_cli / "cli.py").write_text(
+        r'''
+import json
+import os
+import sys
+from pathlib import Path
+
+mode = os.environ["TCPIP_FIXTURE_MODE"]
+state_path = Path(os.environ["TCPIP_FIXTURE_STATE"])
+count = int(state_path.read_text(encoding="utf-8")) if state_path.exists() else 0
+count += 1
+state_path.write_text(str(count), encoding="utf-8")
+command = sys.argv[1]
+
+def success_data():
+    if command == "output-state":
+        return {
+            "outputs": [
+                {"channel": 1, "enabled": False},
+                {"channel": 2, "enabled": False},
+                {"channel": 3, "enabled": False},
+            ]
+        }
+    if command == "error":
+        return {"errors": []}
+    return {"resource": {"idn": None}}
+
+failure = mode in {"recover", "generated", "recover-payload-assertion"} and count == 1
+failure = failure or mode in {"persistent", "partial"}
+if mode == "cleanup-recover":
+    failure = command == "safe-off" and count == 1
+if mode == "cleanup-persistent":
+    failure = command == "safe-off"
+
+if mode == "policy":
+    payload = {
+        "schema_version": 2,
+        "status": "error",
+        "ok": False,
+        "command": {"name": command},
+        "data": None,
+        "error": {
+            "type": "policy",
+            "code": "policy_rejected",
+            "message": "validation policy rejected the request",
+            "retryable": False,
+        },
+        "execution": {"mode": "real", "dry_run": False, "hardware_touched": False},
+    }
+    exit_code = 3
+elif mode == "argument":
+    payload = {
+        "schema_version": 2,
+        "status": "error",
+        "ok": False,
+        "command": {"name": command},
+        "data": None,
+        "error": {
+            "type": "argument",
+            "code": "invalid_argument",
+            "message": "invalid argument",
+            "retryable": False,
+        },
+        "execution": {"mode": "real", "dry_run": False, "hardware_touched": False},
+    }
+    exit_code = 2
+elif mode == "identity-assertion":
+    payload = {
+        "schema_version": 2,
+        "status": "ok",
+        "ok": True,
+        "command": {"name": command},
+        "data": {"idn": "not-an-object"},
+        "error": None,
+        "execution": {"mode": "real", "dry_run": False, "hardware_touched": True},
+    }
+    exit_code = 0
+elif mode == "payload-assertion" or (mode == "recover-payload-assertion" and count > 1):
+    payload = {
+        "schema_version": 2,
+        "status": "ok",
+        "ok": True,
+        "command": {"name": command},
+        "data": {"outputs": "not-a-list"},
+        "error": None,
+        "execution": {"mode": "real", "dry_run": False, "hardware_touched": True},
+    }
+    exit_code = 0
+elif failure or mode == "scpi-failure":
+    payload = {
+        "schema_version": 2,
+        "status": "error",
+        "ok": False,
+        "command": {"name": command},
+        "data": None,
+        "error": {
+            "type": "connection",
+            "code": "connection_failed" if command != "capabilities" else "capabilities_failed",
+            "message": f"{command} failed: Could not open VISA resource 'TCPIP0::FIXTURE::INSTR'",
+            "retryable": True,
+        },
+        "execution": {"mode": "real", "dry_run": False, "hardware_touched": True},
+    }
+    if mode == "partial":
+        payload["data"] = {"partial": True}
+    exit_code = 3
+    if mode == "scpi-failure":
+        print("TCPIP0::FIXTURE::INSTR SCPI >> *IDN?", file=sys.stderr)
+    if mode == "generated":
+        Path(os.environ["TCPIP_FIXTURE_GENERATED"]).write_text("attempt-one", encoding="utf-8")
+else:
+    payload = {
+        "schema_version": 2,
+        "status": "ok",
+        "ok": True,
+        "command": {"name": command},
+        "data": success_data(),
+        "error": None,
+        "execution": {"mode": "real", "dry_run": False, "hardware_touched": True},
+    }
+    exit_code = 0
+
+save_indexes = [index for index, value in enumerate(sys.argv) if value == "--save-json"]
+if len(save_indexes) != 1:
+    raise SystemExit(91)
+save_path = Path(sys.argv[save_indexes[0] + 1])
+save_path.write_text(json.dumps(payload), encoding="utf-8")
+print(json.dumps({"attempt": count, "command": command}))
+raise SystemExit(exit_code)
+'''.lstrip(),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def _run_tcpip_session_fixture(
+    tmp_path: Path,
+    *,
+    mode: str,
+    transport: str = "tcpip",
+    phase: str = "live",
+    command_name: str = "clear",
+    state_changing: bool = False,
+    validation_kind: str = "",
+    generated_artifact: bool = False,
+    target: str = "keysight-e36312a",
+) -> dict[str, object]:
+    fixture_path = _tcpip_session_fixture_cli_path(tmp_path)
+    output_dir = tmp_path / "out"
+    state_path = tmp_path / "attempt-count.txt"
+    generated_path = tmp_path / "command-output.json"
+    connection = {"tcpip": "LAN", "usb": "USB", "asrl": "ASRL"}[transport]
+    generated = f'-GeneratedArtifacts @("{generated_path}")' if generated_artifact else ""
+    validation = f'-ValidationKind "{validation_kind}"' if validation_kind else ""
+    expected_channels = "-ExpectedChannels @(1,2,3)" if command_name == "output-state" else ""
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "{target}"
+$script:OutputDir = "{output_dir}"
+New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
+$script:RawResource = "TCPIP0::FIXTURE::INSTR"
+$script:ResourceDisplay = "{connection}:<redacted-resource>"
+$script:ConnectionLabel = "{connection}"
+$script:TransportScope = "{transport}"
+$script:BackendArtifact = Get-BackendArtifactFields -Value $null
+$script:BackendValue = $null
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:InstrumentIdentity = $null
+$script:Restore = $true
+$script:PlanOnly = $false
+$script:LiveTcpipSubprocessAttempted = $false
+$script:SleepCalls = New-Object System.Collections.Generic.List[int]
+function Start-Sleep {{ param([int]$Milliseconds); $script:SleepCalls.Add($Milliseconds) }}
+$case = New-CommandCase -Name "fixture-{command_name}" -Suite "readonly" -Phase "{phase}" -Args @("{command_name}", "--json", "--resource", $script:RawResource, "--save-json", "legacy.json") -StateChanging:${str(state_changing).lower()} -LiveHardwareExpected:$true {validation} {expected_channels} {generated}
+$record = Invoke-ValidationCommand -Case $case
+[pscustomobject]@{{
+    record = $record
+    sleeps = $script:SleepCalls.ToArray()
+    failures = $script:Failures.ToArray()
+    files = @((Get-ChildItem -LiteralPath $script:OutputDir -Recurse -File).Name | Sort-Object)
+}} | ConvertTo-Json -Depth 30 -Compress
+'''
+    env = {
+        "PYTHONPATH": str(fixture_path),
+        "TCPIP_FIXTURE_MODE": mode,
+        "TCPIP_FIXTURE_STATE": str(state_path),
+        "TCPIP_FIXTURE_GENERATED": str(generated_path),
+    }
+    result = _run_powershell_command(command, env=env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_tcpip_first_pre_io_open_failure_recovers_once_with_attempt_artifacts(tmp_path):
+    run = _run_tcpip_session_fixture(tmp_path, mode="recover")
+    record = run["record"]
+
+    assert record["result"] == "passed"
+    assert record["attempt_count"] == 2
+    assert record["recovery_attempted"] is True
+    assert record["recovered_after_open_failure"] is True
+    assert record["final_attempt"] == 2
+    assert record["first_error_code"] == "connection_failed"
+    assert "TCPIP0::FIXTURE::INSTR" not in record["first_error_message"]
+    assert record["first_scpi_transcript_empty"] is True
+    assert record["settle_delay_ms"] == 500
+    assert [attempt["settle_before_ms"] for attempt in record["attempts"]] == [0, 500]
+    assert run["sleeps"] == [500]
+    assert record["json_path"].endswith("live-fixture-clear-attempt-2.json")
+    assert "live-fixture-clear-attempt-1.json" in run["files"]
+    assert "live-fixture-clear-attempt-2.json" in run["files"]
+    assert "legacy.json" not in run["files"]
+    private_dir = tmp_path / "out" / "private"
+    assert '"attempt": 1' in (private_dir / "live-fixture-clear-attempt-1.stdout.txt").read_text(encoding="utf-16")
+    assert '"attempt": 2' in (private_dir / "live-fixture-clear-attempt-2.stdout.txt").read_text(encoding="utf-16")
+
+
+def test_tcpip_command_specific_connection_code_can_recover(tmp_path):
+    run = _run_tcpip_session_fixture(
+        tmp_path,
+        mode="recover",
+        command_name="capabilities",
+    )
+
+    assert run["record"]["result"] == "passed"
+    assert run["record"]["first_error_code"] == "capabilities_failed"
+    assert run["record"]["recovered_after_open_failure"] is True
+
+
+def test_recovered_cli_execution_can_still_fail_final_payload_assertions(tmp_path):
+    run = _run_tcpip_session_fixture(
+        tmp_path,
+        mode="recover-payload-assertion",
+        command_name="output-state",
+        validation_kind="output-state",
+    )
+    record = run["record"]
+
+    assert record["attempt_count"] == 2
+    assert record["recovery_attempted"] is True
+    assert record["recovered_after_open_failure"] is True
+    assert record["final_attempt"] == 2
+    assert record["result"] == "failed"
+    assert record["assertion_failures"]
+
+
+def test_tcpip_persistent_open_failure_fails_after_one_recovery(tmp_path):
+    run = _run_tcpip_session_fixture(tmp_path, mode="persistent")
+    record = run["record"]
+
+    assert record["result"] == "failed"
+    assert record["attempt_count"] == 2
+    assert record["recovery_attempted"] is True
+    assert record["recovered_after_open_failure"] is False
+    assert record["final_attempt"] == 2
+    assert run["sleeps"] == [500]
+
+
+@pytest.mark.parametrize("transport", ["usb", "asrl"])
+def test_non_tcpip_open_failure_does_not_retry_or_sleep(tmp_path, transport):
+    run = _run_tcpip_session_fixture(tmp_path, mode="persistent", transport=transport)
+
+    assert run["record"]["attempt_count"] == 1
+    assert run["record"]["recovery_attempted"] is False
+    assert run["sleeps"] == []
+
+
+@pytest.mark.parametrize(
+    ("mode", "command_name", "state_changing", "validation_kind"),
+    [
+        ("scpi-failure", "clear", False, ""),
+        ("scpi-failure", "safe-off", True, ""),
+        ("policy", "clear", False, ""),
+        ("argument", "clear", False, ""),
+        ("partial", "clear", False, ""),
+        ("identity-assertion", "clear", False, ""),
+        ("payload-assertion", "output-state", False, "output-state"),
+    ],
+)
+def test_tcpip_non_pre_io_failures_do_not_retry(
+    tmp_path, mode, command_name, state_changing, validation_kind
+):
+    run = _run_tcpip_session_fixture(
+        tmp_path,
+        mode=mode,
+        command_name=command_name,
+        state_changing=state_changing,
+        validation_kind=validation_kind,
+    )
+
+    assert run["record"]["attempt_count"] == 1
+    assert run["record"]["recovery_attempted"] is False
+    assert run["sleeps"] == []
+
+
+def test_tcpip_generated_artifact_change_blocks_recovery(tmp_path):
+    run = _run_tcpip_session_fixture(
+        tmp_path,
+        mode="generated",
+        command_name="snapshot",
+        generated_artifact=True,
+    )
+
+    assert run["record"]["attempt_count"] == 1
+    assert run["record"]["recovery_attempted"] is False
+    assert run["record"]["attempts"][0]["generated_artifacts_changed"] is True
+    assert run["sleeps"] == []
+
+
+@pytest.mark.parametrize("command_name", ["log", "snapshot"])
+def test_tcpip_functional_generated_outputs_are_not_attempt_isolated_or_overwritten(
+    tmp_path, command_name
+):
+    run = _run_tcpip_session_fixture(
+        tmp_path,
+        mode="generated",
+        command_name=command_name,
+        generated_artifact=True,
+    )
+
+    assert run["record"]["attempt_count"] == 1
+    assert run["record"]["attempts"][0]["generated_artifacts_changed"] is True
+    assert (tmp_path / "command-output.json").read_text(encoding="utf-8") == "attempt-one"
+    assert not any("command-output-attempt" in name for name in run["files"])
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["keysight-e36312a", "keysight-edu36311a", "keysight-e3646a"],
+)
+def test_tcpip_recovery_semantics_are_model_independent(tmp_path, target):
+    run = _run_tcpip_session_fixture(tmp_path, mode="recover", target=target)
+
+    assert run["record"]["result"] == "passed"
+    assert run["record"]["attempt_count"] == 2
+    assert run["record"]["recovered_after_open_failure"] is True
+    assert run["sleeps"] == [500]
+
+
+def test_tcpip_preflight_case_does_not_retry_or_sleep(tmp_path):
+    run = _run_tcpip_session_fixture(
+        tmp_path,
+        mode="persistent",
+        phase="preflight",
+    )
+
+    assert run["record"]["attempt_count"] == 1
+    assert run["record"]["recovery_attempted"] is False
+    assert run["sleeps"] == []
+
+
+def _run_tcpip_cleanup_fixture(tmp_path: Path, *, mode: str) -> dict[str, object]:
+    fixture_path = _tcpip_session_fixture_cli_path(tmp_path)
+    output_dir = tmp_path / "out"
+    state_path = tmp_path / "attempt-count.txt"
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:CliExecutable = $PythonExe
+$script:CliPrefix = @("-m", "powers_tool_cli.cli")
+$script:NormalizedTarget = "keysight-e36312a"
+$script:OutputDir = "{output_dir}"
+New-Item -ItemType Directory -Path $script:OutputDir -Force | Out-Null
+$script:RawResource = "TCPIP0::FIXTURE::INSTR"
+$script:ResourceDisplay = "LAN:<redacted-resource>"
+$script:ConnectionLabel = "LAN"
+$script:TransportScope = "tcpip"
+$script:BackendArtifact = Get-BackendArtifactFields -Value $null
+$script:BackendValue = $null
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:CommandRecords = New-Object System.Collections.Generic.List[object]
+$script:Failures = New-Object System.Collections.Generic.List[string]
+$script:InstrumentIdentity = $null
+$script:StateChanging = $true
+$script:Restore = $true
+$script:PlanOnly = $false
+$script:LiveTcpipSubprocessAttempted = $false
+$script:SleepCalls = New-Object System.Collections.Generic.List[int]
+function Start-Sleep {{ param([int]$Milliseconds); $script:SleepCalls.Add($Milliseconds) }}
+Invoke-SafeOffCleanup -Role "final"
+[pscustomobject]@{{
+    cleanup = $script:CleanupEvidence
+    commands = $script:CommandRecords.ToArray()
+    sleeps = $script:SleepCalls.ToArray()
+    failures = $script:Failures.ToArray()
+}} | ConvertTo-Json -Depth 30 -Compress
+'''
+    result = _run_powershell_command(
+        command,
+        env={
+            "PYTHONPATH": str(fixture_path),
+            "TCPIP_FIXTURE_MODE": mode,
+            "TCPIP_FIXTURE_STATE": str(state_path),
+            "TCPIP_FIXTURE_GENERATED": str(tmp_path / "unused.json"),
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_tcpip_cleanup_recovers_safe_off_and_settles_each_subprocess_once(tmp_path):
+    run = _run_tcpip_cleanup_fixture(tmp_path, mode="cleanup-recover")
+    safe_off, output_state, error_queue = run["commands"]
+
+    assert run["cleanup"]["status"] == "passed"
+    assert safe_off["attempt_count"] == 2
+    assert safe_off["recovered_after_open_failure"] is True
+    assert [attempt["settle_before_ms"] for attempt in safe_off["attempts"]] == [0, 500]
+    assert output_state["attempts"][0]["settle_before_ms"] == 500
+    assert error_queue["attempts"][0]["settle_before_ms"] == 500
+    assert run["sleeps"] == [500, 500, 500]
+
+
+def test_tcpip_cleanup_persistent_safe_off_failure_remains_failed(tmp_path):
+    run = _run_tcpip_cleanup_fixture(tmp_path, mode="cleanup-persistent")
+    safe_off = run["commands"][0]
+
+    assert run["cleanup"]["status"] == "failed"
+    assert safe_off["result"] == "failed"
+    assert safe_off["attempt_count"] == 2
+    assert safe_off["recovered_after_open_failure"] is False
+    assert "Cleanup safe-off command failed." in run["failures"]
+    assert run["sleeps"] == [500, 500, 500]
+
+
+def test_trigger_helper_uses_settle_coordinator_without_cli_recovery_contract():
+    script = SCRIPT.read_text(encoding="utf-8")
+    helper_body = script.split("function Invoke-TriggerValidationHelper", 1)[1].split(
+        "function Invoke-TriggerFireCandidateCase", 1
+    )[0]
+
+    assert 'Invoke-LiveTcpipSubprocessSettle -Phase "live"' in helper_body
+    assert "Test-PreIoOpenFailureRecoveryEligible" not in helper_body
+    assert "attempt-" not in helper_body
+
+
+def test_redaction_keeps_hyphenated_command_identifiers_and_rejects_prose_idn_guess():
+    command = r'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:SensitiveValues = New-Object System.Collections.Generic.List[string]
+$script:RawResource = $null
+$script:ResourceDisplay = "LAN:<redacted-resource>"
+$prose = Protect-ShareableText -Text "Preview a guarded set, output, measure, and turn off."
+$script:SensitiveValues.Add("measure")
+$commands = Protect-ShareableText -Text "measure-all safe-off measure"
+[pscustomobject]@{ prose = $prose; commands = $commands; sensitive = $script:SensitiveValues.ToArray() } | ConvertTo-Json -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    redaction = json.loads(result.stdout)
+    assert redaction["prose"] == "Preview a guarded set, output, measure, and turn off."
+    assert redaction["commands"] == "measure-all safe-off <redacted>"

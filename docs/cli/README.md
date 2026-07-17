@@ -144,6 +144,25 @@ open the supplied resource. Without `-PlanOnly`, interactive Enter confirmation
 is required before opening VISA. If stdin is redirected, live execution is
 refused with a confirmation-required report.
 
+Live LAN validation waits 500 ms between independent TCPIP/VXI-11 subprocess
+sessions. The first live TCPIP subprocess does not wait. A command may be run
+once more only when its first schema-2 failure proves that `open_resource`
+failed before any SCPI or functional output artifact was produced. USB, ASRL,
+preflight, simulator, dry-run, and PlanOnly flows do not use this delay or
+recovery. Trigger validation helpers share the LAN session delay but are never
+retried by the CLI-envelope recovery rule.
+
+Each standard live TCPIP command stores its first result as an `attempt-1`
+artifact and creates `attempt-2` only for that bounded recovery. The command
+record points its normal artifact paths at the final attempt while retaining
+`attempts`, `attempt_count`, `recovery_attempted`,
+`recovered_after_open_failure`, `final_attempt`, first-error diagnostics, and
+the configured settle delay. Recovery means only that the second CLI execution
+succeeded; identity, output-state, error-queue, and cleanup assertions can
+still fail the case. CSV, JSONL, snapshot, and other command-generated files
+keep their functional names, and any first-attempt change to such a file blocks
+automatic recovery.
+
 `live-cli-check.ps1` is the maintained contributor validation harness, not the
 same thing as declaring a connection opened for normal use. Its artifacts are
 candidate evidence only: a passed validation run is scoped to the selected

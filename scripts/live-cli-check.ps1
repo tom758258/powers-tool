@@ -54,6 +54,8 @@ if ($PythonExe -ne "python" -and -not (Test-Path -LiteralPath $CliExecutable)) {
     $CliExecutable = "powers-tool"
 }
 $CliPrefix = @()
+$script:TcpipSessionSettleDelayMs = 500
+$script:LiveTcpipSubprocessAttempted = $false
 
 function Get-ValidationChildPythonPath {
     $parts = New-Object System.Collections.Generic.List[string]
@@ -197,7 +199,7 @@ function Add-SensitiveValue {
 }
 
 function Get-FreeFormIdnPattern {
-    return '(?i)\b[A-Z][A-Z0-9 .&_-]{1,63}\s*,\s*[A-Z0-9][A-Z0-9._/-]{1,31}\s*,\s*([^,\r\n]{1,64})\s*,\s*[A-Z0-9][A-Z0-9._/-]{0,31}'
+    return '(?i)\b[A-Z][A-Z0-9 .&_-]{1,63}\s*,\s*(?=[A-Z0-9._/-]{2,32}\s*,)(?=[A-Z0-9._/-]*\d)[A-Z0-9][A-Z0-9._/-]{1,31}\s*,\s*([^,\r\n]{1,64})\s*,\s*(?=[A-Z0-9._/-]{1,32}(?:\s|$|["'';]))(?=[A-Z0-9._/-]*\d)[A-Z0-9][A-Z0-9._/-]{0,31}'
 }
 
 function Test-DistinctiveSensitiveToken {
@@ -247,7 +249,8 @@ function Protect-ShareableText {
     $redacted = [regex]::Replace($redacted, $idnPattern, { param($match) "<redacted-idn>" })
     foreach ($value in @($script:SensitiveValues)) {
         if (-not [string]::IsNullOrWhiteSpace($value)) {
-            $redacted = $redacted -replace [regex]::Escape($value), "<redacted>"
+            $sensitiveTokenPattern = '(?<![A-Za-z0-9_-])' + [regex]::Escape($value) + '(?![A-Za-z0-9_-])'
+            $redacted = [regex]::Replace($redacted, $sensitiveTokenPattern, "<redacted>")
         }
     }
     if (-not [string]::IsNullOrWhiteSpace($RepoRoot)) {
@@ -467,10 +470,48 @@ function Test-LiveExecutionMode {
     return $Mode -in @("real", "live")
 }
 
+function Test-LiveTcpipPhase {
+    param([AllowNull()][string]$Phase)
+
+    return (
+        $Phase -ceq "live" -and
+        $script:ConnectionLabel -ceq "LAN" -and
+        $script:TransportScope -ceq "tcpip"
+    )
+}
+
+function Invoke-LiveTcpipSubprocessSettle {
+    param([AllowNull()][string]$Phase)
+
+    if (-not (Test-LiveTcpipPhase -Phase $Phase)) {
+        return 0
+    }
+    $settleBeforeMs = 0
+    if ($script:LiveTcpipSubprocessAttempted) {
+        $settleBeforeMs = $script:TcpipSessionSettleDelayMs
+        Start-Sleep -Milliseconds $settleBeforeMs
+    }
+    $script:LiveTcpipSubprocessAttempted = $true
+    return $settleBeforeMs
+}
+
 function Get-CaseArtifactBaseName {
     param([Parameter(Mandatory = $true)]$Case)
 
     return "$($Case.phase)-$($Case.name)"
+}
+
+function Get-CaseAttemptArtifactBaseName {
+    param(
+        [Parameter(Mandatory = $true)]$Case,
+        [Parameter(Mandatory = $true)][int]$AttemptNumber
+    )
+
+    $baseName = Get-CaseArtifactBaseName -Case $Case
+    if (Test-LiveTcpipPhase -Phase $Case.phase) {
+        return "$baseName-attempt-$AttemptNumber"
+    }
+    return $baseName
 }
 
 function New-CommandCase {
@@ -546,9 +587,6 @@ function Get-BaseValidationCommandArguments {
     $arguments = Add-ValidationSupportPolicyArgument -Arguments $arguments
     if ($Case.phase -eq "live") {
         $arguments = Add-BackendArgument -Arguments $arguments
-    }
-    if ($arguments -notcontains "--save-json") {
-        $arguments = @($arguments + @("--save-json", $JsonPath))
     }
     return $arguments
 }
@@ -626,6 +664,25 @@ function Get-ValidationCommandArguments {
     )
 
     $arguments = @(Get-BaseValidationCommandArguments -Case $Case -JsonPath $JsonPath)
+    $saveJsonIndexes = @()
+    for ($index = 0; $index -lt $arguments.Count; $index++) {
+        if ($arguments[$index] -ceq "--save-json") {
+            $saveJsonIndexes += $index
+        }
+    }
+    if ($saveJsonIndexes.Count -gt 1) {
+        throw "$($Case.name) contains duplicate --save-json arguments."
+    }
+    if ($saveJsonIndexes.Count -eq 1) {
+        $saveJsonIndex = $saveJsonIndexes[0]
+        if ($saveJsonIndex + 1 -ge $arguments.Count) {
+            throw "$($Case.name) contains --save-json without a path."
+        }
+        $arguments[$saveJsonIndex + 1] = $JsonPath
+    }
+    else {
+        $arguments = @($arguments + @("--save-json", $JsonPath))
+    }
     return $arguments
 }
 
@@ -1254,7 +1311,7 @@ function Get-SnapshotCases {
     $modeFlag = if ($Live) { @() } else { @("--simulate") }
     $cases = New-Object System.Collections.Generic.List[object]
     $cases.AddRange(@(
-        (New-CommandCase -Name "snapshot-save" -Suite "snapshot" -Phase $phase -Args (@("snapshot") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi", "--snapshot-json", $snapshotPath)) -LiveHardwareExpected:$Live),
+        (New-CommandCase -Name "snapshot-save" -Suite "snapshot" -Phase $phase -Args (@("snapshot") + $modeFlag + @("--json", "--resource", $resource, "--log-scpi", "--snapshot-json", $snapshotPath)) -LiveHardwareExpected:$Live -GeneratedArtifacts @($snapshotPath)),
         (New-CommandCase -Name "snapshot-compare" -Suite "snapshot" -Phase $phase -Args (@("snapshot") + $modeFlag + @("--json", "--resource", $resource, "--compare", $snapshotPath, "--log-scpi")) -LiveHardwareExpected:$Live),
         (New-CommandCase -Name "restore-from-snapshot-plan" -Suite "snapshot" -Phase $phase -Args @("restore-from-snapshot", "--dry-run", "--json", "--snapshot", $snapshotPath, "--resource", $resource, "--channel", "all") -StateChanging:$false -LiveHardwareExpected:$false)
     ))
@@ -1701,31 +1758,67 @@ function Get-CaseAssertionFailures {
     return $failures.ToArray()
 }
 
-function Invoke-ValidationCommand {
-    param([Parameter(Mandatory = $true)]$Case)
+function Get-GeneratedArtifactFingerprints {
+    param([string[]]$Paths = @())
+
+    $fingerprints = New-Object System.Collections.Generic.List[object]
+    foreach ($path in @($Paths)) {
+        if (-not (Test-Path -LiteralPath $path)) {
+            $fingerprints.Add([pscustomobject]@{
+                path = [System.IO.Path]::GetFullPath($path)
+                exists = $false
+                kind = $null
+                length = $null
+                last_write_utc_ticks = $null
+                sha256 = $null
+            })
+            continue
+        }
+        $item = Get-Item -LiteralPath $path
+        $isFile = -not $item.PSIsContainer
+        $fingerprints.Add([pscustomobject]@{
+            path = $item.FullName
+            exists = $true
+            kind = if ($isFile) { "file" } else { "directory" }
+            length = if ($isFile) { $item.Length } else { $null }
+            last_write_utc_ticks = $item.LastWriteTimeUtc.Ticks
+            sha256 = if ($isFile) { (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash } else { $null }
+        })
+    }
+    return ,($fingerprints.ToArray())
+}
+
+function Test-GeneratedArtifactsChanged {
+    param(
+        [AllowEmptyCollection()][object[]]$Before,
+        [AllowEmptyCollection()][object[]]$After
+    )
+
+    $beforeJson = @($Before) | ConvertTo-Json -Depth 6 -Compress
+    $afterJson = @($After) | ConvertTo-Json -Depth 6 -Compress
+    return $beforeJson -cne $afterJson
+}
+
+function Invoke-ValidationCommandAttempt {
+    param(
+        [Parameter(Mandatory = $true)]$Case,
+        [Parameter(Mandatory = $true)][int]$AttemptNumber
+    )
 
     Ensure-ArtifactDirectories
-    $artifactBaseName = Get-CaseArtifactBaseName -Case $Case
-    $jsonPath = Join-Path $script:PrivateArtifactDir ($artifactBaseName + ".json")
-    $stdoutPath = Join-Path $script:PrivateArtifactDir ($artifactBaseName + ".stdout.txt")
-    $stderrPath = Join-Path $script:PrivateArtifactDir ($artifactBaseName + ".stderr-scpi.txt")
-    $shareableJsonPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".json")
-    $shareableStdoutPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".stdout.txt")
-    $shareableStderrPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + ".stderr-scpi.txt")
+    $attemptArtifactBaseName = Get-CaseAttemptArtifactBaseName -Case $Case -AttemptNumber $AttemptNumber
+    $jsonPath = Join-Path $script:PrivateArtifactDir ($attemptArtifactBaseName + ".json")
+    $stdoutPath = Join-Path $script:PrivateArtifactDir ($attemptArtifactBaseName + ".stdout.txt")
+    $stderrPath = Join-Path $script:PrivateArtifactDir ($attemptArtifactBaseName + ".stderr-scpi.txt")
+    $shareableJsonPath = Join-Path $script:ShareableArtifactDir ($attemptArtifactBaseName + ".json")
+    $shareableStdoutPath = Join-Path $script:ShareableArtifactDir ($attemptArtifactBaseName + ".stdout.txt")
+    $shareableStderrPath = Join-Path $script:ShareableArtifactDir ($attemptArtifactBaseName + ".stderr-scpi.txt")
     $allArgs = @(Get-ValidationCommandArguments -Case $Case -JsonPath $jsonPath)
-    $hasSaveJson = $Case.args -contains "--save-json"
-    $actualJsonPath = $jsonPath
-    if ($hasSaveJson) {
-        for ($index = 0; $index -lt $allArgs.Count; $index++) {
-            if ($allArgs[$index] -eq "--save-json" -and $index + 1 -lt $allArgs.Count) {
-                $actualJsonPath = $allArgs[$index + 1]
-                break
-            }
-        }
+    if (Test-Path -LiteralPath $jsonPath) {
+        Remove-Item -LiteralPath $jsonPath -Force
     }
-    if (Test-Path -LiteralPath $actualJsonPath) {
-        Remove-Item -LiteralPath $actualJsonPath -Force
-    }
+    $generatedBefore = @(Get-GeneratedArtifactFingerprints -Paths @($Case.generated_artifacts))
+    $settleBeforeMs = Invoke-LiveTcpipSubprocessSettle -Phase $Case.phase
 
     $oldErrorActionPreference = $ErrorActionPreference
     $nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
@@ -1756,12 +1849,14 @@ function Invoke-ValidationCommand {
         }
     }
 
+    $generatedAfter = @(Get-GeneratedArtifactFingerprints -Paths @($Case.generated_artifacts))
+    $generatedArtifactsChanged = Test-GeneratedArtifactsChanged -Before $generatedBefore -After $generatedAfter
     $payload = $null
     $parseError = $null
     $parseStatus = "parsed"
-    if (Test-Path -LiteralPath $actualJsonPath) {
+    if (Test-Path -LiteralPath $jsonPath) {
         try {
-            $payload = Get-Content -LiteralPath $actualJsonPath -Raw | ConvertFrom-Json
+            $payload = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
         }
         catch {
             $parseStatus = "failed"
@@ -1772,6 +1867,94 @@ function Invoke-ValidationCommand {
         $parseStatus = "missing"
         $parseError = "JSON output file was not created."
     }
+
+    Write-ShareableJsonArtifact -PrivatePath $jsonPath -ShareablePath $shareableJsonPath -Payload $payload -ParseStatus $parseStatus
+    Write-ShareableTextArtifact -PrivatePath $stdoutPath -ShareablePath $shareableStdoutPath
+    Write-ShareableTextArtifact -PrivatePath $stderrPath -ShareablePath $shareableStderrPath
+    $scpiTranscriptEmpty = (Test-Path -LiteralPath $stderrPath) -and (Get-Item -LiteralPath $stderrPath).Length -eq 0
+
+    return [pscustomobject]@{
+        attempt_number = $AttemptNumber
+        settle_before_ms = $settleBeforeMs
+        exit_code = $exitCode
+        payload = $payload
+        parse_error = $parseError
+        parse_status = $parseStatus
+        scpi_transcript_empty = $scpiTranscriptEmpty
+        generated_artifacts_changed = $generatedArtifactsChanged
+        arguments = $allArgs
+        private_json_path = $jsonPath
+        private_stdout_path = $stdoutPath
+        private_stderr_path = $stderrPath
+        shareable_json_path = $shareableJsonPath
+        shareable_stdout_path = $shareableStdoutPath
+        shareable_stderr_path = $shareableStderrPath
+    }
+}
+
+function Test-PreIoOpenFailureRecoveryEligible {
+    param(
+        [Parameter(Mandatory = $true)]$Case,
+        [Parameter(Mandatory = $true)]$Attempt
+    )
+
+    if (-not (Test-LiveTcpipPhase -Phase $Case.phase)) { return $false }
+    if ($Case.expected_success -isnot [System.Boolean] -or $Case.expected_success -ne $true) { return $false }
+    if ($Attempt.exit_code -eq 0 -or $null -ne $Attempt.parse_error) { return $false }
+    if ($Attempt.scpi_transcript_empty -ne $true -or $Attempt.generated_artifacts_changed -eq $true) { return $false }
+    $payload = $Attempt.payload
+    if ($payload -isnot [pscustomobject]) { return $false }
+    $schemaProperty = $payload.PSObject.Properties["schema_version"]
+    $okProperty = $payload.PSObject.Properties["ok"]
+    $statusProperty = $payload.PSObject.Properties["status"]
+    $commandProperty = $payload.PSObject.Properties["command"]
+    $dataProperty = $payload.PSObject.Properties["data"]
+    $errorProperty = $payload.PSObject.Properties["error"]
+    if ($null -eq $schemaProperty -or $schemaProperty.Value -isnot [int] -or $schemaProperty.Value -ne 2) { return $false }
+    if ($null -eq $okProperty -or $okProperty.Value -isnot [System.Boolean] -or $okProperty.Value -ne $false) { return $false }
+    if ($null -eq $statusProperty -or $statusProperty.Value -isnot [string] -or $statusProperty.Value -cne "error") { return $false }
+    if ($null -eq $dataProperty -or -not [object]::ReferenceEquals($null, $dataProperty.Value)) { return $false }
+    $resultProperty = $payload.PSObject.Properties["result"]
+    if ($null -ne $resultProperty -and -not [object]::ReferenceEquals($null, $resultProperty.Value)) { return $false }
+    if ($null -eq $commandProperty -or $commandProperty.Value -isnot [pscustomobject]) { return $false }
+    $commandNameProperty = $commandProperty.Value.PSObject.Properties["name"]
+    if ($null -eq $commandNameProperty -or $commandNameProperty.Value -isnot [string] -or $commandNameProperty.Value -cne [string]$Case.args[0]) { return $false }
+    if ($null -eq $errorProperty -or $errorProperty.Value -isnot [pscustomobject]) { return $false }
+    $errorTypeProperty = $errorProperty.Value.PSObject.Properties["type"]
+    $errorCodeProperty = $errorProperty.Value.PSObject.Properties["code"]
+    $errorMessageProperty = $errorProperty.Value.PSObject.Properties["message"]
+    $retryableProperty = $errorProperty.Value.PSObject.Properties["retryable"]
+    if ($null -eq $errorTypeProperty -or $errorTypeProperty.Value -isnot [string] -or $errorTypeProperty.Value -cne "connection") { return $false }
+    if ($null -eq $errorCodeProperty -or $errorCodeProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($errorCodeProperty.Value)) { return $false }
+    if ($null -eq $errorMessageProperty -or $errorMessageProperty.Value -isnot [string] -or -not $errorMessageProperty.Value.Contains("Could not open VISA resource")) { return $false }
+    if ($null -eq $retryableProperty -or $retryableProperty.Value -isnot [System.Boolean] -or $retryableProperty.Value -ne $true) { return $false }
+    return $true
+}
+
+function Invoke-ValidationCommand {
+    param([Parameter(Mandatory = $true)]$Case)
+
+    Ensure-ArtifactDirectories
+    $artifactBaseName = Get-CaseArtifactBaseName -Case $Case
+    $attemptResults = New-Object System.Collections.Generic.List[object]
+    $firstAttempt = Invoke-ValidationCommandAttempt -Case $Case -AttemptNumber 1
+    $attemptResults.Add($firstAttempt)
+    $recoveryAttempted = Test-PreIoOpenFailureRecoveryEligible -Case $Case -Attempt $firstAttempt
+    if ($recoveryAttempted) {
+        $attemptResults.Add((Invoke-ValidationCommandAttempt -Case $Case -AttemptNumber 2))
+    }
+    $finalAttempt = $attemptResults[$attemptResults.Count - 1]
+    $payload = $finalAttempt.payload
+    $parseError = $finalAttempt.parse_error
+    $parseStatus = $finalAttempt.parse_status
+    $exitCode = $finalAttempt.exit_code
+    $allArgs = @($finalAttempt.arguments)
+    $jsonPath = $finalAttempt.private_json_path
+    $stdoutPath = $finalAttempt.private_stdout_path
+    $stderrPath = $finalAttempt.private_stderr_path
+    $shareableJsonPath = $finalAttempt.shareable_json_path
+    $shareableStdoutPath = $finalAttempt.shareable_stdout_path
+    $shareableStderrPath = $finalAttempt.shareable_stderr_path
 
     $ok = $null
     $hardwareTouched = $null
@@ -1789,6 +1972,18 @@ function Invoke-ValidationCommand {
             $errorMessage = [string]$payload.error.message
         }
     }
+    $finalOkProperty = if ($payload -is [pscustomobject]) { $payload.PSObject.Properties["ok"] } else { $null }
+    $finalStatusProperty = if ($payload -is [pscustomobject]) { $payload.PSObject.Properties["status"] } else { $null }
+    $recoveredAfterOpenFailure = [bool](
+        $recoveryAttempted -and
+        $exitCode -eq 0 -and
+        $null -ne $finalOkProperty -and
+        $finalOkProperty.Value -is [System.Boolean] -and
+        $finalOkProperty.Value -eq $true -and
+        $null -ne $finalStatusProperty -and
+        $finalStatusProperty.Value -is [string] -and
+        $finalStatusProperty.Value -ceq "ok"
+    )
     $triggerRecord = $null
     if ($null -ne $payload) {
         $payloadData = Get-PropertyValue -Object $payload -Name "data"
@@ -1870,10 +2065,6 @@ function Invoke-ValidationCommand {
         Add-SensitiveValue -Value ([string](Get-PropertyValue -Object $identity -Name "raw"))
         Add-SerialSensitiveValue -Value ([string](Get-PropertyValue -Object $identity -Name "serial"))
     }
-    Write-ShareableJsonArtifact -PrivatePath $actualJsonPath -ShareablePath $shareableJsonPath -Payload $payload -ParseStatus $parseStatus
-    Write-ShareableTextArtifact -PrivatePath $stdoutPath -ShareablePath $shareableStdoutPath
-    Write-ShareableTextArtifact -PrivatePath $stderrPath -ShareablePath $shareableStderrPath
-
     $casePassed = $true
     $failure = $null
     if ($null -ne $parseError) {
@@ -1947,6 +2138,31 @@ function Invoke-ValidationCommand {
     $recordArgs = Protect-Arguments -Arguments $allArgs
     $commandLine = (Get-ShareableCliCommand) + " " + (($recordArgs | ForEach-Object { Format-CommandArgument -Argument $_ }) -join " ")
     $backendScope = if ($null -eq $script:BackendArtifact) { $null } else { $script:BackendArtifact.backend_scope }
+    $attemptDiagnostics = New-Object System.Collections.Generic.List[object]
+    foreach ($attempt in $attemptResults) {
+        $attemptPayload = $attempt.payload
+        $attemptError = if ($null -eq $attemptPayload) { $null } else { Get-PropertyValue -Object $attemptPayload -Name "error" }
+        $attemptExecution = if ($null -eq $attemptPayload) { $null } else { Get-PropertyValue -Object $attemptPayload -Name "execution" }
+        $attemptDiagnosticFields = [ordered]@{
+            attempt = $attempt.attempt_number
+            settle_before_ms = $attempt.settle_before_ms
+            exit_code = $attempt.exit_code
+            ok = if ($null -eq $attemptPayload) { $null } else { Get-PropertyValue -Object $attemptPayload -Name "ok" }
+            status = if ($null -eq $attemptPayload) { $null } else { Get-PropertyValue -Object $attemptPayload -Name "status" }
+            error_code = if ($null -eq $attemptError) { $null } else { Get-PropertyValue -Object $attemptError -Name "code" }
+            error_message = if ($null -eq $attemptError) { $null } else { Protect-ShareableText -Text ([string](Get-PropertyValue -Object $attemptError -Name "message")) }
+            scpi_transcript_empty = $attempt.scpi_transcript_empty
+            generated_artifacts_changed = $attempt.generated_artifacts_changed
+            json_path = ConvertTo-RepoRelativePath -Path $attempt.shareable_json_path
+            stdout_path = ConvertTo-RepoRelativePath -Path $attempt.shareable_stdout_path
+            stderr_scpi_path = ConvertTo-RepoRelativePath -Path $attempt.shareable_stderr_path
+        }
+        if (Test-LiveTcpipPhase -Phase $Case.phase) {
+            $attemptDiagnosticFields["hardware_touched"] = if ($null -eq $attemptExecution) { $null } else { Get-PropertyValue -Object $attemptExecution -Name "hardware_touched" }
+        }
+        $attemptDiagnostics.Add([pscustomobject]$attemptDiagnosticFields)
+    }
+    $firstPayloadError = if ($null -eq $firstAttempt.payload) { $null } else { Get-PropertyValue -Object $firstAttempt.payload -Name "error" }
     $record = [pscustomobject]@{
         name = $Case.name
         suite = $Case.suite
@@ -1959,6 +2175,15 @@ function Invoke-ValidationCommand {
         dry_run = $dryRun
         error_code = $errorCode
         parse_error = $parseError
+        attempt_count = $attemptResults.Count
+        recovery_attempted = [bool]$recoveryAttempted
+        recovered_after_open_failure = $recoveredAfterOpenFailure
+        final_attempt = $finalAttempt.attempt_number
+        first_error_code = if ($null -eq $firstPayloadError) { $null } else { Get-PropertyValue -Object $firstPayloadError -Name "code" }
+        first_error_message = if ($null -eq $firstPayloadError) { $null } else { Protect-ShareableText -Text ([string](Get-PropertyValue -Object $firstPayloadError -Name "message")) }
+        first_scpi_transcript_empty = $firstAttempt.scpi_transcript_empty
+        settle_delay_ms = if (Test-LiveTcpipPhase -Phase $Case.phase) { $script:TcpipSessionSettleDelayMs } else { 0 }
+        attempts = $attemptDiagnostics.ToArray()
         expected_success = $Case.expected_success
         support_policy_mode = if ($allArgs -contains "--validation-allow-pending-live-support") { "validation" } else { $null }
         transport_scope = $script:TransportScope
@@ -2155,6 +2380,7 @@ function Invoke-TriggerValidationHelper {
     try {
         $ErrorActionPreference = "Continue"
         [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
+        Invoke-LiveTcpipSubprocessSettle -Phase "live" | Out-Null
         & $PythonExe @arguments 1> $stdoutPath 2> $stderrPath
         $exitCode = $LASTEXITCODE
     }
@@ -2536,6 +2762,7 @@ function Write-ValidationArtifacts {
     Write-Utf8NoBomFile -LiteralPath $summaryPath -Value $lines
 }
 
+$script:ConnectionLabel = $null
 $script:TransportScope = $null
 $script:BackendArtifact = Get-BackendArtifactFields -Value $null
 $script:InstrumentIdentity = $null
