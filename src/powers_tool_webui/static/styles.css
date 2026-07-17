@@ -763,19 +763,38 @@ button.utility-icon-button:hover {
 }
 
 .form-grid .checkbox-field {
-  display: flex;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 0;
   align-items: center;
-  gap: 8px;
   min-height: var(--control-h);
 }
 
 .form-grid .checkbox-field input[type="checkbox"] {
   width: 16px;
   min-width: 16px;
+  max-width: 16px;
   height: 16px;
   padding: 0;
   margin: 0;
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
   accent-color: var(--accent);
+}
+
+.form-grid .checkbox-label-text {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.form-grid .checkbox-field .field-description {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
 }
 
 .form-grid .pulse-toggle-field { grid-column: 1 / -1; }
@@ -970,8 +989,6 @@ button.utility-icon-button:hover {
   gap: 10px;
 }
 
-.sequence-step-fields .checkbox-field { flex-wrap: wrap; }
-.sequence-step-fields .checkbox-field .field-description { flex-basis: 100%; }
 .sequence-step-error { color: #c62828; }
 
 /* ─── Confirm Banner ─────────────────────────────────────────────────────── */

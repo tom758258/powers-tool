@@ -765,6 +765,16 @@ function selectCommand(name) {
 
 const SET_PARTIAL_GUIDANCE = "Set accepts Voltage, Current, or both. Blank fields are left unchanged.";
 
+function createCheckboxField(input, text, classNames = []) {
+  const label = document.createElement("label");
+  label.classList.add("checkbox-field", ...classNames);
+  const visibleText = document.createElement("span");
+  visibleText.className = "checkbox-label-text";
+  visibleText.textContent = text;
+  label.append(input, visibleText);
+  return label;
+}
+
 function renderForm(command) {
   const form = document.getElementById("command-form");
   form.innerHTML = "";
@@ -789,11 +799,6 @@ function renderForm(command) {
     return;
   }
   (PARAMS[command] || []).forEach((param) => {
-    const label = document.createElement("label");
-    if (param.type === "checkbox") label.classList.add("checkbox-field");
-    if (param.pulseToggle) label.classList.add("pulse-toggle-field");
-    if (param.pulseChild) label.classList.add("pulse-child-field");
-    label.textContent = param.label;
     let input;
     if (param.type === "select") {
       input = document.createElement("select");
@@ -827,7 +832,15 @@ function renderForm(command) {
       enforcePulseFormRules(command, param.name, input);
       updateSelectedCommandState();
     });
-    label.appendChild(input);
+    const label = param.type === "checkbox"
+      ? createCheckboxField(input, param.label)
+      : document.createElement("label");
+    if (param.type !== "checkbox") {
+      label.textContent = param.label;
+      label.appendChild(input);
+    }
+    if (param.pulseToggle) label.classList.add("pulse-toggle-field");
+    if (param.pulseChild) label.classList.add("pulse-child-field");
     if (param.compactHelp) configureCompactCheckboxHelp(label, input, param);
     if (!TRIGGER_COMMANDS.has(command) && !param.compactHelp) appendFieldDescription(label, param);
     if (command === "set" && param.name === "current") appendSetGuidance(label);
@@ -990,9 +1003,6 @@ function triggerListControlDefinitions() {
 }
 
 function triggerListControlField(definition) {
-  const label = document.createElement("label");
-  if (definition.type === "checkbox") label.classList.add("checkbox-field");
-  label.textContent = definition.label;
   const input = document.createElement(definition.type === "select" ? "select" : "input");
   if (definition.type === "select") {
     definition.options.forEach((value) => {
@@ -1012,7 +1022,13 @@ function triggerListControlField(definition) {
   if (definition.name === "fire" && state.triggerListControls.source === "immediate") input.disabled = true;
   input.addEventListener("change", () => updateTriggerListControl(definition, input));
   input.addEventListener("input", () => updateTriggerListControl(definition, input));
-  label.appendChild(input);
+  const label = definition.type === "checkbox"
+    ? createCheckboxField(input, definition.label)
+    : document.createElement("label");
+  if (definition.type !== "checkbox") {
+    label.textContent = definition.label;
+    label.appendChild(input);
+  }
   return label;
 }
 
@@ -1101,9 +1117,6 @@ function renderRampListForm(form) {
     toolbar.appendChild(button);
   });
   editor.appendChild(toolbar);
-  const enableLabel = document.createElement("label");
-  enableLabel.className = "checkbox-field ramp-list-enable-output-field";
-  enableLabel.textContent = "Enable each channel";
   const enableInput = document.createElement("input");
   enableInput.type = "checkbox";
   enableInput.id = "ramp-list-enable-output";
@@ -1112,7 +1125,7 @@ function renderRampListForm(form) {
     state.rampListEnableOutput = enableInput.checked;
     updateSelectedCommandState();
   });
-  enableLabel.appendChild(enableInput);
+  const enableLabel = createCheckboxField(enableInput, "Enable each channel", ["ramp-list-enable-output-field"]);
   configureCompactCheckboxHelp(enableLabel, enableInput, {
     ariaLabel: "Enable each channel at its first segment",
     helpId: "ramp-list-enable-output-help",
@@ -1717,8 +1730,6 @@ function renderRestoreForm(form) {
   editor.appendChild(channelLabel);
 
   // Restore previous output state Checkbox
-  const restoreStateLabel = document.createElement("label");
-  restoreStateLabel.className = "checkbox-field";
   const restoreStateCheck = document.createElement("input");
   restoreStateCheck.type = "checkbox";
   restoreStateCheck.id = "param-restore_output_state";
@@ -1729,9 +1740,7 @@ function renderRestoreForm(form) {
     renderForm("restore-from-snapshot");
     updateSelectedCommandState();
   });
-
-  restoreStateLabel.appendChild(restoreStateCheck);
-  restoreStateLabel.appendChild(document.createTextNode(" Restore previous output ON/OFF state"));
+  const restoreStateLabel = createCheckboxField(restoreStateCheck, "Restore previous output ON/OFF state");
   editor.appendChild(restoreStateLabel);
 
   const warningNote = document.createElement("div");
@@ -2085,9 +2094,6 @@ function sequenceStepFields(step, index, card, title, summary) {
   actionLabel.appendChild(actionSelect);
   fields.appendChild(actionLabel);
   sequenceActionDefinitions(step.action).forEach((definition) => {
-    const label = document.createElement("label");
-    if (definition.type === "checkbox") label.classList.add("checkbox-field");
-    label.textContent = definition.label;
     const input = document.createElement(definition.type === "select" ? "select" : "input");
     if (definition.type === "select") {
       definition.options.forEach((value) => {
@@ -2119,7 +2125,13 @@ function sequenceStepFields(step, index, card, title, summary) {
       renderSequenceStepError(card, step, index);
       updateSelectedCommandState();
     });
-    label.appendChild(input);
+    const label = definition.type === "checkbox"
+      ? createCheckboxField(input, definition.label)
+      : document.createElement("label");
+    if (definition.type !== "checkbox") {
+      label.textContent = definition.label;
+      label.appendChild(input);
+    }
     appendFieldDescription(label, definition);
     fields.appendChild(label);
   });

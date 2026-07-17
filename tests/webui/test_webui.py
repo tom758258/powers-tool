@@ -1242,6 +1242,40 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
     assert "output-behavior" not in app_js
     assert ".output-behavior" not in styles_css
     assert ".visually-hidden {" in styles_css
+    checkbox_builder = extract_js_function(app_js, "createCheckboxField")
+    assert 'label.classList.add("checkbox-field", ...classNames);' in checkbox_builder
+    assert 'visibleText.className = "checkbox-label-text";' in checkbox_builder
+    assert "label.append(input, visibleText);" in checkbox_builder
+    assert "cloneNode" not in checkbox_builder
+    assert "createCheckboxField(input, param.label)" in extract_js_function(app_js, "renderForm")
+    assert "createCheckboxField(input, definition.label)" in extract_js_function(app_js, "triggerListControlField")
+    assert "createCheckboxField(enableInput, \"Enable each channel\"" in extract_js_function(app_js, "renderRampListForm")
+    assert "createCheckboxField(restoreStateCheck, \"Restore previous output ON/OFF state\")" in extract_js_function(app_js, "renderRestoreForm")
+    assert "createCheckboxField(input, definition.label)" in extract_js_function(app_js, "sequenceStepFields")
+
+    checkbox_css = styles_css[
+        styles_css.index(".form-grid .checkbox-field {"):styles_css.index(".form-grid .pulse-toggle-field {")
+    ]
+    assert "display: grid;" in checkbox_css
+    assert "grid-template-columns: 16px minmax(0, 1fr);" in checkbox_css
+    assert "column-gap: 8px;" in checkbox_css
+    assert "row-gap: 0;" in checkbox_css
+    assert "width: 16px;" in checkbox_css
+    assert "min-width: 16px;" in checkbox_css
+    assert "max-width: 16px;" in checkbox_css
+    assert "height: 16px;" in checkbox_css
+    assert "grid-column: 1;" in checkbox_css
+    assert "grid-row: 1;" in checkbox_css
+    assert "align-self: center;" in checkbox_css
+    visible_text_css = checkbox_css[
+        checkbox_css.index(".form-grid .checkbox-label-text {"):checkbox_css.index(".form-grid .checkbox-field .field-description {")
+    ]
+    description_css = checkbox_css[checkbox_css.index(".form-grid .checkbox-field .field-description {"):]
+    assert "grid-column: 2;" in visible_text_css
+    assert "grid-row: 1;" in visible_text_css
+    assert "grid-column: 2;" in description_css
+    assert "grid-row: 2;" in description_css
+    assert "width: 100%;" not in checkbox_css
 
     assertions = textwrap.dedent(
         r"""
@@ -1259,6 +1293,7 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
             this.id = "";
             this.textContent = "";
             this.title = "";
+            this.style = {};
             this.classList = {
               add: (...names) => {
                 const values = new Set(this.className.split(/\s+/).filter(Boolean));
@@ -1321,7 +1356,11 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
           const label = input.parentNode;
           const help = byId(root, helpId);
           strictAssert.equal(label.tagName, "LABEL");
-          strictAssert.equal(label.textContent, labelText);
+          strictAssert.equal(label.children[0], input);
+          strictAssert.equal(label.children[1].tagName, "SPAN");
+          strictAssert.equal(label.children[1].classList.contains("checkbox-label-text"), true);
+          strictAssert.equal(label.children[1].textContent, labelText);
+          strictAssert.equal(label.children[2], help);
           strictAssert.equal(label.getAttribute("for"), inputId);
           strictAssert.equal(label.title, helpText);
           strictAssert.equal(input.title, helpText);
@@ -1331,6 +1370,24 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
           strictAssert.equal(help.classList.contains("visually-hidden"), true);
           return { input, label, help };
         };
+
+        const existingInput = document.createElement("input");
+        existingInput.type = "checkbox";
+        existingInput.id = "existing-checkbox";
+        existingInput.checked = true;
+        existingInput.disabled = true;
+        existingInput.dataset.example = "preserved";
+        existingInput.addEventListener("change", () => {});
+        const existingLabel = createCheckboxField(existingInput, "Existing checkbox");
+        strictAssert.equal(existingLabel.children[0], existingInput);
+        strictAssert.equal(existingLabel.children[1].tagName, "SPAN");
+        strictAssert.equal(existingLabel.children[1].classList.contains("checkbox-label-text"), true);
+        strictAssert.equal(existingLabel.children[1].textContent, "Existing checkbox");
+        strictAssert.equal(existingInput.id, "existing-checkbox");
+        strictAssert.equal(existingInput.checked, true);
+        strictAssert.equal(existingInput.disabled, true);
+        strictAssert.equal(existingInput.dataset.example, "preserved");
+        strictAssert.equal(existingInput.listeners.change.length, 1);
 
         const rampHelp = "Output is enabled only after the first safe setpoint is written and verified. It remains ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation.";
         state.selected = "ramp";
@@ -1386,6 +1443,47 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(descendants(commandForm).filter((node) => node.id === "ramp-list-enable-output").length, 1);
         strictAssert.equal(descendants(commandForm).filter((node) => node.id === "ramp-list-enable-output-help").length, 1);
         strictAssert.equal(byClass(commandForm, "output-behavior").length, 0);
+
+        state.triggerListControls.source = "immediate";
+        const triggerLabel = triggerListControlField({ name: "fire", label: "Fire", type: "checkbox" });
+        const triggerInput = triggerLabel.children[0];
+        strictAssert.equal(triggerInput.parentNode, triggerLabel);
+        strictAssert.equal(triggerLabel.children[1].tagName, "SPAN");
+        strictAssert.equal(triggerLabel.children[1].classList.contains("checkbox-label-text"), true);
+        strictAssert.equal(triggerLabel.children[1].textContent, "Fire");
+        strictAssert.equal(triggerInput.disabled, true);
+        strictAssert.equal(triggerInput.listeners.change.length, 1);
+        strictAssert.equal(triggerInput.listeners.input.length, 1);
+
+        const sequenceFields = sequenceStepFields(
+          defaultSequenceStep("trigger-pulse"),
+          0,
+          new FakeElement("article"),
+          new FakeElement("strong"),
+          new FakeElement("span")
+        );
+        const sequenceInput = descendants(sequenceFields).find(
+          (node) => node.dataset.sequenceField === "leave_trigger_configured"
+        );
+        const sequenceLabel = sequenceInput.parentNode;
+        strictAssert.equal(sequenceLabel.children[0], sequenceInput);
+        strictAssert.equal(sequenceLabel.children[1].tagName, "SPAN");
+        strictAssert.equal(sequenceLabel.children[1].classList.contains("checkbox-label-text"), true);
+        strictAssert.equal(sequenceLabel.children[2].classList.contains("field-description"), true);
+        strictAssert.equal(sequenceInput.listeners.change.length, 1);
+        strictAssert.equal(sequenceInput.listeners.input.length, 1);
+
+        renderRestorePlanPreview = () => {};
+        isLoadedRestoreSnapshotValid = () => false;
+        const restoreForm = new FakeElement("form");
+        renderRestoreForm(restoreForm);
+        const restoreInput = byId(restoreForm, "param-restore_output_state");
+        const restoreLabel = restoreInput.parentNode;
+        strictAssert.equal(restoreLabel.children[0], restoreInput);
+        strictAssert.equal(restoreLabel.children[1].tagName, "SPAN");
+        strictAssert.equal(restoreLabel.children[1].classList.contains("checkbox-label-text"), true);
+        strictAssert.equal(restoreLabel.children[1].textContent, "Restore previous output ON/OFF state");
+        strictAssert.equal(restoreInput.listeners.change.length, 1);
         """
     )
     run_frontend_javascript_assertions(assertions)
@@ -2025,7 +2123,8 @@ def test_static_sequence_trigger_pulse_leave_configured_documents_restore_semant
     assert "It does not keep a trigger armed." in definitions
     assert "may affect later Sequence steps or other BUS triggers" in definitions
     assert "appendFieldDescription(label, definition);" in sequence_fields
-    assert ".sequence-step-fields .checkbox-field .field-description { flex-basis: 100%; }" in styles_css
+    assert ".sequence-step-fields .checkbox-field" not in styles_css
+    assert ".form-grid .checkbox-field .field-description" in styles_css
 
 
 def test_static_trigger_controls_disable_invalid_combinations_and_immediate_fire():
