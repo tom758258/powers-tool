@@ -3,10 +3,10 @@
 ## Product And Contributor-Validation Boundary
 
 Normal product LIVE execution uses the exact product matrix below. The two
-TCPIP + pyvisa-py entries remain registered pending candidates, not
+TCPIP + pyvisa-py entries remain registered pending scopes, not
 product-open support: system-VISA evidence does not validate pyvisa-py or a
 custom backend. An internal contributor-validation policy mode can evaluate
-registered pending scopes and the exact command candidates listed below; it
+registered pending scopes; it
 does not promote them, change public status metadata, or bypass physical
 identity, model/profile, transport/backend, safety, confirmation, and request
 validation. E3646A remains ASRL / RS-232 + system VISA only.
@@ -29,38 +29,28 @@ The current `live_validated_full_suite` command inventories are:
 
 | Model | Exact product connections | Product-open model-aware commands |
 | --- | --- | --- |
-| `keysight-e36312a` (Keysight E36312A) | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `snapshot`, `trigger-status`, `trigger-step`, `trigger-list`, `trigger-abort` |
-| `keysight-edu36311a` (Keysight EDU36311A) | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection` |
-| `keysight-e3646a` (Keysight E3646A) | ASRL / RS-232 + system VISA | `measure`, `output-state`, `read-status`, `readback`, `capabilities`, `set`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence` |
+| `keysight-e36312a` (Keysight E36312A) | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `snapshot`, `restore-from-snapshot`, `measure-all`, `log`, `doctor`, `trigger-status`, `trigger-step`, `trigger-list`, `trigger-abort`, `trigger-fire`, `trigger-pulse` |
+| `keysight-edu36311a` (Keysight EDU36311A) | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `log`, `doctor` |
+| `keysight-e3646a` (Keysight E3646A) | ASRL / RS-232 + system VISA | `measure`, `output-state`, `read-status`, `readback`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `doctor` |
 
 `list-resources`, `verify`, `identify`, `error`, and `clear` are explicit
 diagnostic exemptions. Their success proves only that diagnostic operation; it
 does not open a model, feature family, transport/backend scope, or another
 command.
 
-`output-on`, `measure-all`, `log`, resource-backed `doctor`,
-`restore-from-snapshot`, `trigger-pulse`, and `trigger-fire` are
-implemented or represented in no-hardware planning/capability surfaces, but
-have no accepted exact product LIVE scope. Normal real execution therefore
-rejects them after `*IDN?` and before command-specific SCPI. Dry-run or
-simulator support does not imply product LIVE support.
+The 2026-07-17 records were accepted only after an explicit independent review
+of the five system-VISA full-suite bundles. They promote these exact commands:
 
-| Canonical model | Exact candidate connections | Added candidate commands |
+| Canonical model | Exact Product connections | Added Product-open commands |
 | --- | --- | --- |
 | `keysight-e36312a` | USB + system VISA; TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor`, `measure-all`, real `restore-from-snapshot`, `trigger-fire`, `trigger-pulse` |
 | `keysight-edu36311a` | USB + system VISA; TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor` |
 | `keysight-e3646a` | ASRL + system VISA | `output-on`, resource-backed `doctor` |
 
-This matrix is not Product support and is not projected as `transport_pending`
-or a new public command status. Public capabilities continue to show profile
-support with no accepted exact Product scope and `product_open=false`. Product
-mode may read `*IDN?` to make that decision, but rejects before command-specific
-SCPI or mutation. Direct `trigger-pulse` and `trigger-fire` are internal
-E36312A candidates only on the exact connections above. Their Full suite
-coverage does not create accepted evidence or automatic Product promotion;
-`trigger-pulse` also requires explicit external observation of one positive
-pulse. Existing Product-open E36312A `trigger-status`, `trigger-step`,
-`trigger-list`, and `trigger-abort` scopes remain unchanged.
+These are exact scopes, not transport/backend inheritance. The E36312A
+`trigger-pulse` evidence includes explicit external observation of one positive
+pulse. A wrapper pass still creates reviewable validation evidence only and
+does not automatically promote Product support.
 
 ## Feature-Aware Exact Scopes
 
@@ -115,7 +105,7 @@ whole model.
 
 | Target | Connection scope | Supported suites in `full` | Notes |
 | --- | --- | --- | --- |
-| E36312A | USB accepted evidence; LAN accepted evidence | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` | The expanded trigger-list suite contains Product-closed `trigger-fire` and manually observed `trigger-pulse` candidates. Suite names are evidence groupings, not command permissions. |
+| E36312A | USB accepted evidence; LAN accepted evidence | `readonly`, `output`, `protection`, `snapshot`, `trigger-list`, `software-sequence` | The reviewed expanded suite covers Product-open `trigger-fire` and manually observed `trigger-pulse`. Suite names are evidence groupings, not command permissions. |
 | EDU36311A | USB accepted evidence; LAN accepted evidence | `readonly`, `output`, `protection`, `software-sequence` | Suite names are evidence groupings, not command permissions. Trigger/native LIST, snapshot, and restore-from-snapshot remain unsupported. |
 | E3646A | RS-232 / ASRL only | `readonly`, `output`, `software-sequence` | CH1/CH2 only. `OUTP ON/OFF` is global. `ramp-list` and `sequence` are software workflows, not native LIST. |
 
@@ -135,16 +125,21 @@ Current accepted evidence records:
 - EDU36311A LAN + system VISA
 - E3646A ASRL / RS-232 + system VISA
 
-Support policy refers to these accepted historical bundles by immutable
-evidence ID rather than treating repeated artifact paths as authority:
+Support policy refers to accepted bundles by immutable evidence ID rather than
+treating repeated artifact paths as authority:
 
-| Evidence ID | Canonical model ID | Exact connection | Historical artifact directory |
+| Evidence ID | Canonical model ID | Exact connection | Artifact directory |
 | --- | --- | --- | --- |
 | `keysight-e36312a-usb-system-visa-20260709-full` | `keysight-e36312a` | USB + system VISA | `.tmp_tests/live_cli_check/20260709_153201_E36312A_USB_full` |
 | `keysight-e36312a-tcpip-system-visa-20260709-full` | `keysight-e36312a` | TCPIP + system VISA | `.tmp_tests/live_cli_check/20260709_201420_E36312A_LAN_full` |
 | `keysight-edu36311a-usb-system-visa-20260709-full` | `keysight-edu36311a` | USB + system VISA | `.tmp_tests/live_cli_check/20260709_151534_EDU36311A_USB_full` |
 | `keysight-edu36311a-tcpip-system-visa-20260709-full` | `keysight-edu36311a` | TCPIP + system VISA | `.tmp_tests/live_cli_check/20260709_200530_EDU36311A_LAN_full` |
 | `keysight-e3646a-asrl-system-visa-20260709-full` | `keysight-e3646a` | ASRL + system VISA | `.tmp_tests/live_cli_check/20260709_151205_E3646A_ASRL_full` |
+| `keysight-e36312a-usb-system-visa-20260717-full` | `keysight-e36312a` | USB + system VISA | `.tmp_tests/live_cli_check/20260717_111636_keysight-e36312a_USB_full/shareable` |
+| `keysight-e36312a-tcpip-system-visa-20260717-full` | `keysight-e36312a` | TCPIP + system VISA | `.tmp_tests/live_cli_check/20260717_110602_keysight-e36312a_LAN_full/shareable` |
+| `keysight-edu36311a-usb-system-visa-20260717-full` | `keysight-edu36311a` | USB + system VISA | `.tmp_tests/live_cli_check/20260717_104734_keysight-edu36311a_USB_full/shareable` |
+| `keysight-edu36311a-tcpip-system-visa-20260717-full` | `keysight-edu36311a` | TCPIP + system VISA | `.tmp_tests/live_cli_check/20260717_104008_keysight-edu36311a_LAN_full/shareable` |
+| `keysight-e3646a-asrl-system-visa-20260717-full` | `keysight-e3646a` | ASRL + system VISA | `.tmp_tests/live_cli_check/20260717_112310_keysight-e3646a_ASRL_full/shareable` |
 
 The original directories are immutable historical references. This identity
 migration is not new hardware validation. In a clean clone the ignored
@@ -153,18 +148,16 @@ artifacts may be absent; such records remain explicitly
 wrapper used the default system-VISA resource-manager path, so these records
 do not validate pyvisa-py or a custom backend.
 
-Those historical records do not contain the new standalone candidate cases.
-Their accepted command lists remain immutable. The expanded suite is
-implemented and has no-hardware and PlanOnly coverage, but it has not yet been
-run and accepted as new hardware evidence. A future passing expanded full
-suite creates reviewable candidate artifacts only; a separate evidence-review,
-registration, and Product-promotion change is required before any new command
-can become `live_validated_full_suite`.
+The historical accepted command lists remain immutable. The five 2026-07-17
+records preserve reviewed paths, SHA-256 values, and `verified_local`
+promotion-time provenance. Runtime and clean CI do not read or require those
+ignored artifacts. A future wrapper pass still requires a separate evidence
+review, registration, and policy change before it can promote support.
 
 The E36312A and EDU36311A TCPIP + pyvisa-py scopes cite their corresponding
 TCPIP/system-VISA evidence only as a non-promoting candidate basis. They have
 no accepted pyvisa-py evidence, remain `transport_pending`, and remain closed
-in Product mode. Passing later artifacts never promotes support automatically;
+in Product mode with `product_open=false`. Passing later artifacts never promotes support automatically;
 P9 remains a separate evidence-backed review and promotion phase.
 
 E36312A USB, E36312A LAN, EDU36311A USB, EDU36311A LAN, and E3646A ASRL /
@@ -301,9 +294,8 @@ command-level facts:
   snapshot, or restore workflows; unsupported sequence step types stay
   rejected in live, simulate, and dry-run paths.
 - E3646A product execution is limited to ASRL / RS-232 + system VISA and the
-  exact commands in the matrix above. In particular, `output-on` is not
-  product-open even though no-hardware planning and model capabilities describe
-  its implementation. Before any accepted live E3646A output command, confirm
+  exact commands in the matrix above. `output-on` is Product-open only in that
+  ASRL + system-VISA scope. Before any accepted live E3646A output command, confirm
   the physical setup has been checked and the requested voltage/current limits
   are safe for the connected load.
   `verify` is a model-independent connection diagnostic that opens the

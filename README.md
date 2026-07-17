@@ -94,10 +94,11 @@ force the E36312A driver if another model answers.
 Current model boundaries are enforced across Core, CLI, and WebUI backend
 direct jobs. Feature-family and simulator support do not mean every command in
 that family has accepted product LIVE evidence. The exact command inventory is
-listed in [Supported Models](docs/core/supported-models.md); notably,
-`output-on`, `measure-all`, `trigger-pulse`, `trigger-fire`,
-`restore-from-snapshot`, `log`, and resource-backed `doctor` are not
-product-open. E3646A product LIVE remains ASRL / RS-232 + system VISA only,
+listed in [Supported Models](docs/core/supported-models.md). The independently
+reviewed 2026-07-17 evidence opens the listed `output-on`, `measure-all`,
+`trigger-pulse`, `trigger-fire`, `restore-from-snapshot`, `log`, and
+resource-backed `doctor` scopes only for their exact model, transport, and
+system-VISA combinations. E3646A product LIVE remains ASRL / RS-232 + system VISA only,
 and its `ramp-list` and step-limited `sequence` are software workflows, not
 native LIST.
 
@@ -123,7 +124,13 @@ IDN/model data.
 
 ## Current Hardware Scope
 
-Internal live validation uses the Product CLI and Core directly. The wrapper loads `internal_validation_candidate_inventory()` in memory, validates the exact target, suite, command, transport, backend, safety, and cleanup scope, and enables validation policy only for relevant policy-gated commands. This evidence-only mode does not change Product capabilities, the support registry, or accepted evidence. Product mode remains fail-closed, and Worker and WebUI requests cannot select validation mode.
+Internal live validation uses the Product CLI and Core directly. The wrapper
+loads `internal_validation_candidate_inventory()` in memory; that inventory is
+currently empty after promotion, while its completeness gate remains available
+for future candidates. Wrapper runs remain evidence-only and never change
+Product capabilities, the support registry, or accepted evidence automatically.
+Product mode remains fail-closed, and Worker and WebUI requests cannot select
+validation mode.
 
 | Lifecycle | Canonical model IDs | Current boundary |
 | --- | --- | --- |
@@ -382,23 +389,23 @@ and exact recorded cases:
 - EDU36311A LAN + system VISA
 - E3646A ASRL / RS-232 + system VISA
 
-These are historical accepted full-suite records. They predate and do not
-include the newly added validation-candidate cases. The expanded suite has
-no newly run or accepted hardware evidence yet.
+These connections now have both the immutable 2026-07-09 historical records
+and independently reviewed 2026-07-17 system-VISA full-suite records. The
+current records preserve reviewed artifact paths and SHA-256 values as
+promotion-time provenance; runtime and clean CI do not require the ignored
+artifacts to exist.
 
-The E36312A expanded `trigger-list` suite includes validation-candidate
-`trigger-fire` and `trigger-pulse` cases for USB or TCPIP with system VISA.
+The E36312A expanded `trigger-list` suite includes Product-open `trigger-fire`
+and `trigger-pulse` cases for USB or TCPIP with system VISA.
 `trigger-pulse` requires an operator to observe one positive pulse on rear
 Pin 1 after connecting Pin 4 Common as the digital signal reference. Passing
-the expanded suite does not automatically promote either command to Product.
+the expanded suite does not automatically promote any command to Product.
 
-Core references these immutable historical bundles by stable evidence ID.
-Their original artifact directories remain unchanged; migrating their identity
-metadata is not new hardware validation. System-VISA evidence does not validate
+Core references accepted bundles by stable evidence ID. Historical records
+remain unchanged. System-VISA evidence does not validate
 pyvisa-py, a custom backend, another transport, model, vendor, command, or
-feature. Passing a later validation artifact is candidate evidence only and
-does not promote Product support automatically; evidence-backed promotion
-remains separate P9 work.
+feature. Passing a later validation artifact remains candidate evidence only;
+promotion requires a separate explicit evidence review and policy change.
 
 Only the exact commands in the Core policy matrix are product-open on these
 connections. E3646A live validation is restricted to ASRL / RS-232; E3646A

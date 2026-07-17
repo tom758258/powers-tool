@@ -102,36 +102,10 @@ _PENDING_STATUSES = frozenset({VALIDATION_STATUS_TRANSPORT_PENDING})
 
 # Internal-only admission for exact live-validation candidates. These entries
 # are deliberately absent from public support metadata and accepted evidence.
-_VALIDATION_ONLY_COMMAND_CANDIDATES = {
-    "keysight-e36312a": frozenset(
-        {
-            "output-on",
-            "log",
-            "doctor",
-            "measure-all",
-            "restore-from-snapshot",
-            "trigger-fire",
-            "trigger-pulse",
-        }
-    ),
-    "keysight-edu36311a": frozenset({"output-on", "log", "doctor"}),
-    "keysight-e3646a": frozenset({"output-on", "doctor"}),
-}
-_VALIDATION_ONLY_EXACT_CONNECTIONS = {
-    "keysight-e36312a": frozenset(
-        {
-            (TRANSPORT_USB, BACKEND_SYSTEM_VISA),
-            (TRANSPORT_TCPIP, BACKEND_SYSTEM_VISA),
-        }
-    ),
-    "keysight-edu36311a": frozenset(
-        {
-            (TRANSPORT_USB, BACKEND_SYSTEM_VISA),
-            (TRANSPORT_TCPIP, BACKEND_SYSTEM_VISA),
-        }
-    ),
-    "keysight-e3646a": frozenset({(TRANSPORT_ASRL, BACKEND_SYSTEM_VISA)}),
-}
+_VALIDATION_ONLY_COMMAND_CANDIDATES: Mapping[str, frozenset[str]] = {}
+_VALIDATION_ONLY_EXACT_CONNECTIONS: Mapping[
+    str, frozenset[tuple[str, str]]
+] = {}
 
 
 def internal_validation_candidate_inventory() -> Mapping[str, Mapping[str, tuple]]:
@@ -1057,6 +1031,10 @@ _LEGACY_BACKEND_NOTE = (
     "pyvisa.ResourceManager() system-VISA path; this does not validate pyvisa-py "
     "or a custom VISA backend."
 )
+_VERIFIED_BACKEND_NOTE = (
+    "Accepted after independent review of the 2026-07-17 system-VISA full-suite "
+    "evidence; this does not validate pyvisa-py or a custom VISA backend."
+)
 _PENDING_BACKEND_NOTE = (
     "The model and command are implemented and validated over TCPIP with the "
     "system VISA backend. The TCPIP/pyvisa-py exact backend scope remains pending "
@@ -1073,12 +1051,31 @@ _FEATURE_PENDING_NOTE = (
     "The implemented feature remains pending with its exact TCPIP/pyvisa-py parent scope."
 )
 
-_EVIDENCE_IDS = {
+_HISTORICAL_EVIDENCE_IDS = {
     ("keysight-e36312a", TRANSPORT_USB): "keysight-e36312a-usb-system-visa-20260709-full",
     ("keysight-e36312a", TRANSPORT_TCPIP): "keysight-e36312a-tcpip-system-visa-20260709-full",
     ("keysight-edu36311a", TRANSPORT_USB): "keysight-edu36311a-usb-system-visa-20260709-full",
     ("keysight-edu36311a", TRANSPORT_TCPIP): "keysight-edu36311a-tcpip-system-visa-20260709-full",
     ("keysight-e3646a", TRANSPORT_ASRL): "keysight-e3646a-asrl-system-visa-20260709-full",
+}
+
+_VERIFIED_EVIDENCE_IDS = {
+    ("keysight-e36312a", TRANSPORT_USB): "keysight-e36312a-usb-system-visa-20260717-full",
+    ("keysight-e36312a", TRANSPORT_TCPIP): "keysight-e36312a-tcpip-system-visa-20260717-full",
+    ("keysight-edu36311a", TRANSPORT_USB): "keysight-edu36311a-usb-system-visa-20260717-full",
+    ("keysight-edu36311a", TRANSPORT_TCPIP): "keysight-edu36311a-tcpip-system-visa-20260717-full",
+    ("keysight-e3646a", TRANSPORT_ASRL): "keysight-e3646a-asrl-system-visa-20260717-full",
+}
+
+_PROMOTED_COMMANDS = {
+    "keysight-e36312a": frozenset(
+        {
+            "output-on", "log", "doctor", "measure-all", "restore-from-snapshot",
+            "trigger-fire", "trigger-pulse",
+        }
+    ),
+    "keysight-edu36311a": frozenset({"output-on", "log", "doctor"}),
+    "keysight-e3646a": frozenset({"output-on", "doctor"}),
 }
 
 _VALIDATED_COMMANDS = {
@@ -1088,7 +1085,9 @@ _VALIDATED_COMMANDS = {
             "capabilities", "set", "output-off", "safe-off", "cycle-output", "apply",
             "ramp", "smoke-output", "ramp-list", "sequence", "protection-status",
             "protection-set", "clear-protection", "snapshot", "trigger-status",
-            "trigger-step", "trigger-list", "trigger-abort",
+            "trigger-step", "trigger-list", "trigger-abort", "output-on", "log",
+            "doctor", "measure-all", "restore-from-snapshot", "trigger-fire",
+            "trigger-pulse",
         }
     ),
     "keysight-edu36311a": frozenset(
@@ -1096,14 +1095,14 @@ _VALIDATED_COMMANDS = {
             "measure", "output-state", "read-status", "readback", "validate-readonly",
             "capabilities", "set", "output-off", "safe-off", "cycle-output", "apply",
             "ramp", "smoke-output", "ramp-list", "sequence", "protection-status",
-            "protection-set", "clear-protection",
+            "protection-set", "clear-protection", "output-on", "log", "doctor",
         }
     ),
     "keysight-e3646a": frozenset(
         {
             "measure", "output-state", "read-status", "readback", "capabilities", "set",
             "output-off", "safe-off", "cycle-output", "apply", "ramp", "smoke-output",
-            "ramp-list", "sequence",
+            "ramp-list", "sequence", "output-on", "doctor",
         }
     ),
 }
@@ -1136,14 +1135,23 @@ def _build_registry() -> tuple[ModelSupportPolicy, ...]:
             scopes: list[CommandLiveSupportScope] = []
             if command in _VALIDATED_COMMANDS[model_id]:
                 for transport in _VALIDATED_TRANSPORTS[model_id]:
-                    evidence_id = _EVIDENCE_IDS[(model_id, transport)]
+                    promoted = command in _PROMOTED_COMMANDS[model_id]
+                    evidence_id = (
+                        _VERIFIED_EVIDENCE_IDS[(model_id, transport)]
+                        if promoted
+                        else _HISTORICAL_EVIDENCE_IDS[(model_id, transport)]
+                    )
                     scopes.append(
                         CommandLiveSupportScope(
                             validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
                             transport_scope=transport,
                             backend_scope=BACKEND_SYSTEM_VISA,
                             accepted_evidence_ids=(evidence_id,),
-                            note=_LEGACY_BACKEND_NOTE,
+                            note=(
+                                _VERIFIED_BACKEND_NOTE
+                                if promoted
+                                else _LEGACY_BACKEND_NOTE
+                            ),
                             feature_scopes=_feature_scopes_for(
                                 model_id=model_id,
                                 command=command,

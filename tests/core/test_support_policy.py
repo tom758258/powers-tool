@@ -71,6 +71,13 @@ E36312A_VALIDATED_COMMANDS = {
     "trigger-step",
     "trigger-list",
     "trigger-abort",
+    "output-on",
+    "log",
+    "doctor",
+    "measure-all",
+    "restore-from-snapshot",
+    "trigger-fire",
+    "trigger-pulse",
 }
 EDU36311A_VALIDATED_COMMANDS = {
     "measure",
@@ -91,6 +98,9 @@ EDU36311A_VALIDATED_COMMANDS = {
     "protection-status",
     "protection-set",
     "clear-protection",
+    "output-on",
+    "log",
+    "doctor",
 }
 E3646A_VALIDATED_COMMANDS = {
     "measure",
@@ -107,6 +117,8 @@ E3646A_VALIDATED_COMMANDS = {
     "smoke-output",
     "ramp-list",
     "sequence",
+    "output-on",
+    "doctor",
 }
 
 
@@ -236,7 +248,7 @@ def test_exact_validated_command_inventory(
         assert scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
         assert scope.accepted_evidence_ids
         assert scope.accepted_evidence_ids
-        assert "pyvisa.ResourceManager()" in (scope.note or "")
+        assert "pyvisa-py" in (scope.note or "")
 
 
 @pytest.mark.parametrize(
@@ -726,15 +738,23 @@ def test_evaluator_rejects_invalid_top_level_status_with_valid_scope(
         )
 
 
-def test_profile_validated_without_an_exact_scope_does_not_open_live() -> None:
+def test_promoted_command_opens_only_its_exact_product_scope() -> None:
     policy = command_live_support("keysight-e36312a", "output-on")
     assert policy.validation_status == VALIDATION_STATUS_PROFILE_VALIDATED
-    assert policy.scopes == ()
+    scope = ensure_live_scope_supported(
+        model_id="keysight-e36312a",
+        command="output-on",
+        transport=TRANSPORT_USB,
+        backend=BACKEND_SYSTEM_VISA,
+        support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
+    )
+    assert scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+    assert scope.admission_kind == "product"
     with pytest.raises(LiveSupportPolicyError, match="no exact transport/backend scope"):
         ensure_live_scope_supported(
             model_id="keysight-e36312a",
             command="output-on",
-            transport=TRANSPORT_USB,
+            transport=TRANSPORT_ASRL,
             backend=BACKEND_SYSTEM_VISA,
             support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
         )
@@ -1191,9 +1211,9 @@ def test_public_exact_projection_distinguishes_open_pending_and_missing_scopes()
         "exact_scope_validation_status": VALIDATION_STATUS_TRANSPORT_PENDING,
         "product_open": False,
     }
-    assert pending["commands"]["output-on"]["exact_scope_validation_status"] is None
+    assert pending["commands"]["output-on"]["exact_scope_validation_status"] == VALIDATION_STATUS_TRANSPORT_PENDING
     assert pending["commands"]["output-on"]["product_open"] is False
-    assert "No product-open live scope" in pending["commands"]["output-on"]["disabled_reason"]
+    assert pending["commands"]["output-on"]["disabled_reason"] == "Pending live validation: TCPIP / pyvisa-py."
     assert pending["commands"]["clear"]["policy_exempt"] is True
     assert pending["commands"]["clear"]["offline_only"] is False
     assert pending["commands"]["clear"]["product_open"] is True
@@ -1237,37 +1257,21 @@ def test_public_projection_preserves_model_and_generic_boundaries() -> None:
 def test_internal_validation_candidate_inventory_is_exact_and_immutable() -> None:
     inventory = internal_validation_candidate_inventory()
 
-    assert set(inventory) == {
-        "keysight-e36312a",
-        "keysight-edu36311a",
-        "keysight-e3646a",
-    }
-    assert "output-on" in inventory["keysight-e36312a"]["commands"]
-    assert {"trigger-fire", "trigger-pulse"} <= set(
-        inventory["keysight-e36312a"]["commands"]
-    )
+    assert dict(inventory) == {}
     with pytest.raises(TypeError):
-        inventory["keysight-e36312a"] = {}  # type: ignore[index]
+        inventory["future-model"] = {}  # type: ignore[index]
 
 
-def test_validation_mode_admits_only_exact_core_candidate_scope() -> None:
-    with pytest.raises(LiveSupportPolicyError):
-        ensure_live_scope_supported(
+def test_validation_mode_uses_promoted_product_scope_without_candidate_bypass() -> None:
+    for mode in (SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION):
+        scope = ensure_live_scope_supported(
             model_id="keysight-e36312a",
             command="output-on",
             transport="USB0::fixture::INSTR",
             backend=None,
-            support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
+            support_policy_mode=mode,
         )
-
-    scope = ensure_live_scope_supported(
-        model_id="keysight-e36312a",
-        command="output-on",
-        transport="USB0::fixture::INSTR",
-        backend=None,
-        support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
-    )
-    assert scope.admission_kind == "validation_candidate"
+        assert scope.admission_kind == "product"
 
     with pytest.raises(LiveSupportPolicyError):
         ensure_live_scope_supported(
@@ -1288,30 +1292,31 @@ def test_validation_mode_admits_only_exact_core_candidate_scope() -> None:
         )
 
     for command in ("trigger-fire", "trigger-pulse"):
-        candidate = ensure_live_scope_supported(
+        scope = ensure_live_scope_supported(
             model_id="keysight-e36312a",
             command=command,
             transport="USB0::fixture::INSTR",
             backend=None,
             support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
         )
-        assert candidate.admission_kind == "validation_candidate"
-        lan_candidate = ensure_live_scope_supported(
+        assert scope.admission_kind == "product"
+        lan_scope = ensure_live_scope_supported(
             model_id="keysight-e36312a",
             command=command,
             transport="TCPIP0::fixture::INSTR",
             backend=None,
             support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
         )
-        assert lan_candidate.admission_kind == "validation_candidate"
-        with pytest.raises(LiveSupportPolicyError):
-            ensure_live_scope_supported(
+        assert lan_scope.admission_kind == "product"
+        for transport in ("USB0::fixture::INSTR", "TCPIP0::fixture::INSTR"):
+            product_scope = ensure_live_scope_supported(
                 model_id="keysight-e36312a",
                 command=command,
-                transport="USB0::fixture::INSTR",
+                transport=transport,
                 backend=None,
                 support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
             )
+            assert product_scope.admission_kind == "product"
         with pytest.raises(LiveSupportPolicyError):
             ensure_live_scope_supported(
                 model_id="keysight-e36312a",

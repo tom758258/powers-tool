@@ -5,6 +5,7 @@ import pytest
 import powers_tool_core.live_support as live_support_module
 from powers_tool_core.core import (
     ConfirmationRequiredError,
+    CoreIoError,
     CoreValidationError,
     OperationRequest,
     RuntimeOptions,
@@ -303,15 +304,14 @@ def test_model_aware_runners_reject_before_command_scpi(runner, command: str, pa
     assert session.writes == []
 
 
-def test_output_without_exact_evidence_rejects_after_idn_before_write() -> None:
+def test_promoted_output_authorizes_after_idn_and_writes() -> None:
     session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
     request = OperationRequest(
         "output-on", RuntimeOptions(resource="USB0::1::INSTR", confirm=True), {"channel": 1}
     )
-    with pytest.raises(LiveSupportPolicyError, match="output-on"):
-        run_operation(request, opener=lambda *args, **kwargs: session)
-    assert session.queries == ["*IDN?"]
-    assert session.writes == []
+    run_operation(request, opener=lambda *args, **kwargs: session)
+    assert session.queries[0] == "*IDN?"
+    assert any(command.startswith("OUTP ON") for command in session.writes)
 
 
 
@@ -328,11 +328,11 @@ def test_output_without_exact_evidence_rejects_after_idn_before_write() -> None:
         ("keysight-e3646a", "doctor", "ASRL1::INSTR", None),
     ],
 )
-def test_product_mode_keeps_command_candidates_closed(
+def test_product_mode_opens_promoted_exact_scopes(
     model_id: str, command: str, resource: str, backend: str | None
 ) -> None:
-    with pytest.raises(LiveSupportPolicyError, match="no exact transport/backend scope"):
-        enforce_live_support(_request(command, resource, backend=backend), model_id)
+    scope = enforce_live_support(_request(command, resource, backend=backend), model_id)
+    assert scope.admission_kind == "product"
 
 
 
@@ -351,7 +351,7 @@ def test_product_mode_keeps_command_candidates_closed(
         ("keysight-e36312a", "trigger-fire", "USB0::1::INSTR", "@py"),
     ],
 )
-def test_validation_command_candidates_fail_closed_outside_exact_inventory(
+def test_promoted_commands_fail_closed_outside_exact_inventory(
     model_id: str, command: str, resource: str, backend: str | None
 ) -> None:
     with pytest.raises(CoreValidationError):
@@ -366,7 +366,7 @@ def test_validation_command_candidates_fail_closed_outside_exact_inventory(
         )
 
 
-def test_command_candidate_does_not_change_public_product_metadata() -> None:
+def test_promoted_command_changes_only_exact_public_product_metadata() -> None:
     metadata = exact_live_support_metadata(
         model_id="keysight-e36312a",
         resource="USB0::1::INSTR",
@@ -375,8 +375,8 @@ def test_command_candidate_does_not_change_public_product_metadata() -> None:
     )
     output_on = metadata["commands"]["output-on"]
     assert output_on["profile_supported"] is True
-    assert output_on["exact_scope_validation_status"] is None
-    assert output_on["product_open"] is False
+    assert output_on["exact_scope_validation_status"] == "live_validated_full_suite"
+    assert output_on["product_open"] is True
     assert metadata["commands"]["trigger-status"]["product_open"] is True
 
 
@@ -573,7 +573,7 @@ def _restore_document(
     }
 
 
-def test_validation_mode_restore_without_exact_scope_rejects_before_restore_scpi() -> None:
+def test_product_mode_restore_rejects_pending_pyvisa_scope_before_restore_scpi() -> None:
     session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
     request = OperationRequest(
         "restore-from-snapshot",
@@ -581,11 +581,11 @@ def test_validation_mode_restore_without_exact_scope_rejects_before_restore_scpi
             resource="TCPIP0::192.0.2.1::INSTR",
             backend="@py",
             confirm=True,
-            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
         ),
         {"document": _restore_document()},
     )
-    with pytest.raises(LiveSupportPolicyError, match="no exact transport/backend scope"):
+    with pytest.raises(LiveSupportPolicyError, match="transport_pending"):
         run_restore(request, opener=lambda *args, **kwargs: session)
     assert session.queries == ["*IDN?"]
     assert session.writes == []
@@ -643,7 +643,7 @@ def test_validation_mode_restore_keeps_identity_and_confirmation_guards() -> Non
         ),
         {"document": _restore_document(voltage=999.0)},
     )
-    with pytest.raises(LiveSupportPolicyError, match="no exact transport/backend scope"):
+    with pytest.raises(CoreIoError, match="voltage 999 exceeds effective maximum"):
         run_restore(unsafe_request, opener=lambda *args, **kwargs: unsafe_session)
     assert unsafe_session.queries == ["*IDN?"]
     assert unsafe_session.writes == []

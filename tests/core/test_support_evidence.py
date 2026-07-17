@@ -7,6 +7,8 @@ from types import MappingProxyType
 import pytest
 
 from powers_tool_core.support_evidence import (
+    EVIDENCE_KIND_FULL_SUITE,
+    EVIDENCE_KIND_VERIFIED_FULL_SUITE,
     SOURCE_AVAILABILITY_HISTORICAL_REFERENCE_ONLY,
     SOURCE_AVAILABILITY_VERIFIED_LOCAL,
     SUPPORT_EVIDENCE_BY_ID,
@@ -54,10 +56,74 @@ EXPECTED_EVIDENCE = {
     ),
 }
 
+EXPECTED_VERIFIED_EVIDENCE = {
+    "keysight-e36312a-usb-system-visa-20260717-full": (
+        "keysight-e36312a", "usb",
+        ".tmp_tests/live_cli_check/20260717_111636_keysight-e36312a_USB_full/shareable",
+        "784087da966a141aab0c859580f0e85b5856f7b3cf319d889790b6f1751b6048",
+    ),
+    "keysight-e36312a-tcpip-system-visa-20260717-full": (
+        "keysight-e36312a", "tcpip",
+        ".tmp_tests/live_cli_check/20260717_110602_keysight-e36312a_LAN_full/shareable",
+        "17c4f2d5c5a7e618f0d216cfab1c38b769b123a1fc157b4a0ee9e3acac5c4927",
+    ),
+    "keysight-edu36311a-usb-system-visa-20260717-full": (
+        "keysight-edu36311a", "usb",
+        ".tmp_tests/live_cli_check/20260717_104734_keysight-edu36311a_USB_full/shareable",
+        "b613f9eb40cb08df805ed00cb6668c79ef41b5225526874e78daf1a3f5d77b66",
+    ),
+    "keysight-edu36311a-tcpip-system-visa-20260717-full": (
+        "keysight-edu36311a", "tcpip",
+        ".tmp_tests/live_cli_check/20260717_104008_keysight-edu36311a_LAN_full/shareable",
+        "591f4415ebcc5f63d4f42b4a57a81ca9be3586854a9f1fe453c59802591e9ef9",
+    ),
+    "keysight-e3646a-asrl-system-visa-20260717-full": (
+        "keysight-e3646a", "asrl",
+        ".tmp_tests/live_cli_check/20260717_112310_keysight-e3646a_ASRL_full/shareable",
+        "e9df449f532f6759161eeb1cfcf643c700d937ffc3078d8515280a267c3ae9e3",
+    ),
+}
+
 EXPECTED_COMMAND_COUNTS = {
     "keysight-e36312a": 23,
     "keysight-edu36311a": 18,
     "keysight-e3646a": 14,
+}
+
+EXPECTED_VERIFIED_COMMANDS = {
+    "keysight-e36312a": frozenset(
+        {
+            "apply", "capabilities", "clear-protection", "cycle-output", "doctor",
+            "log", "measure", "measure-all", "output-off", "output-on", "output-state",
+            "protection-set", "protection-status", "ramp", "ramp-list", "read-status",
+            "readback", "restore-from-snapshot", "safe-off", "sequence", "set",
+            "smoke-output", "snapshot", "trigger-abort", "trigger-fire", "trigger-list",
+            "trigger-pulse", "trigger-status", "trigger-step", "validate-readonly",
+        }
+    ),
+    "keysight-edu36311a": frozenset(
+        {
+            "apply", "capabilities", "clear-protection", "cycle-output", "doctor", "log",
+            "measure", "output-off", "output-on", "output-state", "protection-set",
+            "protection-status", "ramp", "ramp-list", "read-status", "readback", "safe-off",
+            "sequence", "set", "smoke-output", "validate-readonly",
+        }
+    ),
+    "keysight-e3646a": frozenset(
+        {
+            "apply", "capabilities", "cycle-output", "doctor", "measure", "output-off",
+            "output-on", "output-state", "ramp", "ramp-list", "read-status", "readback",
+            "safe-off", "sequence", "set", "smoke-output",
+        }
+    ),
+}
+
+EXPECTED_PROMOTED_COMMANDS = {
+    "keysight-e36312a": frozenset(
+        {"output-on", "log", "doctor", "measure-all", "restore-from-snapshot", "trigger-fire", "trigger-pulse"}
+    ),
+    "keysight-edu36311a": frozenset({"output-on", "log", "doctor"}),
+    "keysight-e3646a": frozenset({"output-on", "doctor"}),
 }
 
 EXPECTED_FEATURES_BY_MODEL = {
@@ -146,9 +212,9 @@ def test_evidence_manifest_and_registry_cannot_drift() -> None:
 
 
 def test_exactly_five_immutable_historical_evidence_identities_exist() -> None:
-    assert len(SUPPORT_EVIDENCE_RECORDS) == 5
-    assert len(SUPPORT_EVIDENCE_BY_ID) == 5
-    assert set(SUPPORT_EVIDENCE_BY_ID) == set(EXPECTED_EVIDENCE)
+    assert len(SUPPORT_EVIDENCE_RECORDS) == 10
+    assert len(SUPPORT_EVIDENCE_BY_ID) == 10
+    assert set(SUPPORT_EVIDENCE_BY_ID) == set(EXPECTED_EVIDENCE) | set(EXPECTED_VERIFIED_EVIDENCE)
     for evidence_id, (model_id, transport, artifact_directory) in EXPECTED_EVIDENCE.items():
         record = SUPPORT_EVIDENCE_BY_ID[evidence_id]
         assert (record.model_id, record.transport_scope, record.backend_scope) == (
@@ -160,6 +226,8 @@ def test_exactly_five_immutable_historical_evidence_identities_exist() -> None:
         assert record.report_path == f"{artifact_directory}/report.json"
         assert record.summary_path == f"{artifact_directory}/summary.md"
         assert record.source_availability == SOURCE_AVAILABILITY_HISTORICAL_REFERENCE_ONLY
+        assert record.evidence_kind == EVIDENCE_KIND_FULL_SUITE
+        assert record.evidence_date == "2026-07-09"
         assert record.report_sha256 is None
         assert record.artifact_schema_version == "1.0"
     with pytest.raises(TypeError):
@@ -167,7 +235,8 @@ def test_exactly_five_immutable_historical_evidence_identities_exist() -> None:
 
 
 def test_historical_evidence_inventories_are_frozen_and_exact() -> None:
-    for record in SUPPORT_EVIDENCE_RECORDS:
+    for evidence_id in EXPECTED_EVIDENCE:
+        record = SUPPORT_EVIDENCE_BY_ID[evidence_id]
         assert len(record.accepted_commands) == EXPECTED_COMMAND_COUNTS[record.model_id]
         assert record.accepted_features_by_command == EXPECTED_FEATURES_BY_MODEL[record.model_id]
         assert isinstance(record.accepted_features_by_command, MappingProxyType)
@@ -175,6 +244,40 @@ def test_historical_evidence_inventories_are_frozen_and_exact() -> None:
             record.accepted_commands.add("future-command")  # type: ignore[attr-defined]
         with pytest.raises(TypeError):
             record.accepted_features_by_command["sequence"] = frozenset()  # type: ignore[index]
+
+
+def test_verified_evidence_records_are_exact_and_immutable() -> None:
+    sequence_features = frozenset(
+        ("sequence_action", value)
+        for value in {"output-off", "output-on", "output-state", "readback", "set"}
+    )
+    for evidence_id, (model_id, transport, artifact_directory, sha256) in EXPECTED_VERIFIED_EVIDENCE.items():
+        record = SUPPORT_EVIDENCE_BY_ID[evidence_id]
+        assert (record.model_id, record.transport_scope, record.backend_scope) == (
+            model_id, transport, "system_visa"
+        )
+        assert record.evidence_kind == EVIDENCE_KIND_VERIFIED_FULL_SUITE
+        assert record.evidence_date == "2026-07-17"
+        assert record.artifact_directory == artifact_directory
+        assert record.report_path == f"{artifact_directory}/report.json"
+        assert record.summary_path == f"{artifact_directory}/summary.md"
+        assert record.artifact_schema_version == "2.0"
+        assert record.report_sha256 == sha256
+        assert re.fullmatch(r"[0-9a-f]{64}", record.report_sha256)
+        assert record.source_availability == SOURCE_AVAILABILITY_VERIFIED_LOCAL
+        assert record.legacy_model_name is None
+        assert record.legacy_backend_interpretation is None
+        assert record.migration_note is None
+        assert record.accepted_commands == EXPECTED_VERIFIED_COMMANDS[model_id]
+        assert record.accepted_features_by_command["sequence"] == sequence_features
+        if model_id == "keysight-e36312a":
+            assert record.accepted_features_by_command["trigger-step"] == frozenset(
+                {("trigger_source", "bus")}
+            )
+            assert record.accepted_features_by_command["trigger-list"] == frozenset(
+                {("trigger_source", "bus")}
+            )
+        assert isinstance(record.accepted_features_by_command, MappingProxyType)
 
 
 def test_evidence_registry_alias_is_rejected() -> None:
@@ -265,17 +368,16 @@ def test_evidence_paths_are_relative_and_metadata_is_non_sensitive() -> None:
 
 def test_availability_and_checksum_combinations_fail_closed() -> None:
     base = SUPPORT_EVIDENCE_RECORDS[0]
-    verified = replace(
-        base,
-        source_availability=SOURCE_AVAILABILITY_VERIFIED_LOCAL,
-        report_sha256="a" * 64,
-    )
+    verified = SUPPORT_EVIDENCE_BY_ID[
+        "keysight-e36312a-usb-system-visa-20260717-full"
+    ]
     validate_support_evidence_metadata((verified,))
 
     with pytest.raises(ValueError, match="requires SHA-256"):
-        validate_support_evidence_metadata(
-            (replace(base, source_availability=SOURCE_AVAILABILITY_VERIFIED_LOCAL),)
-        )
+        validate_support_evidence_metadata((replace(verified, report_sha256=None),))
+    for bad_hash in (123, "ABC", "g" * 64, "a" * 63):
+        with pytest.raises(ValueError, match="requires SHA-256"):
+            validate_support_evidence_metadata((replace(verified, report_sha256=bad_hash),))
     with pytest.raises(ValueError, match="cannot claim a checksum"):
         validate_support_evidence_metadata((replace(base, report_sha256="a" * 64),))
     with pytest.raises(ValueError, match="invalid evidence source availability"):
@@ -290,6 +392,20 @@ def test_availability_and_checksum_combinations_fail_closed() -> None:
         validate_support_evidence_metadata(
             (replace(base, artifact_directory="C:/Users/example/evidence"),)
         )
+
+
+def test_verified_evidence_does_not_require_artifact_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    def reject_artifact_access(path: object, *args: object, **kwargs: object) -> object:
+        if ".tmp_tests" in str(path):
+            raise AssertionError("runtime attempted to access ignored evidence artifacts")
+        return original_stat(path, *args, **kwargs)
+
+    import os
+
+    original_stat = os.stat
+    monkeypatch.setattr(os, "stat", reject_artifact_access)
+    validate_support_evidence_metadata()
+    validate_live_support_metadata()
 
 
 def test_policy_accepted_and_candidate_basis_references_are_exact() -> None:
@@ -324,6 +440,21 @@ def test_policy_accepted_and_candidate_basis_references_are_exact() -> None:
                     )
     assert accepted_count > 0
     assert pending_count > 0
+
+
+def test_each_promoted_command_references_its_exact_verified_evidence() -> None:
+    for model_policy in LIVE_SUPPORT_POLICY_REGISTRY:
+        promoted_commands = EXPECTED_PROMOTED_COMMANDS[model_policy.model_id]
+        for command_policy in model_policy.commands:
+            if command_policy.command not in promoted_commands:
+                continue
+            for scope in command_policy.scopes:
+                if scope.validation_status != VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE:
+                    continue
+                expected_id = (
+                    f"{model_policy.model_id}-{scope.transport_scope}-system-visa-20260717-full"
+                )
+                assert scope.accepted_evidence_ids == (expected_id,)
 
 
 @pytest.mark.parametrize(

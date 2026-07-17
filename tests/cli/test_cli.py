@@ -128,8 +128,8 @@ def assert_live_scope_rejected(payload: dict[str, object], session: FakeSession)
     [
         ["protection-status", "--json", "--resource", "GPIB0::1::INSTR"],
         ["snapshot", "--json", "--resource", "GPIB0::1::INSTR"],
-        ["output-on", "--json", "--resource", OUTPUT_RESOURCE, "--channel", "1"],
-        ["trigger-pulse", "--json", "--resource", OUTPUT_RESOURCE, "--pin", "1"],
+        ["output-on", "--json", "--resource", "ASRL1::INSTR", "--channel", "1"],
+        ["trigger-pulse", "--json", "--resource", "ASRL1::INSTR", "--pin", "1"],
     ],
 )
 def test_live_policy_rejections_use_stable_validation_code(monkeypatch, capsys, argv) -> None:
@@ -3962,11 +3962,13 @@ def test_output_on_real_e36312a_sends_correct_scpi(monkeypatch, capsys, channel)
                 str(channel),
             ]
         )
-        == 2
+        == 0
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is True
+    assert payload["data"]["output"]["enabled"] is True
+    assert any(command.startswith("OUTP ON") for command in session.writes)
 
 
 def test_output_on_real_text_output_reports_enabled(monkeypatch, capsys) -> None:
@@ -3976,13 +3978,13 @@ def test_output_on_real_text_output_reports_enabled(monkeypatch, capsys) -> None
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
-    assert cli.main([*output_command_args("output-on"), "--channel", "2"]) == 2
+    assert cli.main([*output_command_args("output-on"), "--channel", "2"]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "live support-policy rejected" in captured.err
-    assert session.queries == ["*IDN?"]
-    assert session.writes == []
+    assert "enabled" in captured.out.lower()
+    assert captured.err == ""
+    assert session.queries[0] == "*IDN?"
+    assert any(command.startswith("OUTP ON") for command in session.writes)
     assert session.closed is True
 
 
@@ -4113,15 +4115,15 @@ def test_output_on_real_e36312a_with_log_scpi(monkeypatch, capsys) -> None:
                 "--log-scpi",
             ]
         )
-        == 2
+        == 0
     )
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is True
     assert f"{OUTPUT_RESOURCE} SCPI >> *IDN?" in captured.err
-    assert f"{OUTPUT_RESOURCE} SCPI >> VOLT? (@1)" not in captured.err
-    assert f"{OUTPUT_RESOURCE} SCPI >> OUTP ON,(@1)" not in captured.err
+    assert f"{OUTPUT_RESOURCE} SCPI >> VOLT? (@1)" in captured.err
+    assert f"{OUTPUT_RESOURCE} SCPI >> OUTP ON,(@1)" in captured.err
     json.loads(captured.out)  # must not raise - stdout is valid JSON
 
 
@@ -4177,7 +4179,7 @@ def test_output_on_real_unsupported_channel_is_rejected_after_idn(monkeypatch, c
     assert session.closed is True
     assert payload["execution"]["hardware_touched"] is True
     assert payload["error"]["type"] == "validation"
-    assert payload["error"]["code"] == "unsupported_live_scope"
+    assert payload["error"]["code"] == "argument_error"
 
 
 def test_output_on_real_open_failure_uses_connection_failed(monkeypatch, capsys) -> None:
@@ -4195,7 +4197,7 @@ def test_output_on_real_open_failure_uses_connection_failed(monkeypatch, capsys)
     assert payload["error"]["code"] == "connection_failed"
 
 
-def test_output_on_real_policy_rejects_before_write_failure(monkeypatch, capsys) -> None:
+def test_output_on_real_write_failure_surfaces_connection_error(monkeypatch, capsys) -> None:
     class FailingWriteSession(FakeSession):
         def write(self, command: str) -> None:
             super().write(command)
@@ -4207,11 +4209,14 @@ def test_output_on_real_policy_rejects_before_write_failure(monkeypatch, capsys)
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
-    assert cli.main([*output_command_args("output-on"), "--json"]) == 2
+    assert cli.main([*output_command_args("output-on"), "--json"]) == 1
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "connection"
+    assert payload["error"]["code"] == "output_on_failed"
+    assert session.writes
 
 
 def test_output_on_real_safety_config_checks_readback_before_enabling(
@@ -4239,11 +4244,13 @@ def test_output_on_real_safety_config_checks_readback_before_enabling(
                 safety_config,
             ]
         )
-        == 2
+        == 0
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is True
+    assert payload["data"]["readback"]["safety_checked"] is True
+    assert any(command.startswith("OUTP ON") for command in session.writes)
 
 
 def test_output_on_real_safety_config_rejects_unsafe_readback(
@@ -4275,7 +4282,10 @@ def test_output_on_real_safety_config_rejects_unsafe_readback(
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "safety"
+    assert payload["error"]["code"] == "unsafe_output_setpoint"
+    assert not any(command.startswith("OUTP ON") for command in session.writes)
 
 
 # --- E36312A real output-off (uses hardcoded resource) ---
@@ -4657,7 +4667,7 @@ def test_apply_real_edu36311a_all_no_output_writes_all_channels(monkeypatch, cap
     assert payload["data"]["output"]["enabled"] is False
 
 
-def test_measure_all_real_e36312a_rejects_without_exact_scope(monkeypatch, capsys) -> None:
+def test_measure_all_real_e36312a_uses_promoted_product_scope(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
         query_responses={
@@ -4671,19 +4681,19 @@ def test_measure_all_real_e36312a_rejects_without_exact_scope(monkeypatch, capsy
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
-    assert cli.main(["measure-all", "--json", "--resource", OUTPUT_RESOURCE]) == 2
+    assert cli.main(["measure-all", "--json", "--resource", OUTPUT_RESOURCE]) == 0
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert session.queries == ["*IDN?"]
+    assert session.queries[0] == "*IDN?"
+    assert len(payload["data"]["channels"]) == 3
     assert session.writes == []
     assert session.closed is True
-    assert payload["error"]["code"] == "unsupported_live_scope"
-    assert payload["data"] is None
+    assert payload["error"] is None
     assert captured.err == ""
 
 
-def test_measure_all_text_output_rejects_without_exact_scope(monkeypatch, capsys) -> None:
+def test_measure_all_text_output_uses_promoted_product_scope(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
         query_responses={
@@ -4697,10 +4707,11 @@ def test_measure_all_text_output_rejects_without_exact_scope(monkeypatch, capsys
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
-    assert cli.main(["measure-all", "--resource", OUTPUT_RESOURCE]) == 2
+    assert cli.main(["measure-all", "--resource", OUTPUT_RESOURCE]) == 0
 
     captured = capsys.readouterr()
-    assert "no exact transport/backend scope" in captured.err
+    assert captured.out
+    assert captured.err == ""
 
 
 def test_status_real_reads_errors_then_outputs(monkeypatch, capsys) -> None:
@@ -5040,7 +5051,13 @@ def test_status_real_one_channel_text(monkeypatch, capsys) -> None:
 def test_trigger_pulse_real_sends_expected_scpi(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
-        query_responses={"VOLT? (@3)": "1.0", "CURR? (@3)": "0.05"},
+        query_responses={
+            **_trigger_snapshot_query_responses(1),
+            **_trigger_snapshot_query_responses(2),
+            **_trigger_snapshot_query_responses(3),
+            "VOLT? (@3)": "1.0",
+            "CURR? (@3)": "0.05",
+        },
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
@@ -5059,12 +5076,14 @@ def test_trigger_pulse_real_sends_expected_scpi(monkeypatch, capsys) -> None:
                 "negative",
             ]
         )
-        == 2
+        == 0
     )
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is True
+    assert payload["data"]["triggered"] is True
+    assert "*TRG" in session.writes
 
 
 def test_trigger_pulse_dry_run_json_does_not_open_resource(monkeypatch, capsys) -> None:
@@ -5168,7 +5187,11 @@ def test_trigger_pulse_dry_run_json_accepts_multiple_pins(monkeypatch, capsys) -
 def test_trigger_pulse_real_accepts_multiple_pins(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
-        query_responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05"},
+        query_responses={
+            **_all_trigger_snapshot_query_responses(),
+            "VOLT? (@1)": "1.0",
+            "CURR? (@1)": "0.05",
+        },
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
@@ -5183,17 +5206,22 @@ def test_trigger_pulse_real_accepts_multiple_pins(monkeypatch, capsys) -> None:
                 "1,2",
             ]
         )
-        == 2
+        == 0
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is True
+    assert payload["request"]["pins"] == [1, 2]
 
 
 def test_trigger_pulse_exclusive_pin_clears_other_trigger_pins(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
-        query_responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05"},
+        query_responses={
+            **_all_trigger_snapshot_query_responses(),
+            "VOLT? (@1)": "1.0",
+            "CURR? (@1)": "0.05",
+        },
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
@@ -5209,17 +5237,23 @@ def test_trigger_pulse_exclusive_pin_clears_other_trigger_pins(monkeypatch, caps
                 "--exclusive-pin",
             ]
         )
-        == 2
+        == 0
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is True
+    assert "DIG:PIN2:FUNC DIO" in session.writes
+    assert "DIG:PIN3:FUNC DIO" in session.writes
 
 
 def test_trigger_pulse_exclusive_pins_clears_only_unselected_pin(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
-        query_responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05"},
+        query_responses={
+            **_all_trigger_snapshot_query_responses(),
+            "VOLT? (@1)": "1.0",
+            "CURR? (@1)": "0.05",
+        },
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
@@ -5235,11 +5269,12 @@ def test_trigger_pulse_exclusive_pins_clears_only_unselected_pin(monkeypatch, ca
                 "--exclusive-pins",
             ]
         )
-        == 2
+        == 0
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is True
+    assert "DIG:PIN3:FUNC DIO" in session.writes
 
 
 def test_trigger_pulse_exclusive_pin_dry_run_lists_clear_steps(monkeypatch, capsys) -> None:
@@ -5274,10 +5309,11 @@ def test_trigger_pulse_exclusive_pin_dry_run_lists_clear_steps(monkeypatch, caps
     ]
 
 
-def test_trigger_pulse_policy_rejects_before_error_queue(monkeypatch, capsys) -> None:
+def test_trigger_pulse_reports_instrument_error_queue(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
         query_responses={
+            **_all_trigger_snapshot_query_responses(),
             "VOLT? (@1)": "1.0",
             "CURR? (@1)": "0.05",
             "SYST:ERR?": ['-211,"Trigger ignored"', '0,"No error"'],
@@ -5296,11 +5332,12 @@ def test_trigger_pulse_policy_rejects_before_error_queue(monkeypatch, capsys) ->
                 "1",
             ]
         )
-        == 2
+        == 1
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is False
+    assert '-211,"Trigger ignored"' in payload["error"]["message"]
 
 
 def test_trigger_pulse_resource_alias_resolves_before_open(
@@ -5552,15 +5589,16 @@ def test_new_command_open_failure_uses_connection_failed(monkeypatch, capsys) ->
     assert payload["error"]["code"] == "connection_failed"
 
 
-def test_measure_all_policy_rejects_before_scpi_failure(monkeypatch, capsys) -> None:
+def test_measure_all_scpi_failure_surfaces_connection_error(monkeypatch, capsys) -> None:
     session = FakeSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0")
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
-    assert cli.main(["measure-all", "--json", "--resource", OUTPUT_RESOURCE]) == 2
+    assert cli.main(["measure-all", "--json", "--resource", OUTPUT_RESOURCE]) == 1
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["error"]["type"] == "connection"
+    assert payload["error"]["code"] == "measure_all_failed"
 
 
 @pytest.mark.parametrize("idn_raw", [None, 123, {"model": "E36312A"}])
@@ -5588,13 +5626,20 @@ def test_measure_all_dry_run_has_no_observed_identity(capsys) -> None:
     assert "idn" not in json.loads(capsys.readouterr().out)["data"]
 
 
-def test_trigger_pulse_policy_rejects_before_write_failure(monkeypatch, capsys) -> None:
+def test_trigger_pulse_write_failure_surfaces_connection_error(monkeypatch, capsys) -> None:
     class FailingWriteSession(FakeSession):
         def write(self, command: str) -> None:
             super().write(command)
             raise VisaConnectionError("write failed")
 
-    session = FailingWriteSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0")
+    session = FailingWriteSession(
+        idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
+        query_responses={
+            **_all_trigger_snapshot_query_responses(),
+            "VOLT? (@1)": "1.0",
+            "CURR? (@1)": "0.05",
+        },
+    )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert (
@@ -5608,12 +5653,14 @@ def test_trigger_pulse_policy_rejects_before_write_failure(monkeypatch, capsys) 
                 "1",
             ]
         )
-        == 2
+        == 1
     )
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["error"]["type"] == "connection"
+    assert payload["error"]["code"] == "trigger_pulse_failed"
+    assert session.writes
 
 
 def test_status_scpi_failure_uses_status_failed(monkeypatch, capsys) -> None:
@@ -5633,7 +5680,11 @@ def test_status_scpi_failure_uses_status_failed(monkeypatch, capsys) -> None:
 def test_new_commands_log_scpi_to_stderr_without_corrupting_json(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
-        query_responses={"VOLT? (@1)": "1.0", "CURR? (@1)": "0.05"},
+        query_responses={
+            **_all_trigger_snapshot_query_responses(),
+            "VOLT? (@1)": "1.0",
+            "CURR? (@1)": "0.05",
+        },
     )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
@@ -5649,15 +5700,15 @@ def test_new_commands_log_scpi_to_stderr_without_corrupting_json(monkeypatch, ca
                 "--log-scpi",
             ]
         )
-        == 2
+        == 0
     )
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is True
     assert f"{OUTPUT_RESOURCE} SCPI >> *IDN?" in captured.err
-    assert f"{OUTPUT_RESOURCE} SCPI >> DIG:PIN1:FUNC TOUT" not in captured.err
-    assert f"{OUTPUT_RESOURCE} SCPI >> *TRG" not in captured.err
+    assert f"{OUTPUT_RESOURCE} SCPI >> DIG:PIN1:FUNC TOUT" in captured.err
+    assert f"{OUTPUT_RESOURCE} SCPI >> *TRG" in captured.err
 
 
 def test_trigger_status_simulate_reports_list_and_pin_state(capsys) -> None:
@@ -6639,8 +6690,11 @@ def test_e3646a_real_output_affecting_commands_success(monkeypatch, capsys, comm
     assert cli.main([command, "--json", "--resource", "ASRL1::INSTR", *extra_args]) == 0
 
 
-def test_e3646a_real_output_on_has_no_accepted_exact_scope(monkeypatch, capsys) -> None:
-    session = FakeSession(idn="KEYSIGHT,E3646A,SERIAL0000,1.0")
+def test_e3646a_real_output_on_uses_promoted_asrl_product_scope(monkeypatch, capsys) -> None:
+    session = FakeSession(
+        idn="KEYSIGHT,E3646A,SERIAL0000,1.0",
+        query_responses={"INST:NSEL?": "1", "VOLT?": "1.0", "CURR?": "0.05"},
+    )
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
     assert (
@@ -6655,10 +6709,12 @@ def test_e3646a_real_output_on_has_no_accepted_exact_scope(monkeypatch, capsys) 
                 "--confirm",
             ]
         )
-        == 2
+        == 0
     )
 
-    assert_live_scope_rejected(json.loads(capsys.readouterr().out), session)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert "OUTP ON" in session.writes
 
 
 @pytest.mark.parametrize(
@@ -6789,12 +6845,11 @@ def test_output_family_real_forwards_serial_options_to_opener(
                 *SERIAL_TERMINATION_ARGS,
             ]
         )
-        == (2 if command == "output-on" else 0)
+        == 0
     )
 
     payload = json.loads(capsys.readouterr().out)
-    if command == "output-on":
-        assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is True
     serial_options = opened[0]["serial_options"]
     assert serial_options.read_termination == "\r\n"
     assert serial_options.write_termination == "\n"
@@ -7209,12 +7264,14 @@ def test_resource_backed_doctor_is_not_a_live_policy_exemption(monkeypatch, caps
     monkeypatch.setattr(cli, "_list_resources", lambda *args, **kwargs: ())
     monkeypatch.setattr(cli, "open_resource", lambda *args, **kwargs: session)
 
-    assert cli.main(["doctor", "--json", "--resource", OUTPUT_RESOURCE]) == 2
+    assert cli.main(["doctor", "--json", "--resource", OUTPUT_RESOURCE]) == 0
 
-    assert_live_scope_rejected(json.loads(capsys.readouterr().out), session)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["data"]["resource"]["model_id"] == "keysight-e36312a"
 
 
-def test_log_policy_rejects_before_sampling_failure(monkeypatch, tmp_path, capsys) -> None:
+def test_log_sampling_failure_surfaces_connection_error(monkeypatch, tmp_path, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,EDU36311A,SERIAL0000,1.0",
         query_responses={
@@ -7243,14 +7300,15 @@ def test_log_policy_rejects_before_sampling_failure(monkeypatch, tmp_path, capsy
                 str(tmp_path / "partial.csv"),
             ]
         )
-        == 2
+        == 1
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["error"]["type"] == "connection"
+    assert payload["error"]["code"] == "log_failed"
 
 
-def test_log_policy_rejects_before_interruptible_sampling(monkeypatch, tmp_path, capsys) -> None:
+def test_promoted_log_keeps_interruptible_sampling_behavior(monkeypatch, tmp_path, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,EDU36311A,SERIAL0000,1.0",
         query_responses={
@@ -7286,11 +7344,14 @@ def test_log_policy_rejects_before_interruptible_sampling(monkeypatch, tmp_path,
                 str(tmp_path / "interrupted.csv"),
             ]
         )
-        == 2
+        == 0
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert_live_scope_rejected(payload, session)
+    assert payload["ok"] is True
+    assert payload["data"]["stopped"] is True
+    assert payload["data"]["stop_reason"] == "interrupted"
+    assert payload["data"]["samples_written"] == 1
 
 
 def test_protection_status_real_reads_flags_then_outputs(monkeypatch, capsys) -> None:
@@ -8575,7 +8636,7 @@ def test_ramp_list_real_forwards_serial_options_to_opener(monkeypatch, capsys) -
     assert opened[0]["serial_local_on_close"] is True
 
 
-def _trigger_snapshot_query_responses() -> dict[str, str]:
+def _trigger_snapshot_query_responses(channel: int = 1) -> dict[str, str]:
     return {
         "DIG:PIN1:FUNC?": "TOUT",
         "DIG:PIN1:POL?": "POS",
@@ -8584,21 +8645,29 @@ def _trigger_snapshot_query_responses() -> dict[str, str]:
         "DIG:PIN3:FUNC?": "DIO",
         "DIG:PIN3:POL?": "POS",
         "DIG:TOUT:BUS?": "0",
-        "TRIG:SOUR? (@1)": "BUS",
-        "TRIG:DEL? (@1)": "+0.00000000E+00",
-        "VOLT:MODE? (@1)": "FIX",
-        "CURR:MODE? (@1)": "FIX",
-        "VOLT:TRIG? (@1)": "+0.00000000E+00",
-        "CURR:TRIG? (@1)": "+2.00000000E-03",
-        "LIST:VOLT? (@1)": "+0.00000000E+00",
-        "LIST:CURR? (@1)": "+2.00000000E-03",
-        "LIST:DWEL? (@1)": "+1.00000000E-02",
-        "LIST:TOUT:BOST? (@1)": "0",
-        "LIST:TOUT:EOST? (@1)": "0",
-        "LIST:COUN? (@1)": "+1",
-        "LIST:STEP? (@1)": "AUTO",
-        "LIST:TERM:LAST? (@1)": "0",
+        f"TRIG:SOUR? (@{channel})": "BUS",
+        f"TRIG:DEL? (@{channel})": "+0.00000000E+00",
+        f"VOLT:MODE? (@{channel})": "FIX",
+        f"CURR:MODE? (@{channel})": "FIX",
+        f"VOLT:TRIG? (@{channel})": "+0.00000000E+00",
+        f"CURR:TRIG? (@{channel})": "+2.00000000E-03",
+        f"LIST:VOLT? (@{channel})": "+0.00000000E+00",
+        f"LIST:CURR? (@{channel})": "+2.00000000E-03",
+        f"LIST:DWEL? (@{channel})": "+1.00000000E-02",
+        f"LIST:TOUT:BOST? (@{channel})": "0",
+        f"LIST:TOUT:EOST? (@{channel})": "0",
+        f"LIST:COUN? (@{channel})": "+1",
+        f"LIST:STEP? (@{channel})": "AUTO",
+        f"LIST:TERM:LAST? (@{channel})": "0",
         "*ESR?": "+1",
+    }
+
+
+def _all_trigger_snapshot_query_responses() -> dict[str, str]:
+    return {
+        **_trigger_snapshot_query_responses(1),
+        **_trigger_snapshot_query_responses(2),
+        **_trigger_snapshot_query_responses(3),
     }
 
 

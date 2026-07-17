@@ -187,10 +187,10 @@ examples use `POWERS_TOOL_RESOURCE` or `POWERS_TOOL_ASRL_RESOURCE`;
 model-specific lab variables such as
 `E36312A_USB_RESOURCE` remain explicit operator inputs.
 
-The current `full` plans also record model-specific standalone validation
-candidates that are implemented but not Product-open:
+The current `full` plans continue to record the commands promoted after the
+independent 2026-07-17 evidence review:
 
-| Target and exact validation connection | Added candidate commands |
+| Target and exact Product connection | Added Product-open commands |
 | --- | --- |
 | E36312A USB or TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor`, `measure-all`, real `restore-from-snapshot`, `trigger-fire`, `trigger-pulse` |
 | EDU36311A USB or TCPIP + system VISA | `output-on`, `log`, resource-backed `doctor` |
@@ -209,7 +209,7 @@ outputs kept OFF and one bounded CH1 ON snapshot restored with
 guards and require best-effort safe-off, final output-state, and error-queue
 evidence even after failure.
 
-The E36312A trigger candidates run only inside the contributor Full suite.
+The E36312A trigger evidence cases remain in the contributor Full suite.
 `trigger-fire` uses a private snapshot/arm helper, invokes the standalone CLI
 command to fire the armed BUS trigger, and restores all three channels
 afterward. `trigger-pulse` pauses before any case-specific VISA or SCPI, then
@@ -223,7 +223,7 @@ A `Yes` records only one observed
 positive pulse; it does not validate pulse width, timing accuracy, or waveform
 quality.
 
-Historical accepted full-suite records exist for these exact connections:
+Historical 2026-07-09 and verified 2026-07-17 full-suite records exist for these exact connections:
 
 - E36312A USB + system VISA
 - E36312A LAN + system VISA
@@ -231,11 +231,10 @@ Historical accepted full-suite records exist for these exact connections:
 - EDU36311A LAN + system VISA
 - E3646A ASRL / RS-232 + system VISA
 
-Those records predate and do not include the newly added validation-candidate
-cases. The expanded suite is implemented and covered by no-hardware and
-PlanOnly checks, but it has not yet been run and accepted as new hardware
-evidence. Execution would still require separate evidence review and Product
-promotion work.
+The historical records remain immutable. The 2026-07-17 records preserve the
+reviewed shareable paths, checksums, and promotion-time provenance without
+making ignored artifacts a runtime dependency. Future wrapper passes still
+require a separate evidence review and policy change before promotion.
 
 Only exact commands in the Core product matrix are opened for normal LIVE use
 on those connections. E3646A live validation remains restricted to ASRL /
@@ -473,12 +472,10 @@ not implement hard decimal-place rejection.
 
 Product LIVE support is command-exact, not feature-family-wide. See the
 [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix).
-`output-on`, `measure-all`, `trigger-pulse`, `trigger-fire`, `log`,
-resource-backed `doctor`, and `restore-from-snapshot` currently have no
-accepted exact product scope and fail after `*IDN?` before command-specific
-SCPI. They remain available where documented for dry-run or simulator
-planning. The supported subset listed above is additionally executable only
-inside the maintained exact full-suite validation workflow. Accepted commands
+The reviewed `output-on`, `measure-all`, `trigger-pulse`, `trigger-fire`, `log`,
+resource-backed `doctor`, and `restore-from-snapshot` scopes are Product-open
+only for the exact model/transport/system-VISA combinations in that matrix.
+Other combinations remain fail-closed. Accepted commands
 such as `set`, `output-off`, `safe-off`, `apply`, `ramp`, and model-appropriate
 read/protection/trigger commands still require an exact accepted
 model/transport/backend scope.
@@ -650,9 +647,9 @@ E3646A product LIVE support is ASRL/RS-232 + system VISA only. Its exact
 product-open model-aware commands are `measure`, `readback`, `read-status`,
 `output-state`, `capabilities`, `set`, `apply`, `output-off`,
 `safe-off`, `cycle-output`, `smoke-output`, `ramp`, `ramp-list`, and
-`sequence`. `identify` and `verify` are diagnostics only. `output-on`,
-protection, trigger, snapshot/restore, completion pulses, and native LIST are
-not product-open.
+`sequence`, `output-on`, and resource-backed `doctor`. `identify` and `verify`
+are diagnostics only. Protection, trigger, snapshot/restore, completion pulses,
+and native LIST are not product-open.
 `ramp-list` is software setpoint stepping, and `sequence` is a step-limited
 software workflow for validated output/read-only steps; neither is native LIST.
 
@@ -817,10 +814,8 @@ Use `--dry-run --model keysight-e36312a` or a deterministic E36312A SIM resource
 preview trigger SCPI without opening VISA. Trigger dry-run and simulator
 behavior is E36312A-only; unsupported models do not expose trigger
 no-hardware behavior. The final `*TRG` may also trigger any already armed
-BUS-triggered instrument behavior. `trigger-pulse` has no accepted product
-LIVE exact scope, so normal Product use remains limited to no-hardware preview.
-The internal E36312A Full suite admits it only as an exact USB/TCPIP + system
-VISA validation candidate. Live trigger behavior
+BUS-triggered instrument behavior. `trigger-pulse` is Product-open only for
+E36312A USB/TCPIP + system VISA after the explicit 2026-07-17 review. Live trigger behavior
 for accepted commands remains IDN-driven; a live `--model` only requires the
 connected IDN model to match and never overrides connected hardware.
 
@@ -844,9 +839,9 @@ would abort it. Trigger Step keeps its existing non-wait behavior. For
 `trigger-fire`, `--channel N` is required only with `--wait-complete`; it
 selects the output channel to abort if the instrument-wide completion wait
 times out or is interrupted. It does not limit the scope of `*TRG` or the
-completion wait. Both `trigger-fire` and `trigger-pulse` remain Product-closed
-because neither has an accepted exact LIVE scope; their internal candidate
-coverage does not promote them automatically.
+completion wait. Both `trigger-fire` and `trigger-pulse` remain closed for any
+other model, transport, or backend. Future wrapper coverage does not promote
+support automatically.
 Canonical Trigger LIST files and flags accept per-step `bost_list` and
 `eost_list` plus `trigger_output_pins` and `trigger_output_polarity`. Enabled
 pulses require explicit output pins. Legacy `--completion-pulse-pins` remains
@@ -872,16 +867,15 @@ EDU36311A with `*IDN?`, then writes only the requested setpoint fields. E3646A
 uses channels 1 and 2 with `INST:NSEL` preselection; E36312A and EDU36311A use
 channels 1, 2, and 3.
 
-Preview the implemented `output-on` behavior without real hardware:
+Preview `output-on` without real hardware:
 
 ```powershell
 uv run powers-tool output-on --dry-run --json --model keysight-e36312a --channel 1
 uv run powers-tool output-on --simulate --json --resource USB0::SIM::E36312A::INSTR --channel all
 ```
 
-`output-on` has no accepted product LIVE exact scope. Normal real execution
-fails after `*IDN?` without setpoint queries or writes. The examples above
-exercise only dry-run/simulator planning. The full-suite validation candidate
+`output-on` is Product-open only for E36312A and EDU36311A USB/TCPIP + system
+VISA and E3646A ASRL + system VISA. Other scopes fail closed. The full suite
 uses bounded 1 V / 0.05 A setpoints, confirms actual ON/OFF readback, and
 requires final safe-off/error-queue cleanup. E3646A uses one global output
 switch case after programming both channels; it is not tested as independent
@@ -1018,10 +1012,10 @@ stays parseable. Every JSON success and error envelope includes
 - Real product execution is limited to the exact commands and connections in
   the [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix).
   Feature-family, dry-run, simulator, or parser support does not widen it.
-- `output-on`, `measure-all`, `trigger-pulse`, `trigger-fire`, `log`,
-  resource-backed `doctor`, and `restore-from-snapshot` are not
-  product-open. Supported commands may be exact full-suite validation
-  candidates, but that internal workflow is not a normal-use bypass.
+- The reviewed `output-on`, `measure-all`, `trigger-pulse`, `trigger-fire`,
+  `log`, resource-backed `doctor`, and `restore-from-snapshot` commands are
+  Product-open only in their documented exact scopes. Wrapper validation is
+  not a promotion mechanism or normal-use bypass.
 - Real `clear`, `error`, and `measure` are safe I/O commands: `clear` sends
   `*CLS` and clears status/error state, while `error` and `measure` only query.
 - `--safety-config` is explicit only and applies local plan validation limits;

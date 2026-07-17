@@ -1698,8 +1698,7 @@ def test_trigger_list_redirected_stdin_fails_before_manual_case() -> None:
     ("connection", "backend"),
     [("ASRL", None), ("USB", "@py"), ("USB", "@ivi")],
 )
-def test_trigger_candidates_wrong_scope_fail_during_plan_only(connection, backend) -> None:
-    before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
+def test_plan_only_has_no_stale_candidate_scope_marking(connection, backend) -> None:
     arguments = [
         "-Target",
         "keysight-e36312a",
@@ -1716,14 +1715,31 @@ def test_trigger_candidates_wrong_scope_fail_during_plan_only(connection, backen
 
     result = _run_live_cli_check(*arguments)
 
-    assert result.returncode != 0
-    report = json.loads(
-        _new_live_check_report(before).read_text(encoding="utf-8")
-    )
-    assert any(
-        "Candidate scope inventory invariant failed" in failure
-        for failure in report["failures"]
-    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(_report_path(result.stdout, result.stderr).read_text(encoding="utf-8"))
+    assert report["plan_only"] is True
+    assert report["live_executed"] is False
+    assert report["failures"] == []
+
+
+def test_future_candidate_inventory_still_requires_full_plan_coverage() -> None:
+    command = r'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+$script:CandidateInventory = '{"keysight-e36312a":{"commands":["future-candidate"],"connections":[["usb","system_visa"]]}}' | ConvertFrom-Json
+$script:TransportScope = "usb"
+$script:BackendArtifact = Get-BackendArtifactFields -Value $null
+$cases = @((New-CommandCase -Name "measure" -Suite "readonly" -Phase "live" -Args @("measure") -LiveHardwareExpected:$true))
+try {
+    Assert-CandidateScopeInventory -Model "keysight-e36312a" -LiveCases $cases -RequireComplete:$true
+    "unexpected-success"
+}
+catch { $_.Exception.Message }
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "missing command uses: future-candidate" in result.stdout
 
 
 def test_trigger_pulse_observation_occurs_only_after_command_and_cleanup(tmp_path) -> None:

@@ -20,6 +20,11 @@ SOURCE_AVAILABILITY_VERIFIED_LOCAL = "verified_local"
 SOURCE_AVAILABILITY_HISTORICAL_REFERENCE_ONLY = "historical_reference_only"
 
 EVIDENCE_KIND_FULL_SUITE = "accepted_historical_full_suite"
+EVIDENCE_KIND_VERIFIED_FULL_SUITE = "accepted_verified_full_suite"
+
+_EVIDENCE_KINDS = frozenset(
+    {EVIDENCE_KIND_FULL_SUITE, EVIDENCE_KIND_VERIFIED_FULL_SUITE}
+)
 
 _SOURCE_AVAILABILITY_STATES = frozenset(
     {
@@ -71,6 +76,15 @@ _E3646A_ACCEPTED_COMMANDS = frozenset(
     }
 )
 
+_E36312A_VERIFIED_COMMANDS = _E36312A_ACCEPTED_COMMANDS | {
+    "doctor", "log", "measure-all", "output-on", "restore-from-snapshot",
+    "trigger-fire", "trigger-pulse",
+}
+_EDU36311A_VERIFIED_COMMANDS = _EDU36311A_ACCEPTED_COMMANDS | {
+    "doctor", "log", "output-on",
+}
+_E3646A_VERIFIED_COMMANDS = _E3646A_ACCEPTED_COMMANDS | {"doctor", "output-on"}
+
 _E36312A_ACCEPTED_FEATURES = {
     "sequence": frozenset(
         (FEATURE_KIND_SEQUENCE_ACTION, value)
@@ -111,6 +125,18 @@ _E3646A_ACCEPTED_FEATURES = {
     ),
 }
 
+_VERIFIED_SEQUENCE_FEATURES = frozenset(
+    (FEATURE_KIND_SEQUENCE_ACTION, value)
+    for value in {"output-off", "output-on", "output-state", "readback", "set"}
+)
+_E36312A_VERIFIED_FEATURES = {
+    "sequence": _VERIFIED_SEQUENCE_FEATURES,
+    "trigger-step": frozenset({(FEATURE_KIND_TRIGGER_SOURCE, "bus")}),
+    "trigger-list": frozenset({(FEATURE_KIND_TRIGGER_SOURCE, "bus")}),
+}
+_EDU36311A_VERIFIED_FEATURES = {"sequence": _VERIFIED_SEQUENCE_FEATURES}
+_E3646A_VERIFIED_FEATURES = {"sequence": _VERIFIED_SEQUENCE_FEATURES}
+
 _ACCEPTED_COMMANDS_BY_MODEL_ID = MappingProxyType(
     {
         "keysight-e36312a": _E36312A_ACCEPTED_COMMANDS,
@@ -140,12 +166,12 @@ class SupportEvidenceRecord:
     artifact_directory: str
     report_path: str
     summary_path: str
-    legacy_model_name: str
-    legacy_backend_interpretation: str
+    legacy_model_name: str | None
+    legacy_backend_interpretation: str | None
     artifact_schema_version: str | None
     report_sha256: str | None
     source_availability: str
-    migration_note: str
+    migration_note: str | None
     accepted_commands: frozenset[str]
     accepted_features_by_command: Mapping[str, frozenset[tuple[str, str]]]
 
@@ -189,6 +215,41 @@ def _historical_record(
     )
 
 
+def _verified_record(
+    evidence_id: str,
+    model_id: str,
+    transport_scope: str,
+    artifact_directory: str,
+    report_sha256: str,
+    accepted_commands: frozenset[str],
+    accepted_features_by_command: Mapping[str, frozenset[tuple[str, str]]],
+) -> SupportEvidenceRecord:
+    return SupportEvidenceRecord(
+        evidence_id=evidence_id,
+        model_id=model_id,
+        transport_scope=transport_scope,
+        backend_scope="system_visa",
+        evidence_date="2026-07-17",
+        evidence_kind=EVIDENCE_KIND_VERIFIED_FULL_SUITE,
+        artifact_directory=artifact_directory,
+        report_path=f"{artifact_directory}/report.json",
+        summary_path=f"{artifact_directory}/summary.md",
+        legacy_model_name=None,
+        legacy_backend_interpretation=None,
+        artifact_schema_version="2.0",
+        report_sha256=report_sha256,
+        source_availability=SOURCE_AVAILABILITY_VERIFIED_LOCAL,
+        migration_note=None,
+        accepted_commands=frozenset(accepted_commands),
+        accepted_features_by_command=MappingProxyType(
+            {
+                command: frozenset(features)
+                for command, features in accepted_features_by_command.items()
+            }
+        ),
+    )
+
+
 SUPPORT_EVIDENCE_RECORDS = (
     _historical_record(
         "keysight-e36312a-usb-system-visa-20260709-full",
@@ -225,6 +286,51 @@ SUPPORT_EVIDENCE_RECORDS = (
         "E3646A",
         ".tmp_tests/live_cli_check/20260709_151205_E3646A_ASRL_full",
     ),
+    _verified_record(
+        "keysight-e36312a-usb-system-visa-20260717-full",
+        "keysight-e36312a",
+        "usb",
+        ".tmp_tests/live_cli_check/20260717_111636_keysight-e36312a_USB_full/shareable",
+        "784087da966a141aab0c859580f0e85b5856f7b3cf319d889790b6f1751b6048",
+        _E36312A_VERIFIED_COMMANDS,
+        _E36312A_VERIFIED_FEATURES,
+    ),
+    _verified_record(
+        "keysight-e36312a-tcpip-system-visa-20260717-full",
+        "keysight-e36312a",
+        "tcpip",
+        ".tmp_tests/live_cli_check/20260717_110602_keysight-e36312a_LAN_full/shareable",
+        "17c4f2d5c5a7e618f0d216cfab1c38b769b123a1fc157b4a0ee9e3acac5c4927",
+        _E36312A_VERIFIED_COMMANDS,
+        _E36312A_VERIFIED_FEATURES,
+    ),
+    _verified_record(
+        "keysight-edu36311a-usb-system-visa-20260717-full",
+        "keysight-edu36311a",
+        "usb",
+        ".tmp_tests/live_cli_check/20260717_104734_keysight-edu36311a_USB_full/shareable",
+        "b613f9eb40cb08df805ed00cb6668c79ef41b5225526874e78daf1a3f5d77b66",
+        _EDU36311A_VERIFIED_COMMANDS,
+        _EDU36311A_VERIFIED_FEATURES,
+    ),
+    _verified_record(
+        "keysight-edu36311a-tcpip-system-visa-20260717-full",
+        "keysight-edu36311a",
+        "tcpip",
+        ".tmp_tests/live_cli_check/20260717_104008_keysight-edu36311a_LAN_full/shareable",
+        "591f4415ebcc5f63d4f42b4a57a81ca9be3586854a9f1fe453c59802591e9ef9",
+        _EDU36311A_VERIFIED_COMMANDS,
+        _EDU36311A_VERIFIED_FEATURES,
+    ),
+    _verified_record(
+        "keysight-e3646a-asrl-system-visa-20260717-full",
+        "keysight-e3646a",
+        "asrl",
+        ".tmp_tests/live_cli_check/20260717_112310_keysight-e3646a_ASRL_full/shareable",
+        "e9df449f532f6759161eeb1cfcf643c700d937ffc3078d8515280a267c3ae9e3",
+        _E3646A_VERIFIED_COMMANDS,
+        _E3646A_VERIFIED_FEATURES,
+    ),
 )
 
 SUPPORT_EVIDENCE_MANIFEST = SupportEvidenceManifest(
@@ -260,10 +366,18 @@ def validate_support_evidence_metadata(
             raise ValueError(f"invalid evidence transport: {record.transport_scope!r}")
         if record.backend_scope not in {"system_visa", "pyvisa_py", "custom_visa"}:
             raise ValueError(f"invalid evidence backend: {record.backend_scope!r}")
+        if record.evidence_kind not in _EVIDENCE_KINDS:
+            raise ValueError(f"invalid evidence kind: {record.evidence_kind!r}")
+        if not isinstance(record.evidence_date, str) or not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}", record.evidence_date
+        ):
+            raise ValueError(f"invalid evidence date: {record.evidence_id}")
         if record.source_availability not in _SOURCE_AVAILABILITY_STATES:
             raise ValueError(f"invalid evidence source availability: {record.source_availability!r}")
         if record.source_availability == SOURCE_AVAILABILITY_VERIFIED_LOCAL:
-            if record.report_sha256 is None or not _SHA256_PATTERN.fullmatch(record.report_sha256):
+            if not isinstance(record.report_sha256, str) or not _SHA256_PATTERN.fullmatch(
+                record.report_sha256
+            ):
                 raise ValueError(f"verified-local evidence requires SHA-256: {record.evidence_id}")
         elif record.report_sha256 is not None:
             raise ValueError(
@@ -274,8 +388,35 @@ def validate_support_evidence_metadata(
             or not re.fullmatch(r"[1-9]\d*\.\d+", record.artifact_schema_version)
         ):
             raise ValueError(f"invalid artifact schema version: {record.evidence_id}")
-        if not record.migration_note.strip():
-            raise ValueError(f"evidence migration note is required: {record.evidence_id}")
+        if record.evidence_kind == EVIDENCE_KIND_FULL_SUITE:
+            if record.evidence_date != "2026-07-09":
+                raise ValueError(f"historical evidence date changed: {record.evidence_id}")
+            if record.artifact_schema_version != "1.0":
+                raise ValueError(f"historical evidence schema changed: {record.evidence_id}")
+            if record.source_availability != SOURCE_AVAILABILITY_HISTORICAL_REFERENCE_ONLY:
+                raise ValueError(f"historical evidence source state changed: {record.evidence_id}")
+            if not isinstance(record.legacy_model_name, str) or not record.legacy_model_name:
+                raise ValueError(f"historical evidence model name is required: {record.evidence_id}")
+            if not isinstance(record.legacy_backend_interpretation, str) or not record.legacy_backend_interpretation:
+                raise ValueError(f"historical backend interpretation is required: {record.evidence_id}")
+            if not isinstance(record.migration_note, str) or not record.migration_note.strip():
+                raise ValueError(f"evidence migration note is required: {record.evidence_id}")
+        else:
+            if record.evidence_date != "2026-07-17":
+                raise ValueError(f"verified evidence date mismatch: {record.evidence_id}")
+            if record.artifact_schema_version != "2.0":
+                raise ValueError(f"verified evidence schema mismatch: {record.evidence_id}")
+            if record.source_availability != SOURCE_AVAILABILITY_VERIFIED_LOCAL:
+                raise ValueError(f"verified evidence source state mismatch: {record.evidence_id}")
+            if any(
+                value is not None
+                for value in (
+                    record.legacy_model_name,
+                    record.legacy_backend_interpretation,
+                    record.migration_note,
+                )
+            ):
+                raise ValueError(f"verified evidence cannot claim historical metadata: {record.evidence_id}")
         _validate_repository_relative_path(record.artifact_directory, record.evidence_id)
         _validate_repository_relative_path(record.report_path, record.evidence_id)
         _validate_repository_relative_path(record.summary_path, record.evidence_id)
@@ -348,6 +489,8 @@ def _validate_accepted_inventory(record: SupportEvidenceRecord) -> None:
 
 
 def _validate_repository_relative_path(value: str, evidence_id: str) -> None:
+    if not isinstance(value, str):
+        raise ValueError(f"evidence path must be repository-relative: {evidence_id}")
     path = PurePosixPath(value)
     if (
         not value.startswith(".tmp_tests/live_cli_check/")
@@ -369,6 +512,8 @@ def _validate_non_sensitive_record(record: SupportEvidenceRecord) -> None:
         record.migration_note,
     )
     for value in values:
+        if value is None:
+            continue
         if "::" in value or _PRIVATE_IPV4_PATTERN.search(value):
             raise ValueError(f"evidence metadata contains private resource data: {record.evidence_id}")
 

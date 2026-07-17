@@ -98,7 +98,7 @@ def _write_snapshot(
     )
 
 
-def test_output_on_policy_rejects_before_confirm_threshold_readback(monkeypatch, tmp_path, capsys):
+def test_output_on_product_scope_still_requires_threshold_confirmation(monkeypatch, tmp_path, capsys):
     config = tmp_path / "safety.toml"
     config.write_text(
         """
@@ -130,8 +130,8 @@ allowed_channels = [1]
     )
 
     payload = _payload(capsys)
-    assert payload["error"]["code"] == "unsupported_live_scope"
-    assert session.queries == ["*IDN?"]
+    assert payload["error"]["code"] == "confirmation_required"
+    assert session.queries == ["*IDN?", "VOLT? (@1)", "CURR? (@1)"]
     assert session.writes == []
     assert session.closed is True
 
@@ -372,7 +372,7 @@ def test_restore_from_snapshot_dry_run_writes_plan_json(tmp_path, capsys):
     assert saved["resource"] == "USB0::FAKE::E36312A::INSTR"
 
 
-def test_restore_from_snapshot_policy_rejects_before_replay(monkeypatch, tmp_path, capsys):
+def test_restore_from_snapshot_product_scope_replays_snapshot(monkeypatch, tmp_path, capsys):
     snapshot = tmp_path / "snapshot.json"
     _write_snapshot(snapshot, enabled=True)
     session = FakeSession()
@@ -393,12 +393,12 @@ def test_restore_from_snapshot_policy_rejects_before_replay(monkeypatch, tmp_pat
                 "--restore-output-state",
             ]
         )
-        == 2
+        == 0
     )
 
-    assert _payload(capsys)["error"]["code"] == "unsupported_live_scope"
-    assert session.queries == ["*IDN?"]
-    assert session.writes == []
+    assert _payload(capsys)["ok"] is True
+    assert session.queries == ["*IDN?", "SYST:ERR?"]
+    assert "OUTP ON,(@1)" in session.writes
     assert session.closed is True
 
 

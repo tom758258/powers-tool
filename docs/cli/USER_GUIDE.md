@@ -115,10 +115,11 @@ Please note:
 E3646A product LIVE support is ASRL/RS-232 + system VISA only. Its exact
 product-open model-aware commands are `measure`, `readback`, `read-status`,
 `output-state`, `capabilities`, `set`, `apply`, `output-off`,
-`safe-off`, `cycle-output`, `smoke-output`, `ramp`, `ramp-list`, and
-`sequence`. `identify` and `verify` are explicit diagnostics and do not
-open another command. `output-on`, protection, trigger, snapshot/restore,
-completion pulses, and native LIST are not product-open for E3646A.
+`safe-off`, `cycle-output`, `smoke-output`, `ramp`, `ramp-list`, `sequence`,
+`output-on`, and resource-backed `doctor`. `identify` and `verify` are explicit
+diagnostics and do not open another command. Protection, trigger,
+snapshot/restore, completion pulses, and native LIST are not product-open for
+E3646A.
 
 E3646A uses `INST:NSEL` channel preselection for setpoint writes and readbacks.
 `OUTP ON/OFF` is a global output enable/disable on this model, so output
@@ -233,7 +234,7 @@ against an unknown resource.
 | `protection-status` | Read protection state. |
 | `validate-readonly` | Run a read-only diagnostic pass. |
 | `set` | Set voltage/current without enabling output. |
-| `output-on` / `output-off` | Preview output enable without hardware; disable output on an accepted exact LIVE scope. |
+| `output-on` / `output-off` | Enable or disable output on an accepted exact LIVE scope; dry-run and simulator previews remain available. |
 | `safe-off` | Turn output off using the supported safety path. |
 
 ## No-Hardware Checks

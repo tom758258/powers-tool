@@ -331,6 +331,12 @@ class FakeWorkerLiveSession:
             "*IDN?": "KEYSIGHT,E36312A,SERIAL0000,1.0",
             "MEAS:VOLT?": "1.0",
             "MEAS:CURR?": "0.05",
+            "MEAS:VOLT? (@1)": "1.0",
+            "MEAS:CURR? (@1)": "0.05",
+            "MEAS:VOLT? (@2)": "2.0",
+            "MEAS:CURR? (@2)": "0.10",
+            "MEAS:VOLT? (@3)": "3.0",
+            "MEAS:CURR? (@3)": "0.15",
         }[command]
 
     def write(self, command: str) -> None:
@@ -351,13 +357,37 @@ def test_worker_live_requests_use_core_exact_scope_and_policy_error_code(tmp_pat
     assert accepted_session.queries == ["*IDN?", "MEAS:VOLT?", "MEAS:CURR?"]
     assert accepted_session.closed is True
 
+    promoted_session = FakeWorkerLiveSession()
+    monkeypatch.setattr(worker_mod, "open_resource", lambda *args, **kwargs: promoted_session)
+
+    promoted = _run_worker_job_for_test(
+        tmp_path,
+        command="measure-all",
+        arguments={},
+    )
+
+    assert promoted["ok"] is True
+    assert len(promoted["data"]["channels"]) == 3
+    assert promoted_session.queries[0] == "*IDN?"
+    assert promoted_session.closed is True
+
     rejected_session = FakeWorkerLiveSession()
     monkeypatch.setattr(worker_mod, "open_resource", lambda *args, **kwargs: rejected_session)
-
     rejected = _run_worker_job_for_test(
         tmp_path,
         command="measure-all",
         arguments={},
+        config={
+            "id": "test",
+            "type": "power",
+            "enabled": True,
+            "mode": "live",
+            "control_host": "127.0.0.1",
+            "control_port": 0,
+            "artifacts_dir": str(tmp_path),
+            "events_jsonl": None,
+            "settings": {"resource": "ASRL1::INSTR"},
+        },
     )
 
     assert rejected["ok"] is False

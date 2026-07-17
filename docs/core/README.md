@@ -34,7 +34,10 @@ physical model or live expected model and is absent from physical registries.
 
 ## Live Support Policy Modes
 
-Internal candidate execution is intentionally small: the contributor-validation policy mode admits only commands and exact connections returned by Core `internal_validation_candidate_inventory()`. Product mode remains fail-closed, and this internal admission does not mutate the Product support registry or capabilities.
+The contributor-validation policy mode admits only registered pending scopes
+and commands returned by Core `internal_validation_candidate_inventory()`.
+That candidate inventory is currently empty after the 2026-07-17 promotion.
+Product mode remains fail-closed, and validation never mutates Product metadata.
 
 `RuntimeOptions.support_policy_mode` defaults to `product`. After Core reads
 `*IDN?`, it resolves the reported manufacturer plus model to a canonical
@@ -188,14 +191,13 @@ it does not validate other connection types or every factory instrument
 function. Commands, state-changing behavior, and report locations are
 documented in the [CLI README scripted validation section](../cli/README.md#scripted-validation).
 
-The current exact full-suite candidates add E36312A `output-on`, `log`,
+The independently reviewed 2026-07-17 full-suite evidence opens E36312A `output-on`, `log`,
 resource-backed `doctor`, `measure-all`, and real `restore-from-snapshot` on
 USB/TCPIP + system VISA; EDU36311A `output-on`, `log`, and resource-backed
 `doctor` on USB/TCPIP + system VISA; and E3646A `output-on` plus
-resource-backed `doctor` on ASRL + system VISA. They remain absent from
-accepted Product command inventories and public exact scopes. Historical
-evidence does not cover the new standalone cases, and passing future artifacts
-does not promote them automatically.
+resource-backed `doctor` on ASRL + system VISA. These exact scopes are now in
+the accepted Product command inventories. Historical evidence remains
+unchanged, and passing future wrapper artifacts does not promote them automatically.
 
 ## Docs
 
@@ -225,30 +227,28 @@ the selected channels, and the WebUI live-panel read returns parsed model
 identity plus channel-local OVP/OCP trip state.
 
 E36312A native trigger/LIST behavior has no-hardware coverage, while product
-LIVE execution is limited to exact commands with accepted scopes. In
-particular, `trigger-fire` and `trigger-pulse` are not product-open. Native
+LIVE execution is limited to exact commands with accepted scopes. Direct
+`trigger-fire` and `trigger-pulse` are Product-open only for E36312A USB/TCPIP
+with system VISA. Native
 LIST execution belongs only to `trigger-list`; Ramp always uses software
 setpoint steps. Unsupported models, including EDU36311A, do not expose trigger
 dry-run or simulator behavior.
 
-Direct `trigger-pulse` and `trigger-fire` remain Product-closed but are internal
-E36312A validation candidates on USB or TCPIP with system VISA. The expanded
-Full suite requires external operator observation for `trigger-pulse`; passing
-it does not automatically promote either command. Existing Product-open
+The expanded Full suite requires external operator observation for
+`trigger-pulse`; passing a wrapper run still does not automatically promote a
+command. Existing Product-open
 E36312A `trigger-status`, `trigger-step`, `trigger-list`, and `trigger-abort`
 scopes are unchanged.
 
-Historical accepted full-suite records exist for E36312A USB, E36312A LAN,
-EDU36311A USB, EDU36311A LAN, and E3646A ASRL / RS-232. They predate and do
-not include the newly added validation-candidate cases. The expanded suite
-has no newly run or accepted hardware evidence yet and still requires later
-evidence review and Product-promotion work. E3646A USB and LAN remain outside
-the current scope.
+Historical 2026-07-09 and verified 2026-07-17 full-suite records exist for
+E36312A USB/LAN, EDU36311A USB/LAN, and E3646A ASRL / RS-232. Current records
+hold promotion-time paths and checksums without making ignored artifacts a
+runtime dependency. E3646A USB and LAN remain outside the current scope.
 
 E3646A product LIVE support is ASRL / RS-232 + system VISA and only the exact
-commands listed in [Supported Models](supported-models.md). A read-only or
-output feature family does not open every command; for example,
-`output-on` is not product-open. Software `ramp-list` and step-limited
+commands listed in [Supported Models](supported-models.md), including
+`output-on` and resource-backed `doctor`. A feature family does not open other
+commands. Software `ramp-list` and step-limited
 `sequence` are not native LIST support.
 
 For output workflows, `voltage` is the output voltage setpoint and `current`

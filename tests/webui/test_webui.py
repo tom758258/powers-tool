@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
-import sys
 import threading
 import time
 from pathlib import Path
@@ -164,11 +164,23 @@ def extract_js_function(app_js: str, function_name: str) -> str:
     raise AssertionError(f"Could not extract function {function_name}")
 
 
-# Guard test: Ensure webui does not import powers_tool_cli
+# Guard test: Ensure WebUI source does not depend on the CLI adapter.
 def test_guard_no_cli_import():
-    assert "powers_tool_cli" not in sys.modules
-    from powers_tool_webui import app, jobs, commands, server
-    assert "powers_tool_cli" not in sys.modules
+    package_root = Path(__file__).parents[2] / "src" / "powers_tool_webui"
+    for source_path in package_root.rglob("*.py"):
+        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+        imported = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+        imported.update(
+            node.module or ""
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+        )
+        assert not any(name == "powers_tool_cli" or name.startswith("powers_tool_cli.") for name in imported)
 
 
 def test_import_smoke():
@@ -2136,7 +2148,7 @@ def test_webui_resource_capabilities_enforces_exact_scope(
     assert result["live_support"]["backend_scope"] == "system_visa"
     assert result["live_support"]["policy_mode"] == "product"
     assert result["live_support"]["commands"]["set"]["product_open"] is True
-    assert result["live_support"]["commands"]["output-on"]["product_open"] is False
+    assert result["live_support"]["commands"]["output-on"]["product_open"] is True
     sequence_features = result["live_support"]["commands"]["sequence"]["features"]
     assert {feature["feature_kind"] for feature in sequence_features} == {
         "sequence_action"
