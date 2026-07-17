@@ -1,4 +1,8 @@
 const state = {
+  executionMode: "real",
+  executionModeTransition: false,
+  realIdentityCache: { expectedModelId: "", resource: "", serial: {} },
+  realWriteAuthorization: null,
   commands: {},
   commandSupportByModel: {},
   liveSupportByModel: {},
@@ -9,6 +13,7 @@ const state = {
   electricalRatingsByModel: {},
   setpointRangesByModel: {},
   physicalModels: [],
+  planningProfiles: {},
   resourceModels: {},
   resourceDisplayModels: {},
   resourceChannelModels: {},
@@ -274,6 +279,7 @@ function bind() {
   document.getElementById("scan").addEventListener("click", scanResources);
   document.getElementById("resource-select").addEventListener("change", syncSelectedResource);
   const syncTypedResource = () => {
+    clearRealWriteAuthorization();
     updateDeviceResourceSummary();
     syncBasicFromLivePanel(state.livePanel);
   };
@@ -281,6 +287,11 @@ function bind() {
   document.getElementById("resource").addEventListener("change", syncTypedResource);
   document.getElementById("resource-select").addEventListener("change", updateDeviceResourceSummary);
   document.getElementById("expected-model-id")?.addEventListener("change", handleExpectedModelChanged);
+  document.querySelectorAll('input[name="execution-mode"]').forEach((radio) => radio.addEventListener("change", handleExecutionModeChange));
+  document.getElementById("real-write-enabled")?.addEventListener("change", () => {
+    state.realWriteAuthorization = document.getElementById("real-write-enabled").checked ? realAuthorizationContext() : null;
+    updateExecutionModeUi();
+  });
   document.getElementById("device-options-toggle").addEventListener("click", (event) => {
     event.stopPropagation();
     setDeviceOptionsExpanded(document.getElementById("device-options-toggle").getAttribute("aria-expanded") !== "true");
@@ -322,6 +333,7 @@ function bind() {
   setDeviceOptionsExpanded(false);
   setDeviceResourceExpanded(true);
   updateDeviceResourceSummary();
+  updateExecutionModeUi();
 }
 
 function setDeviceOptionsExpanded(expanded) {
@@ -383,7 +395,141 @@ function expectedModelSummary() {
 }
 
 function selectedExpectedModel() {
-  return valueOrNull("expected-model-id");
+  return state.executionMode === "real" ? valueOrNull("expected-model-id") : null;
+}
+
+function selectedPlanningIdentity() {
+  return state.executionMode === "real" ? null : valueOrNull("expected-model-id");
+}
+
+function isNoHardwareMode() {
+  return state.executionMode === "simulate" || state.executionMode === "dry-run";
+}
+
+function realAuthorizationContext() {
+  return JSON.stringify({
+    resource: valueOrNull("resource"),
+    expected_model_id: state.realIdentityCache.expectedModelId || valueOrNull("expected-model-id"),
+    connected_model_id: detectedCommandModelForResource(valueOrNull("resource"))
+  });
+}
+
+function clearRealWriteAuthorization() {
+  state.realWriteAuthorization = null;
+  const checkbox = document.getElementById("real-write-enabled");
+  if (checkbox) checkbox.checked = false;
+}
+
+function hasRealWriteAuthorization() {
+  return state.executionMode === "real" && state.realWriteAuthorization === realAuthorizationContext();
+}
+
+function updateExecutionModeUi() {
+  const noHardware = isNoHardwareMode();
+  const jobBusy = state.executionModeTransition || state.workflowControl.phase !== "idle" || Object.values(state.basicActionStates).some((action) => ["pending", "submitting", "active", "stopping"].includes(action.status)) || state.jobs.some((job) => ["accepted", "started", "progress", "running", "cancel_requested"].includes(job.status));
+  document.querySelectorAll('input[name="execution-mode"]').forEach((radio) => {
+    radio.disabled = jobBusy;
+    radio.title = jobBusy ? "Execution mode cannot change while a job is submitting, active, or stopping." : "";
+  });
+  const badge = document.getElementById("execution-mode-badge");
+  const checkbox = document.getElementById("real-write-enabled");
+  const help = document.getElementById("execution-mode-help");
+  const label = document.getElementById("identity-model-label");
+  const resourceControls = ["resource", "resource-select", "scan", "live-start", "serial-baud-rate", "serial-data-bits", "serial-parity", "serial-stop-bits", "serial-flow-control", "serial-read-termination", "serial-write-termination", "serial-remote", "serial-local-on-close"];
+  resourceControls.forEach((id) => {
+    const control = document.getElementById(id);
+    if (!control) return;
+    control.disabled = noHardware;
+    control.classList.toggle("no-hardware-control", noHardware);
+  });
+  if (checkbox) {
+    checkbox.disabled = noHardware || !valueOrNull("resource");
+    checkbox.parentElement.hidden = noHardware;
+  }
+  if (label) label.firstChild.textContent = noHardware ? (state.executionMode === "simulate" ? "Simulation model" : "Planning target") : "Expected model";
+  if (help) help.textContent = noHardware
+    ? (state.executionMode === "simulate" ? "Select a canonical physical model. Simulation never opens VISA hardware." : "Select a physical model or a planning profile. Dry-run never opens VISA hardware.")
+    : "Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one.";
+  if (badge) {
+    badge.className = "execution-mode-badge";
+    if (state.executionMode === "simulate") { badge.textContent = "SIMULATE"; badge.classList.add("simulate"); }
+    else if (state.executionMode === "dry-run") { badge.textContent = "DRY-RUN"; badge.classList.add("dry-run"); }
+    else if (hasRealWriteAuthorization()) { badge.textContent = "REAL · WRITES ENABLED"; badge.classList.add("real-enabled"); }
+    else badge.textContent = "REAL · WRITES LOCKED";
+  }
+  populateIdentitySelector();
+  updateDeviceResourceSummary();
+  renderCommands();
+  syncBasicFromLivePanel(state.livePanel);
+}
+
+function populateIdentitySelector() {
+  const select = document.getElementById("expected-model-id");
+  if (!select || !state.physicalModels.length) return;
+  const retained = select.value;
+  select.replaceChildren();
+  if (state.executionMode === "real") {
+    select.add(new Option("Auto-detect", ""));
+    state.physicalModels.forEach((model) => select.add(new Option(model.display_name || model.model_name, model.model_id)));
+    select.value = state.realIdentityCache.expectedModelId || retained;
+  } else if (state.executionMode === "simulate") {
+    select.add(new Option("Select simulation model", ""));
+    state.physicalModels.forEach((model) => select.add(new Option(model.display_name || model.model_name, model.model_id)));
+    select.value = retained && state.physicalModels.some((model) => model.model_id === retained) ? retained : "";
+  } else {
+    const physical = document.createElement("optgroup"); physical.label = "Physical models";
+    state.physicalModels.forEach((model) => physical.append(new Option(model.display_name || model.model_name, model.model_id)));
+    select.append(physical);
+    const profiles = document.createElement("optgroup"); profiles.label = "Planning profiles";
+    Object.values(state.planningProfiles || {}).forEach((profile) => {
+      const profileId = profile.profile_id || profile.planning_profile_id;
+      if (profileId) profiles.append(new Option(profile.display_name || profile.model_name || profileId, `profile:${profileId}`));
+    });
+    select.append(profiles);
+    select.value = retained;
+  }
+}
+
+async function handleExecutionModeChange(event) {
+  const requested = event.target.value;
+  if (requested === state.executionMode || state.executionModeTransition) return;
+  event.target.checked = false;
+  document.querySelector(`input[name="execution-mode"][value="${state.executionMode}"]`).checked = true;
+  state.executionModeTransition = true;
+  document.querySelectorAll('input[name="execution-mode"]').forEach((radio) => radio.disabled = true);
+  try {
+    await stopRealLiveJobsAndWait();
+    if (state.executionMode === "real") {
+      state.realIdentityCache.expectedModelId = valueOrNull("expected-model-id") || "";
+      clearRealWriteAuthorization();
+    }
+    state.executionMode = requested;
+    if (requested === "real") clearRealWriteAuthorization();
+    document.querySelector(`input[name="execution-mode"][value="${requested}"]`).checked = true;
+    renderBlankLivePanel("ok", "Execution mode changed.");
+  } catch (error) {
+    renderClientResult("Execution mode", "failed", error.message || String(error), { error: "Mode change cancelled" });
+  } finally {
+    state.executionModeTransition = false;
+    updateExecutionModeUi();
+  }
+}
+
+async function stopRealLiveJobsAndWait() {
+  const jobs = [["liveJobId", "liveEvents"], ["previewJobId", "previewEvents"]];
+  for (const [idKey, eventKey] of jobs) {
+    const jobId = state[idKey];
+    closeEventSource(eventKey);
+    if (!jobId) continue;
+    await fetchJson(`/api/live/${jobId}/stop`, { method: "POST" });
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const job = await fetchJson(`/api/jobs/${jobId}`);
+      if (["cancelled", "finished", "failed"].includes(job.status)) { state[idKey] = null; break; }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (state[idKey] === jobId) throw new Error("Live Data did not reach a terminal state within 15 seconds; remaining in Real mode.");
+  }
 }
 
 function selectedExpectedModelLabel() {
@@ -418,12 +564,20 @@ function detectedChannelModelForResource(resource) {
 }
 
 function selectedCommandModel() {
+  if (isNoHardwareMode()) {
+    const identity = selectedPlanningIdentity();
+    return identity?.startsWith("profile:") ? null : identity;
+  }
   const expected = selectedExpectedModel();
   if (expected && state.commandSupportByModel?.[expected]) return expected;
   return detectedCommandModelForResource(valueOrNull("resource"));
 }
 
 function selectedChannelModel() {
+  if (isNoHardwareMode()) {
+    const identity = selectedPlanningIdentity();
+    return identity?.startsWith("profile:") ? null : identity;
+  }
   const expected = selectedExpectedModel();
   if (expected && state.channelCapabilitiesByModel?.[expected]) return expected;
   return detectedChannelModelForResource(valueOrNull("resource"));
@@ -450,7 +604,8 @@ function e3646aGlobalOutputCapability() {
 }
 
 function basicOutputPresentation() {
-  if (actualCurrentResourceModel() !== E3646A_MODEL_ID) {
+  const model = isNoHardwareMode() ? selectedPlanningIdentity() : actualCurrentResourceModel();
+  if (model !== E3646A_MODEL_ID) {
     return { mode: "ordinary", capability: null };
   }
   const capability = e3646aGlobalOutputCapability();
@@ -466,6 +621,10 @@ function selectedElectricalRatingModel() {
 }
 
 function handleExpectedModelChanged() {
+  if (state.executionMode === "real") {
+    state.realIdentityCache.expectedModelId = valueOrNull("expected-model-id") || "";
+    clearRealWriteAuthorization();
+  }
   updateDeviceResourceSummary();
   refreshBasicInputConstraints();
   syncBasicFromLivePanel(state.livePanel);
@@ -549,24 +708,14 @@ async function loadCommands() {
   state.electricalRatingsByModel = payload.electrical_ratings_by_model_id || {};
   state.setpointRangesByModel = payload.setpoint_ranges_by_model_id || {};
   state.physicalModels = Array.isArray(payload.physical_models) ? payload.physical_models : [];
-  renderExpectedModelOptions();
+  state.planningProfiles = payload.planning_profiles || {};
+  populateIdentitySelector();
   refreshBasicInputConstraints();
   renderCommands();
 }
 
 function renderExpectedModelOptions() {
-  const select = document.getElementById("expected-model-id");
-  if (!select) return;
-  const selected = select.value;
-  select.replaceChildren(new Option("Auto-detect", ""));
-  state.physicalModels.forEach((model) => {
-    if (!model || typeof model.model_id !== "string") return;
-    const label = model.display_name || model.model_name || model.model_id;
-    select.appendChild(new Option(`Require ${label}`, model.model_id));
-  });
-  if ([...select.options].some((option) => option.value === selected)) {
-    select.value = selected;
-  }
+  populateIdentitySelector();
 }
 
 function renderCommands() {
@@ -2164,6 +2313,10 @@ function sequenceDocumentFromEditor() {
 }
 
 async function scanResources() {
+  if (isNoHardwareMode()) {
+    renderClientResult("Scan Device", "failed", "Scan Device is available only in Real hardware mode.", { error: "Real mode required" });
+    return;
+  }
   try {
     const payload = {
       command: "list-resources",
@@ -2219,7 +2372,7 @@ async function runBasicOutput(channel) {
   }
   if (basicOutputPresentation().mode !== "ordinary") return;
   if (basicOutputLockAction(channel)) return;
-  const current = basicLiveChannel(channel)?.output_enabled === true;
+  const current = state.executionMode === "real" && basicLiveChannel(channel)?.output_enabled === true;
   const command = current ? "output-off" : "output-on";
   const desiredOutput = !current;
   await submitBasicJob(command, { channel }, basicActionKey("output", channel), `Basic CH${channel} ${desiredOutput ? "ON" : "OFF"}`, { desiredOutput });
@@ -2235,7 +2388,7 @@ async function runBasicOutputAll() {
   if (!supported.length) return;
   const globalState = presentation.mode === "e3646a-global" ? e3646aGlobalOutputState(presentation) : null;
   if (globalState === "unknown") return;
-  const allOn = globalState ? globalState === "on" : basicAllOutputsOn();
+  const allOn = state.executionMode === "real" && (globalState ? globalState === "on" : basicAllOutputsOn());
   const command = allOn ? "output-off" : "output-on";
   const desiredOutput = !allOn;
   await submitBasicJob(command, { channel: "all" }, basicActionKey("output", "all"), `Basic All ${desiredOutput ? "ON" : "OFF"}`, { desiredOutput });
@@ -2255,14 +2408,11 @@ async function submitBasicJob(command, parameters, actionKey, label, actionState
     return;
   }
 
-  const payload = {
-    command,
-    runtime: {
-      ...runtimePayload(),
-      confirm: true
-    },
-    parameters
-  };
+  const payload = { command, runtime: runtimePayload(), parameters };
+  if (meta.requires_confirm && state.executionMode === "real" && !payload.runtime.confirm) {
+    failBasicAction(actionKey, "Authorization required", "Enable real hardware writes for this resource before running this command.", { command, parameters, label });
+    return;
+  }
 
   setBasicActionState(actionKey, "pending", "Basic command running...", { command, parameters, ...actionState });
   try {
@@ -2382,10 +2532,10 @@ async function runSelected() {
     });
     return;
   }
-  if (meta.requires_confirm && !payload.runtime.confirm) {
-    renderClientResult(state.selected, "failed", "This command affects real hardware output. Check confirmation before running.", {
+  if (meta.requires_confirm && state.executionMode === "real" && !payload.runtime.confirm) {
+    renderClientResult(state.selected, "failed", "Enable real hardware writes for this resource before running.", {
       error: "Confirmation required",
-      detail: "This command affects real hardware output. Check confirmation before running.",
+      detail: "Enable real hardware writes for this resource before running.",
       command: state.selected,
       runtime: { confirm: false }
     });
@@ -2500,6 +2650,19 @@ async function reconcileWorkflowJob(jobId, originalError = null) {
 }
 
 function runtimePayload() {
+  if (state.executionMode === "simulate") {
+    const planningModelId = selectedPlanningIdentity();
+    return planningModelId
+      ? { simulate: true, dry_run: false, planning_model_id: planningModelId, confirm: false }
+      : { simulate: true, dry_run: false, confirm: false };
+  }
+  if (state.executionMode === "dry-run") {
+    const identity = selectedPlanningIdentity();
+    const runtime = { simulate: false, dry_run: true, confirm: false };
+    if (identity?.startsWith("profile:")) runtime.planning_profile_id = identity.slice("profile:".length);
+    else if (identity) runtime.planning_model_id = identity;
+    return runtime;
+  }
   const runtime = {
     resource: valueOrNull("resource"),
     backend: null,
@@ -2507,7 +2670,7 @@ function runtimePayload() {
     safety_config: null,
     simulate: false,
     dry_run: false,
-    confirm: document.getElementById("confirm").checked
+    confirm: hasRealWriteAuthorization()
   };
   const serialOptions = serialOptionsPayload();
   const expectedModelId = valueOrNull("expected-model-id");
@@ -3171,6 +3334,7 @@ async function syncSelectedResource() {
   const previous = input.value;
   const value = document.getElementById("resource-select").value;
   input.value = value;
+  if (value !== previous) clearRealWriteAuthorization();
   updateDeviceResourceSummary();
   refreshBasicInputConstraints();
   syncBasicFromLivePanel(state.livePanel);
@@ -3219,6 +3383,7 @@ function updateResourceModel(resource, modelId, reportedModel = null) {
     state.resourceLiveSupportContext = null;
   }
   if (state.resourceModels[resource] === next && state.resourceChannelModels[resource] === nextChannelModel) return false;
+  if (resource === valueOrNull("resource")) clearRealWriteAuthorization();
   state.resourceModels[resource] = next;
   state.resourceChannelModels[resource] = nextChannelModel;
   return true;
@@ -3268,6 +3433,20 @@ function selectedModelLiveSupport(name) {
 
 function commandMeta(name) {
   const meta = state.commands[name] || {};
+  if (isNoHardwareMode()) {
+    const identity = selectedPlanningIdentity();
+    if (!identity) return { ...meta, disabled: true, disabled_reason: "Select a planning identity before running this command.", live_support_status: "Planning identity is required." };
+    if (identity.startsWith("profile:")) {
+      const profile = state.planningProfiles?.[identity.slice("profile:".length)];
+      const support = profile?.command_support?.[name];
+      if (!support || support.dry_run !== true) return { ...meta, disabled: true, disabled_reason: "This planning profile does not support the selected command." };
+      return { ...meta, live_support_status: "Dry-run planning profile", requires_confirm: false };
+    }
+    const support = state.commandSupportByModel?.[identity]?.[name];
+    const supported = state.executionMode === "simulate" ? support?.simulate : support?.dry_run;
+    if (supported !== true) return { ...meta, disabled: true, disabled_reason: `${physicalModelDisplayName(identity)} does not support this command in ${state.executionMode}.` };
+    return { ...meta, live_support_status: state.executionMode === "simulate" ? "Simulation supported" : "Dry-run supported", requires_confirm: false };
+  }
   const support = selectedCommandSupport(name);
   const modelSupport = selectedModelLiveSupport(name);
   let effective = { ...meta };
@@ -3504,6 +3683,10 @@ function clearJobResults() {
 }
 
 async function startLive() {
+  if (isNoHardwareMode()) {
+    renderBlankLivePanel("error", "Live Data is available only in Real hardware mode.");
+    return;
+  }
   const payload = { runtime: runtimePayload(), parameters: { interval_ms: 5000 } };
   if (!payload.runtime.resource) {
     renderLivePanel({ status: "error", stale: true, message: "Select or enter a hardware resource before starting Live Data." });
@@ -3550,9 +3733,11 @@ async function stopLive() {
   if (!state.liveJobId) return;
   updateLiveMonitorButton(true, true);
   try {
-    await fetchJson(`/api/live/${state.liveJobId}/stop`, { method: "POST" });
-    state.liveJobId = null;
+    const jobId = state.liveJobId;
+    await fetchJson(`/api/live/${jobId}/stop`, { method: "POST" });
     closeEventSource("liveEvents");
+    await waitForLiveTerminal(jobId);
+    state.liveJobId = null;
     updateLiveMonitorButton(false, false);
     setLiveState("Not monitoring", "state-idle", "Live Data monitor is stopped.");
   } catch (error) {
@@ -3562,6 +3747,7 @@ async function stopLive() {
 }
 
 async function startLivePreviewSnapshot(healthState, resource = null) {
+  if (isNoHardwareMode()) return;
   stopLivePreviewSnapshot();
   setLiveState("Refreshing once...", "state-warning", "Refreshing Live Data once after command completion.");
   if (!healthState?.serverReady || !healthState?.deviceIdle) {
@@ -3612,6 +3798,16 @@ function isFreshLivePreviewSample(sample) {
   );
 }
 
+async function waitForLiveTerminal(jobId) {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const job = await fetchJson(`/api/jobs/${jobId}`);
+    if (["cancelled", "finished", "failed"].includes(job.status)) return job;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Live Data stop timed out while waiting for the backend job to finish.");
+}
+
 function stopLivePreviewSnapshot() {
   const jobId = state.previewJobId;
   closeEventSource("previewEvents");
@@ -3624,6 +3820,7 @@ function stopLivePreviewSnapshot() {
 }
 
 async function refreshSelectedResourcePreview(resource) {
+  if (isNoHardwareMode()) return;
   stopLivePreviewSnapshot();
   renderBlankLivePanel();
   if (!resource) {
@@ -3741,10 +3938,10 @@ function updateBasicActionFromJob(jobId, event, job) {
     if (action.command === "set") {
       clearBasicInputDirty(action.parameters.channel);
       setBasicActionState(action.actionKey, "success", "Basic command completed.", action);
-    } else if (typeof action.desiredOutput === "boolean") {
+    } else if (typeof action.desiredOutput === "boolean" && state.executionMode === "real") {
       setBasicActionState(action.actionKey, "pending", "Waiting for Live Data readback.", { ...action, awaitingReadback: true });
     } else {
-      setBasicActionState(action.actionKey, "success", "Basic command completed.", action);
+      setBasicActionState(action.actionKey, "success", state.executionMode === "simulate" ? "Simulation completed." : state.executionMode === "dry-run" ? "Plan generated." : "Basic command completed.", action);
     }
   } else {
     const detail = job?.error || event.data?.error || eventSummary(event);
@@ -4283,7 +4480,10 @@ function updateSelectedCommandState() {
     }
   }
   if (workflowPulseGuard) commandDescription.textContent = [descriptionText, workflowPulseGuard].filter(Boolean).join(" ");
-  document.getElementById("confirm-banner").classList.toggle("visible", Boolean(meta.requires_confirm));
+  const confirmationBanner = document.getElementById("confirm-banner");
+  const needsAuthorization = state.executionMode === "real" && Boolean(meta.requires_confirm) && !hasRealWriteAuthorization();
+  confirmationBanner.classList.toggle("visible", needsAuthorization);
+  confirmationBanner.textContent = needsAuthorization ? "Enable real hardware writes in Device options before running this command." : "";
 }
 
 function syncTriggerImmediateControls(command) {
@@ -4483,6 +4683,7 @@ function addHistory(jobId, command, status, label = command) {
   state.jobs.unshift({ jobId, command, label: displayLabel, status, summary: statusSummary(status) });
   state.jobs = state.jobs.slice(0, 20);
   renderHistory();
+  updateExecutionModeUi();
 }
 
 function updateHistory(jobId, status) {
@@ -4492,6 +4693,7 @@ function updateHistory(jobId, status) {
     job.summary = statusSummary(status);
   }
   renderHistory();
+  updateExecutionModeUi();
 }
 
 function updateJobResult(jobId, status, summary) {
@@ -4500,6 +4702,7 @@ function updateJobResult(jobId, status, summary) {
   job.status = status;
   job.summary = summary || statusSummary(status);
   renderHistory();
+  updateExecutionModeUi();
 }
 
 function renderHistory() {

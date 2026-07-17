@@ -17,6 +17,7 @@
       <div class="device-resource-header">
         <div class="device-resource-heading">
           <strong id="device-resource-title" class="device-resource-title">Device / Resource</strong>
+          <span id="execution-mode-badge" class="execution-mode-badge" aria-live="polite">REAL · WRITES LOCKED</span>
           <p id="device-resource-summary" class="device-resource-summary">No resource / not scanned / Auto-detect</p>
         </div>
         <div class="device-resource-actions">
@@ -31,14 +32,22 @@
               aria-expanded="false"
             >&#9881;</button>
             <div id="device-options-panel" class="device-options-panel" role="dialog" aria-label="Device options" hidden>
+              <fieldset class="execution-mode-control" id="execution-mode-control">
+                <legend>Execution mode</legend>
+                <label><input type="radio" name="execution-mode" value="real" checked> Real</label>
+                <label><input type="radio" name="execution-mode" value="simulate"> Simulate</label>
+                <label><input type="radio" name="execution-mode" value="dry-run"> Dry-run</label>
+                <p id="execution-mode-help" class="model-profile-help">Real hardware mode. Writes are locked until explicitly enabled.</p>
+              </fieldset>
               <div class="model-profile-control">
-                <label>Expected model
+                <label id="identity-model-label">Expected model
                   <select id="expected-model-id">
                     <option value="">Auto-detect</option>
                   </select>
                 </label>
-                <p class="model-profile-help">Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one. In live mode, the detected IDN model remains the runtime driver.</p>
+                <p id="identity-model-help" class="model-profile-help">Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one. In live mode, the detected IDN model remains the runtime driver.</p>
               </div>
+              <label id="real-write-authorization" class="real-write-authorization"><input id="real-write-enabled" type="checkbox"> Enable real hardware writes for this resource</label>
               <p class="device-options-help">Optional ASRL/serial overrides. Usually needed only for RS-232 instruments such as E3646A.</p>
               <div class="serial-grid">
                 <label>Baud rate
@@ -257,9 +266,7 @@
           </div>
           <div id="command-guidance" class="command-guidance" hidden></div>
 
-          <div id="confirm-banner" class="confirm-banner">
-            <label><input id="confirm" type="checkbox"> Confirm real output-affecting execution</label>
-          </div>
+          <div id="confirm-banner" class="confirm-banner" aria-live="polite"></div>
 
           <form id="command-form" class="form-grid"></form>
           <section class="workspace-summary" aria-live="polite">

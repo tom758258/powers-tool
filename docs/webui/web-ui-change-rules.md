@@ -202,7 +202,12 @@ The UI may look different, but these behaviors must remain true:
   sending them as setpoints.
 - Basic output buttons represent fresh Live Data output state; unknown/off is
   not displayed as confirmed ON.
-- Output-affecting commands require explicit confirmation for real hardware.
+- Output-affecting commands require page-local real-write authorization for
+  the current Real resource. The browser uses command `requires_confirm`
+  metadata and does not maintain an independent mutating-command list.
+- Simulate and Dry-run are no-hardware modes: their runtime payloads never
+  include a VISA resource, serial settings, expected identity, or confirmation.
+- Live Data is Real-mode only; `/api/live` rejects simulate and dry-run.
 - Real hardware jobs are serialized by the WebUI hardware lock.
 - Simulate, dry-run, offline metadata commands, and live-data jobs do not
   occupy the real hardware command lock.

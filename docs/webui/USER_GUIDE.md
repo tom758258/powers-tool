@@ -58,7 +58,9 @@ when you are done.
 
 The page is an instrument control console. The main areas are:
 
-- `VISA resource`: the explicit instrument address used by command jobs.
+- `Execution mode`: page-local Real, Simulate, or Dry-run selection. The page
+  always opens in Real mode.
+- `VISA resource`: the explicit instrument address used by Real command jobs.
 - `Live resource`: resources discovered by the Scan Device workflow.
 - `Scan Device`: searches for live VISA resources and fills the selector.
 - `Live Data`: read-only channel cards and state indicators.
@@ -95,7 +97,7 @@ cache entries.
 Selecting a resource copies it into the `VISA resource` input. You may also
 type a known operator-provided VISA resource manually.
 
-Device options include `Expected model`. Leave it on `Auto-detect` for normal
+Device options include execution mode and, in Real mode, `Expected model`. Leave it on `Auto-detect` for normal
 live use. Auto-detect uses the connected instrument IDN. When `Require
 <model>` is selected, the WebUI uses it for frontend capability planning and
 sends it as an expected-model guard: the connected `*IDN?` model must match
@@ -158,7 +160,9 @@ channel.
 
 The ON controls reflect fresh Live Data when available. An unlit ON control
 means OFF or unknown; it is not a confirmed OFF state unless Live Data is
-fresh. Real output-affecting actions require confirmation.
+fresh. Real output-affecting actions require enabling `Enable real hardware
+writes for this resource` in Device options. The authorization clears when
+the resource, expected model, detected identity, mode, or page changes.
 
 Before enabling output:
 
@@ -219,13 +223,11 @@ Typical job states include accepted, started, progress, finished, failed,
 cancel requested, and cancelled. A failed job should include a message in the
 result payload.
 
-The browser UI is live-oriented and does not provide general dry-run or
-simulate controls. When submitting raw WebUI API jobs instead of using the
-browser form, include `runtime.planning_model_id` for physical no-hardware
-planning, or use `runtime.planning_profile_id: "generic-scpi"` for a supported
-dry-run Generic plan. Simulator requests accept only physical planning IDs,
-and deterministic SIM resources such as `USB0::SIM::E36312A::INSTR` may infer
-one. For live raw API jobs, `runtime.expected_model_id` is an optional
+The browser provides Simulate and Dry-run controls in Device options. Both
+modes disable VISA resource, scanning, serial controls, and Live Data; they do
+not open or lock real hardware. Simulate accepts only a physical planning
+model. Dry-run accepts a physical planning model or a planning profile. For
+live raw API jobs, `runtime.expected_model_id` is an optional
 canonical safety guard checked after manufacturer-plus-model IDN resolution;
 mismatch fails before setup or write SCPI. The browser learns live model
 support from scan/job IDN metadata; fake resource strings do not imply a

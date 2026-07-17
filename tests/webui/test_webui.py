@@ -273,10 +273,11 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert ".serial-panel" not in styles_css
     assert "No resource / not scanned / Auto-detect" in html
     assert "Expected Auto" not in html
-    assert 'id="dry-run"' not in html
-    assert 'id="simulate"' not in html
-    assert "Dry-run" not in html
-    assert "Simulate" not in html
+    assert 'name="execution-mode" value="simulate"' in html
+    assert 'name="execution-mode" value="dry-run"' in html
+    assert 'id="execution-mode-badge"' in html
+    assert 'id="real-write-enabled"' in html
+    assert "Simulate" in html
 
     runtime_block = extract_js_function(app_js, "runtimePayload")
     assert 'const expectedModelId = valueOrNull("expected-model-id");' in runtime_block
@@ -294,7 +295,7 @@ def test_static_normal_model_dropdown_policy() -> None:
 
     assert '<option value="">Auto-detect</option>' in model_select
     assert 'option value="keysight-' not in model_select
-    renderer = extract_js_function(app_js, "renderExpectedModelOptions")
+    renderer = extract_js_function(app_js, "populateIdentitySelector")
     assert "state.physicalModels.forEach" in renderer
     assert "model.model_id" in renderer
     for unvalidated_model in ("E36103B", "E36232A"):
@@ -332,7 +333,7 @@ def test_static_model_profile_change_refreshes_effective_ui_model():
     runtime_block = extract_js_function(app_js, "runtimePayload")
 
     assert 'document.getElementById("expected-model-id")?.addEventListener("change", handleExpectedModelChanged);' in bind
-    assert 'return valueOrNull("expected-model-id");' in selected_expected
+    assert 'valueOrNull("expected-model-id")' in selected_expected
     assert "physicalModelDisplayName(expected)" in selected_expected_label
     assert "state.commandSupportByModel?.[expected]" in selected_command
     assert "return detectedCommandModelForResource(valueOrNull(\"resource\"));" in selected_command
@@ -502,7 +503,7 @@ def test_static_finished_real_command_refreshes_live_snapshot():
     fresh_preview = extract_js_function(app_js, "isFreshLivePreviewSample")
 
     assert 'fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
-    assert 'fetchJson(`/api/live/${state.liveJobId}/stop`, { method: "POST" })' in app_js
+    assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
     assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
     assert "job.runtime.resource" in app_js
     assert "runtime.simulate === false" in refresh
@@ -1104,8 +1105,8 @@ def test_static_basic_command_submission_reuses_existing_jobs():
     assert '"apply"' not in run_set
     assert '"apply"' not in run_output
     assert '"apply"' not in run_all
-    assert "...runtimePayload()" in submit_basic
-    assert "confirm: true" in submit_basic
+    assert "runtime: runtimePayload()" in submit_basic
+    assert "Enable real hardware writes" in submit_basic
     assert "submitJob(payload)" in submit_basic
     assert "tripGuardReason(command, parameters)" in submit_basic
     assert "electricalRatingGuardReason(command, parameters)" in submit_basic
@@ -1899,7 +1900,7 @@ def test_static_channel_confirmation_and_job_detail_contracts():
     assert 'return /^[1-9]\\d*$/.test(value) ? Number(value) : value;' in app_js
 
     assert "const meta = commandMeta(state.selected);" in app_js
-    assert "if (meta.requires_confirm && !payload.runtime.confirm)" in app_js
+    assert "meta.requires_confirm && state.executionMode === \"real\" && !payload.runtime.confirm" in app_js
     assert 'error: "Confirmation required"' in app_js
     assert "runtime: { confirm: false }" in app_js
 
@@ -4229,7 +4230,7 @@ def test_live_data_simulate_fails(client: TestClient):
         },
     )
     assert response.status_code == 400
-    assert "simulate mode is not supported" in response.json()["detail"]
+    assert "simulate and dry-run are not supported" in response.json()["detail"]
 
 
 def test_live_data_start_and_stop(client: TestClient, monkeypatch: pytest.MonkeyPatch):

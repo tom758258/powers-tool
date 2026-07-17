@@ -395,12 +395,14 @@ async def start_live_data(request: Request):
     payload = await request.json()
     runtime = payload.get("runtime", {})
     validation_runtime = _validated_webui_runtime(runtime)
-    if validation_runtime.simulate:
-        raise HTTPException(status_code=400, detail="Live Data requires a real hardware resource; simulate mode is not supported.")
+    if validation_runtime.simulate or validation_runtime.dry_run:
+        raise HTTPException(
+            status_code=400,
+            detail="Live Data is available only in Real hardware mode; simulate and dry-run are not supported.",
+        )
     if not (validation_runtime.resource or "").strip():
         raise HTTPException(status_code=400, detail="Live Data requires a selected hardware resource.")
 
-    runtime = {**runtime, "simulate": False}
     job_id = await job_manager.submit_job(
         command="live-data",
         runtime=runtime,
@@ -419,7 +421,7 @@ async def _execute_live_data_background(job_id: str):
     
     try:
         interval = job.parameters.get("interval_ms", 1000) / 1000.0
-        runtime_opts = {**dict(job.runtime), "simulate": False}
+        runtime_opts = dict(job.runtime)
         last_sample: dict[str, Any] | None = None
         
         while not job.cancel_requested:

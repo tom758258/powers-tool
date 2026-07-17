@@ -154,8 +154,12 @@ Legacy `runtime.model_profile` and `runtime.model` fields are rejected. The
 WebUI does not infer a dry-run/simulate model from fake or live-looking resource strings;
 use a V2 planning field or a deterministic SIM resource such as
 `USB0::SIM::E36312A::INSTR`. WebUI live resource support is learned from
-scan/job IDN metadata. The browser UI remains live-oriented and does not
-provide general dry-run or simulate controls.
+scan/job IDN metadata. The browser provides page-local Real, Simulate, and
+Dry-run execution modes. It always reloads in Real mode and never persists
+mode, identity, or write authorization in browser storage. Simulate requires a
+canonical physical planning model; Dry-run accepts either a physical planning
+model or a planning profile. No-hardware requests omit the live resource,
+serial settings, expected-model guard, and confirmation.
 
 Raw runtime values are type-strict. Boolean fields accept only JSON `true` or
 `false`; strings such as `"false"` never satisfy confirmation or enable a
@@ -205,7 +209,7 @@ The static UI is a three-panel dashboard:
 Machine-facing command IDs remain kebab-case. Human-facing WebUI command names
 use spaces and sentence case.
 
-The connection area includes advanced device options. `Expected model`
+The connection area includes advanced device options. In Real mode, `Expected model`
 defaults to `Auto-detect`, which omits `runtime.expected_model_id`. Auto-detect
 uses the connected instrument IDN for live operation. Selecting `Require
 <model>` sends the canonical `runtime.expected_model_id` as a live safety guard and may
