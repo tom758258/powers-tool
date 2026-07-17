@@ -42,11 +42,17 @@ from powers_tool_core.safety import (
 )
 from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.trigger import run_post_action_completion_pulse
-from powers_tool_core.workflow_validation import validate_general_workflow_parameters
+from powers_tool_core.workflow_validation import (
+    validate_completion_pulse_planning_model,
+    validate_general_workflow_parameters,
+)
 
 IDN_QUERY = "*IDN?"
 OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)
 OUTPUT_STATE_POWER_SUPPLY_TYPES = (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)
+EARLY_COMPLETION_PULSE_VALIDATION_COMMANDS = frozenset(
+    {"set", "apply", "output-on", "cycle-output", "smoke-output"}
+)
 
 
 class ScpiLoggingSession:
@@ -120,6 +126,10 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
         _ensure_operation_supported(request)
     validate_general_workflow_parameters(request)
     validate_request_parameters(request)
+    validate_completion_pulse_planning_model(
+        request,
+        requested=_completion_pulse_requested(request),
+    )
     _validate_known_simulated_model_setpoints(request)
     command = request.command
     p = request.parameters
@@ -312,6 +322,8 @@ def _run_output_write_operation(
                     f"{capabilities.unsupported_command_message(request.command, model, 'live')}\n"
                     f"Found {type(power_supply).__name__} from *IDN? response."
                 )
+            if request.command in EARLY_COMPLETION_PULSE_VALIDATION_COMMANDS:
+                _validate_requested_completion_pulse_power_supply(request, power_supply)
             return _execute_output_write(
                 request,
                 power_supply,
@@ -531,8 +543,7 @@ def _execute_output_write(
             _validate_setpoint_for_request(request, idn, channel, voltage=voltage, current=p["current"])
         trigger: dict[str, Any] | None = None
         verification = {"passed": True, "checks": [], "differences": []}
-        if _completion_pulse_requested(request):
-            _validate_completion_pulse_power_supply(power_supply)
+        _validate_requested_completion_pulse_power_supply(request, power_supply)
         power_supply.set_current_limit(channel=channel, current=p["current"])
         triggers: list[dict[str, Any]] = []
         for index, voltage in enumerate(voltages):
@@ -908,6 +919,14 @@ def _validate_completion_pulse_power_supply(power_supply: Any) -> None:
         raise CoreValidationError("EDU36311A real execution does not support completion-pulse options")
     if not isinstance(power_supply, E36312APowerSupply):
         raise UnsupportedModelError("completion-pulse options require E36312A")
+
+
+def _validate_requested_completion_pulse_power_supply(
+    request: OperationRequest,
+    power_supply: Any,
+) -> None:
+    if _completion_pulse_requested(request):
+        _validate_completion_pulse_power_supply(power_supply)
 
 
 def _completion_pulse_channel(request: OperationRequest, default_channel: int | str | None = None) -> int:

@@ -1,6 +1,13 @@
 import pytest
 
-from powers_tool_core.core import CommandCancelled, ConfirmationRequiredError, CoreValidationError, OperationRequest, RuntimeOptions
+from powers_tool_core.core import (
+    CommandCancelled,
+    ConfirmationRequiredError,
+    CoreValidationError,
+    OperationRequest,
+    RuntimeOptions,
+    UnsupportedModelError,
+)
 from powers_tool_core.operations import output_plan, run_operation
 from powers_tool_core.support_policy import LiveSupportPolicyError
 
@@ -41,6 +48,28 @@ class FakeSession:
         return responses.get(command, '0,"No error"')
 
 
+class OutputStateSession(FakeSession):
+    def __init__(self, *, idn: str, output_enabled: bool) -> None:
+        super().__init__(idn=idn)
+        self.output_enabled = output_enabled
+        self.events: list[str] = []
+
+    def write(self, command: str) -> None:
+        self.events.append(f"W:{command}")
+        super().write(command)
+        if command.startswith("OUTP ON"):
+            self.output_enabled = True
+        elif command.startswith("OUTP OFF"):
+            self.output_enabled = False
+
+    def query(self, command: str) -> str:
+        self.events.append(f"Q:{command}")
+        if command.startswith("OUTP?"):
+            self.queries.append(command)
+            return "1" if self.output_enabled else "0"
+        return super().query(command)
+
+
 def request(command: str, **parameters):
     return OperationRequest(
         command=command,
@@ -57,6 +86,36 @@ def request(command: str, **parameters):
     )
 
 
+def general_pulse_parameters(command: str, *, no_output: bool = False) -> dict:
+    parameters = {
+        "channel": 1,
+        "completion_pulse_pins": (1,),
+        "completion_pulse_polarity": "positive",
+        "settle_ms": 10,
+        "verify_after_write": True,
+        "setpoint_voltage_tolerance": 0.001,
+        "setpoint_current_tolerance": 0.001,
+    }
+    if command == "set":
+        parameters.update(voltage=1.0, current=0.1)
+    elif command == "apply":
+        parameters.update(voltage=1.0, current=0.1, no_output=no_output)
+    elif command == "cycle-output":
+        parameters["duration_ms"] = 10
+    elif command == "ramp":
+        parameters.update(
+            start_voltage=0.0,
+            stop_voltage=1.0,
+            step_voltage=0.5,
+            current=0.1,
+            delay_ms=10,
+            completion_pulse_timing="segment",
+        )
+    elif command == "smoke-output":
+        parameters.update(voltage=1.0, current=0.1, duration_ms=10)
+    return parameters
+
+
 def test_operations_dry_run_does_not_open_visa() -> None:
     opened = False
 
@@ -70,6 +129,159 @@ def test_operations_dry_run_does_not_open_visa() -> None:
     assert opened is False
     assert data["operation"] == {"name": "set"}
     assert [step["action"] for step in data["steps"]] == ["set_current_limit", "set_voltage"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "set",
+        "apply",
+        "output-on",
+        "output-off",
+        "safe-off",
+        "cycle-output",
+        "ramp",
+        "smoke-output",
+    ],
+)
+@pytest.mark.parametrize(
+    "planning_model_id",
+    ["keysight-edu36311a", "keysight-e3646a"],
+)
+def test_general_completion_pulse_dry_run_rejects_non_e36312a_without_opening(
+    command: str,
+    planning_model_id: str,
+) -> None:
+    opened = False
+
+    def opener(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("dry-run must not open VISA")
+
+    with pytest.raises(CoreValidationError, match="require planning_model_id 'keysight-e36312a'"):
+        run_operation(
+            OperationRequest(
+                command=command,
+                runtime=RuntimeOptions(
+                    dry_run=True,
+                    planning_model_id=planning_model_id,
+                ),
+                parameters=general_pulse_parameters(command),
+            ),
+            opener=opener,
+        )
+
+    assert opened is False
+
+
+@pytest.mark.parametrize(
+    ("runtime_kwargs", "message"),
+    [
+        (
+            {"simulate": True, "resource": "USB0::SIM::EDU36311A::INSTR"},
+            "require planning_model_id 'keysight-e36312a'",
+        ),
+        (
+            {"simulate": True, "resource": "ASRL1::SIM::E3646A::INSTR"},
+            "require planning_model_id 'keysight-e36312a'",
+        ),
+        (
+            {"dry_run": True, "planning_profile_id": "generic-scpi"},
+            "received 'generic-scpi'",
+        ),
+        (
+            {"dry_run": True},
+            "planning require planning_model_id, planning_profile_id",
+        ),
+        (
+            {"dry_run": True, "planning_model_id": "unknown"},
+            "invalid planning_model_id",
+        ),
+    ],
+)
+def test_general_completion_pulse_no_hardware_planning_fails_closed(
+    runtime_kwargs: dict,
+    message: str,
+) -> None:
+    opened = False
+
+    def opener(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("no-hardware planning must not open VISA")
+
+    with pytest.raises(CoreValidationError, match=message):
+        run_operation(
+            OperationRequest(
+                command="apply",
+                runtime=RuntimeOptions(**runtime_kwargs),
+                parameters=general_pulse_parameters("apply"),
+            ),
+            opener=opener,
+        )
+
+    assert opened is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "set",
+        "apply",
+        "output-on",
+        "output-off",
+        "safe-off",
+        "cycle-output",
+        "ramp",
+        "smoke-output",
+    ],
+)
+def test_general_completion_pulse_e36312a_plan_shape_is_unchanged(command: str) -> None:
+    pulse_parameters = general_pulse_parameters(command)
+    plain_parameters = {
+        key: value
+        for key, value in pulse_parameters.items()
+        if not key.startswith("completion_pulse_")
+    }
+    runtime = RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a")
+
+    pulse_plan = run_operation(
+        OperationRequest(command=command, runtime=runtime, parameters=pulse_parameters)
+    )
+    plain_plan = run_operation(
+        OperationRequest(command=command, runtime=runtime, parameters=plain_parameters)
+    )
+
+    assert pulse_plan == plain_plan
+
+
+@pytest.mark.parametrize(
+    "planning_model_id",
+    ["keysight-edu36311a", "keysight-e3646a"],
+)
+def test_general_no_pulse_plan_for_other_models_is_unchanged(
+    planning_model_id: str,
+) -> None:
+    parameters = general_pulse_parameters("apply")
+    parameters.pop("completion_pulse_pins")
+    parameters.pop("completion_pulse_polarity")
+
+    plan = run_operation(
+        OperationRequest(
+            command="apply",
+            runtime=RuntimeOptions(
+                dry_run=True,
+                planning_model_id=planning_model_id,
+            ),
+            parameters=parameters,
+        )
+    )
+
+    assert plan["hardware_touched"] is False
+    actions = [step["action"] for step in plan["steps"]]
+    assert "output_on" in actions
+    assert "completion_pulse" not in actions
 
 
 def test_output_plan_set_accepts_voltage_only() -> None:
@@ -221,6 +433,301 @@ def test_output_real_scpi_order(command: str, expected: list[str]) -> None:
 
     write_positions = [session.writes.index(command_text) for command_text in expected]
     assert write_positions == sorted(write_positions)
+
+
+@pytest.mark.parametrize(
+    ("model_id", "idn", "resource", "error_type", "message"),
+    [
+        (
+            "keysight-edu36311a",
+            "KEYSIGHT,EDU36311A,SERIAL0000,1.0",
+            "USB0::FAKE::EDU36311A::INSTR",
+            CoreValidationError,
+            "EDU36311A real execution does not support completion-pulse options",
+        ),
+        (
+            "keysight-e3646a",
+            "KEYSIGHT,E3646A,SERIAL0000,1.0",
+            "ASRL1::INSTR",
+            UnsupportedModelError,
+            "completion-pulse options require E36312A",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "command",
+    ["set", "apply", "output-on", "cycle-output", "smoke-output"],
+)
+def test_unsupported_general_completion_pulse_rejects_after_idn_before_command_io(
+    model_id: str,
+    idn: str,
+    resource: str,
+    error_type: type[Exception],
+    message: str,
+    command: str,
+) -> None:
+    session = FakeSession(idn=idn)
+    sleeps: list[float] = []
+    core_request = OperationRequest(
+        command=command,
+        runtime=RuntimeOptions(resource=resource, confirm=True),
+        parameters=general_pulse_parameters(command),
+    )
+
+    with pytest.raises(error_type, match=message):
+        run_operation(
+            core_request,
+            opener=lambda *args, **kwargs: session,
+            sleep=sleeps.append,
+        )
+
+    assert model_id in {"keysight-edu36311a", "keysight-e3646a"}
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert sleeps == []
+    assert session.closed is True
+
+
+@pytest.mark.parametrize(
+    ("idn", "resource", "expected_model_id", "error_type", "message"),
+    [
+        (
+            "KEYSIGHT,EDU36311A,SERIAL0000,1.0",
+            "USB0::FAKE::EDU36311A::INSTR",
+            "keysight-e36312a",
+            CoreValidationError,
+            "Expected model_id keysight-e36312a",
+        ),
+        (
+            "KEYSIGHT,UNKNOWN,SERIAL0000,1.0",
+            "USB0::FAKE::UNKNOWN::INSTR",
+            None,
+            LiveSupportPolicyError,
+            "unknown live support-policy model_id",
+        ),
+        (
+            "KEYSIGHT,E36312A,SERIAL0000,1.0",
+            "ASRL1::INSTR",
+            None,
+            LiveSupportPolicyError,
+            "no exact transport/backend scope is registered",
+        ),
+    ],
+)
+def test_general_completion_pulse_identity_and_policy_gates_remain_idn_only(
+    idn: str,
+    resource: str,
+    expected_model_id: str | None,
+    error_type: type[Exception],
+    message: str,
+) -> None:
+    session = FakeSession(idn=idn)
+
+    with pytest.raises(error_type, match=message):
+        run_operation(
+            OperationRequest(
+                command="apply",
+                runtime=RuntimeOptions(
+                    resource=resource,
+                    expected_model_id=expected_model_id,
+                    confirm=True,
+                ),
+                parameters=general_pulse_parameters("apply"),
+            ),
+            opener=lambda *args, **kwargs: session,
+        )
+
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+
+
+@pytest.mark.parametrize(
+    ("idn", "resource", "error_type", "message"),
+    [
+        (
+            "KEYSIGHT,EDU36311A,SERIAL0000,1.0",
+            "USB0::FAKE::EDU36311A::INSTR",
+            CoreValidationError,
+            "EDU36311A real execution does not support completion-pulse options",
+        ),
+        (
+            "KEYSIGHT,E3646A,SERIAL0000,1.0",
+            "ASRL1::INSTR",
+            UnsupportedModelError,
+            "completion-pulse options require E36312A",
+        ),
+    ],
+)
+def test_apply_no_output_completion_pulse_rejects_before_setpoint_write(
+    idn: str,
+    resource: str,
+    error_type: type[Exception],
+    message: str,
+) -> None:
+    session = FakeSession(idn=idn)
+
+    with pytest.raises(error_type, match=message):
+        run_operation(
+            OperationRequest(
+                command="apply",
+                runtime=RuntimeOptions(resource=resource, confirm=True),
+                parameters=general_pulse_parameters("apply", no_output=True),
+            ),
+            opener=lambda *args, **kwargs: session,
+        )
+
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+
+
+@pytest.mark.parametrize(
+    ("idn", "resource", "error_type", "message"),
+    [
+        (
+            "KEYSIGHT,EDU36311A,SERIAL0000,1.0",
+            "USB0::FAKE::EDU36311A::INSTR",
+            CoreValidationError,
+            "EDU36311A real execution does not support completion-pulse options",
+        ),
+        (
+            "KEYSIGHT,E3646A,SERIAL0000,1.0",
+            "ASRL1::INSTR",
+            UnsupportedModelError,
+            "completion-pulse options require E36312A",
+        ),
+    ],
+)
+def test_ramp_unsupported_completion_pulse_still_rejects_before_write(
+    idn: str,
+    resource: str,
+    error_type: type[Exception],
+    message: str,
+) -> None:
+    session = FakeSession(idn=idn)
+
+    with pytest.raises(error_type, match=message):
+        run_operation(
+            OperationRequest(
+                command="ramp",
+                runtime=RuntimeOptions(resource=resource, confirm=True),
+                parameters=general_pulse_parameters("ramp"),
+            ),
+            opener=lambda *args, **kwargs: session,
+        )
+
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+
+
+@pytest.mark.parametrize(
+    ("idn", "resource", "error_type", "message"),
+    [
+        (
+            "KEYSIGHT,EDU36311A,SERIAL0000,1.0",
+            "USB0::FAKE::EDU36311A::INSTR",
+            CoreValidationError,
+            "EDU36311A real execution does not support completion-pulse options",
+        ),
+        (
+            "KEYSIGHT,E3646A,SERIAL0000,1.0",
+            "ASRL1::INSTR",
+            UnsupportedModelError,
+            "completion-pulse options require E36312A",
+        ),
+    ],
+)
+@pytest.mark.parametrize("command", ["output-off", "safe-off"])
+def test_unsupported_completion_pulse_preserves_safety_first_output_off_order(
+    idn: str,
+    resource: str,
+    error_type: type[Exception],
+    message: str,
+    command: str,
+) -> None:
+    session = OutputStateSession(idn=idn, output_enabled=True)
+    sleeps: list[float] = []
+
+    with pytest.raises(error_type, match=message):
+        run_operation(
+            OperationRequest(
+                command=command,
+                runtime=RuntimeOptions(resource=resource, confirm=True),
+                parameters=general_pulse_parameters(command),
+            ),
+            opener=lambda *args, **kwargs: session,
+            sleep=sleeps.append,
+        )
+
+    output_off_index = next(
+        index for index, event in enumerate(session.events) if event.startswith("W:OUTP OFF")
+    )
+    output_state_index = next(
+        index for index, event in enumerate(session.events) if event.startswith("Q:OUTP?")
+    )
+    assert output_off_index < output_state_index
+    assert session.output_enabled is False
+    assert "SYST:ERR?" not in session.queries
+    assert sleeps == ([0.01] if command == "output-off" else [])
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "set",
+        "apply",
+        "output-on",
+        "output-off",
+        "safe-off",
+        "cycle-output",
+        "ramp",
+        "smoke-output",
+    ],
+)
+def test_e36312a_general_completion_pulse_emission_remains_post_action(
+    monkeypatch,
+    command: str,
+) -> None:
+    session = OutputStateSession(
+        idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
+        output_enabled=command in {"output-off", "safe-off"},
+    )
+    pulse_payload = {"completed": True, "restored": True}
+
+    def pulse(*args, **kwargs):
+        session.events.append("PULSE")
+        return pulse_payload
+
+    monkeypatch.setattr("powers_tool_core.operations.run_post_action_completion_pulse", pulse)
+    data = run_operation(
+        OperationRequest(
+            command=command,
+            runtime=RuntimeOptions(resource="USB0::FAKE::E36312A::INSTR", confirm=True),
+            parameters=general_pulse_parameters(command),
+        ),
+        opener=lambda *args, **kwargs: session,
+        sleep=lambda seconds: None,
+    )
+
+    pulse_index = session.events.index("PULSE")
+    if command in {"output-off", "safe-off", "smoke-output"}:
+        post_action_index = max(
+            index for index, event in enumerate(session.events) if event.startswith("Q:OUTP?")
+        )
+    elif command in {"apply", "output-on"}:
+        post_action_index = max(
+            index for index, event in enumerate(session.events) if event.startswith("W:OUTP ON")
+        )
+    elif command == "cycle-output":
+        post_action_index = max(
+            index for index, event in enumerate(session.events) if event.startswith("W:OUTP OFF")
+        )
+    else:
+        post_action_index = max(
+            index for index, event in enumerate(session.events) if event.startswith("W:VOLT ")
+        )
+    error_queue_index = session.events.index("Q:SYST:ERR?")
+    assert post_action_index < pulse_index < error_queue_index
+    assert data["trigger"] == pulse_payload
 
 
 def test_cycle_output_cancellation_preserves_output_off_cleanup() -> None:

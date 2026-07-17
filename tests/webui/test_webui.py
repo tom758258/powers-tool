@@ -3103,6 +3103,58 @@ def test_webui_direct_jobs_reject_e3646a_disabled_workflows(
     assert_direct_job_rejected(client, payload, *fragments)
 
 
+@pytest.mark.parametrize(
+    "runtime",
+    [
+        {"dry_run": True, "planning_model_id": "keysight-edu36311a"},
+        {"dry_run": True, "planning_model_id": "keysight-e3646a"},
+        {"simulate": True, "resource": "USB0::SIM::EDU36311A::INSTR"},
+        {"simulate": True, "resource": "ASRL1::SIM::E3646A::INSTR"},
+    ],
+)
+def test_webui_direct_general_completion_pulse_uses_core_model_gate(
+    client: TestClient,
+    runtime: dict[str, Any],
+) -> None:
+    assert_direct_job_rejected(
+        client,
+        {
+            "command": "apply",
+            "runtime": runtime,
+            "parameters": {
+                "channel": 1,
+                "voltage": 1.0,
+                "current": 0.05,
+                "completion_pulse_pins": [1],
+            },
+        },
+        "require planning_model_id 'keysight-e36312a'",
+    )
+
+
+def test_webui_direct_general_completion_pulse_e36312a_stays_supported(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "apply",
+            "runtime": {
+                "dry_run": True,
+                "planning_model_id": "keysight-e36312a",
+            },
+            "parameters": {
+                "channel": 1,
+                "voltage": 1.0,
+                "current": 0.05,
+                "completion_pulse_pins": [1],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+
+
 def test_webui_direct_jobs_reject_edu36311a_sequence_trigger_pulse(client: TestClient) -> None:
     assert_direct_job_rejected(
         client,

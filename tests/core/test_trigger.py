@@ -143,6 +143,51 @@ def test_trigger_pulse_dry_run_scpi_preview_unchanged() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("runtime", "message"),
+    [
+        (
+            RuntimeOptions(dry_run=True, planning_model_id="keysight-edu36311a"),
+            "trigger/native LIST workflows are disabled",
+        ),
+        (
+            RuntimeOptions(dry_run=True, planning_model_id="keysight-e3646a"),
+            "completion-pulse workflows are disabled",
+        ),
+        (
+            RuntimeOptions(simulate=True, resource="USB0::SIM::EDU36311A::INSTR"),
+            "trigger/native LIST workflows are disabled",
+        ),
+        (
+            RuntimeOptions(simulate=True, resource="ASRL1::SIM::E3646A::INSTR"),
+            "completion-pulse workflows are disabled",
+        ),
+    ],
+)
+def test_standalone_trigger_pulse_no_hardware_gate_remains_fail_closed(
+    runtime: RuntimeOptions,
+    message: str,
+) -> None:
+    opened = False
+
+    def opener(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("trigger planning must not open VISA")
+
+    with pytest.raises(CoreValidationError, match=message):
+        run_core_command(
+            TriggerRequest(
+                command="trigger-pulse",
+                runtime=runtime,
+                parameters={"channel": 1, "pins": [1], "polarity": "positive"},
+            ),
+            opener=opener,
+        )
+
+    assert opened is False
+
+
 def test_trigger_pulse_snapshots_before_mutation_and_restores_all_channels(monkeypatch) -> None:
     power_supply = RecordingPulsePowerSupply()
 

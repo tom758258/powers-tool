@@ -27,6 +27,7 @@ from powers_tool_core.operations import ScpiLoggingSession, ramp_voltages
 from powers_tool_core.safety import SafetyConfigError, SafetyValidationError, resolve_safety_config, validate_setpoint
 from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.trigger import run_post_action_completion_pulse
+from powers_tool_core.workflow_validation import validate_completion_pulse_planning_model
 
 RAMP_LIST_KIND = "powers-tool-ramp-list"
 RAMP_LIST_VERSION = 2
@@ -137,6 +138,11 @@ def ramp_list_plan(request: OperationRequest, document: dict[str, Any]) -> dict[
         for index, raw_segment in enumerate(raw_segments, start=1)
     ]
     completion_pulse = normalize_completion_pulse(document.get("completion_pulse"))
+    validate_completion_pulse_planning_model(
+        request,
+        requested=completion_pulse is not None,
+        context="ramp-list completion_pulse",
+    )
     return {
         "kind": RAMP_LIST_KIND,
         "version": RAMP_LIST_VERSION,

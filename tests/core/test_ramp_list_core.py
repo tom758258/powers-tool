@@ -268,6 +268,98 @@ def test_ramp_list_step_pulse_accepts_zero_delay() -> None:
     assert data["plan"]["completion_pulse"]["timing"] == "step"
 
 
+@pytest.mark.parametrize(
+    "runtime",
+    [
+        RuntimeOptions(dry_run=True, planning_model_id="keysight-edu36311a"),
+        RuntimeOptions(dry_run=True, planning_model_id="keysight-e3646a"),
+        RuntimeOptions(simulate=True, resource="USB0::SIM::EDU36311A::INSTR"),
+        RuntimeOptions(simulate=True, resource="ASRL1::SIM::E3646A::INSTR"),
+        RuntimeOptions(dry_run=True, planning_profile_id="generic-scpi"),
+    ],
+)
+def test_ramp_list_completion_pulse_no_hardware_requires_e36312a(
+    runtime: RuntimeOptions,
+) -> None:
+    opened = False
+    doc = document(segment())
+    doc["completion_pulse"] = {
+        "timing": "segment",
+        "pins": [1],
+        "polarity": "positive",
+    }
+
+    def opener(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("no-hardware ramp-list must not open VISA")
+
+    with pytest.raises(
+        CoreValidationError,
+        match="ramp-list completion_pulse require planning_model_id 'keysight-e36312a'",
+    ):
+        run_ramp_list(
+            OperationRequest(
+                command="ramp-list",
+                runtime=runtime,
+                parameters={"document": doc},
+            ),
+            opener=opener,
+        )
+
+    assert opened is False
+
+
+@pytest.mark.parametrize(
+    ("runtime_kwargs", "message"),
+    [
+        (
+            {"dry_run": True},
+            "planning require planning_model_id, planning_profile_id",
+        ),
+        (
+            {"dry_run": True, "planning_model_id": "unknown"},
+            "invalid planning_model_id",
+        ),
+    ],
+)
+def test_ramp_list_completion_pulse_missing_or_unknown_planning_model_fails_closed(
+    runtime_kwargs: dict,
+    message: str,
+) -> None:
+    doc = document(segment())
+    doc["completion_pulse"] = {
+        "timing": "segment",
+        "pins": [1],
+        "polarity": "positive",
+    }
+
+    with pytest.raises(CoreValidationError, match=message):
+        run_ramp_list(
+            OperationRequest(
+                command="ramp-list",
+                runtime=RuntimeOptions(**runtime_kwargs),
+                parameters={"document": doc},
+            )
+        )
+
+
+def test_ramp_list_no_pulse_other_model_plan_is_unchanged() -> None:
+    data = run_ramp_list(
+        OperationRequest(
+            command="ramp-list",
+            runtime=RuntimeOptions(
+                dry_run=True,
+                planning_model_id="keysight-e3646a",
+            ),
+            parameters={"document": document(segment())},
+        )
+    )
+
+    assert data["status"] == "planned"
+    assert data["plan"]["completion_pulse"] is None
+
+
 def test_ramp_list_segment_pulse_uses_each_segment_channel(monkeypatch) -> None:
     calls: list[int] = []
 
@@ -285,12 +377,22 @@ def test_ramp_list_segment_pulse_uses_each_segment_channel(monkeypatch) -> None:
     assert [item["trigger"]["channel"] for item in data["segments"]] == [1, 2]
 
 
-def test_e3646a_ramp_list_unsupported_pulse() -> None:
-    class E3646AFakeSession(FakeSession):
+@pytest.mark.parametrize(
+    ("idn", "resource"),
+    [
+        ("KEYSIGHT,EDU36311A,SERIAL0000,1.0", "USB0::FAKE::EDU36311A::INSTR"),
+        ("KEYSIGHT,E3646A,MY12345678,1.0", "ASRL1::INSTR"),
+    ],
+)
+def test_unsupported_model_ramp_list_completion_pulse_rejects_before_segment_write(
+    idn: str,
+    resource: str,
+) -> None:
+    class UnsupportedPulseFakeSession(FakeSession):
         def query(self, command: str) -> str:
             self.queries.append(command)
             if command == "*IDN?":
-                return "KEYSIGHT,E3646A,MY12345678,1.0"
+                return idn
             return '0,"No error"'
 
     doc = document(segment(channel=1))
@@ -299,10 +401,14 @@ def test_e3646a_ramp_list_unsupported_pulse() -> None:
     req = OperationRequest(
         command="ramp-list",
         parameters={"document": doc, "confirm": True},
-        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
+        runtime=RuntimeOptions(resource=resource, dry_run=False, simulate=False)
     )
+    session = UnsupportedPulseFakeSession()
     with pytest.raises(CoreValidationError, match="completion pulses are only supported for E36312A"):
-        run_ramp_list(req, opener=lambda *args, **kwargs: E3646AFakeSession(), sleep=lambda seconds: None)
+        run_ramp_list(req, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)
+
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
 
 
 def test_e3646a_ramp_list_simulate_and_real_execution() -> None:

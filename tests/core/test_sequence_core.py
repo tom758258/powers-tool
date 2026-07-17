@@ -1,5 +1,5 @@
 import pytest
-from powers_tool_core.core import SequenceRequest, RuntimeOptions
+from powers_tool_core.core import CoreValidationError, SequenceRequest, RuntimeOptions
 from powers_tool_core.support_policy import (
     LiveSupportPolicyError,
     SUPPORT_POLICY_MODE_VALIDATION,
@@ -327,10 +327,18 @@ def test_e3646a_sequence_execution() -> None:
     assert "OUTP ON" in session.writes
 
 
-def test_e3646a_sequence_trigger_pulse_rejected() -> None:
-    class E3646AFakeSession:
-        capabilities = type("Capabilities", (), {"channels": (1, 2)})()
-
+@pytest.mark.parametrize(
+    ("idn", "resource"),
+    [
+        ("KEYSIGHT,EDU36311A,SERIAL0000,1.0", "USB0::FAKE::EDU36311A::INSTR"),
+        ("KEYSIGHT,E3646A,SERIAL0000,1.0", "ASRL1::INSTR"),
+    ],
+)
+def test_unsupported_model_sequence_trigger_pulse_rejects_before_steps(
+    idn: str,
+    resource: str,
+) -> None:
+    class UnsupportedPulseFakeSession:
         def __init__(self):
             self.queries = []
             self.writes = []
@@ -349,7 +357,7 @@ def test_e3646a_sequence_trigger_pulse_rejected() -> None:
         def query(self, command: str) -> str:
             self.queries.append(command)
             if command == "*IDN?":
-                return "KEYSIGHT,E3646A,SERIAL0000,1.0"
+                return idn
             return '0,"No error"'
 
     doc = {
@@ -361,12 +369,44 @@ def test_e3646a_sequence_trigger_pulse_rejected() -> None:
     }
 
     req = SequenceRequest(
-        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False),
+        runtime=RuntimeOptions(resource=resource, dry_run=False, simulate=False),
         parameters={"document": doc},
     )
-    session = E3646AFakeSession()
+    session = UnsupportedPulseFakeSession()
     with pytest.raises(LiveSupportPolicyError, match="missing_feature_metadata"):
         run_sequence(req, opener=lambda *args, **kwargs: session)
     assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed
+
+
+@pytest.mark.parametrize(
+    "runtime",
+    [
+        RuntimeOptions(dry_run=True, planning_model_id="keysight-edu36311a"),
+        RuntimeOptions(dry_run=True, planning_model_id="keysight-e3646a"),
+        RuntimeOptions(simulate=True, resource="USB0::SIM::EDU36311A::INSTR"),
+        RuntimeOptions(simulate=True, resource="ASRL1::SIM::E3646A::INSTR"),
+    ],
+)
+def test_sequence_trigger_pulse_no_hardware_gate_remains_fail_closed(
+    runtime: RuntimeOptions,
+) -> None:
+    opened = False
+    doc = {
+        "version": 1,
+        "steps": [{"action": "trigger-pulse", "channel": 1, "pins": [1]}],
+    }
+
+    def opener(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("sequence planning must not open VISA")
+
+    with pytest.raises(CoreValidationError, match="E36312A supports this step"):
+        run_sequence(
+            SequenceRequest(runtime=runtime, parameters={"document": doc}),
+            opener=opener,
+        )
+
+    assert opened is False

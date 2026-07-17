@@ -652,6 +652,84 @@ def test_worker_rejects_removed_ramp_native_fields_before_artifact(running_worke
     assert not jobs_dir.exists() or not list(jobs_dir.iterdir())
 
 
+@pytest.mark.parametrize(
+    "resource",
+    [
+        "USB0::SIM::EDU36311A::INSTR",
+        "ASRL1::SIM::E3646A::INSTR",
+    ],
+)
+def test_worker_general_completion_pulse_execution_uses_core_model_gate(
+    tmp_path: Path,
+    resource: str,
+) -> None:
+    payload = _run_worker_job_for_test(
+        tmp_path,
+        command="apply",
+        arguments={
+            "channel": 1,
+            "voltage": 1.0,
+            "current": 0.05,
+            "completion_pulse_pins": [1],
+        },
+        config={
+            "id": "test",
+            "type": "power",
+            "enabled": True,
+            "mode": "simulate",
+            "control_host": "127.0.0.1",
+            "control_port": 0,
+            "artifacts_dir": str(tmp_path),
+            "events_jsonl": None,
+            "settings": {"resource": resource},
+        },
+    )
+
+    assert payload["ok"] is False
+    assert payload["execution"] == {
+        "mode": "simulate",
+        "dry_run": False,
+        "hardware_touched": False,
+    }
+    assert payload["error"]["code"] == "argument_error"
+    assert "require planning_model_id 'keysight-e36312a'" in payload["error"]["message"]
+
+
+def test_worker_general_completion_pulse_e36312a_execution_stays_supported(
+    tmp_path: Path,
+) -> None:
+    payload = _run_worker_job_for_test(
+        tmp_path,
+        command="apply",
+        arguments={
+            "channel": 1,
+            "voltage": 1.0,
+            "current": 0.05,
+            "completion_pulse_pins": [1],
+        },
+        config={
+            "id": "test",
+            "type": "power",
+            "enabled": True,
+            "mode": "simulate",
+            "control_host": "127.0.0.1",
+            "control_port": 0,
+            "artifacts_dir": str(tmp_path),
+            "events_jsonl": None,
+            "settings": {"resource": "USB0::SIM::E36312A::INSTR"},
+        },
+    )
+
+    assert payload["ok"] is True
+    assert payload["execution"] == {
+        "mode": "simulate",
+        "dry_run": False,
+        "hardware_touched": False,
+    }
+    assert payload["data"]["operation"] == {"name": "apply"}
+    assert payload["data"]["hardware_touched"] is False
+
+
 def test_cli_send_command_dry_run_does_not_send_http(capsys):
     exit_code = cli.main(["send-command", "--command", "read-status", "--arguments-json", "{\"dry_run\": true}", "--dry-run", "--json"])
     payload = _last_stdout_json(capsys)

@@ -6431,6 +6431,74 @@ def test_ramp_dry_run_completion_uses_software_steps(capsys) -> None:
     assert payload["data"]["plan"]["trigger"]["native"] is False
 
 
+@pytest.mark.parametrize(
+    "mode_args",
+    [
+        ["--dry-run", "--model", "keysight-edu36311a"],
+        ["--dry-run", "--model", "keysight-e3646a"],
+        ["--simulate", "--resource", "USB0::SIM::EDU36311A::INSTR"],
+        ["--simulate", "--resource", "ASRL1::SIM::E3646A::INSTR"],
+    ],
+)
+def test_cli_general_completion_pulse_no_hardware_uses_core_model_gate(
+    capsys,
+    mode_args: list[str],
+) -> None:
+    assert (
+        cli.main(
+            [
+                "apply",
+                "--json",
+                *mode_args,
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+                "--completion-pulse-pins",
+                "1",
+            ]
+        )
+        == 2
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == "argument_error"
+    assert "require planning_model_id 'keysight-e36312a'" in payload["error"]["message"]
+
+
+def test_cli_general_completion_pulse_e36312a_plan_shape_stays_supported(capsys) -> None:
+    assert (
+        cli.main(
+            [
+                "apply",
+                "--dry-run",
+                "--json",
+                "--model",
+                "keysight-e36312a",
+                "--channel",
+                "1",
+                "--voltage",
+                "1",
+                "--current",
+                "0.05",
+                "--completion-pulse-pins",
+                "1",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert [step["action"] for step in payload["data"]["plan"]["steps"]] == [
+        "set_current_limit",
+        "set_voltage",
+        "output_on",
+        "completion_pulse",
+    ]
+
+
 def test_readback_real_e36312a_sends_expected_scpi(monkeypatch, capsys) -> None:
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",

@@ -27,6 +27,8 @@ REMOVED_GENERAL_WORKFLOW_FIELDS = frozenset(
     }
 )
 
+COMPLETION_PULSE_PLANNING_MODEL_ID = "keysight-e36312a"
+
 
 def validate_general_workflow_parameters(request: OperationRequest) -> None:
     """Reject removed or command-inapplicable general workflow fields."""
@@ -42,3 +44,22 @@ def validate_general_workflow_parameters(request: OperationRequest) -> None:
         )
     if request.command != "ramp" and "completion_pulse_timing" in request.parameters:
         raise CoreValidationError("completion_pulse_timing is only accepted by ramp")
+
+
+def validate_completion_pulse_planning_model(
+    request: OperationRequest,
+    *,
+    requested: bool,
+    context: str = "completion-pulse options",
+) -> None:
+    """Require the E36312A physical model for no-hardware pulse planning."""
+
+    if not requested or not (request.runtime.dry_run or request.runtime.simulate):
+        return
+    if request.runtime.planning_model_id == COMPLETION_PULSE_PLANNING_MODEL_ID:
+        return
+    selected = request.runtime.planning_profile_id or request.runtime.planning_model_id or "missing"
+    raise CoreValidationError(
+        f"{context} require planning_model_id {COMPLETION_PULSE_PLANNING_MODEL_ID!r}; "
+        f"received {selected!r}"
+    )
