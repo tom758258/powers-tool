@@ -275,9 +275,27 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "Expected Auto" not in html
     assert 'name="execution-mode" value="simulate"' in html
     assert 'name="execution-mode" value="dry-run"' in html
-    assert 'id="execution-mode-badge"' in html
+    assert 'class="device-resource-title-row"' in html
+    assert 'id="execution-mode-badge" class="execution-mode-badge real-locked" aria-live="polite">Real · Writes locked</span>' in html
+    title_row = html[html.index('class="device-resource-title-row"'):html.index('</div>', html.index('class="device-resource-title-row"'))]
+    title_end = title_row.index("</strong>")
+    badge_start = title_row.index('id="execution-mode-badge"')
+    assert 'id="device-resource-title"' in title_row
+    assert title_end < badge_start
     assert 'id="real-write-enabled"' in html
     assert "Simulate" in html
+    execution_mode_ui = extract_js_function(app_js, "updateExecutionModeUi")
+    for text in ("Real · Writes locked", "Real · Writes enabled", "Simulate", "Dry-run"):
+        assert text in execution_mode_ui
+    for class_name in ("real-locked", "real-enabled", "simulate", "dry-run"):
+        assert f'badge.classList.add("{class_name}")' in execution_mode_ui
+    assert ".device-resource-title-row" in styles_css
+    assert "flex-wrap: wrap;" in styles_css
+    assert "white-space: nowrap;" in styles_css
+    assert ".execution-mode-badge.real-locked" in styles_css
+    assert ".execution-mode-badge.real-enabled" in styles_css
+    locked_style = styles_css[styles_css.index(".execution-mode-badge.real-locked"):styles_css.index(".execution-mode-badge.simulate")]
+    assert "var(--warning)" not in locked_style
 
     runtime_block = extract_js_function(app_js, "runtimePayload")
     assert 'const expectedModelId = valueOrNull("expected-model-id");' in runtime_block

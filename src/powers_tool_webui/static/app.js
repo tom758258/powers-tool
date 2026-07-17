@@ -452,10 +452,10 @@ function updateExecutionModeUi() {
     : "Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one.";
   if (badge) {
     badge.className = "execution-mode-badge";
-    if (state.executionMode === "simulate") { badge.textContent = "SIMULATE"; badge.classList.add("simulate"); }
-    else if (state.executionMode === "dry-run") { badge.textContent = "DRY-RUN"; badge.classList.add("dry-run"); }
-    else if (hasRealWriteAuthorization()) { badge.textContent = "REAL · WRITES ENABLED"; badge.classList.add("real-enabled"); }
-    else badge.textContent = "REAL · WRITES LOCKED";
+    if (state.executionMode === "simulate") { badge.textContent = "Simulate"; badge.classList.add("simulate"); }
+    else if (state.executionMode === "dry-run") { badge.textContent = "Dry-run"; badge.classList.add("dry-run"); }
+    else if (hasRealWriteAuthorization()) { badge.textContent = "Real · Writes enabled"; badge.classList.add("real-enabled"); }
+    else { badge.textContent = "Real · Writes locked"; badge.classList.add("real-locked"); }
   }
   populateIdentitySelector();
   updateDeviceResourceSummary();
