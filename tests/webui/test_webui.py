@@ -816,6 +816,174 @@ def test_static_ramp_list_editor_contract():
     assert 'command === "ramp-list"' in app_js
 
 
+def test_static_output_behavior_layout_and_accessibility_contracts():
+    _index_html, _app_js, styles_css = read_static_texts()
+
+    output_behavior_css = styles_css[
+        styles_css.index(".output-behavior {"):
+        styles_css.index("/* ─── Workspace Summary")
+    ]
+    assert "grid-column: 1 / -1;" in output_behavior_css
+    assert "min-width: 0;" in output_behavior_css
+    assert "max-width: 100%;" in output_behavior_css
+    assert "max-width: 70ch;" in output_behavior_css
+    assert "overflow-wrap: anywhere;" in output_behavior_css
+    assert "text-transform: none;" in output_behavior_css
+
+    assertions = textwrap.dedent(
+        r"""
+        const strictAssert = require("node:assert/strict");
+
+        class FakeElement {
+          constructor(tagName) {
+            this.tagName = tagName.toUpperCase();
+            this.children = [];
+            this.parentNode = null;
+            this.dataset = {};
+            this.attributes = {};
+            this.listeners = {};
+            this.className = "";
+            this.id = "";
+            this.textContent = "";
+            this.classList = {
+              add: (...names) => {
+                const values = new Set(this.className.split(/\s+/).filter(Boolean));
+                names.forEach((name) => values.add(name));
+                this.className = [...values].join(" ");
+              },
+              contains: (name) => this.className.split(/\s+/).filter(Boolean).includes(name)
+            };
+          }
+
+          set innerHTML(value) {
+            strictAssert.equal(value, "");
+            this.textContent = "";
+            this.children = [];
+          }
+
+          appendChild(child) {
+            child.parentNode = this;
+            this.children.push(child);
+            return child;
+          }
+
+          append(...children) {
+            children.forEach((child) => this.appendChild(child));
+          }
+
+          addEventListener(type, listener) {
+            (this.listeners[type] ||= []).push(listener);
+          }
+
+          setAttribute(name, value) {
+            this.attributes[name] = String(value);
+          }
+
+          getAttribute(name) {
+            return this.attributes[name] ?? null;
+          }
+        }
+
+        const commandForm = new FakeElement("form");
+        commandForm.id = "command-form";
+        document.createElement = (tagName) => new FakeElement(tagName);
+        const descendants = (root) => [
+          root,
+          ...root.children.flatMap((child) => descendants(child))
+        ];
+        const byId = (root, id) => descendants(root).find((node) => node.id === id);
+        const byClass = (root, className) => descendants(root).filter(
+          (node) => node.classList.contains(className)
+        );
+        document.getElementById = (id) => id === "command-form" ? commandForm : byId(commandForm, id);
+        applyParameterConstraint = () => {};
+        applyElectricalRatingConstraint = () => {};
+        applyWorkflowPulseControlState = () => {};
+        isChannelSupported = () => true;
+        updatePulseChildVisibility = () => {};
+
+        const behaviorParts = (section, inputId, helpId) => {
+          const input = byId(section, inputId);
+          const label = descendants(section).find(
+            (node) => node.tagName === "LABEL" && node.getAttribute("for") === inputId
+          );
+          const help = byId(section, helpId);
+          return { input, label, help };
+        };
+
+        state.selected = "ramp";
+        renderForm("ramp");
+        let rampSection = byClass(commandForm, "output-behavior")[0];
+        let rampParts = behaviorParts(rampSection, "param-enable_output", "ramp-enable-output-help");
+        const rampStep = byId(commandForm, "param-completion_pulse_step");
+        strictAssert.equal(
+          commandForm.children.indexOf(rampSection),
+          commandForm.children.indexOf(rampStep.parentNode) + 1
+        );
+        strictAssert.equal(rampSection.children[0].textContent, "Output behavior");
+        strictAssert.equal(rampParts.label.textContent, "Enable output");
+        strictAssert.equal(rampParts.input.getAttribute("aria-label"), "Enable output after first setpoint");
+        strictAssert.equal(rampParts.input.getAttribute("aria-describedby"), "ramp-enable-output-help");
+        strictAssert.equal(
+          rampParts.help.textContent,
+          "Turns output on after the first setpoint is written and verified. Remains on after normal completion. Stop turns all outputs off. Real hardware requires confirmation."
+        );
+        strictAssert.equal(rampParts.input.listeners.change.length, 1);
+        strictAssert.equal(rampParts.input.listeners.input.length, 1);
+
+        renderForm("ramp");
+        strictAssert.equal(byClass(commandForm, "output-behavior").length, 1);
+        strictAssert.equal(descendants(commandForm).filter((node) => node.id === "param-enable_output").length, 1);
+        strictAssert.equal(descendants(commandForm).filter((node) => node.id === "ramp-enable-output-help").length, 1);
+
+        state.selected = "ramp-list";
+        state.rampListEnableOutput = true;
+        renderForm("ramp-list");
+        const editor = commandForm.children[0];
+        const pulseFields = editor.children.find(
+          (child) => byId(child, "ramp-list-pulse-timing")
+            && byId(child, "ramp-list-pulse-pins")
+            && byId(child, "ramp-list-pulse-polarity")
+        );
+        let rampListSection = byClass(editor, "output-behavior")[0];
+        let rampListParts = behaviorParts(
+          rampListSection,
+          "ramp-list-enable-output",
+          "ramp-list-enable-output-help"
+        );
+        strictAssert.equal(editor.children.indexOf(rampListSection), editor.children.indexOf(pulseFields) + 1);
+        strictAssert.equal(rampListSection.children[0].textContent, "Output behavior");
+        strictAssert.equal(rampListParts.label.textContent, "Enable each channel");
+        strictAssert.equal(
+          rampListParts.input.getAttribute("aria-label"),
+          "Enable each channel at its first segment"
+        );
+        strictAssert.equal(
+          rampListParts.input.getAttribute("aria-describedby"),
+          "ramp-list-enable-output-help"
+        );
+        strictAssert.equal(
+          rampListParts.help.textContent,
+          "Turns each channel on after its first segment setpoint is written and verified. Remains on after normal completion. Stop turns all outputs off. Real hardware requires confirmation."
+        );
+        strictAssert.equal(rampListParts.input.checked, true);
+        strictAssert.equal(rampListParts.input.listeners.change.length, 1);
+
+        renderForm("ramp-list");
+        strictAssert.equal(byClass(commandForm, "output-behavior").length, 1);
+        strictAssert.equal(
+          descendants(commandForm).filter((node) => node.id === "ramp-list-enable-output").length,
+          1
+        );
+        strictAssert.equal(
+          descendants(commandForm).filter((node) => node.id === "ramp-list-enable-output-help").length,
+          1
+        );
+        """
+    )
+    run_frontend_javascript_assertions(assertions)
+
+
 def test_static_workflow_run_button_state_contract():
     index_html, app_js, styles_css = read_static_texts()
 
@@ -833,8 +1001,6 @@ def test_static_workflow_run_button_state_contract():
     assert "Waiting for safe-off and cleanup" in app_js
     assert "Failed  cleanup_failed" in app_js
     assert "button#run.workflow-stop" in styles_css
-    assert 'label: "Enable output after first setpoint"' in app_js
-    assert "Enable each channel at its first segment" in app_js
 
 
 def test_static_pulse_child_fields_and_rear_pin_select_contracts():

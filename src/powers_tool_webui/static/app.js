@@ -117,9 +117,9 @@ const PARAMS = {
     { name: "stop_voltage", type: "number", label: "Stop voltage(V)", value: 1 },
     { name: "step_voltage", type: "number", label: "Step voltage(V)", value: 0.1 },
     { name: "delay_ms", type: "number", label: "Delay(ms)", value: 0 },
-    { name: "enable_output", type: "checkbox", label: "Enable output after first setpoint", description: "Output is enabled only after the first safe setpoint is written and verified. It remains ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation." },
     { name: "completion_pulse_segment", type: "checkbox", label: "Segment complete pulse", pulseToggle: true },
     { name: "completion_pulse_step", type: "checkbox", label: "Every-step pulse", pulseToggle: true },
+    { name: "enable_output", type: "checkbox", label: "Enable output", ariaLabel: "Enable output after first setpoint", helpId: "ramp-enable-output-help", outputBehavior: true, description: "Turns output on after the first setpoint is written and verified. Remains on after normal completion. Stop turns all outputs off. Real hardware requires confirmation." },
     { name: "completion_pulse_pins", type: "select", label: "Rear pins", options: REAR_PIN_OPTIONS, value: "1", parser: "intList", pulseChild: true },
     { name: "completion_pulse_polarity", type: "select", label: "Polarity", options: ["positive", "negative"], value: "positive", pulseChild: true }
   ],
@@ -604,10 +604,12 @@ function renderForm(command) {
   }
   (PARAMS[command] || []).forEach((param) => {
     const label = document.createElement("label");
-    if (param.type === "checkbox") label.classList.add("checkbox-field");
-    if (param.pulseToggle) label.classList.add("pulse-toggle-field");
-    if (param.pulseChild) label.classList.add("pulse-child-field");
-    label.textContent = param.label;
+    if (!param.outputBehavior) {
+      if (param.type === "checkbox") label.classList.add("checkbox-field");
+      if (param.pulseToggle) label.classList.add("pulse-toggle-field");
+      if (param.pulseChild) label.classList.add("pulse-child-field");
+      label.textContent = param.label;
+    }
     let input;
     if (param.type === "select") {
       input = document.createElement("select");
@@ -641,6 +643,15 @@ function renderForm(command) {
       enforcePulseFormRules(command, param.name, input);
       updateSelectedCommandState();
     });
+    if (param.outputBehavior) {
+      form.appendChild(createOutputBehaviorSection(input, {
+        visibleLabel: param.label,
+        ariaLabel: param.ariaLabel,
+        helpId: param.helpId,
+        description: param.description
+      }));
+      return;
+    }
     label.appendChild(input);
     if (!TRIGGER_COMMANDS.has(command)) appendFieldDescription(label, param);
     if (command === "set" && param.name === "current") appendSetGuidance(label);
@@ -681,6 +692,33 @@ function appendFieldDescription(label, param) {
   description.className = "field-description";
   description.textContent = param.description;
   label.appendChild(description);
+}
+
+function createOutputBehaviorSection(input, { visibleLabel, ariaLabel, helpId, description }) {
+  const section = document.createElement("section");
+  section.className = "output-behavior";
+
+  const title = document.createElement("strong");
+  title.className = "output-behavior-title";
+  title.textContent = "Output behavior";
+
+  const control = document.createElement("div");
+  control.className = "checkbox-field output-behavior-control";
+  const label = document.createElement("label");
+  label.className = "output-behavior-label";
+  label.setAttribute("for", input.id);
+  label.textContent = visibleLabel;
+  input.setAttribute("aria-label", ariaLabel);
+  input.setAttribute("aria-describedby", helpId);
+  control.append(input, label);
+
+  const help = document.createElement("small");
+  help.id = helpId;
+  help.className = "field-description output-behavior-help";
+  help.textContent = description;
+
+  section.append(title, control, help);
+  return section;
 }
 
 function appendSetGuidance(label) {
@@ -900,22 +938,6 @@ function renderRampListForm(form) {
     toolbar.appendChild(button);
   });
   editor.appendChild(toolbar);
-  const enableLabel = document.createElement("label");
-  enableLabel.className = "checkbox-field";
-  enableLabel.textContent = "Enable each channel at its first segment";
-  const enableInput = document.createElement("input");
-  enableInput.type = "checkbox";
-  enableInput.id = "ramp-list-enable-output";
-  enableInput.checked = state.rampListEnableOutput;
-  enableInput.addEventListener("change", () => {
-    state.rampListEnableOutput = enableInput.checked;
-    updateSelectedCommandState();
-  });
-  enableLabel.appendChild(enableInput);
-  appendFieldDescription(enableLabel, {
-    description: "Each channel is enabled only after its first safe segment setpoint is written and verified. Outputs remain ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation."
-  });
-  editor.appendChild(enableLabel);
   const pulseFields = document.createElement("div");
   pulseFields.className = "ramp-segment-fields";
   [
@@ -949,6 +971,20 @@ function renderRampListForm(form) {
     pulseFields.appendChild(label);
   });
   editor.appendChild(pulseFields);
+  const enableInput = document.createElement("input");
+  enableInput.type = "checkbox";
+  enableInput.id = "ramp-list-enable-output";
+  enableInput.checked = state.rampListEnableOutput;
+  enableInput.addEventListener("change", () => {
+    state.rampListEnableOutput = enableInput.checked;
+    updateSelectedCommandState();
+  });
+  editor.appendChild(createOutputBehaviorSection(enableInput, {
+    visibleLabel: "Enable each channel",
+    ariaLabel: "Enable each channel at its first segment",
+    helpId: "ramp-list-enable-output-help",
+    description: "Turns each channel on after its first segment setpoint is written and verified. Remains on after normal completion. Stop turns all outputs off. Real hardware requires confirmation."
+  }));
   state.rampListSegments.forEach((segment, index) => editor.appendChild(rampSegmentCard(segment, index)));
   form.appendChild(editor);
 }

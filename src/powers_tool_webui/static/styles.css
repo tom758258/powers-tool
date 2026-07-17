@@ -748,6 +748,49 @@ button.utility-icon-button:hover {
 
 .form-grid .pulse-child-field.visible { display: block; }
 
+/* ─── Output Behavior ────────────────────────────────────────────────────── */
+.output-behavior {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-soft);
+}
+
+.output-behavior-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.form-grid .output-behavior-control {
+  min-width: 0;
+}
+
+.form-grid .output-behavior-label {
+  display: block;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  overflow-wrap: anywhere;
+}
+
+.output-behavior-help {
+  min-width: 0;
+  max-width: 70ch;
+  margin: 0 0 0 24px;
+  overflow-wrap: anywhere;
+}
+
 /* ─── Workspace Summary ──────────────────────────────────────────────────── */
 .workspace-summary {
   margin: 0 16px 14px;
