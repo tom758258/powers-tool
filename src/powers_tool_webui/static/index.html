@@ -162,16 +162,24 @@
       <div class="section-head">
         <strong>Basic command</strong>
         <div class="button-row">
-          <button id="basic-output-all" class="basic-toggle off" type="button" data-basic-all-output>ALL ON</button>
+          <span id="basic-output-all-header-slot" class="basic-output-all-slot">
+            <button id="basic-output-all" class="basic-toggle off" type="button" data-basic-all-output>ALL ON</button>
+          </span>
           <button id="advanced-command-toggle" class="secondary advanced-command-button" type="button" aria-controls="advanced-commands" aria-expanded="false">Show more commands</button>
         </div>
       </div>
       <div id="basic-command-status" class="basic-command-status" aria-live="polite">Live Data remains the source of instrument state.</div>
+      <div id="basic-output-capability-status" class="basic-output-capability-status" role="status" hidden></div>
+      <span id="e3646a-global-output-description" class="visually-hidden">E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable.</span>
       <div class="basic-channel-grid">
         <div class="basic-channel-card" data-basic-channel="1">
           <div class="basic-channel-head">
             <strong>CH1</strong>
-            <button class="basic-toggle off" type="button" data-basic-output="1">ON</button>
+            <span class="basic-channel-output-presentation">
+              <button class="basic-toggle off" type="button" data-basic-output="1">ON</button>
+              <span class="basic-output-status unknown" data-basic-output-status="1" role="status" hidden>UNKNOWN</span>
+              <span class="basic-output-info" data-basic-output-info="1" role="note" tabindex="0" aria-label="E3646A global output information" aria-describedby="e3646a-global-output-description" title="E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable." hidden>i</span>
+            </span>
           </div>
           <div class="basic-fields">
             <label>V
@@ -186,7 +194,11 @@
         <div class="basic-channel-card" data-basic-channel="2">
           <div class="basic-channel-head">
             <strong>CH2</strong>
-            <button class="basic-toggle off" type="button" data-basic-output="2">ON</button>
+            <span class="basic-channel-output-presentation">
+              <button class="basic-toggle off" type="button" data-basic-output="2">ON</button>
+              <span class="basic-output-status unknown" data-basic-output-status="2" role="status" hidden>UNKNOWN</span>
+              <span class="basic-output-info" data-basic-output-info="2" role="note" tabindex="0" aria-label="E3646A global output information" aria-describedby="e3646a-global-output-description" title="E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable." hidden>i</span>
+            </span>
           </div>
           <div class="basic-fields">
             <label>V
@@ -213,6 +225,10 @@
             <button class="basic-set" type="button" data-basic-set="3">Set</button>
           </div>
         </div>
+      </div>
+      <div id="basic-e3646a-output-row" class="basic-e3646a-output-row" hidden>
+        <strong>All-channel output</strong>
+        <span id="basic-output-all-global-slot" class="basic-output-all-slot"></span>
       </div>
     </section>
 

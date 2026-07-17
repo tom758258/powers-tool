@@ -82,6 +82,9 @@ const TRIGGER_COMMANDS = new Set([
 const STATE_CLASS_NAMES = ["state-ok", "state-warning", "state-error", "state-idle"];
 const DEFAULT_CHANNELS = [1, 2, 3];
 const REAR_TRIGGER_PULSE_MODEL_ID = "keysight-e36312a";
+const E3646A_MODEL_ID = "keysight-e3646a";
+const E3646A_GLOBAL_OUTPUT_DESCRIPTION = "E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable.";
+const E3646A_CAPABILITY_ERROR = "E3646A output controls are disabled because global-output capability metadata is missing or inconsistent.";
 const STOPPABLE_WORKFLOWS = new Set(["ramp", "ramp-list", "sequence"]);
 const WORKFLOW_STOP_DESCRIPTION = "Stop the active workflow and safely turn all outputs off.";
 
@@ -117,9 +120,9 @@ const PARAMS = {
     { name: "stop_voltage", type: "number", label: "Stop voltage(V)", value: 1 },
     { name: "step_voltage", type: "number", label: "Step voltage(V)", value: 0.1 },
     { name: "delay_ms", type: "number", label: "Delay(ms)", value: 0 },
+    { name: "enable_output", type: "checkbox", label: "Enable output", ariaLabel: "Enable output after first setpoint", helpId: "ramp-enable-output-help", compactHelp: true, description: "Output is enabled only after the first safe setpoint is written and verified. It remains ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation." },
     { name: "completion_pulse_segment", type: "checkbox", label: "Segment complete pulse", pulseToggle: true },
     { name: "completion_pulse_step", type: "checkbox", label: "Every-step pulse", pulseToggle: true },
-    { name: "enable_output", type: "checkbox", label: "Enable output", ariaLabel: "Enable output after first setpoint", helpId: "ramp-enable-output-help", outputBehavior: true, description: "Turns output on after the first setpoint is written and verified. Remains on after normal completion. Stop turns all outputs off. Real hardware requires confirmation." },
     { name: "completion_pulse_pins", type: "select", label: "Rear pins", options: REAR_PIN_OPTIONS, value: "1", parser: "intList", pulseChild: true },
     { name: "completion_pulse_polarity", type: "select", label: "Polarity", options: ["positive", "negative"], value: "positive", pulseChild: true }
   ],
@@ -270,8 +273,12 @@ function bind() {
   document.getElementById("run").addEventListener("click", runSelected);
   document.getElementById("scan").addEventListener("click", scanResources);
   document.getElementById("resource-select").addEventListener("change", syncSelectedResource);
-  document.getElementById("resource").addEventListener("input", updateDeviceResourceSummary);
-  document.getElementById("resource").addEventListener("change", updateDeviceResourceSummary);
+  const syncTypedResource = () => {
+    updateDeviceResourceSummary();
+    syncBasicFromLivePanel(state.livePanel);
+  };
+  document.getElementById("resource").addEventListener("input", syncTypedResource);
+  document.getElementById("resource").addEventListener("change", syncTypedResource);
   document.getElementById("resource-select").addEventListener("change", updateDeviceResourceSummary);
   document.getElementById("expected-model-id")?.addEventListener("change", handleExpectedModelChanged);
   document.getElementById("device-options-toggle").addEventListener("click", (event) => {
@@ -420,6 +427,36 @@ function selectedChannelModel() {
   const expected = selectedExpectedModel();
   if (expected && state.channelCapabilitiesByModel?.[expected]) return expected;
   return detectedChannelModelForResource(valueOrNull("resource"));
+}
+
+function actualCurrentResourceModel() {
+  const resource = valueOrNull("resource");
+  if (!resource) return null;
+  const livePanel = state.livePanel;
+  if (livePanel && !livePanel.stale && livePanel.resource === resource && livePanel.model_id) {
+    return String(livePanel.model_id).trim() || null;
+  }
+  const detected = detectedCommandModelForResource(resource) || detectedChannelModelForResource(resource);
+  if (detected) return detected;
+  const liveSupport = currentExactLiveSupport();
+  return liveSupport?.model_id ? String(liveSupport.model_id).trim() || null : null;
+}
+
+function e3646aGlobalOutputCapability() {
+  const capability = channelCapabilityForModel(E3646A_MODEL_ID);
+  if (!capability || capability.output_control_scope !== "global") return null;
+  if (capability.channels.length !== 2 || capability.channels[0] !== 1 || capability.channels[1] !== 2) return null;
+  return capability;
+}
+
+function basicOutputPresentation() {
+  if (actualCurrentResourceModel() !== E3646A_MODEL_ID) {
+    return { mode: "ordinary", capability: null };
+  }
+  const capability = e3646aGlobalOutputCapability();
+  return capability
+    ? { mode: "e3646a-global", capability }
+    : { mode: "e3646a-disabled", capability: null };
 }
 
 function selectedElectricalRatingModel() {
@@ -604,12 +641,10 @@ function renderForm(command) {
   }
   (PARAMS[command] || []).forEach((param) => {
     const label = document.createElement("label");
-    if (!param.outputBehavior) {
-      if (param.type === "checkbox") label.classList.add("checkbox-field");
-      if (param.pulseToggle) label.classList.add("pulse-toggle-field");
-      if (param.pulseChild) label.classList.add("pulse-child-field");
-      label.textContent = param.label;
-    }
+    if (param.type === "checkbox") label.classList.add("checkbox-field");
+    if (param.pulseToggle) label.classList.add("pulse-toggle-field");
+    if (param.pulseChild) label.classList.add("pulse-child-field");
+    label.textContent = param.label;
     let input;
     if (param.type === "select") {
       input = document.createElement("select");
@@ -643,17 +678,9 @@ function renderForm(command) {
       enforcePulseFormRules(command, param.name, input);
       updateSelectedCommandState();
     });
-    if (param.outputBehavior) {
-      form.appendChild(createOutputBehaviorSection(input, {
-        visibleLabel: param.label,
-        ariaLabel: param.ariaLabel,
-        helpId: param.helpId,
-        description: param.description
-      }));
-      return;
-    }
     label.appendChild(input);
-    if (!TRIGGER_COMMANDS.has(command)) appendFieldDescription(label, param);
+    if (param.compactHelp) configureCompactCheckboxHelp(label, input, param);
+    if (!TRIGGER_COMMANDS.has(command) && !param.compactHelp) appendFieldDescription(label, param);
     if (command === "set" && param.name === "current") appendSetGuidance(label);
     form.appendChild(label);
   });
@@ -694,31 +721,18 @@ function appendFieldDescription(label, param) {
   label.appendChild(description);
 }
 
-function createOutputBehaviorSection(input, { visibleLabel, ariaLabel, helpId, description }) {
-  const section = document.createElement("section");
-  section.className = "output-behavior";
-
-  const title = document.createElement("strong");
-  title.className = "output-behavior-title";
-  title.textContent = "Output behavior";
-
-  const control = document.createElement("div");
-  control.className = "checkbox-field output-behavior-control";
-  const label = document.createElement("label");
-  label.className = "output-behavior-label";
+function configureCompactCheckboxHelp(label, input, { ariaLabel, helpId, description }) {
   label.setAttribute("for", input.id);
-  label.textContent = visibleLabel;
+  label.title = description;
+  input.title = description;
   input.setAttribute("aria-label", ariaLabel);
   input.setAttribute("aria-describedby", helpId);
-  control.append(input, label);
 
-  const help = document.createElement("small");
+  const help = document.createElement("span");
   help.id = helpId;
-  help.className = "field-description output-behavior-help";
+  help.className = "visually-hidden";
   help.textContent = description;
-
-  section.append(title, control, help);
-  return section;
+  label.appendChild(help);
 }
 
 function appendSetGuidance(label) {
@@ -938,6 +952,24 @@ function renderRampListForm(form) {
     toolbar.appendChild(button);
   });
   editor.appendChild(toolbar);
+  const enableLabel = document.createElement("label");
+  enableLabel.className = "checkbox-field ramp-list-enable-output-field";
+  enableLabel.textContent = "Enable each channel";
+  const enableInput = document.createElement("input");
+  enableInput.type = "checkbox";
+  enableInput.id = "ramp-list-enable-output";
+  enableInput.checked = state.rampListEnableOutput;
+  enableInput.addEventListener("change", () => {
+    state.rampListEnableOutput = enableInput.checked;
+    updateSelectedCommandState();
+  });
+  enableLabel.appendChild(enableInput);
+  configureCompactCheckboxHelp(enableLabel, enableInput, {
+    ariaLabel: "Enable each channel at its first segment",
+    helpId: "ramp-list-enable-output-help",
+    description: "Each channel is enabled only after its first safe segment setpoint is written and verified. Outputs remain ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation."
+  });
+  editor.appendChild(enableLabel);
   const pulseFields = document.createElement("div");
   pulseFields.className = "ramp-segment-fields";
   [
@@ -971,20 +1003,6 @@ function renderRampListForm(form) {
     pulseFields.appendChild(label);
   });
   editor.appendChild(pulseFields);
-  const enableInput = document.createElement("input");
-  enableInput.type = "checkbox";
-  enableInput.id = "ramp-list-enable-output";
-  enableInput.checked = state.rampListEnableOutput;
-  enableInput.addEventListener("change", () => {
-    state.rampListEnableOutput = enableInput.checked;
-    updateSelectedCommandState();
-  });
-  editor.appendChild(createOutputBehaviorSection(enableInput, {
-    visibleLabel: "Enable each channel",
-    ariaLabel: "Enable each channel at its first segment",
-    helpId: "ramp-list-enable-output-help",
-    description: "Turns each channel on after its first segment setpoint is written and verified. Remains on after normal completion. Stop turns all outputs off. Real hardware requires confirmation."
-  }));
   state.rampListSegments.forEach((segment, index) => editor.appendChild(rampSegmentCard(segment, index)));
   form.appendChild(editor);
 }
@@ -2199,6 +2217,7 @@ async function runBasicOutput(channel) {
     failBasicAction(basicActionKey("output", channel), "Unsupported channel", unsupported, { channel, label: `Basic CH${channel} Output` });
     return;
   }
+  if (basicOutputPresentation().mode !== "ordinary") return;
   if (basicOutputLockAction(channel)) return;
   const current = basicLiveChannel(channel)?.output_enabled === true;
   const command = current ? "output-off" : "output-on";
@@ -2207,10 +2226,16 @@ async function runBasicOutput(channel) {
 }
 
 async function runBasicOutputAll() {
+  const presentation = basicOutputPresentation();
+  if (presentation.mode === "e3646a-disabled") return;
   if (basicOutputLockAction("all")) return;
-  const supported = supportedChannelsForCurrentModel();
+  const supported = presentation.mode === "e3646a-global"
+    ? presentation.capability.channels
+    : supportedChannelsForCurrentModel();
   if (!supported.length) return;
-  const allOn = basicAllOutputsOn();
+  const globalState = presentation.mode === "e3646a-global" ? e3646aGlobalOutputState(presentation) : null;
+  if (globalState === "unknown") return;
+  const allOn = globalState ? globalState === "on" : basicAllOutputsOn();
   const command = allOn ? "output-off" : "output-on";
   const desiredOutput = !allOn;
   await submitBasicJob(command, { channel: "all" }, basicActionKey("output", "all"), `Basic All ${desiredOutput ? "ON" : "OFF"}`, { desiredOutput });
@@ -3175,6 +3200,7 @@ function updateResourceModelFromJob(job) {
   if (resourceName && resourceName === valueOrNull("resource")) updateDeviceResourceSummary();
   if (updated) {
     refreshBasicInputConstraints();
+    syncBasicFromLivePanel(state.livePanel);
     if (state.selected) selectCommand(state.selected);
     else renderCommands();
   }
@@ -3625,7 +3651,27 @@ function basicLiveChannel(channel) {
   return (panel.channels || []).find((item) => Number(item.channel) === Number(channel)) || null;
 }
 
+function basicChannelOutputState(channel) {
+  const liveChannel = basicLiveChannel(channel);
+  if (!liveChannel || liveChannel.stale || liveChannel.error || typeof liveChannel.output_enabled !== "boolean") {
+    return "unknown";
+  }
+  return liveChannel.output_enabled ? "on" : "off";
+}
+
+function e3646aGlobalOutputState(presentation = basicOutputPresentation()) {
+  if (presentation.mode !== "e3646a-global") return "unknown";
+  const states = presentation.capability.channels.map((channel) => basicChannelOutputState(channel));
+  if (states.every((value) => value === "on")) return "on";
+  if (states.every((value) => value === "off")) return "off";
+  return "unknown";
+}
+
 function basicAllOutputsOn() {
+  const presentation = basicOutputPresentation();
+  if (presentation.mode === "e3646a-global") {
+    return e3646aGlobalOutputState(presentation) === "on";
+  }
   const panel = state.livePanel;
   const resource = valueOrNull("resource");
   if (!panel || panel.stale || !resource || panel.resource !== resource) return false;
@@ -3721,6 +3767,7 @@ function syncBasicFromLivePanel(panel) {
   });
   renderBasicAllOutputButton(fresh ? panel.channels || [] : []);
   renderBasicOutputActionStates();
+  applyBasicOutputPresentation();
 }
 
 function syncBasicSetpointInput(channel, kind, value, fresh) {
@@ -3750,24 +3797,110 @@ function renderBasicOutputButton(channel, liveChannel, fresh) {
   button.setAttribute("aria-label", `CH${channel} output ${enabled ? "on" : "off"}`);
   button.disabled = Boolean(unsupported);
   button.title = unsupported || outputControlTitle(channel, enabled, fresh);
+  applyBasicPerChannelOutputPresentation(channel, button);
 }
 
 function renderBasicAllOutputButton(channels) {
   const button = document.querySelector("[data-basic-all-output]");
   if (!button) return;
+  const presentation = basicOutputPresentation();
+  if (presentation.mode === "e3646a-global") {
+    const globalState = e3646aGlobalOutputState(presentation);
+    button.textContent = globalState === "on"
+      ? "Turn outputs off"
+      : globalState === "off"
+        ? "Turn outputs on"
+        : "Output state unknown";
+    button.classList.toggle("on", globalState === "on");
+    button.classList.toggle("off", globalState === "off");
+    button.classList.toggle("unknown", globalState === "unknown");
+    button.setAttribute("aria-pressed", globalState === "on" ? "true" : globalState === "off" ? "false" : "mixed");
+    button.setAttribute("aria-label", `All-channel output: ${button.textContent}`);
+    button.disabled = globalState === "unknown";
+    button.title = globalState === "unknown" ? "Fresh synchronized CH1 and CH2 output readback is required." : outputAllControlTitle(globalState === "on");
+    applyBasicOutputPresentation();
+    return;
+  }
   const supported = supportedChannelsForCurrentModel();
   const allOn = supported.length > 0 && supported.every((channel) => channels.find((item) => Number(item.channel) === channel)?.output_enabled === true);
   button.textContent = "ALL ON";
   button.classList.toggle("on", allOn);
   button.classList.toggle("off", !allOn);
+  button.classList.remove("unknown");
   button.setAttribute("aria-pressed", String(allOn));
   button.setAttribute("aria-label", `All outputs ${allOn ? "on" : "not all on"}`);
   button.title = outputAllControlTitle(allOn);
+  applyBasicOutputPresentation();
+}
+
+function applyBasicPerChannelOutputPresentation(channel, button, presentation = basicOutputPresentation()) {
+  const status = document.querySelector(`[data-basic-output-status="${channel}"]`);
+  const info = document.querySelector(`[data-basic-output-info="${channel}"]`);
+  const readOnly = presentation.mode === "e3646a-global"
+    && presentation.capability.channels.includes(channel);
+
+  button.hidden = readOnly;
+  if (readOnly) button.disabled = true;
+  if (presentation.mode === "e3646a-disabled") {
+    button.disabled = true;
+    button.title = E3646A_CAPABILITY_ERROR;
+  }
+
+  if (status) {
+    status.hidden = !readOnly;
+    status.classList.remove("on", "off", "unknown");
+    if (readOnly) {
+      const outputState = basicChannelOutputState(channel);
+      status.textContent = outputState.toUpperCase();
+      status.classList.add(outputState);
+      status.setAttribute("aria-label", `CH${channel} output status ${status.textContent}`);
+    }
+  }
+  if (info) {
+    info.hidden = !readOnly;
+    info.title = E3646A_GLOBAL_OUTPUT_DESCRIPTION;
+  }
+}
+
+function applyBasicAllOutputPresentation(button, presentation = basicOutputPresentation()) {
+  if (presentation.mode === "e3646a-disabled") {
+    button.disabled = true;
+    button.title = E3646A_CAPABILITY_ERROR;
+  } else if (presentation.mode === "e3646a-global" && e3646aGlobalOutputState(presentation) === "unknown") {
+    button.disabled = true;
+    button.title = "Fresh synchronized CH1 and CH2 output readback is required.";
+  }
+}
+
+function applyBasicOutputPresentation() {
+  const presentation = basicOutputPresentation();
+  const allButton = document.querySelector("[data-basic-all-output]");
+  const headerSlot = document.getElementById("basic-output-all-header-slot");
+  const globalSlot = document.getElementById("basic-output-all-global-slot");
+  const globalRow = document.getElementById("basic-e3646a-output-row");
+  const capabilityStatus = document.getElementById("basic-output-capability-status");
+
+  if (allButton) {
+    const targetSlot = presentation.mode === "e3646a-global" ? globalSlot : headerSlot;
+    if (targetSlot && allButton.parentNode !== targetSlot) targetSlot.appendChild(allButton);
+    applyBasicAllOutputPresentation(allButton, presentation);
+  }
+  if (globalRow) globalRow.hidden = presentation.mode !== "e3646a-global";
+  if (capabilityStatus) {
+    const disabled = presentation.mode === "e3646a-disabled";
+    capabilityStatus.hidden = !disabled;
+    capabilityStatus.textContent = disabled ? E3646A_CAPABILITY_ERROR : "";
+  }
+  DEFAULT_CHANNELS.forEach((channel) => {
+    const button = document.querySelector(`[data-basic-output="${channel}"]`);
+    if (button) applyBasicPerChannelOutputPresentation(channel, button, presentation);
+  });
 }
 
 function renderBasicOutputActionStates() {
   DEFAULT_CHANNELS.forEach((channel) => renderBasicOutputControlState(channel));
   renderBasicOutputControlState("all");
+  applyBasicOutputPresentation();
 }
 
 function renderBasicOutputControlState(target) {
@@ -3798,13 +3931,19 @@ function renderBasicOutputControlState(target) {
   } else {
     button.title = commandMetaForState.live_support_status || button.title;
   }
+  if (target === "all") applyBasicAllOutputPresentation(button);
+  else applyBasicPerChannelOutputPresentation(Number(target), button);
 }
 
 function basicOutputLockAction(target) {
   const allAction = state.basicActionStates[basicActionKey("output", "all")];
   if (allAction?.status === "pending") return allAction;
   if (target === "all") {
-    return supportedChannelsForCurrentModel()
+    const presentation = basicOutputPresentation();
+    const channels = presentation.mode === "e3646a-global"
+      ? presentation.capability.channels
+      : supportedChannelsForCurrentModel();
+    return channels
       .map((channel) => state.basicActionStates[basicActionKey("output", channel)])
       .find((action) => action?.status === "pending") || null;
   }
@@ -3827,8 +3966,14 @@ function clearResolvedBasicErrors(channel, liveChannel, fresh) {
   }
   const allAction = state.basicActionStates[basicActionKey("output", "all")];
   if (typeof allAction?.desiredOutput === "boolean") {
+    const presentation = basicOutputPresentation();
+    const globalState = presentation.mode === "e3646a-global" ? e3646aGlobalOutputState(presentation) : null;
     const channels = state.livePanel?.channels || [];
-    const allMatched = supportedChannelsForCurrentModel().every((item) => channels.find((entry) => Number(entry.channel) === item)?.output_enabled === allAction.desiredOutput);
+    const allMatched = presentation.mode === "e3646a-global"
+      ? globalState === (allAction.desiredOutput ? "on" : "off")
+      : presentation.mode === "e3646a-disabled"
+        ? false
+        : supportedChannelsForCurrentModel().every((item) => channels.find((entry) => Number(entry.channel) === item)?.output_enabled === allAction.desiredOutput);
     if (allMatched && allAction.status === "pending" && allAction.awaitingReadback === true) {
       setBasicActionState(basicActionKey("output", "all"), "success", "Basic command completed.", allAction);
     } else if (allMatched && allAction.status === "error") {

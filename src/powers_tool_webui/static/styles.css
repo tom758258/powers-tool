@@ -748,47 +748,17 @@ button.utility-icon-button:hover {
 
 .form-grid .pulse-child-field.visible { display: block; }
 
-/* ─── Output Behavior ────────────────────────────────────────────────────── */
-.output-behavior {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--panel-soft);
-}
-
-.output-behavior-title {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.form-grid .output-behavior-control {
-  min-width: 0;
-}
-
-.form-grid .output-behavior-label {
-  display: block;
-  min-width: 0;
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  overflow-wrap: anywhere;
-}
-
-.output-behavior-help {
-  min-width: 0;
-  max-width: 70ch;
-  margin: 0 0 0 24px;
-  overflow-wrap: anywhere;
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ─── Workspace Summary ──────────────────────────────────────────────────── */
@@ -884,6 +854,11 @@ button.utility-icon-button:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.ramp-list-enable-output-field {
+  justify-self: start;
+  min-width: 0;
 }
 
 .ramp-segment-card {
@@ -1042,6 +1017,21 @@ canvas {
   font-size: 12px;
 }
 
+.basic-output-capability-status {
+  margin: 0 16px 10px;
+  color: var(--danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.basic-output-capability-status[hidden],
+.basic-e3646a-output-row[hidden],
+.basic-toggle[hidden],
+.basic-output-status[hidden],
+.basic-output-info[hidden] {
+  display: none;
+}
+
 /* ─── Basic Channel Grid ─────────────────────────────────────────────────── */
 .basic-channel-grid {
   display: grid;
@@ -1097,6 +1087,93 @@ canvas {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.2px;
+}
+
+.basic-channel-output-presentation {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.basic-output-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  min-width: 68px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.basic-output-status.on {
+  border-color: #8fd3b0;
+  background: #ecfdf3;
+  color: var(--ok);
+}
+
+.basic-output-status.off {
+  border-color: #c4ccd5;
+  background: #f1f4f7;
+  color: #53606d;
+}
+
+.basic-output-status.unknown {
+  border-color: #cbd3dc;
+  background: #f7f9fb;
+}
+
+.basic-output-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: help;
+}
+
+.basic-output-info:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-focus);
+}
+
+.basic-e3646a-output-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+  margin: 0 16px 14px;
+  padding-top: 2px;
+}
+
+.basic-e3646a-output-row > strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.basic-output-all-slot {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.basic-e3646a-output-row #basic-output-all {
+  max-width: 100%;
+  white-space: normal;
 }
 
 .basic-fields {
