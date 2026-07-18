@@ -45,6 +45,7 @@ from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.stop_cleanup import CleanupReporter, cancel_workflow_with_safe_off
 from powers_tool_core.trigger import run_post_action_completion_pulse
 from powers_tool_core.workflow_validation import (
+    normalize_loop_count,
     validate_completion_pulse_planning_model,
     validate_general_workflow_parameters,
 )
@@ -213,6 +214,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
         _require_plan_channels(request, channel)
         voltages = ramp_voltages(p["start_voltage"], p["stop_voltage"], p["step_voltage"])
         _validate_ramp_completion_pulse(request)
+        loop_count = normalize_loop_count(p.get("loop_count", 1))
         enable_output = p.get("enable_output", False)
         steps = [_driver_step(1, "set_current_limit", channel=channel, current=_json_safe_number(p["current"]))]
         index = 2
@@ -287,6 +289,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
             else "Preview setting current, then stepping voltage setpoints without changing output state."
         )
         plan["enable_output"] = enable_output
+        plan["loop_count"] = loop_count
         plan["output_enable_executed"] = False
         plan["enabled_channels"] = []
         plan["final_output_states"] = [
@@ -603,6 +606,7 @@ def _execute_output_write(
         _require_channel(power_supply, channel, command)
         voltages = ramp_voltages(p["start_voltage"], p["stop_voltage"], p["step_voltage"])
         _validate_ramp_completion_pulse(request)
+        loop_count = normalize_loop_count(p.get("loop_count", 1))
         enable_output = p.get("enable_output", False)
         for voltage in voltages:
             _validate_setpoint_for_request(request, idn, channel, voltage=voltage, current=p["current"])
@@ -612,36 +616,35 @@ def _execute_output_write(
         verification = {"passed": True, "checks": [], "differences": []}
         _validate_requested_completion_pulse_power_supply(request, power_supply)
         completed_voltages: list[float] = []
+        completed_loops = 0
         output_enable_executed = False
         triggers: list[dict[str, Any]] = []
         try:
             raise_if_cancelled(stop_requested)
             power_supply.set_current_limit(channel=channel, current=p["current"])
-            for index, voltage in enumerate(voltages):
-                raise_if_cancelled(stop_requested)
-                power_supply.set_voltage(channel=channel, voltage=voltage)
-                completed_voltages.append(voltage)
-                if index == 0 and enable_output:
-                    power_supply.output_on(channel=channel)
-                    output_enable_executed = True
-                    on_verification = _verify_output_state_after_write(
-                        request,
-                        power_supply,
-                        expected=True,
-                        channel=channel,
-                        required=True,
-                    )
-                    _raise_verification_failed(on_verification)
-                if _step_completion_pulse_requested(request):
-                    step_trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
-                    if step_trigger is not None:
-                        triggers.append({"step_index": index, "voltage": voltage, "trigger": step_trigger})
-                if p.get("delay_ms", 0) > 0 and index < len(voltages) - 1:
-                    interruptible_sleep(
-                        p["delay_ms"] / 1000,
-                        sleep=sleep,
-                        stop_requested=stop_requested,
-                    )
+            for loop_index in range(1, loop_count + 1):
+                for index, voltage in enumerate(voltages):
+                    raise_if_cancelled(stop_requested)
+                    power_supply.set_voltage(channel=channel, voltage=voltage)
+                    completed_voltages.append(voltage)
+                    if index == 0 and loop_index == 1 and enable_output:
+                        power_supply.output_on(channel=channel)
+                        output_enable_executed = True
+                        on_verification = _verify_output_state_after_write(
+                            request,
+                            power_supply,
+                            expected=True,
+                            channel=channel,
+                            required=True,
+                        )
+                        _raise_verification_failed(on_verification)
+                    if _step_completion_pulse_requested(request):
+                        step_trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
+                        if step_trigger is not None:
+                            triggers.append({"loop_index": loop_index, "step_index": index, "voltage": voltage, "trigger": step_trigger})
+                    if p.get("delay_ms", 0) > 0 and index < len(voltages) - 1:
+                        interruptible_sleep(p["delay_ms"] / 1000, sleep=sleep, stop_requested=stop_requested)
+                completed_loops += 1
             _settle_after_write(request, sleep, stop_requested)
             verification = _verify_setpoints_after_write(
                 request,
@@ -650,7 +653,9 @@ def _execute_output_write(
                 expected_voltage=p["stop_voltage"],
             )
             _raise_verification_failed(verification)
-            if not _step_completion_pulse_requested(request):
+            if not _step_completion_pulse_requested(request) and p.get("completion_pulse_timing", "segment") == "segment":
+                trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
+            if p.get("completion_pulse_timing") == "loop" and completed_loops == loop_count:
                 trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
             final_output_states = (
                 [{
@@ -687,12 +692,16 @@ def _execute_output_write(
                     "output_enable_executed": output_enable_executed,
                     "enabled_channels": [channel] if output_enable_executed else [],
                     "completed_voltages": completed_voltages,
+                    "completed_loops": completed_loops,
                     "triggers": triggers,
                 },
                 reporter=cleanup_reporter,
             )
         data = _resource_payload(request, idn, channel=channel, voltages=voltages)
         data["steps"] = len(voltages)
+        data["loop_count"] = loop_count
+        data["completed_loops"] = completed_loops
+        data["completed_step_executions"] = len(completed_voltages)
         data["enable_output"] = enable_output
         data["output_enable_executed"] = output_enable_executed
         data["enabled_channels"] = [channel] if output_enable_executed else []
@@ -1037,8 +1046,10 @@ def _step_completion_pulse_requested(request: OperationRequest) -> bool:
 
 def _validate_ramp_completion_pulse(request: OperationRequest) -> None:
     timing = request.parameters.get("completion_pulse_timing", "segment")
-    if timing not in {"segment", "step"}:
-        raise CoreValidationError("completion-pulse-timing must be segment or step")
+    if timing not in {"segment", "step", "loop"}:
+        raise CoreValidationError("completion-pulse-timing must be segment, step, or loop")
+    if timing == "loop" and normalize_loop_count(request.parameters.get("loop_count", 1)) < 2:
+        raise CoreValidationError("loop completion pulse requires loop_count of at least 2")
 
 
 def _validate_completion_pulse_power_supply(power_supply: Any) -> None:

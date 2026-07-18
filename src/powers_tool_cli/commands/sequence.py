@@ -29,6 +29,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     )
     runtime._add_output_resource_arguments(sequence_parser)
     sequence_parser.add_argument("--file", required=True, help="YAML or JSON sequence file.")
+    sequence_parser.add_argument("--loop-count", type=runtime._positive_int, help="Total sequence iterations (1 to 255).")
     runtime._add_json_argument(sequence_parser)
     runtime._add_simulate_argument(sequence_parser)
     runtime._add_dry_run_argument(sequence_parser)
@@ -54,6 +55,7 @@ def request_for_args(args: argparse.Namespace, runtime: Any) -> dict[str, Any]:
         "safety_config": getattr(args, "safety_config", None),
         "backend": getattr(args, "backend", None),
         "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+        "loop_count": getattr(args, "loop_count", None),
     })
 
 
@@ -65,6 +67,7 @@ def request_from_argv(argv: Sequence[str], runtime: Any) -> dict[str, Any]:
         "safety_config": runtime._option_value(argv, "--safety-config"),
         "backend": runtime._option_value(argv, "--backend"),
         "timeout_ms": runtime._timeout_from_argv(argv),
+        "loop_count": runtime._option_value(argv, "--loop-count"),
     })
 
 
@@ -88,6 +91,7 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> SequenceReq
         parameters={
             "file": getattr(args, "file", None),
             "lint": getattr(args, "lint", False),
+            **({"loop_count": args.loop_count} if getattr(args, "loop_count", None) is not None else {}),
         },
     )
 

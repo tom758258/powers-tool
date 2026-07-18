@@ -35,6 +35,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Enable each channel after its first validated segment setpoint.",
     )
+    parser.add_argument("--loop-count", type=runtime._positive_int, help="Total Ramp List iterations (1 to 255).")
     parser.add_argument(
         "--confirm",
         action="store_true",
@@ -65,6 +66,7 @@ def request_for_args(args: argparse.Namespace, runtime: Any) -> dict[str, Any]:
         "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
         "lint": getattr(args, "lint", False),
         "enable_output": getattr(args, "enable_output", False),
+        "loop_count": getattr(args, "loop_count", None),
     })
 
 
@@ -78,6 +80,7 @@ def request_from_argv(argv: Sequence[str], runtime: Any) -> dict[str, Any]:
         "timeout_ms": runtime._timeout_from_argv(argv),
         "lint": "--lint" in argv,
         "enable_output": "--enable-output" in argv,
+        "loop_count": runtime._option_value(argv, "--loop-count"),
     })
 
 
@@ -92,11 +95,11 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRe
         enable_output = getattr(args, "enable_output", False)
         document: dict[str, Any] = {
             "kind": RAMP_LIST_KIND,
-            "version": RAMP_LIST_VERSION if enable_output else RAMP_LIST_VERSION_V2,
+            "version": RAMP_LIST_VERSION,
+            "enable_output": enable_output,
+            "loop_count": getattr(args, "loop_count", None) or 1,
             "segments": [_segment_document(values) for values in args.segment],
         }
-        if enable_output:
-            document["enable_output"] = True
         if pulse_requested:
             if getattr(args, "completion_pulse_pins", None) is None:
                 raise ValueError("--completion-pulse-pins is required when --completion-pulse-timing is used")
@@ -107,6 +110,8 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRe
             }
         parameters["document"] = document
         parameters.pop("file", None)
+    if getattr(args, "file", None) is not None and getattr(args, "loop_count", None) is not None:
+        parameters["loop_count"] = args.loop_count
     return OperationRequest(
         command="ramp-list",
         runtime=RuntimeOptions(

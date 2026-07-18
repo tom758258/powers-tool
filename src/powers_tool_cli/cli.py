@@ -1095,7 +1095,7 @@ def _add_ramp_completion_pulse_arguments(parser: argparse.ArgumentParser) -> Non
     _add_completion_pulse_arguments(parser)
     parser.add_argument(
         "--completion-pulse-timing",
-        choices=("segment", "step"),
+        choices=("segment", "step", "loop"),
         default="segment",
         help="Emit one pulse after the operation or after every software ramp step.",
     )
@@ -9704,6 +9704,7 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
         "step_voltage": getattr(args, "step_voltage", None),
         "delay_ms": getattr(args, "delay_ms", 0),
         "enable_output": getattr(args, "enable_output", False),
+        "loop_count": getattr(args, "loop_count", 1),
         "completion_pulse_pins": _completion_pulse_pins(args) if hasattr(args, "completion_pulse_pins") else (),
         "completion_pulse_channel": getattr(args, "completion_pulse_channel", None),
         "completion_pulse_polarity": getattr(args, "completion_pulse_polarity", "positive"),

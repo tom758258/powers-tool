@@ -31,6 +31,7 @@ from powers_tool_core.support_features import (
     supported_sequence_actions_for_model_id,
 )
 from powers_tool_core.trigger import run_post_action_completion_pulse, trigger_pulse_scpi
+from powers_tool_core.workflow_validation import normalize_loop_count
 
 IDN_QUERY = "*IDN?"
 OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)
@@ -161,9 +162,16 @@ def parse_simple_sequence_yaml(text: str) -> dict[str, Any]:
 
 
 def sequence_plan(request: SequenceRequest, document: dict[str, Any]) -> dict[str, Any]:
+    if request.parameters.get("loop_count") is not None:
+        document = {**document, "version": 2, "loop_count": request.parameters["loop_count"]}
     version = document.get("version", 1)
-    if version not in (1, "1"):
+    if version not in (1, "1", 2):
         raise CoreValidationError(f"unsupported sequence version: {version}")
+    allowed_fields = {"version", "steps"} if version in (1, "1") else {"version", "steps", "loop_count"}
+    unknown = sorted(set(document) - allowed_fields)
+    if unknown:
+        raise CoreValidationError(f"sequence contains unsupported field(s): {', '.join(unknown)}")
+    loop_count = normalize_loop_count(document.get("loop_count", 1), field="sequence loop_count")
     raw_steps = document.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
         raise CoreValidationError("sequence requires a non-empty steps list")
@@ -173,7 +181,8 @@ def sequence_plan(request: SequenceRequest, document: dict[str, Any]) -> dict[st
         validate_sequence_step(request, step)
         steps.append(step)
     return {
-        "version": 1,
+        "version": 2 if version == 2 else 1,
+        "loop_count": loop_count,
         "operation": {"name": "sequence"},
         "target": {
             "resource": request.runtime.resource,
@@ -332,6 +341,7 @@ def execute_sequence(
     safe_off_attempted = False
     cleanup_errors: list[dict[str, Any]] = []
     idn_raw: str | None = None
+    completed_loops = 0
     try:
         with opener(
             request.runtime.resource,
@@ -351,35 +361,41 @@ def execute_sequence(
             )
             power_supply = create_power_supply(instrument, idn_raw)
             _preflight_sequence(request, power_supply, plan, model=_model_from_idn(idn_raw))
-            for step in plan["steps"]:
-                try:
-                    raise_if_cancelled(stop_requested)
-                    result = execute_sequence_step(request, power_supply, step, sleep=sleep, stop_requested=stop_requested)
-                    results.append(result)
-                    completed_steps += 1
-                except (CommandCancelled, KeyboardInterrupt):
-                    cancel_workflow_with_safe_off(
-                        power_supply,
-                        partial_result={
-                            "sequence_version": plan["version"],
-                            "completed_steps": completed_steps,
-                            "results": results,
-                            "failed_step": {
-                                "index": step["index"],
-                                "action": step["action"],
-                                "code": "interrupted",
+            for loop_index in range(1, plan["loop_count"] + 1):
+                for step in plan["steps"]:
+                    try:
+                        raise_if_cancelled(stop_requested)
+                        result = execute_sequence_step(request, power_supply, step, sleep=sleep, stop_requested=stop_requested)
+                        result["loop_index"] = loop_index
+                        results.append(result)
+                        completed_steps += 1
+                    except (CommandCancelled, KeyboardInterrupt):
+                        cancel_workflow_with_safe_off(
+                            power_supply,
+                            partial_result={
+                                "sequence_version": plan["version"], "loop_index": loop_index,
+                                "completed_steps": completed_steps,
+                                "results": results,
+                                "failed_step": {
+                                    "index": step["index"],
+                                    "action": step["action"],
+                                    "code": "interrupted",
+                                },
                             },
-                        },
-                        reporter=cleanup_reporter,
-                    )
-                except (VisaConnectionError, ValueError, SafetyValidationError, CoreValidationError) as exc:
-                    failed_step = {
-                        "index": step["index"],
-                        "action": step["action"],
-                        "code": "step_failed",
-                        "message": str(exc),
-                    }
+                            reporter=cleanup_reporter,
+                        )
+                    except (VisaConnectionError, ValueError, SafetyValidationError, CoreValidationError) as exc:
+                        failed_step = {
+                            "loop_index": loop_index,
+                            "index": step["index"],
+                            "action": step["action"],
+                            "code": "step_failed",
+                            "message": str(exc),
+                        }
+                        break
+                if failed_step is not None:
                     break
+                completed_loops += 1
             if failed_step is None:
                 try:
                     raise_if_cancelled(stop_requested)
@@ -414,6 +430,9 @@ def execute_sequence(
         "status": status,
         "results": results,
         "completed_steps": completed_steps,
+        "loop_count": plan["loop_count"],
+        "completed_loops": completed_loops,
+        "completed_step_executions": completed_steps,
         "failed_step": failed_step,
         "stopped": stopped,
         "cleanup": {"safe_off_attempted": safe_off_attempted, "errors": cleanup_errors},

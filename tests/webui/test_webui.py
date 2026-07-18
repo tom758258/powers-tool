@@ -1238,11 +1238,11 @@ def test_static_ramp_list_editor_contract():
     assert "stop_voltage: previous.stop_voltage" in app_js
     assert 'kind: "powers-tool-ramp-list"' in app_js
     ramp_document = extract_js_function(app_js, "rampListDocument")
-    assert "version: 3" in ramp_document
+    assert "version: 4" in ramp_document
     assert "enable_output: state.rampListEnableOutput" in ramp_document
     validator = extract_js_function(app_js, "validateRampListDocument")
     assert 'document.kind !== "powers-tool-ramp-list"' in validator
-    assert "![2, 3].includes(document.version)" in validator
+    assert "![2, 3, 4].includes(document.version)" in validator
     assert 'typeof document.enable_output !== "boolean"' in validator
     assert "document.version !== 1" not in validator
     assert "window.showOpenFilePicker" in app_js
@@ -1251,7 +1251,7 @@ def test_static_ramp_list_editor_contract():
     assert "state.rampListSegments = normalized.segments;" in app_js
     assert "state.rampListCompletionPulse = normalized.completionPulse;" in app_js
     assert "state.rampListEnableOutput = normalized.enableOutput;" in app_js
-    assert 'name: "completion_pulse_segment"' in app_js
+    assert 'name: "completion_pulse_timing"' in app_js
     assert 'name: "completion_pulse_step"' in app_js
     assert "state.rampListCompletionPulse = normalized.completionPulse;" in app_js
     assert "document.completion_pulse" in app_js
@@ -1431,9 +1431,9 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
           rampHelp
         );
         const delay = byId(commandForm, "param-delay_ms").parentNode;
-        const segmentPulse = byId(commandForm, "param-completion_pulse_segment").parentNode;
-        strictAssert.equal(commandForm.children.indexOf(rampParts.label), commandForm.children.indexOf(delay) + 1);
-        strictAssert.equal(commandForm.children.indexOf(segmentPulse), commandForm.children.indexOf(rampParts.label) + 1);
+            const loopControl = byId(commandForm, "param-loop_enabled").parentNode;
+            strictAssert.equal(commandForm.children.indexOf(rampParts.label), commandForm.children.indexOf(delay) + 1);
+            strictAssert.equal(commandForm.children.indexOf(loopControl), commandForm.children.indexOf(rampParts.label) + 1);
         strictAssert.equal(rampParts.input.listeners.change.length, 1);
         strictAssert.equal(rampParts.input.listeners.input.length, 1);
 
@@ -1464,8 +1464,8 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         const segmentCard = byClass(editor, "ramp-segment-card")[0];
         strictAssert.equal(editor.children.indexOf(toolbar), 0);
         strictAssert.equal(editor.children.indexOf(rampListParts.label), 1);
-        strictAssert.equal(editor.children.indexOf(pulseFields), 2);
-        strictAssert.equal(editor.children.indexOf(segmentCard), 3);
+            strictAssert.equal(editor.children.indexOf(pulseFields), 3);
+            strictAssert.equal(editor.children.indexOf(segmentCard), 4);
         strictAssert.equal(rampListParts.input.checked, true);
         strictAssert.equal(rampListParts.input.listeners.change.length, 1);
 

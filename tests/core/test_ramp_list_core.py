@@ -93,7 +93,7 @@ def request(doc, **runtime):
 def test_ramp_list_contract_versions_are_explicit() -> None:
     assert RAMP_LIST_KIND == "powers-tool-ramp-list"
     assert RAMP_LIST_VERSION_V2 == 2
-    assert RAMP_LIST_VERSION == 3
+    assert RAMP_LIST_VERSION == 4
     assert type(RAMP_LIST_VERSION) is int
 
 

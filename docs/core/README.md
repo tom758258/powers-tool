@@ -286,6 +286,13 @@ requests; no validation-mode bypass exists.
 
 ## Output Workflow Pulses
 
+Ramp, Ramp List, and Sequence support a strict `loop_count` total iteration
+count from 1 through 255. Old Ramp List v2/v3 and Sequence v1 documents imply
+one iteration; Ramp List v4 and Sequence v2 persist `loop_count`. Result
+`segment_count` and `step_count` remain per iteration. `completed_loops` counts
+only whole successful iterations, while `completed_segment_executions` and
+`completed_step_executions` are cumulative across iterations.
+
 Completion pulses use E36312A rear digital pins; rear pins are separate from
 the selected output channel. Ramp supports `segment` timing for one completion
 pulse and `step` timing for a software post-action pulse after every voltage

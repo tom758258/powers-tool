@@ -34,6 +34,7 @@ const state = {
   jobResultCollapsed: false,
   rampListSegments: [defaultRampSegment()],
   rampListEnableOutput: false,
+  rampListLoopCount: 1,
   rampListCompletionPulse: null,
   triggerListActiveChannel: 1,
   triggerListControls: defaultTriggerListControls(),
@@ -44,6 +45,7 @@ const state = {
   loadedSnapshotFilename: "",
   sequenceFilename: "",
   sequenceSteps: [{ action: "wait", seconds: 0 }],
+  sequenceLoopCount: 1,
   sequenceExpanded: new Set(),
   restoreChannel: "all",
   restoreOutputState: false,
@@ -126,8 +128,9 @@ const PARAMS = {
     { name: "step_voltage", type: "number", label: "Step voltage(V)", value: 0.1 },
     { name: "delay_ms", type: "number", label: "Delay(ms)", value: 0 },
     { name: "enable_output", type: "checkbox", label: "Enable output", ariaLabel: "Enable output after first setpoint", helpId: "ramp-enable-output-help", compactHelp: true, description: "Output is enabled only after the first safe setpoint is written and verified. It remains ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation." },
-    { name: "completion_pulse_segment", type: "checkbox", label: "Segment complete pulse", pulseToggle: true },
-    { name: "completion_pulse_step", type: "checkbox", label: "Every-step pulse", pulseToggle: true },
+    { name: "loop_enabled", type: "checkbox", label: "Enable loop" },
+    { name: "loop_count", type: "number", label: "Loop count", value: 2, conditionalLoop: true },
+    { name: "completion_pulse_timing", type: "select", label: "Pulse timing", options: ["", "step", "segment", "loop"], value: "" },
     { name: "completion_pulse_pins", type: "select", label: "Rear pins", options: REAR_PIN_OPTIONS, value: "1", parser: "intList", pulseChild: true },
     { name: "completion_pulse_polarity", type: "select", label: "Polarity", options: ["positive", "negative"], value: "positive", pulseChild: true }
   ],
@@ -841,6 +844,10 @@ function renderForm(command) {
     }
     if (param.pulseToggle) label.classList.add("pulse-toggle-field");
     if (param.pulseChild) label.classList.add("pulse-child-field");
+    if (param.conditionalLoop) {
+      label.hidden = true;
+      input.min = "2"; input.max = "255"; input.step = "1";
+    }
     if (param.compactHelp) configureCompactCheckboxHelp(label, input, param);
     if (!TRIGGER_COMMANDS.has(command) && !param.compactHelp) appendFieldDescription(label, param);
     if (command === "set" && param.name === "current") appendSetGuidance(label);
@@ -848,6 +855,22 @@ function renderForm(command) {
   });
   if (TRIGGER_COMMANDS.has(command)) appendCommandNotes(form, command, PARAMS[command] || []);
   updatePulseChildVisibility(command);
+  if (command === "ramp") {
+    const loopEnabled = document.getElementById("param-loop_enabled");
+    const loopCount = document.getElementById("param-loop_count");
+    if (loopEnabled && loopCount) {
+      const refreshLoop = () => {
+        (loopCount.closest ? loopCount.closest("label") : loopCount.parentNode).hidden = !loopEnabled.checked;
+        if (!loopEnabled.checked) {
+          loopCount.value = "2";
+          const timing = document.getElementById("param-completion_pulse_timing");
+          if (timing?.value === "loop") timing.value = "";
+        }
+      };
+      loopEnabled.addEventListener("change", refreshLoop);
+      refreshLoop();
+    }
+  }
 }
 
 function renderCommandGuidance(command, parameters = {}) {
@@ -1132,10 +1155,11 @@ function renderRampListForm(form) {
     description: "Each channel is enabled only after its first safe segment setpoint is written and verified. Outputs remain ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation."
   });
   editor.appendChild(enableLabel);
+  editor.appendChild(renderLoopControl("ramp-list", state.rampListLoopCount, (value) => { state.rampListLoopCount = value; }));
   const pulseFields = document.createElement("div");
   pulseFields.className = "ramp-segment-fields";
   [
-    { name: "timing", label: "Pulse timing", type: "select", options: ["", "segment", "step"] },
+    { name: "timing", label: "Pulse timing", type: "select", options: ["", "segment", "step", "loop"] },
     { name: "pins", label: "Rear pins", type: "select", options: REAR_PIN_OPTIONS },
     { name: "polarity", label: "Polarity", type: "select", options: ["positive", "negative"] }
   ].forEach((definition) => {
@@ -1270,8 +1294,9 @@ function moveRampSegment(index, offset) {
 function rampListDocument() {
   const document = {
     kind: "powers-tool-ramp-list",
-    version: 3,
+    version: 4,
     enable_output: state.rampListEnableOutput,
+    loop_count: state.rampListLoopCount,
     segments: state.rampListSegments.map((segment) => ({ ...segment }))
   };
   if (state.rampListCompletionPulse) document.completion_pulse = { ...state.rampListCompletionPulse };
@@ -1279,16 +1304,18 @@ function rampListDocument() {
 }
 
 function validateRampListDocument(document) {
-  if (!document || document.kind !== "powers-tool-ramp-list" || ![2, 3].includes(document.version)) {
+  if (!document || document.kind !== "powers-tool-ramp-list" || ![2, 3, 4].includes(document.version)) {
     throw new Error("Invalid Ramp List kind or version.");
   }
-  const topLevelFields = document.version === 3
+  const topLevelFields = document.version === 4
+    ? ["kind", "version", "enable_output", "loop_count", "completion_pulse", "segments"]
+    : document.version === 3
     ? ["kind", "version", "enable_output", "completion_pulse", "segments"]
     : ["kind", "version", "completion_pulse", "segments"];
   if (Object.keys(document).some((field) => !topLevelFields.includes(field))) {
     throw new Error("Ramp List contains unsupported fields.");
   }
-  if (document.version === 3 && typeof document.enable_output !== "boolean") {
+  if (document.version >= 3 && typeof document.enable_output !== "boolean") {
     throw new Error("Ramp List version 3 requires boolean enable_output.");
   }
   if (!Array.isArray(document.segments) || document.segments.length < 1 || document.segments.length > 10) {
@@ -1317,10 +1344,13 @@ function validateRampListDocument(document) {
     }
     completionPulse = { timing: pulse.timing, pins: [...pulse.pins], polarity: pulse.polarity };
   }
+  const loopCount = document.version === 4 ? document.loop_count : 1;
+  if (!Number.isInteger(loopCount) || loopCount < 1 || loopCount > 255) throw new Error("Ramp List loop_count must be an integer from 1 to 255.");
   return {
     segments,
     completionPulse,
-    enableOutput: document.version === 3 ? document.enable_output : false
+    enableOutput: document.version >= 3 ? document.enable_output : false,
+    loopCount
   };
 }
 
@@ -1334,6 +1364,7 @@ async function loadRampList() {
     state.rampListSegments = normalized.segments;
     state.rampListCompletionPulse = normalized.completionPulse;
     state.rampListEnableOutput = normalized.enableOutput;
+    state.rampListLoopCount = normalized.loopCount;
     renderForm("ramp-list");
     updateSelectedCommandState();
   } catch (error) {
@@ -1578,6 +1609,7 @@ function renderSnapshotForm(form) {
   }
   toolbar.appendChild(statusNote);
   editor.appendChild(toolbar);
+  editor.appendChild(renderLoopControl("sequence", state.sequenceLoopCount, (value) => { state.sequenceLoopCount = value; }));
 
   (PARAMS["snapshot"] || []).forEach((param) => {
     const label = document.createElement("label");
@@ -2201,6 +2233,7 @@ async function loadSequenceFile() {
     const rawDoc = JSON.parse(text);
     const normalized = normalizeSequenceDocument(rawDoc);
     state.sequenceSteps = normalized.steps;
+    state.sequenceLoopCount = normalized.loopCount;
     state.sequenceExpanded = new Set();
     state.sequenceFilename = filename;
     renderForm("sequence");
@@ -2250,11 +2283,13 @@ async function saveSequenceFile() {
 
 function normalizeSequenceDocument(doc) {
   if (!doc || typeof doc !== "object" || Array.isArray(doc)) throw new Error("Sequence document must be a JSON object.");
-  if (Object.keys(doc).some((field) => !["version", "steps"].includes(field))) throw new Error("Sequence document contains unsupported fields.");
-  if (doc.version !== undefined && doc.version !== 1 && doc.version !== "1") throw new Error("Sequence version must be 1.");
+  if (Object.keys(doc).some((field) => !["version", "steps", "loop_count"].includes(field))) throw new Error("Sequence document contains unsupported fields.");
+  if (doc.version !== undefined && doc.version !== 1 && doc.version !== "1" && doc.version !== 2) throw new Error("Sequence version must be 1 or 2.");
   if (!Array.isArray(doc.steps) || doc.steps.length === 0) throw new Error("Sequence document must contain a non-empty 'steps' array.");
   if (doc.steps.length > sequenceMaxSteps()) throw new Error(`Sequence supports at most ${sequenceMaxSteps()} steps in the WebUI.`);
-  return { version: 1, steps: doc.steps.map(normalizeSequenceStep) };
+  const loopCount = doc.version === 2 ? doc.loop_count : 1;
+  if (!Number.isInteger(loopCount) || loopCount < 1 || loopCount > 255) throw new Error("Sequence loop_count must be an integer from 1 to 255.");
+  return { version: 2, loopCount, steps: doc.steps.map(normalizeSequenceStep) };
 }
 
 function normalizeSequenceStep(step, index) {
@@ -2321,7 +2356,7 @@ function validateCanonicalSequenceStep(step, index) {
 }
 
 function sequenceDocumentFromEditor() {
-  return normalizeSequenceDocument({ version: 1, steps: state.sequenceSteps });
+  return normalizeSequenceDocument({ version: 2, loop_count: state.sequenceLoopCount, steps: state.sequenceSteps });
 }
 
 async function scanResources() {
@@ -2759,12 +2794,16 @@ function parameterPayload() {
     delete payload.completion_pulse_enabled;
   }
   if (state.selected === "ramp") {
-    const timing = payload.completion_pulse_step ? "step" : "segment";
-    const enabled = payload.completion_pulse_step || payload.completion_pulse_segment;
-    delete payload.completion_pulse_step;
-    delete payload.completion_pulse_segment;
-    if (enabled) {
-      payload.completion_pulse_timing = timing;
+    const enabled = Boolean(payload.completion_pulse_timing);
+    if (!payload.loop_enabled) {
+      payload.loop_count = 1;
+      if (payload.completion_pulse_timing === "loop") payload.completion_pulse_timing = "";
+    } else {
+      payload.loop_count = Number(payload.loop_count);
+    }
+    delete payload.loop_enabled;
+    if (enabled && payload.completion_pulse_timing) {
+      // The selected timing is already in Core's canonical form.
     } else {
       delete payload.completion_pulse_pins;
       delete payload.completion_pulse_polarity;
@@ -3818,6 +3857,22 @@ async function waitForLiveTerminal(jobId) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("Live Data stop timed out while waiting for the backend job to finish.");
+}
+
+function renderLoopControl(prefix, current, setValue) {
+  const wrapper = document.createElement("div");
+  const enabled = document.createElement("input");
+  enabled.type = "checkbox";
+  enabled.checked = current >= 2;
+  const count = document.createElement("input");
+  count.type = "number";
+  count.min = "2"; count.max = "255"; count.step = "1"; count.value = String(current >= 2 ? current : 2);
+  count.hidden = !enabled.checked;
+  enabled.addEventListener("change", () => { setValue(enabled.checked ? Number(count.value) : 1); count.hidden = !enabled.checked; updateSelectedCommandState(); });
+  count.addEventListener("input", () => { if (Number.isInteger(Number(count.value)) && Number(count.value) >= 2 && Number(count.value) <= 255) setValue(Number(count.value)); updateSelectedCommandState(); });
+  wrapper.append(createCheckboxField(enabled, "Enable loop"));
+  const label = document.createElement("label"); label.textContent = "Loop count"; label.appendChild(count); wrapper.appendChild(label);
+  return wrapper;
 }
 
 function stopLivePreviewSnapshot() {

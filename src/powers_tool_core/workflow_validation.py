@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from powers_tool_core.core import CoreValidationError, OperationRequest
 
 
@@ -28,6 +30,14 @@ REMOVED_GENERAL_WORKFLOW_FIELDS = frozenset(
 )
 
 COMPLETION_PULSE_PLANNING_MODEL_ID = "keysight-e36312a"
+
+
+def normalize_loop_count(value: Any, *, field: str = "loop_count") -> int:
+    """Return the strict finite workflow iteration count."""
+
+    if type(value) is not int or not 1 <= value <= 255:
+        raise CoreValidationError(f"{field} must be an integer from 1 to 255")
+    return value
 
 
 def validate_general_workflow_parameters(request: OperationRequest) -> None:

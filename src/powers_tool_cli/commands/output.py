@@ -266,6 +266,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Enable output after the first validated setpoint and verify it is on.",
     )
+    ramp_parser.add_argument("--loop-count", type=runtime._positive_int, help="Total ramp iterations (1 to 255).")
     ramp_parser.add_argument(
         "--confirm",
         action="store_true",
