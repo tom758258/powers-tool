@@ -34,7 +34,8 @@ const state = {
   jobResultCollapsed: false,
   rampListSegments: [defaultRampSegment()],
   rampListEnableOutput: false,
-  rampListLoopCount: 1,
+  rampListLoopEnabled: false,
+  rampListLoopCountDraft: "2",
   rampListCompletionPulse: null,
   triggerListActiveChannel: 1,
   triggerListControls: defaultTriggerListControls(),
@@ -45,7 +46,8 @@ const state = {
   loadedSnapshotFilename: "",
   sequenceFilename: "",
   sequenceSteps: [{ action: "wait", seconds: 0 }],
-  sequenceLoopCount: 1,
+  sequenceLoopEnabled: false,
+  sequenceLoopCountDraft: "2",
   sequenceExpanded: new Set(),
   restoreChannel: "all",
   restoreOutputState: false,
@@ -1164,8 +1166,10 @@ function renderRampListForm(form) {
   editor.appendChild(enableLabel);
   editor.appendChild(renderLoopControl({
     prefix: "ramp-list",
-    current: state.rampListLoopCount,
-    onValue: (value) => { state.rampListLoopCount = value; },
+    loopEnabled: state.rampListLoopEnabled,
+    countDraft: state.rampListLoopCountDraft,
+    onEnabled: (value) => { state.rampListLoopEnabled = value; },
+    onDraft: (value) => { state.rampListLoopCountDraft = value; },
     onDisable: () => {
       if (state.rampListCompletionPulse?.timing === "loop") {
         state.rampListCompletionPulse = null;
@@ -1190,7 +1194,7 @@ function renderRampListForm(form) {
         option.textContent = definition.name === "pins"
           ? rearPinDisplayName(value)
           : pulseTimingDisplayName("ramp-list", value);
-        if (definition.name === "timing" && value === "loop" && state.rampListLoopCount < 2) {
+        if (definition.name === "timing" && value === "loop" && !(effectiveRampListLoopCount() >= 2)) {
           option.disabled = true;
         }
         input.appendChild(option);
@@ -1315,12 +1319,26 @@ function moveRampSegment(index, offset) {
   updateSelectedCommandState();
 }
 
+function effectiveEnabledLoopCount(enabled, draft) {
+  if (!enabled) return 1;
+  const parsed = draft === "" ? Number.NaN : Number(draft);
+  return Number.isInteger(parsed) && parsed >= 2 && parsed <= 255 ? parsed : Number.NaN;
+}
+
+function effectiveRampListLoopCount() {
+  return effectiveEnabledLoopCount(state.rampListLoopEnabled, state.rampListLoopCountDraft);
+}
+
+function effectiveSequenceLoopCount() {
+  return effectiveEnabledLoopCount(state.sequenceLoopEnabled, state.sequenceLoopCountDraft);
+}
+
 function rampListDocument() {
   const document = {
     kind: "powers-tool-ramp-list",
     version: 4,
     enable_output: state.rampListEnableOutput,
-    loop_count: state.rampListLoopCount,
+    loop_count: effectiveRampListLoopCount(),
     segments: state.rampListSegments.map((segment) => ({ ...segment }))
   };
   if (state.rampListCompletionPulse) document.completion_pulse = { ...state.rampListCompletionPulse };
@@ -1391,7 +1409,8 @@ async function loadRampList() {
     state.rampListSegments = normalized.segments;
     state.rampListCompletionPulse = normalized.completionPulse;
     state.rampListEnableOutput = normalized.enableOutput;
-    state.rampListLoopCount = normalized.loopCount;
+    state.rampListLoopEnabled = normalized.loopCount >= 2;
+    state.rampListLoopCountDraft = String(normalized.loopCount >= 2 ? normalized.loopCount : 2);
     renderForm("ramp-list");
     updateSelectedCommandState();
   } catch (error) {
@@ -2045,8 +2064,10 @@ function renderSequenceForm(form) {
   editor.appendChild(toolbar);
   editor.appendChild(renderLoopControl({
     prefix: "sequence",
-    current: state.sequenceLoopCount,
-    onValue: (value) => { state.sequenceLoopCount = value; }
+    loopEnabled: state.sequenceLoopEnabled,
+    countDraft: state.sequenceLoopCountDraft,
+    onEnabled: (value) => { state.sequenceLoopEnabled = value; },
+    onDraft: (value) => { state.sequenceLoopCountDraft = value; }
   }));
   state.sequenceSteps.forEach((step, index) => editor.appendChild(sequenceStepCard(step, index)));
   form.appendChild(editor);
@@ -2268,7 +2289,8 @@ async function loadSequenceFile() {
     const rawDoc = JSON.parse(text);
     const normalized = normalizeSequenceDocument(rawDoc);
     state.sequenceSteps = normalized.steps;
-    state.sequenceLoopCount = normalized.loopCount;
+    state.sequenceLoopEnabled = normalized.loopCount >= 2;
+    state.sequenceLoopCountDraft = String(normalized.loopCount >= 2 ? normalized.loopCount : 2);
     state.sequenceExpanded = new Set();
     state.sequenceFilename = filename;
     renderForm("sequence");
@@ -2395,7 +2417,7 @@ function validateCanonicalSequenceStep(step, index) {
 function sequenceDocumentFromEditor() {
   const normalized = normalizeSequenceDocument({
     version: 2,
-    loop_count: state.sequenceLoopCount,
+    loop_count: effectiveSequenceLoopCount(),
     steps: state.sequenceSteps
   });
   return {
@@ -2987,7 +3009,7 @@ function updateRampListPulse(name, value) {
       ? parseRearPins(value)
       : value;
   }
-  if (state.rampListCompletionPulse?.timing === "loop" && state.rampListLoopCount < 2) {
+  if (state.rampListCompletionPulse?.timing === "loop" && !(effectiveRampListLoopCount() >= 2)) {
     state.rampListCompletionPulse = null;
   }
   renderForm("ramp-list");
@@ -3919,7 +3941,7 @@ function refreshLoopCompleteOption(command) {
   if (!timing) return;
   const enabled = command === "ramp"
     ? Boolean(document.getElementById("param-loop_enabled")?.checked)
-    : state.rampListLoopCount >= 2;
+    : effectiveRampListLoopCount() >= 2;
   const loopOption = Array.from(timing.options || []).find((option) => option.value === "loop");
   if (loopOption) {
     loopOption.disabled = !enabled;
@@ -3930,18 +3952,23 @@ function refreshLoopCompleteOption(command) {
 
 function renderLoopControl({
   prefix,
-  current,
-  onValue,
+  current = 1,
+  onValue = () => {},
   onDisable = () => {},
   enabledInput = null,
-  countInputId = null
+  countInputId = null,
+  loopEnabled = null,
+  countDraft = null,
+  onEnabled = () => {},
+  onDraft = () => {}
 }) {
+  const hasExplicitState = typeof loopEnabled === "boolean";
   const wrapper = document.createElement("div");
   wrapper.className = "loop-control " + prefix + "-loop-control";
   const enabled = enabledInput || document.createElement("input");
   enabled.type = "checkbox";
   enabled.id ||= prefix + "-loop-enabled";
-  enabled.checked = Number.isInteger(current) && current >= 2;
+  enabled.checked = hasExplicitState ? loopEnabled : Number.isInteger(current) && current >= 2;
   wrapper.appendChild(createCheckboxField(enabled, "Enable loop"));
 
   const mountCount = (value = 2) => {
@@ -3956,9 +3983,12 @@ function renderLoopControl({
     count.max = "255";
     count.step = "1";
     count.required = true;
-    count.value = String(Number.isInteger(value) && value >= 2 && value <= 255 ? value : 2);
+    count.value = hasExplicitState
+      ? String(value ?? "")
+      : String(Number.isInteger(value) && value >= 2 && value <= 255 ? value : 2);
     const update = () => {
       const parsed = count.value === "" ? Number.NaN : Number(count.value);
+      onDraft(count.value);
       onValue(Number.isInteger(parsed) && parsed >= 2 && parsed <= 255 ? parsed : Number.NaN);
       if (["ramp-list", "sequence"].includes(prefix)) updateWorkflowDocumentValidity(prefix);
       updateSelectedCommandState();
@@ -3970,10 +4000,13 @@ function renderLoopControl({
   };
 
   enabled.addEventListener("change", () => {
+    onEnabled(enabled.checked);
     if (enabled.checked) {
+      onDraft("2");
       onValue(2);
       mountCount(2);
     } else {
+      onDraft("2");
       onValue(1);
       wrapper.querySelector?.(".loop-count-field")?.remove();
       onDisable();
@@ -3982,7 +4015,7 @@ function renderLoopControl({
     if (["ramp-list", "sequence"].includes(prefix)) updateWorkflowDocumentValidity(prefix);
     updateSelectedCommandState();
   });
-  if (enabled.checked) mountCount(current);
+  if (enabled.checked) mountCount(hasExplicitState ? countDraft : current);
   return wrapper;
 }
 

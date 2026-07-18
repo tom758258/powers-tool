@@ -330,7 +330,9 @@ Step 1; Create snapshot has no Loop state. Loop count is conditionally created
 inline only when enabled, defaults to 2, and accepts integers 2 through 255.
 Turning Loop off removes the field, makes the effective value 1, and resets a
 selected Loop-complete pulse to None. The Loop-complete option is disabled
-while Loop is off.
+while Loop is off. An invalid enabled Loop count remains visible across editor
+re-renders and keeps Run and Save disabled until it is corrected or Loop is
+explicitly turned off.
 
 Pulse rear pins are independent of output channels and are E36312A-only.
 Controls are disabled when the selected resource is definitively known to be

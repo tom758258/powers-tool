@@ -1041,6 +1041,59 @@ def test_ramp_dry_run_completion_pulse_plan_is_independent_of_output_enable(
         assert steps[-1] == pulses[0]
 
 
+@pytest.mark.parametrize("timing", ["step", "segment", "loop"])
+@pytest.mark.parametrize(("pulse_channel", "expected_channel"), [(None, 1), (2, 2)])
+def test_ramp_dry_run_and_execution_use_same_completion_pulse_anchor(
+    monkeypatch,
+    timing: str,
+    pulse_channel: int | None,
+    expected_channel: int,
+) -> None:
+    pulse_channels: list[int] = []
+
+    def pulse(_power_supply, *, channel, **kwargs):
+        pulse_channels.append(channel)
+        return {"requested": True, "attempted": True, "fired": True, "completed": True}
+
+    monkeypatch.setattr("powers_tool_core.operations.run_post_action_completion_pulse", pulse)
+    parameters = request(
+        "ramp",
+        channel=1,
+        start_voltage=0,
+        stop_voltage=1,
+        step_voltage=1,
+        loop_count=2,
+        completion_pulse_pins=(1,),
+        completion_pulse_timing=timing,
+        **({"completion_pulse_channel": pulse_channel} if pulse_channel is not None else {}),
+    ).parameters
+    plan = output_plan(OperationRequest(
+        command="ramp",
+        runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+        parameters=parameters,
+    ))
+    planned_channels = [
+        step["parameters"]["channel"]
+        for step in plan["steps"]
+        if step["action"] == "completion_pulse"
+    ]
+
+    run_operation(
+        OperationRequest(
+            command="ramp",
+            runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+            parameters=parameters,
+        ),
+        opener=lambda *args, **kwargs: FakeSession(),
+        sleep=lambda seconds: None,
+    )
+
+    assert planned_channels
+    assert set(planned_channels) == {expected_channel}
+    assert pulse_channels
+    assert set(pulse_channels) == {expected_channel}
+
+
 @pytest.mark.parametrize("field", ["completion_pulse_mode", "completion_pulse_dwell_ms", "wait_timeout_ms", "poll_ms"])
 def test_ramp_removed_native_fields_reject_before_io(field: str) -> None:
     session = FakeSession()

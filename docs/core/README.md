@@ -305,7 +305,9 @@ per-Step `trigger-pulse` action is unchanged.
 Ramp dry-run plans show the voltage path for one iteration and report the total
 iteration count separately as `loop_count`. Pulse actions follow execution
 order independently of `enable_output`: Ramp-complete follows the iteration's
-setpoint checks, while Loop-complete is the terminal workflow action.
+setpoint checks, while Loop-complete is the terminal workflow action. Every
+planned Ramp pulse uses the same effective `completion_pulse_channel` anchor as
+execution; rear-pin selection remains a separate setting.
 
 A Loop-complete pulse is attempted only after the workflow iterations, final
 setpoint/output verification, workflow error-queue check, and final

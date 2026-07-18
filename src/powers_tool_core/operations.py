@@ -216,6 +216,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
         _validate_ramp_completion_pulse(request)
         loop_count = normalize_loop_count(p.get("loop_count", 1))
         pulse_timing = p.get("completion_pulse_timing", "segment")
+        pulse_channel = _completion_pulse_channel(request, channel)
         enable_output = p.get("enable_output", False)
         steps = [_driver_step(1, "set_current_limit", channel=channel, current=_json_safe_number(p["current"]))]
         index = 2
@@ -239,7 +240,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
                     _driver_step(
                         index,
                         "completion_pulse",
-                        channel=channel,
+                        channel=pulse_channel,
                         pins=list(p.get("completion_pulse_pins") or ()),
                         polarity=p.get("completion_pulse_polarity", "positive"),
                         mode="post-action",
@@ -264,7 +265,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
                 _driver_step(
                     index,
                     "completion_pulse",
-                    channel=channel,
+                    channel=pulse_channel,
                     pins=list(p.get("completion_pulse_pins") or ()),
                     polarity=p.get("completion_pulse_polarity", "positive"),
                     mode="post-action",
@@ -288,7 +289,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
                 _driver_step(
                     index,
                     "completion_pulse",
-                    channel=channel,
+                    channel=pulse_channel,
                     pins=list(p.get("completion_pulse_pins") or ()),
                     polarity=p.get("completion_pulse_polarity", "positive"),
                     mode="post-action",

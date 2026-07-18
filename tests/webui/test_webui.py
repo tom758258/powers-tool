@@ -1522,9 +1522,33 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(descendants(commandForm).filter((node) => node.id === "ramp-list-enable-output").length, 1);
         strictAssert.equal(descendants(commandForm).filter((node) => node.id === "ramp-list-enable-output-help").length, 1);
         strictAssert.equal(byClass(commandForm, "output-behavior").length, 0);
+        let rerenderedEditor = commandForm.children[0];
+        let rampListLoopEnabled = byId(rerenderedEditor, "ramp-list-loop-enabled");
+        rampListLoopEnabled.checked = true;
+        rampListLoopEnabled.listeners.change.forEach((listener) => listener());
+        let rampListLoopCount = byId(rerenderedEditor, "ramp-list-loop-count");
+        rampListLoopCount.value = "1.5";
+        rampListLoopCount.listeners.input.forEach((listener) => listener());
+        renderForm("ramp-list");
+        rerenderedEditor = commandForm.children[0];
+        rampListLoopEnabled = byId(rerenderedEditor, "ramp-list-loop-enabled");
+        rampListLoopCount = byId(rerenderedEditor, "ramp-list-loop-count");
+        strictAssert.equal(rampListLoopEnabled.checked, true);
+        strictAssert.equal(rampListLoopCount.value, "1.5");
+        const invalidRampRun = { disabled: false };
+        strictAssert.equal(updateWorkflowDocumentValidity("ramp-list", invalidRampRun), false);
+        strictAssert.equal(invalidRampRun.disabled, true);
+        strictAssert.equal(byId(rerenderedEditor, "save-ramp-list").disabled, true);
+        rampListLoopCount.value = "3";
+        rampListLoopCount.listeners.input.forEach((listener) => listener());
+        const validRampRun = { disabled: false };
+        strictAssert.equal(updateWorkflowDocumentValidity("ramp-list", validRampRun), true);
+        strictAssert.equal(validRampRun.disabled, false);
+        strictAssert.equal(byId(rerenderedEditor, "save-ramp-list").disabled, false);
 
         state.selected = "sequence";
-        state.sequenceLoopCount = 1;
+        state.sequenceLoopEnabled = false;
+        state.sequenceLoopCountDraft = "2";
         renderForm("sequence");
         const sequenceEditor = commandForm.children[0];
         strictAssert.equal(byClass(sequenceEditor, "sequence-toolbar")[0], sequenceEditor.children[0]);
@@ -1534,8 +1558,27 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         const sequenceLoopEnabled = byId(sequenceEditor, "sequence-loop-enabled");
         sequenceLoopEnabled.checked = true;
         sequenceLoopEnabled.listeners.change[0]();
-        strictAssert.equal(state.sequenceLoopCount, 2);
+        strictAssert.equal(state.sequenceLoopEnabled, true);
+        strictAssert.equal(state.sequenceLoopCountDraft, "2");
         strictAssert.equal(byId(sequenceEditor, "sequence-loop-count").value, "2");
+        let sequenceLoopCount = byId(sequenceEditor, "sequence-loop-count");
+        sequenceLoopCount.value = "256";
+        sequenceLoopCount.listeners.input.forEach((listener) => listener());
+        renderForm("sequence");
+        const rerenderedSequenceEditor = commandForm.children[0];
+        strictAssert.equal(byId(rerenderedSequenceEditor, "sequence-loop-enabled").checked, true);
+        sequenceLoopCount = byId(rerenderedSequenceEditor, "sequence-loop-count");
+        strictAssert.equal(sequenceLoopCount.value, "256");
+        const invalidSequenceRun = { disabled: false };
+        strictAssert.equal(updateWorkflowDocumentValidity("sequence", invalidSequenceRun), false);
+        strictAssert.equal(invalidSequenceRun.disabled, true);
+        strictAssert.equal(byId(rerenderedSequenceEditor, "save-sequence").disabled, true);
+        sequenceLoopCount.value = "4";
+        sequenceLoopCount.listeners.input.forEach((listener) => listener());
+        const validSequenceRun = { disabled: false };
+        strictAssert.equal(updateWorkflowDocumentValidity("sequence", validSequenceRun), true);
+        strictAssert.equal(validSequenceRun.disabled, false);
+        strictAssert.equal(byId(rerenderedSequenceEditor, "save-sequence").disabled, false);
 
         state.triggerListControls.source = "immediate";
         const triggerLabel = triggerListControlField({ name: "fire", label: "Fire", type: "checkbox" });
@@ -1931,7 +1974,8 @@ def test_frontend_loop_document_round_trips_use_external_schemas() -> None:
           /unsupported fields/
         );
 
-        state.sequenceLoopCount = 4;
+        state.sequenceLoopEnabled = true;
+        state.sequenceLoopCountDraft = "4";
         state.sequenceSteps = [{ action: "wait", seconds: 0 }];
         const serialized = sequenceDocumentFromEditor();
         strictAssert.deepEqual(Object.keys(serialized), ["version", "loop_count", "steps"]);
@@ -1940,7 +1984,8 @@ def test_frontend_loop_document_round_trips_use_external_schemas() -> None:
         strictAssert.equal(Object.hasOwn(serialized, "loopCount"), false);
 
         state.rampListEnableOutput = false;
-        state.rampListLoopCount = 1;
+        state.rampListLoopEnabled = false;
+        state.rampListLoopCountDraft = "2";
         state.rampListCompletionPulse = null;
         state.rampListSegments = [{
           channel: 1, current: 0.1, start_voltage: 0, stop_voltage: 1,
@@ -1992,18 +2037,17 @@ def test_frontend_invalid_enabled_loop_counts_disable_run_and_save_without_seria
         };
 
         (async () => {
-          for (const invalid of [Number.NaN, 1.5, 1, 0, -1, 256]) {
-            const activeValue = Number.isInteger(invalid) && invalid >= 2 && invalid <= 255
-              ? invalid
-              : Number.NaN;
-            state.rampListLoopCount = activeValue;
+          for (const invalid of ["", "1.5", "1", "0", "-1", "256"]) {
+            state.rampListLoopEnabled = true;
+            state.rampListLoopCountDraft = invalid;
             const rampRun = { disabled: false };
             strictAssert.equal(updateWorkflowDocumentValidity("ramp-list", rampRun), false);
             strictAssert.equal(rampRun.disabled, true);
             strictAssert.equal(elements["save-ramp-list"].disabled, true);
             await saveRampList();
 
-            state.sequenceLoopCount = activeValue;
+            state.sequenceLoopEnabled = true;
+            state.sequenceLoopCountDraft = invalid;
             const sequenceRun = { disabled: false };
             strictAssert.equal(updateWorkflowDocumentValidity("sequence", sequenceRun), false);
             strictAssert.equal(sequenceRun.disabled, true);
