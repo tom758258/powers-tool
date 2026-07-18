@@ -215,6 +215,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
         voltages = ramp_voltages(p["start_voltage"], p["stop_voltage"], p["step_voltage"])
         _validate_ramp_completion_pulse(request)
         loop_count = normalize_loop_count(p.get("loop_count", 1))
+        pulse_timing = p.get("completion_pulse_timing", "segment")
         enable_output = p.get("enable_output", False)
         steps = [_driver_step(1, "set_current_limit", channel=channel, current=_json_safe_number(p["current"]))]
         index = 2
@@ -242,6 +243,8 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
                         pins=list(p.get("completion_pulse_pins") or ()),
                         polarity=p.get("completion_pulse_polarity", "positive"),
                         mode="post-action",
+                        timing="step",
+                        scope="iteration",
                     )
                 )
                 index += 1
@@ -256,11 +259,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
             index += 1
             steps.append(_driver_step(index, "programmed_current", channel=channel))
             index += 1
-        if (
-            enable_output
-            and _completion_pulse_requested(request)
-            and not _step_completion_pulse_requested(request)
-        ):
+        if pulse_timing == "segment" and _completion_pulse_requested(request):
             steps.append(
                 _driver_step(
                     index,
@@ -269,6 +268,8 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
                     pins=list(p.get("completion_pulse_pins") or ()),
                     polarity=p.get("completion_pulse_polarity", "positive"),
                     mode="post-action",
+                    timing="segment",
+                    scope="iteration",
                 )
             )
             index += 1
@@ -281,13 +282,29 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
                     final=True,
                 )
             )
+            index += 1
+        if pulse_timing == "loop" and _completion_pulse_requested(request):
+            steps.append(
+                _driver_step(
+                    index,
+                    "completion_pulse",
+                    channel=channel,
+                    pins=list(p.get("completion_pulse_pins") or ()),
+                    polarity=p.get("completion_pulse_polarity", "positive"),
+                    mode="post-action",
+                    timing="loop",
+                    scope="workflow",
+                )
+            )
         plan["steps"] = steps
         plan["description"] = (
-            "Preview setting current and the first voltage, enabling and verifying output, "
-            "then stepping remaining voltage setpoints."
+            "Preview one Ramp iteration: set current and the first voltage, enable and verify output, "
+            "then step remaining voltage setpoints; loop_count gives the total iteration count."
             if enable_output
-            else "Preview setting current, then stepping voltage setpoints without changing output state."
+            else "Preview one Ramp iteration: set current, then step voltage setpoints without changing "
+            "output state; loop_count gives the total iteration count."
         )
+        plan["voltage_steps_scope"] = "one_iteration"
         plan["enable_output"] = enable_output
         plan["loop_count"] = loop_count
         plan["completed_loops"] = 0
@@ -664,6 +681,7 @@ def _execute_output_write(
                     expected_voltage=p["stop_voltage"],
                 )
                 _raise_verification_failed(verification)
+                raise_if_cancelled(stop_requested)
                 if pulse_timing == "segment" and _completion_pulse_requested(request):
                     iteration_trigger = _maybe_run_completion_pulse(
                         request,

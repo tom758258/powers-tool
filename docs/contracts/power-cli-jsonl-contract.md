@@ -210,6 +210,10 @@ Selected data mappings:
   Legacy `completed_segments`/`completed_steps` describe the current or most
   recently attempted iteration. Failure and cancellation context includes a
   1-based `loop_index`.
+- Ramp dry-run `steps` describe one voltage-path iteration plus any terminal
+  workflow action; `voltage_steps_scope: "one_iteration"` and `loop_count`
+  make that boundary explicit. Completion-pulse plan actions do not depend on
+  whether the workflow enables output.
 - Loop-complete pulse results distinguish `requested`, `attempted`, `fired`,
   `completed`, `restored`, `restore_errors`, and `post_pulse_errors`. A
   restore or post-pulse failure may occur after physical `*TRG`; it fails the

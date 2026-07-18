@@ -254,6 +254,14 @@ def test_general_completion_pulse_e36312a_plan_shape_is_unchanged(command: str) 
         OperationRequest(command=command, runtime=runtime, parameters=plain_parameters)
     )
 
+    if command == "ramp":
+        pulse_steps = [step for step in pulse_plan["steps"] if step["action"] == "completion_pulse"]
+        assert len(pulse_steps) == 1
+        assert pulse_steps[0]["parameters"]["timing"] == "segment"
+        pulse_plan = {
+            **pulse_plan,
+            "steps": [step for step in pulse_plan["steps"] if step["action"] != "completion_pulse"],
+        }
     assert pulse_plan == plain_plan
 
 
@@ -994,6 +1002,45 @@ def test_ramp_enable_output_dry_run_shows_safe_order() -> None:
     ]
 
 
+@pytest.mark.parametrize("enable_output", [False, True])
+@pytest.mark.parametrize(("timing", "expected_pulses"), [("step", 2), ("segment", 1), ("loop", 1)])
+def test_ramp_dry_run_completion_pulse_plan_is_independent_of_output_enable(
+    enable_output: bool,
+    timing: str,
+    expected_pulses: int,
+) -> None:
+    plan = output_plan(request(
+        "ramp",
+        start_voltage=0,
+        stop_voltage=1,
+        step_voltage=1,
+        loop_count=2,
+        enable_output=enable_output,
+        verify_after_write=True,
+        completion_pulse_pins=(1,),
+        completion_pulse_timing=timing,
+    ))
+    steps = plan["steps"]
+    pulses = [step for step in steps if step["action"] == "completion_pulse"]
+
+    assert len(pulses) == expected_pulses
+    assert {pulse["parameters"]["timing"] for pulse in pulses} == {timing}
+    assert plan["voltage_steps_scope"] == "one_iteration"
+    assert plan["loop_count"] == 2
+    if timing == "step":
+        voltage_indices = [index for index, step in enumerate(steps) if step["action"] == "set_voltage"]
+        pulse_indices = [index for index, step in enumerate(steps) if step["action"] == "completion_pulse"]
+        assert all(pulse_index > voltage_index for pulse_index, voltage_index in zip(pulse_indices, voltage_indices))
+    elif timing == "segment":
+        pulse_index = steps.index(pulses[0])
+        assert pulse_index > next(index for index, step in enumerate(steps) if step["action"] == "programmed_current")
+        if enable_output:
+            assert pulse_index < next(index for index, step in enumerate(steps) if step["parameters"].get("final"))
+    else:
+        assert pulses[0]["parameters"]["scope"] == "workflow"
+        assert steps[-1] == pulses[0]
+
+
 @pytest.mark.parametrize("field", ["completion_pulse_mode", "completion_pulse_dwell_ms", "wait_timeout_ms", "poll_ms"])
 def test_ramp_removed_native_fields_reject_before_io(field: str) -> None:
     session = FakeSession()
@@ -1150,6 +1197,42 @@ def test_ramp_completion_pulse_boundaries(monkeypatch, timing: str, expected_cal
         assert data["trigger"]["attempted"] is True
     else:
         assert [item["loop_index"] for item in data["triggers"]] == [1, 2]
+
+
+def test_ramp_cancellation_during_setpoint_verification_prevents_ramp_complete_pulse(monkeypatch) -> None:
+    session = OutputStateSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0", output_enabled=False)
+    pulse_calls = 0
+
+    def pulse(*args, **kwargs):
+        nonlocal pulse_calls
+        pulse_calls += 1
+        return {"attempted": True}
+
+    monkeypatch.setattr("powers_tool_core.operations.run_post_action_completion_pulse", pulse)
+    parameters = request(
+        "ramp",
+        start_voltage=0,
+        stop_voltage=1,
+        step_voltage=1,
+        verify_after_write=True,
+        completion_pulse_timing="segment",
+        completion_pulse_pins=(1,),
+    ).parameters
+
+    with pytest.raises(CommandCancelled) as raised:
+        run_operation(
+            OperationRequest(
+                command="ramp",
+                runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+                parameters=parameters,
+            ),
+            opener=lambda *args, **kwargs: session,
+            sleep=lambda seconds: None,
+            stop_requested=lambda: "CURR? (@1)" in session.queries,
+        )
+
+    assert pulse_calls == 0
+    assert raised.value.data["partial_result"]["completed_loops"] == 0
 
 
 def test_ramp_loop_pulse_failure_keeps_completed_loop_count(monkeypatch) -> None:

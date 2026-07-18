@@ -1964,6 +1964,62 @@ def test_frontend_loop_document_round_trips_use_external_schemas() -> None:
     run_frontend_javascript_assertions(assertions)
 
 
+def test_frontend_invalid_enabled_loop_counts_disable_run_and_save_without_serializing() -> None:
+    assertions = textwrap.dedent(
+        r"""
+        const strictAssert = require("node:assert/strict");
+        const elements = {
+          "save-ramp-list": { disabled: false },
+          "save-sequence": { disabled: false }
+        };
+        document.getElementById = (id) => elements[id] || null;
+        state.rampListEnableOutput = false;
+        state.rampListCompletionPulse = null;
+        state.rampListSegments = [{
+          channel: 1, current: 0.1, start_voltage: 0, stop_voltage: 1,
+          step_voltage: 1, delay_ms: 0, hold_ms: 0
+        }];
+        state.sequenceSteps = [{ action: "wait", seconds: 0 }];
+        let saveCalls = 0;
+        let serializedNullLoopCount = false;
+        saveJsonFile = async () => { saveCalls += 1; };
+        renderClientResult = () => {};
+        const originalStringify = JSON.stringify;
+        JSON.stringify = (value, ...args) => {
+          const serialized = originalStringify(value, ...args);
+          if (serialized?.includes('"loop_count": null')) serializedNullLoopCount = true;
+          return serialized;
+        };
+
+        (async () => {
+          for (const invalid of [Number.NaN, 1.5, 1, 0, -1, 256]) {
+            const activeValue = Number.isInteger(invalid) && invalid >= 2 && invalid <= 255
+              ? invalid
+              : Number.NaN;
+            state.rampListLoopCount = activeValue;
+            const rampRun = { disabled: false };
+            strictAssert.equal(updateWorkflowDocumentValidity("ramp-list", rampRun), false);
+            strictAssert.equal(rampRun.disabled, true);
+            strictAssert.equal(elements["save-ramp-list"].disabled, true);
+            await saveRampList();
+
+            state.sequenceLoopCount = activeValue;
+            const sequenceRun = { disabled: false };
+            strictAssert.equal(updateWorkflowDocumentValidity("sequence", sequenceRun), false);
+            strictAssert.equal(sequenceRun.disabled, true);
+            strictAssert.equal(elements["save-sequence"].disabled, true);
+            await saveSequenceFile();
+          }
+          strictAssert.equal(saveCalls, 0);
+          strictAssert.equal(serializedNullLoopCount, false);
+        })().catch((error) => {
+          process.nextTick(() => { throw error; });
+        });
+        """
+    )
+    run_frontend_javascript_assertions(assertions)
+
+
 def test_static_snapshot_has_no_sequence_loop_state_or_control() -> None:
     _index_html, app_js, _styles_css = read_static_texts()
     snapshot = extract_js_function(app_js, "renderSnapshotForm")

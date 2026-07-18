@@ -1141,6 +1141,7 @@ function renderRampListForm(form) {
     button.type = "button";
     button.className = "secondary";
     button.textContent = text;
+    if (text === "Save Ramp List") button.id = "save-ramp-list";
     button.disabled = text === "Add Ramp Segment" && state.rampListSegments.length >= 10;
     button.addEventListener("click", handler);
     toolbar.appendChild(button);
@@ -1213,6 +1214,7 @@ function renderRampListForm(form) {
   editor.appendChild(pulseFields);
   state.rampListSegments.forEach((segment, index) => editor.appendChild(rampSegmentCard(segment, index)));
   form.appendChild(editor);
+  updateWorkflowDocumentValidity("ramp-list");
 }
 
 function rampSegmentCard(segment, index) {
@@ -1399,8 +1401,10 @@ async function loadRampList() {
 }
 
 async function saveRampList() {
-  const documentText = `${JSON.stringify(rampListDocument(), null, 2)}\n`;
   try {
+    const document = rampListDocument();
+    validateRampListDocument(document);
+    const documentText = `${JSON.stringify(document, null, 2)}\n`;
     await saveJsonFile(documentText, {
       description: "Ramp List JSON",
       extensions: RAMP_LIST_JSON_EXTENSIONS,
@@ -2023,6 +2027,7 @@ function renderSequenceForm(form) {
     button.type = "button";
     button.className = "secondary";
     button.textContent = text;
+    if (text === "Save Sequence") button.id = "save-sequence";
     button.disabled = text === "Add Step" && state.sequenceSteps.length >= sequenceMaxSteps();
     button.addEventListener("click", handler);
     toolbar.appendChild(button);
@@ -2045,6 +2050,7 @@ function renderSequenceForm(form) {
   }));
   state.sequenceSteps.forEach((step, index) => editor.appendChild(sequenceStepCard(step, index)));
   form.appendChild(editor);
+  updateWorkflowDocumentValidity("sequence");
 }
 
 const SEQUENCE_ACTIONS = [
@@ -3954,6 +3960,7 @@ function renderLoopControl({
     const update = () => {
       const parsed = count.value === "" ? Number.NaN : Number(count.value);
       onValue(Number.isInteger(parsed) && parsed >= 2 && parsed <= 255 ? parsed : Number.NaN);
+      if (["ramp-list", "sequence"].includes(prefix)) updateWorkflowDocumentValidity(prefix);
       updateSelectedCommandState();
     };
     count.addEventListener("input", update);
@@ -3972,6 +3979,7 @@ function renderLoopControl({
       onDisable();
     }
     refreshLoopCompleteOption(prefix);
+    if (["ramp-list", "sequence"].includes(prefix)) updateWorkflowDocumentValidity(prefix);
     updateSelectedCommandState();
   });
   if (enabled.checked) mountCount(current);
@@ -4635,21 +4643,24 @@ function updateSelectedCommandState() {
     const previewButton = document.getElementById("btn-preview-restore-plan");
     if (previewButton) previewButton.disabled = !restoreValid || state.restorePlanPreviewStatus === "running";
   }
-  if (state.selected === "sequence") {
-    try {
-      sequenceDocumentFromEditor();
-    } catch (e) {
-      runButton.disabled = true;
-    }
-  }
-  if (state.selected === "ramp-list") {
-    try {
-      validateRampListDocument(rampListDocument());
-    } catch (e) {
-      runButton.disabled = true;
-    }
+  if (["sequence", "ramp-list"].includes(state.selected)) {
+    updateWorkflowDocumentValidity(state.selected, runButton);
   }
   if (workflowPulseGuard) commandDescription.textContent = [descriptionText, workflowPulseGuard].filter(Boolean).join(" ");
+}
+
+function updateWorkflowDocumentValidity(command, runButton = null) {
+  let valid = true;
+  try {
+    if (command === "sequence") sequenceDocumentFromEditor();
+    else if (command === "ramp-list") validateRampListDocument(rampListDocument());
+  } catch (e) {
+    valid = false;
+  }
+  const saveButton = document.getElementById(command === "sequence" ? "save-sequence" : "save-ramp-list");
+  if (saveButton) saveButton.disabled = !valid;
+  if (runButton) runButton.disabled ||= !valid;
+  return valid;
 }
 
 function syncTriggerImmediateControls(command) {
