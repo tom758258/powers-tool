@@ -1,0 +1,17 @@
+{
+  "kind": "powers-tool-ramp-list",
+  "version": 4,
+  "enable_output": false,
+  "loop_count": 1,
+  "segments": [
+    {
+      "channel": 1,
+      "current": 0.1,
+      "start_voltage": 0.0,
+      "stop_voltage": 1.0,
+      "step_voltage": 0.25,
+      "delay_ms": 100,
+      "hold_ms": 0
+    }
+  ]
+}

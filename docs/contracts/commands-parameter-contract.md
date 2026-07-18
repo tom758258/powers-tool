@@ -22,8 +22,13 @@ Power Worker, and WebUI Commands. Adapter defaults are not limits.
 - Ramp and Ramp List `delay_ms` is the additional delay after each voltage
   step completes before starting the next step. It is a non-negative integer.
 - Ramp `enable_output` is an optional exact boolean and defaults to `false`.
-  Ramp List version 2 always means `false`; version 3 requires an exact
+  Ramp List version 2 always means `false`; versions 3 and 4 require an exact
   top-level JSON boolean. Adapters must not coerce strings or numbers.
+- Ramp, Ramp List, and Sequence `loop_count` is the total number of complete
+  workflow executions. It must be an exact integer from 1 through 255;
+  booleans, floats, strings, null, zero, negatives, and 256 are rejected.
+  `1` is one normal execution, while `2` restarts once. Ramp List v4 and
+  Sequence v2 require the field. Older supported document versions imply 1.
 - `hold_ms`, settle delays, and Sequence waits are non-negative.
 - Cycle Output, Smoke Output, and Sequence Cycle `duration_ms` are positive
   integers.
@@ -63,15 +68,17 @@ the voltage write and any synchronous every-step completion pulse finish. It
 does not include write or pulse execution time and is not a real-time or exact
 step interval.
 
-Segment-complete and every-step completion pulses are mutually exclusive.
-Every-step pulses accept `delay_ms = 0`.
+One canonical timing is selected. Ramp accepts `step` (every voltage step),
+`segment` (Ramp complete after each iteration), or `loop` (once after every
+iteration). Ramp List accepts `step`, `segment` (after each Segment), or
+`loop`. Loop-complete timing requires `loop_count >= 2`. Every-step pulses
+accept `delay_ms = 0`.
 
 With `enable_output: true`, Ramp validates every effective setpoint before
 writes, then orders current, first voltage, output ON, mandatory ON readback,
-remaining voltage steps, the existing completion pulse, and final output-state
-readback. Ramp List applies the same first-setpoint rule once per channel and
-does not repeat output ON for later segments on that channel. Completion pulse
-timing otherwise remains unchanged.
+remaining voltage steps, per-iteration Ramp-complete pulse when selected, and
+final output-state readback. Ramp List applies the same first-setpoint rule
+once per channel and does not repeat output ON in later segments or loops.
 
 ## Effective Electrical Limits
 

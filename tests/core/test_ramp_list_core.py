@@ -1,6 +1,6 @@
 import pytest
 
-from powers_tool_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions
+from powers_tool_core.core import CommandCancelled, CoreExecutionError, CoreValidationError, OperationRequest, RuntimeOptions
 from powers_tool_core.ramp_list import (
     RAMP_LIST_KIND,
     RAMP_LIST_VERSION,
@@ -95,6 +95,51 @@ def test_ramp_list_contract_versions_are_explicit() -> None:
     assert RAMP_LIST_VERSION_V2 == 2
     assert RAMP_LIST_VERSION == 4
     assert type(RAMP_LIST_VERSION) is int
+
+
+def test_ramp_list_v4_requires_loop_count() -> None:
+    doc = {
+        "kind": RAMP_LIST_KIND,
+        "version": 4,
+        "enable_output": False,
+        "segments": [segment()],
+    }
+    with pytest.raises(CoreValidationError, match="version 4 requires loop_count"):
+        run_ramp_list(request(doc, dry_run=True))
+
+
+@pytest.mark.parametrize("loop_count", [0, -1, 256, True, 1.0, "2", None])
+def test_ramp_list_v4_loop_count_is_strict(loop_count: object) -> None:
+    doc = {
+        "kind": RAMP_LIST_KIND,
+        "version": 4,
+        "enable_output": False,
+        "loop_count": loop_count,
+        "segments": [segment()],
+    }
+    with pytest.raises(CoreValidationError, match="integer from 1 to 255"):
+        run_ramp_list(request(doc, dry_run=True))
+
+
+@pytest.mark.parametrize(("version", "enable_output"), [(2, False), (3, True)])
+def test_ramp_list_override_upgrades_old_document_without_mutation(version: int, enable_output: bool) -> None:
+    doc = {"kind": RAMP_LIST_KIND, "version": version, "segments": [segment()]}
+    if version == 3:
+        doc["enable_output"] = enable_output
+    original = {**doc, "segments": list(doc["segments"])}
+    core_request = request(doc, dry_run=True)
+    core_request = OperationRequest(
+        command="ramp-list",
+        runtime=core_request.runtime,
+        parameters={**core_request.parameters, "loop_count": 2},
+    )
+
+    data = run_ramp_list(core_request)
+
+    assert data["plan"]["version"] == 4
+    assert data["plan"]["loop_count"] == 2
+    assert data["plan"]["enable_output"] is enable_output
+    assert doc == original
 
 
 @pytest.mark.parametrize("value", ["true", "false", 1, 0, 1.0, None, [], {}])
@@ -457,6 +502,95 @@ def test_ramp_list_segment_pulse_uses_each_segment_channel(monkeypatch) -> None:
 
     assert calls == [1, 2]
     assert [item["trigger"]["channel"] for item in data["segments"]] == [1, 2]
+
+
+def test_ramp_list_loop_pulse_runs_once_on_final_segment_channel(monkeypatch) -> None:
+    calls: list[int] = []
+
+    def pulse(_power_supply, *, channel, **kwargs):
+        calls.append(channel)
+        return {"channel": channel, "requested": True, "attempted": True, "fired": True, "completed": True}
+
+    monkeypatch.setattr("powers_tool_core.ramp_list.run_post_action_completion_pulse", pulse)
+    doc = {
+        "kind": RAMP_LIST_KIND,
+        "version": 4,
+        "enable_output": False,
+        "loop_count": 2,
+        "completion_pulse": {"timing": "loop", "pins": [1], "polarity": "positive"},
+        "segments": [segment(channel=1), segment(channel=2)],
+    }
+
+    data = run_ramp_list(request(doc), opener=lambda *args, **kwargs: FakeSession(), sleep=lambda seconds: None)
+
+    assert calls == [2]
+    assert data["loop_count"] == data["completed_loops"] == 2
+    assert data["completed_segments"] == 2
+    assert data["completed_segment_executions"] == 4
+    assert data["trigger"]["channel"] == 2
+    assert [item["loop_index"] for item in data["segments"]] == [1, 1, 2, 2]
+
+
+@pytest.mark.parametrize("failure_stage", ["output_state", "instrument_error", "cancellation"])
+def test_ramp_list_pre_loop_pulse_failure_never_attempts_pulse(monkeypatch, failure_stage: str) -> None:
+    class FinalFailureSession(OutputTrackingSession):
+        def __init__(self) -> None:
+            super().__init__()
+            self.output_queries = 0
+            self.error_queries = 0
+
+        def query(self, command: str) -> str:
+            if command.startswith("OUTP? (@"):
+                self.output_queries += 1
+                if failure_stage == "output_state" and self.output_queries > 1:
+                    self.queries.append(command)
+                    return "0"
+            if command == "SYST:ERR?":
+                self.error_queries += 1
+                if failure_stage == "instrument_error" and self.error_queries == 3:
+                    self.queries.append(command)
+                    return '-200,"Execution error"'
+            return super().query(command)
+
+    pulse_calls = 0
+
+    def pulse(*args, **kwargs):
+        nonlocal pulse_calls
+        pulse_calls += 1
+        return {"attempted": True}
+
+    monkeypatch.setattr("powers_tool_core.ramp_list.run_post_action_completion_pulse", pulse)
+    session = FinalFailureSession()
+    doc = {
+        "kind": RAMP_LIST_KIND,
+        "version": 4,
+        "enable_output": failure_stage == "output_state",
+        "loop_count": 2,
+        "completion_pulse": {"timing": "loop", "pins": [1], "polarity": "positive"},
+        "segments": [segment(channel=1)],
+    }
+    stop_requested = (
+        (lambda: session.error_queries >= 3)
+        if failure_stage == "cancellation"
+        else None
+    )
+
+    with pytest.raises((CoreExecutionError, CommandCancelled)) as raised:
+        run_ramp_list(
+            request(doc),
+            opener=lambda *args, **kwargs: session,
+            sleep=lambda seconds: None,
+            stop_requested=stop_requested,
+        )
+
+    assert pulse_calls == 0
+    if isinstance(raised.value, CommandCancelled):
+        trigger = raised.value.data["partial_result"]["trigger"]
+    else:
+        trigger = raised.value.trigger
+    assert trigger["requested"] is True
+    assert trigger["attempted"] is False
+    assert trigger["fired"] is False
 
 
 @pytest.mark.parametrize(

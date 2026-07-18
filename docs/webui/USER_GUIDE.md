@@ -216,6 +216,13 @@ Some editors support JSON Load/Save, including Sequence, Ramp List, and Trigger
 List workspaces. Use these for repeatable workflows, and keep saved files free
 of private lab resource strings unless they are intentionally local-only.
 
+Ramp, Ramp List, and Sequence provide an `Enable loop` checkbox. When enabled,
+an inline Loop count appears with a range of 2 through 255; this is the total
+number of workflow executions, not additional repeats. Turning Loop off hides
+the field and means one execution. Ramp and Ramp List offer Loop complete in
+Pulse timing only while Loop is enabled. Ramp List saves v4 documents and
+Sequence saves v2 documents, both with explicit `loop_count`, including 1.
+
 ## Job Results
 
 Submitted commands appear in `Job Result`. Select a job to inspect its state

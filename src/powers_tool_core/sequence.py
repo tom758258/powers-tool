@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from powers_tool_core.cancellation import interruptible_sleep, raise_if_cancelled
 from powers_tool_core.connection import open_resource
-from powers_tool_core.core import CommandCancelled, CoreIoError, CoreValidationError, SequenceRequest
+from powers_tool_core.core import CommandCancelled, CoreExecutionError, CoreIoError, CoreValidationError, SequenceRequest
 from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.drivers.edu36311a import EDU36311APowerSupply
 from powers_tool_core.drivers.e3646a import E3646APowerSupply
@@ -74,6 +74,10 @@ def run_sequence(
             "status": "valid",
             "sequence_version": plan["version"],
             "step_count": len(plan["steps"]),
+            "loop_count": plan["loop_count"],
+            "completed_loops": 0,
+            "completed_steps": 0,
+            "completed_step_executions": 0,
             "plan": plan,
         }
 
@@ -85,7 +89,11 @@ def run_sequence(
             "resource_alias": request.runtime.resource_alias,
             "plan": plan,
             "status": "planned",
+            "step_count": len(plan["steps"]),
+            "loop_count": plan["loop_count"],
+            "completed_loops": 0,
             "completed_steps": 0,
+            "completed_step_executions": 0,
             "failed_step": None,
             "stopped": False,
             "cleanup": {"safe_off_attempted": False, "errors": []},
@@ -162,16 +170,26 @@ def parse_simple_sequence_yaml(text: str) -> dict[str, Any]:
 
 
 def sequence_plan(request: SequenceRequest, document: dict[str, Any]) -> dict[str, Any]:
-    if request.parameters.get("loop_count") is not None:
-        document = {**document, "version": 2, "loop_count": request.parameters["loop_count"]}
     version = document.get("version", 1)
-    if version not in (1, "1", 2):
+    if not (version == "1" or type(version) is int and version in (1, 2)):
         raise CoreValidationError(f"unsupported sequence version: {version}")
     allowed_fields = {"version", "steps"} if version in (1, "1") else {"version", "steps", "loop_count"}
     unknown = sorted(set(document) - allowed_fields)
     if unknown:
         raise CoreValidationError(f"sequence contains unsupported field(s): {', '.join(unknown)}")
-    loop_count = normalize_loop_count(document.get("loop_count", 1), field="sequence loop_count")
+    if version == 2 and "loop_count" not in document:
+        raise CoreValidationError("sequence version 2 requires loop_count")
+    document_loop_count = (
+        normalize_loop_count(document["loop_count"], field="sequence loop_count")
+        if version == 2
+        else 1
+    )
+    override = request.parameters.get("loop_count")
+    loop_count = (
+        normalize_loop_count(override, field="sequence loop_count")
+        if override is not None
+        else document_loop_count
+    )
     raw_steps = document.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
         raise CoreValidationError("sequence requires a non-empty steps list")
@@ -181,7 +199,7 @@ def sequence_plan(request: SequenceRequest, document: dict[str, Any]) -> dict[st
         validate_sequence_step(request, step)
         steps.append(step)
     return {
-        "version": 2 if version == 2 else 1,
+        "version": 2 if version == 2 or override is not None else 1,
         "loop_count": loop_count,
         "operation": {"name": "sequence"},
         "target": {
@@ -336,6 +354,7 @@ def execute_sequence(
 ) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     completed_steps = 0
+    completed_step_executions = 0
     failed_step: dict[str, Any] | None = None
     stopped = False
     safe_off_attempted = False
@@ -362,21 +381,29 @@ def execute_sequence(
             power_supply = create_power_supply(instrument, idn_raw)
             _preflight_sequence(request, power_supply, plan, model=_model_from_idn(idn_raw))
             for loop_index in range(1, plan["loop_count"] + 1):
+                completed_steps = 0
                 for step in plan["steps"]:
                     try:
                         raise_if_cancelled(stop_requested)
                         result = execute_sequence_step(request, power_supply, step, sleep=sleep, stop_requested=stop_requested)
-                        result["loop_index"] = loop_index
+                        if plan["loop_count"] > 1:
+                            result["loop_index"] = loop_index
                         results.append(result)
                         completed_steps += 1
+                        completed_step_executions += 1
                     except (CommandCancelled, KeyboardInterrupt):
                         cancel_workflow_with_safe_off(
                             power_supply,
                             partial_result={
-                                "sequence_version": plan["version"], "loop_index": loop_index,
+                                "sequence_version": plan["version"],
+                                "loop_count": plan["loop_count"],
+                                "loop_index": loop_index,
+                                "completed_loops": completed_loops,
                                 "completed_steps": completed_steps,
+                                "completed_step_executions": completed_step_executions,
                                 "results": results,
                                 "failed_step": {
+                                    "loop_index": loop_index,
                                     "index": step["index"],
                                     "action": step["action"],
                                     "code": "interrupted",
@@ -384,7 +411,7 @@ def execute_sequence(
                             },
                             reporter=cleanup_reporter,
                         )
-                    except (VisaConnectionError, ValueError, SafetyValidationError, CoreValidationError) as exc:
+                    except (VisaConnectionError, ValueError, SafetyValidationError, CoreValidationError, CoreExecutionError) as exc:
                         failed_step = {
                             "loop_index": loop_index,
                             "index": step["index"],
@@ -392,6 +419,8 @@ def execute_sequence(
                             "code": "step_failed",
                             "message": str(exc),
                         }
+                        if isinstance(exc, CoreExecutionError) and exc.trigger is not None:
+                            failed_step["trigger"] = exc.trigger
                         break
                 if failed_step is not None:
                     break
@@ -404,9 +433,14 @@ def execute_sequence(
                         power_supply,
                         partial_result={
                             "sequence_version": plan["version"],
+                            "loop_count": plan["loop_count"],
+                            "loop_index": plan["loop_count"],
+                            "completed_loops": completed_loops,
                             "completed_steps": completed_steps,
+                            "completed_step_executions": completed_step_executions,
                             "results": results,
                             "failed_step": {
+                                "loop_index": plan["loop_count"],
                                 "code": "interrupted",
                                 "message": str(exc),
                             },
@@ -429,10 +463,11 @@ def execute_sequence(
         "plan": plan,
         "status": status,
         "results": results,
+        "step_count": len(plan["steps"]),
         "completed_steps": completed_steps,
         "loop_count": plan["loop_count"],
         "completed_loops": completed_loops,
-        "completed_step_executions": completed_steps,
+        "completed_step_executions": completed_step_executions,
         "failed_step": failed_step,
         "stopped": stopped,
         "cleanup": {"safe_off_attempted": safe_off_attempted, "errors": cleanup_errors},

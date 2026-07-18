@@ -533,9 +533,10 @@ VISA session. It validates the complete versioned JSON document and all
 generated setpoints before the first hardware write. It does not enable or
 disable output, use native LIST, or perform automatic safe-off on failure.
 
-Ramp `--completion-pulse-timing segment` preserves one completion pulse.
-`--completion-pulse-timing step` emits a software post-action pulse after
-every voltage write and accepts `--delay-ms 0`.
+Ramp `--completion-pulse-timing segment` emits once after each complete Ramp
+iteration. `--completion-pulse-timing step` emits after every voltage write,
+and `--completion-pulse-timing loop` emits once after all successful
+iterations. Every-step timing accepts `--delay-ms 0`.
 Rear pulse pins are not output channels. Pulse workflows are E36312A-only, and
 `*TRG` may affect other already armed BUS-triggered behavior.
 
@@ -544,13 +545,19 @@ the first voltage before enabling and verifying output. Ramp List enables each
 channel only on its first segment. Normal completion leaves those outputs ON;
 omitting the option preserves the prior output state.
 
-Ramp List version 2 remains accepted and always means `enable_output: false`.
-Version 3 requires an exact top-level JSON boolean `enable_output` and may
-contain a global `completion_pulse` object. Version 1, malformed booleans,
-unknown fields, and future versions are rejected without conversion or
-fallback. Inline `--segment --enable-output` builds version 3; inline segments
-without the option build version 2. `--file` takes `enable_output` only from
-the document and cannot be combined with the CLI flag. Inline usage accepts
+`ramp`, `ramp-list`, and `sequence` accept `--loop-count N`, where N is the
+total execution count and a strict integer from 1 through 255. An explicit
+CLI value overrides a document value; otherwise the document value is used,
+then 1. Ramp List v2/v3 and Sequence v1 imply 1.
+
+Ramp List version 2 remains accepted with `enable_output: false` and one
+iteration. Version 3 requires `enable_output` and implies one iteration.
+Version 4 requires exact `enable_output` and `loop_count` fields and may
+contain a global `completion_pulse` object. Version 1, malformed values,
+unknown fields, and future versions are rejected without fallback. Inline
+segments always build v4 and explicitly store `loop_count`, including 1.
+`--file` takes `enable_output` only from the document and cannot be combined
+with the CLI flag. Inline usage accepts
 `--completion-pulse-timing`, `--completion-pulse-pins`, and
 `--completion-pulse-polarity`; with `--file`, the document is authoritative
 and CLI pulse overrides are rejected.
@@ -943,7 +950,7 @@ Ramp voltage setpoints without changing output state:
 
 ```powershell
 uv run powers-tool ramp --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.25 --current 0.05 --delay-ms 100 --verify-after-write --settle-ms 200 --log-scpi
-uv run powers-tool ramp --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --completion-pulse-pins 1 --log-scpi
+uv run powers-tool ramp --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --loop-count 2 --completion-pulse-timing loop --completion-pulse-pins 1 --log-scpi
 ```
 
 Validate a sequence file or preview deterministic write SCPI without opening
@@ -953,6 +960,7 @@ VISA:
 uv run powers-tool sequence --lint --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
 uv run powers-tool sequence --dry-run --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
 uv run powers-tool sequence --dry-run --json --model keysight-e3646a --file examples\sequence-readonly.yaml
+uv run powers-tool sequence --dry-run --json --model keysight-e36312a --file examples\sequence-readonly.yaml --loop-count 2
 ```
 
 Sequence YAML files are formally supported through the core package's PyYAML
@@ -968,9 +976,9 @@ pulse trigger armed, and enabling it may affect later steps or other BUS trigger
 Ramp List examples:
 
 ```powershell
-uv run powers-tool ramp-list --lint --json --file example.ramp-list.json
-uv run powers-tool ramp-list --dry-run --json --model keysight-e36312a --file example.ramp-list.json
-uv run powers-tool ramp-list --dry-run --json --model keysight-e3646a --file example.ramp-list.json
+uv run powers-tool ramp-list --lint --json --file examples\ramp-list.json
+uv run powers-tool ramp-list --dry-run --json --model keysight-e36312a --file examples\ramp-list.json
+uv run powers-tool ramp-list --dry-run --json --model keysight-e3646a --file examples\ramp-list.json --loop-count 2
 uv run powers-tool ramp-list --json --resource "$env:POWERS_TOOL_RESOURCE" --segment 1 0.1 0 1 0.1 100 0 --segment 2 0.05 0 2 0.2 50 500
 ```
 

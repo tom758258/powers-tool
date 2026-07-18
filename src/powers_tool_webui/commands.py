@@ -227,7 +227,18 @@ def execute_job_command(job: Job) -> dict[str, Any]:
         raise CommandCancelled(f"ramp-list stopped at segment {failed.get('index')}")
     if command == "ramp-list" and result.get("status") == "failed":
         failed = result.get("failed_segment") or {}
-        raise CoreExecutionError(f"ramp-list segment {failed.get('index')} failed: {failed.get('message', 'segment failed')}")
+        raise CoreExecutionError(
+            f"ramp-list segment {failed.get('index')} failed: {failed.get('message', 'segment failed')}",
+            trigger=failed.get("trigger"),
+            data=result,
+        )
+    if command == "sequence" and result.get("status") == "failed":
+        failed = result.get("failed_step") or {}
+        raise CoreExecutionError(
+            f"sequence step {failed.get('index')} failed: {failed.get('message', 'step failed')}",
+            trigger=failed.get("trigger"),
+            data=result,
+        )
     return result
 
 

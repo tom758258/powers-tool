@@ -294,9 +294,24 @@ only whole successful iterations, while `completed_segment_executions` and
 `completed_step_executions` are cumulative across iterations.
 
 Completion pulses use E36312A rear digital pins; rear pins are separate from
-the selected output channel. Ramp supports `segment` timing for one completion
-pulse and `step` timing for a software post-action pulse after every voltage
-write, including the final write. Every-step timing accepts `delay_ms = 0`.
+the selected output channel. Ramp `step` timing pulses after every voltage
+write in every iteration, `segment` pulses once after each complete Ramp
+iteration, and `loop` pulses once after all iterations. Ramp List keeps its
+per-step and per-Segment behavior in every iteration; `loop` pulses once using
+the last Segment channel as an internal trigger anchor. Every-step timing
+accepts `delay_ms = 0`. Sequence has no top-level completion pulse; its
+per-Step `trigger-pulse` action is unchanged.
+
+A Loop-complete pulse is attempted only after the workflow iterations, final
+setpoint/output verification, workflow error-queue check, and final
+cancellation check succeed. Its result distinguishes `requested`, `attempted`,
+`fired`, `completed`, `restored`, `restore_errors`, and
+`post_pulse_errors`. Because `*TRG` is sent before trigger restoration, a
+restore, post-pulse error-queue, release, or close failure can occur after the
+physical pulse. Such failures fail the command without falsely changing the
+recorded fired state. `completed_loops` remains complete when only the
+terminal Loop-complete pulse fails; a per-iteration Ramp-complete pulse is
+part of that iteration and must succeed before its loop is counted.
 
 Ramp and Ramp List leave output state unchanged by default. Optional
 `enable_output: true` enables an output only after the current limit and first
@@ -304,11 +319,21 @@ voltage setpoint are validated and written, then requires an ON readback.
 Normal completion leaves enabled outputs ON and reads their final state again.
 
 Ramp List version 2 keeps `kind: "powers-tool-ramp-list"` and remains accepted
-with fixed `enable_output: false` semantics. Version 3 requires an exact top-level JSON boolean
-`enable_output`; missing, non-boolean, unknown, legacy, and future-version
-fields are rejected before hardware I/O. Both versions may include a
-document-level `completion_pulse` object with `timing`, `pins`, and `polarity`.
-Version 1 is rejected without conversion or fallback.
+with fixed `enable_output: false` and `loop_count: 1` semantics. Version 3
+requires an exact top-level JSON boolean `enable_output` and also implies one
+iteration. Version 4 requires both `enable_output` and `loop_count`. Sequence
+v1 implies one iteration and forbids `loop_count`; Sequence v2 requires it.
+Missing, wrong-type, unknown, legacy, and future-version fields are rejected
+before hardware I/O. Explicit CLI loop overrides upgrade supported older
+documents internally without mutating the loaded document.
+
+`segment_count` and `step_count` describe one document iteration.
+`completed_loops` counts fully completed iterations.
+`completed_segments` and `completed_steps` describe the current or most
+recently attempted iteration, while `completed_segment_executions` and
+`completed_step_executions` are cumulative across iterations. Failed or
+cancelled item context contains a 1-based `loop_index` plus its normal Segment
+or Step index. Single-iteration successful item shapes remain compatible.
 
 Ramp, Ramp List, and Sequence cancellation is cooperative. After the current
 VISA call returns, Core stops future workflow steps and pulses, uses the same

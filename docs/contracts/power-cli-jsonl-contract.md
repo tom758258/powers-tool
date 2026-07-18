@@ -190,17 +190,31 @@ Selected data mappings:
   CLI schema-2 envelope; restore does not unwrap that envelope. If both options
   are used, their paths must differ. Resource redaction applies to the raw
   snapshot too, and restore never depends on the saved resource field.
-- `sequence`: lint/plan/execution status, step results, and stop/failure details.
+- `sequence`: lint/plan/execution status, step results, loop counters, and
+  stop/failure details.
 - `ramp` and `ramp-list`: requested `enable_output`, whether output enable was
   executed, successfully enabled channels, final output states from a normal
   completion readback, and cancellation cleanup diagnostics. Without output
   enable, final state is unchanged/not observed and no new output-state query
   is issued.
-- `ramp-list`: document version, segment count, completed segment count,
-  ordered segment plans/results, and failed segment details.
+- `ramp-list`: document version, per-iteration segment count, completed
+  segment count, cumulative segment executions, ordered results, and failed
+  Segment details with 1-based loop context.
 - Ramp and Ramp List every-step pulse results use ordered `triggers` entries
-  containing step index, voltage, and trigger result. Single completion pulses
-  remain under `trigger`; Ramp List pulse results are stored per segment.
+  containing step index, voltage, and trigger result. Ramp-complete pulses are
+  emitted once per iteration. Terminal Loop-complete pulse metadata remains
+  under `trigger`; Ramp List per-Segment pulse results remain per Segment.
+- Ramp, Ramp List, and Sequence results expose `loop_count` and
+  `completed_loops`. `segment_count`/`step_count` are per iteration;
+  `completed_segment_executions`/`completed_step_executions` are cumulative.
+  Legacy `completed_segments`/`completed_steps` describe the current or most
+  recently attempted iteration. Failure and cancellation context includes a
+  1-based `loop_index`.
+- Loop-complete pulse results distinguish `requested`, `attempted`, `fired`,
+  `completed`, `restored`, `restore_errors`, and `post_pulse_errors`. A
+  restore or post-pulse failure may occur after physical `*TRG`; it fails the
+  command without changing a recorded fired state. Completed workflow loops
+  remain counted separately from terminal pulse success.
 - Ramp always uses software setpoint writes and accepts
   `completion_pulse_pins`, `completion_pulse_polarity`,
   `completion_pulse_channel`, `leave_trigger_configured`, and

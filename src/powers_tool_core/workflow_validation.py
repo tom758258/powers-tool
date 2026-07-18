@@ -54,6 +54,8 @@ def validate_general_workflow_parameters(request: OperationRequest) -> None:
         )
     if request.command != "ramp" and "completion_pulse_timing" in request.parameters:
         raise CoreValidationError("completion_pulse_timing is only accepted by ramp")
+    if request.command == "ramp":
+        normalize_loop_count(request.parameters.get("loop_count", 1))
 
 
 def validate_completion_pulse_planning_model(

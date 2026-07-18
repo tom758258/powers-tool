@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from powers_tool_core.core import CommandCancelled, CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, StopCleanupError, TriggerRequest
+from powers_tool_core.core import CommandCancelled, CoreExecutionError, CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, StopCleanupError, TriggerRequest
 from powers_tool_core.identity import IdentityResolutionError, resolve_physical_model_identity
 from powers_tool_core.parameter_constraints import parameter_constraints_metadata
 from powers_tool_core.sequence import load_sequence_document
@@ -344,6 +344,11 @@ async def _execute_job_background(job_id: str):
             code="cleanup_failed",
             result=dict(getattr(e, "data", {}) or {}),
         )
+    except CoreExecutionError as e:
+        result = dict(getattr(e, "data", {}) or {})
+        if e.trigger is not None:
+            result.setdefault("trigger", e.trigger)
+        await job_manager.fail_job(job_id, str(e), result=result)
     except Exception as e:
         error_msg = str(e)
         await job_manager.fail_job(job_id, error_msg)

@@ -6,6 +6,7 @@ from powers_tool_core.core import CoreExecutionError, CoreValidationError, Runti
 from powers_tool_core.drivers.e36312a import E36312APowerSupply
 from powers_tool_core.trigger import (
     _raise_on_instrument_errors,
+    run_post_action_completion_pulse,
     trigger_list_scpi,
     trigger_plan,
     trigger_pulse_scpi,
@@ -75,6 +76,9 @@ class RecordingPulsePowerSupply(E36312APowerSupply):
     def configure_output_trigger_source_bus(self, channel: int) -> None:
         self.events.append("configure-source")
 
+    def initiate_output_trigger(self, channel: int) -> None:
+        self.events.append("initiate")
+
     def trigger_pulse(self, *, channel: int) -> None:
         self.events.append("pulse")
         if self.fail_pulse:
@@ -94,6 +98,11 @@ class RecordingPulsePowerSupply(E36312APowerSupply):
 
     def _restore_trigger_global_snapshot(self, snapshot) -> None:
         self.events.append("restore-global")
+
+    def restore_trigger_snapshot(self, snapshot) -> None:
+        self.events.append(f"restore-single-{snapshot.channel}")
+        if snapshot.channel == self.fail_restore_channel:
+            raise RuntimeError("restore failed")
 
     def read_error_queue(self, max_errors: int):
         self.events.append("error-queue")
@@ -299,6 +308,63 @@ def test_trigger_pulse_operation_and_error_queue_failures_are_aggregated(monkeyp
     assert "instrument errors" in str(exc_info.value)
     assert isinstance(exc_info.value.__cause__, RuntimeError)
     assert str(exc_info.value.__cause__) == "pulse failed"
+
+
+def test_completion_pulse_result_records_terminal_action_state() -> None:
+    power_supply = RecordingPulsePowerSupply()
+
+    result = run_post_action_completion_pulse(
+        power_supply,
+        channel=1,
+        pins=(1,),
+        polarity="positive",
+    )
+
+    assert result["requested"] is True
+    assert result["attempted"] is True
+    assert result["fired"] is True
+    assert result["completed"] is True
+    assert result["restored"] is True
+    assert result["restore_errors"] == []
+    assert result["post_pulse_errors"] == []
+
+
+def test_completion_pulse_command_failure_reports_not_fired() -> None:
+    power_supply = RecordingPulsePowerSupply()
+    power_supply.fail_fire = True
+
+    with pytest.raises(CoreExecutionError) as raised:
+        run_post_action_completion_pulse(power_supply, channel=1, pins=(1,), polarity="positive")
+
+    assert raised.value.trigger["attempted"] is True
+    assert raised.value.trigger["fired"] is False
+    assert raised.value.trigger["completed"] is False
+    assert raised.value.trigger["restored"] is True
+
+
+def test_completion_pulse_restore_failure_does_not_hide_fired_state() -> None:
+    power_supply = RecordingPulsePowerSupply()
+    power_supply.fail_restore_channel = 1
+
+    with pytest.raises(CoreExecutionError) as raised:
+        run_post_action_completion_pulse(power_supply, channel=1, pins=(1,), polarity="positive")
+
+    assert raised.value.trigger["fired"] is True
+    assert raised.value.trigger["completed"] is True
+    assert raised.value.trigger["restored"] is False
+    assert raised.value.trigger["restore_errors"] == ["restore failed"]
+
+
+def test_completion_pulse_post_error_is_reported_after_firing() -> None:
+    power_supply = RecordingPulsePowerSupply()
+    power_supply.queue_errors = ['-200,"Execution error"']
+
+    with pytest.raises(CoreExecutionError) as raised:
+        run_post_action_completion_pulse(power_supply, channel=1, pins=(1,), polarity="positive")
+
+    assert raised.value.trigger["fired"] is True
+    assert raised.value.trigger["restored"] is True
+    assert raised.value.trigger["post_pulse_errors"] == ['-200,"Execution error"']
 
 
 def test_trigger_step_preview_with_wait_complete() -> None:

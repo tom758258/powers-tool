@@ -84,9 +84,16 @@ class CoreIoError(RuntimeError):
 class CoreExecutionError(RuntimeError):
     """A command failed after request validation."""
 
-    def __init__(self, message: str, *, trigger: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        trigger: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.trigger = trigger
+        self.data = data
 
 
 class CommandCancelled(CoreExecutionError):
@@ -124,8 +131,15 @@ class StopCleanupError(CoreExecutionError):
 class CoreVerificationError(CoreExecutionError):
     """A write verification failed after hardware I/O."""
 
-    def __init__(self, message: str, *, verification: dict[str, Any]) -> None:
-        super().__init__(message)
+    def __init__(
+        self,
+        message: str,
+        *,
+        verification: dict[str, Any],
+        trigger: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, trigger=trigger, data=data)
         self.verification = verification
 
 

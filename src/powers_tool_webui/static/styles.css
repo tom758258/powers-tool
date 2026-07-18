@@ -809,6 +809,31 @@ button.utility-icon-button:hover {
 
 .form-grid .pulse-child-field.visible { display: block; }
 
+.loop-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  min-height: var(--control-h);
+}
+
+.loop-control .loop-count-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.loop-control .loop-count-field input {
+  width: 96px;
+}
+
+.form-grid > .ramp-enable-output-field,
+.form-grid > .ramp-loop-control {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

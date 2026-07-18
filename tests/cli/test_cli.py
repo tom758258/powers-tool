@@ -7172,6 +7172,22 @@ def test_sequence_dry_run_does_not_open_resource(monkeypatch, capsys) -> None:
     ]
 
 
+def test_sequence_v1_file_loop_override_upgrades_to_v2(tmp_path, capsys) -> None:
+    sequence_file = tmp_path / "sequence.json"
+    sequence_file.write_text(
+        json.dumps({"version": 1, "steps": [{"action": "wait", "seconds": 0}]}),
+        encoding="utf-8",
+    )
+
+    assert cli.main([
+        "sequence", "--dry-run", "--json", "--file", str(sequence_file), "--loop-count", "2",
+    ]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["plan"]["version"] == 2
+    assert payload["data"]["plan"]["loop_count"] == 2
+
+
 def test_sequence_lint_parses_bundled_yaml(capsys) -> None:
     assert (
         cli.main(
@@ -7189,7 +7205,8 @@ def test_sequence_lint_parses_bundled_yaml(capsys) -> None:
     )
     payload = json.loads(capsys.readouterr().out)
     assert payload["data"]["status"] == "valid"
-    assert payload["data"]["sequence_version"] == 1
+    assert payload["data"]["sequence_version"] == 2
+    assert payload["data"]["loop_count"] == 1
     assert payload["data"]["step_count"] == 6
 
 
@@ -8312,6 +8329,35 @@ def test_ramp_dry_run_json_plans_setpoint_only_steps(capsys) -> None:
     assert "output_on" not in actions
     assert "output_off" not in actions
     assert payload["data"]["plan"]["steps"][5]["parameters"]["voltage"] == 1.0
+    assert payload["data"]["plan"]["loop_count"] == 1
+
+
+@pytest.mark.parametrize("value", ["1", "255"])
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["ramp", "--channel", "1", "--start-voltage", "0", "--stop-voltage", "1", "--step-voltage", "1", "--current", "0.1"],
+        ["ramp-list", "--segment", "1", "0.1", "0", "1", "1", "0", "0"],
+        ["sequence", "--file", "sequence.json"],
+    ],
+)
+def test_loop_count_parser_accepts_contract_bounds(argv: list[str], value: str) -> None:
+    args = cli.build_parser().parse_args([*argv, "--loop-count", value])
+    assert args.loop_count == int(value)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "256", "1.5", "true"])
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["ramp", "--channel", "1", "--start-voltage", "0", "--stop-voltage", "1", "--step-voltage", "1", "--current", "0.1"],
+        ["ramp-list", "--segment", "1", "0.1", "0", "1", "1", "0", "0"],
+        ["sequence", "--file", "sequence.json"],
+    ],
+)
+def test_loop_count_parser_rejects_out_of_contract_values(argv: list[str], value: str) -> None:
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args([*argv, "--loop-count", value])
 
 
 def test_ramp_simulate_json_does_not_open_resource(monkeypatch, capsys) -> None:
@@ -8568,11 +8614,12 @@ def test_ramp_list_lint_inline_does_not_open_resource(monkeypatch, capsys) -> No
     payload = json.loads(capsys.readouterr().out)
     assert payload["data"]["status"] == "valid"
     assert payload["data"]["segment_count"] == 2
-    assert payload["data"]["plan"]["version"] == 2
+    assert payload["data"]["plan"]["version"] == 4
+    assert payload["data"]["plan"]["loop_count"] == 1
     assert payload["data"]["segments"][1]["hold_ms"] == 250
 
 
-def test_ramp_list_inline_enable_output_builds_v3(capsys) -> None:
+def test_ramp_list_inline_enable_output_builds_v4(capsys) -> None:
     assert (
         cli.main(
             [
@@ -8594,7 +8641,8 @@ def test_ramp_list_inline_enable_output_builds_v3(capsys) -> None:
     )
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["data"]["plan"]["version"] == 3
+    assert payload["data"]["plan"]["version"] == 4
+    assert payload["data"]["plan"]["loop_count"] == 1
     assert payload["data"]["plan"]["enable_output"] is True
 
 
@@ -8672,6 +8720,36 @@ def test_ramp_list_dry_run_file_uses_versioned_document(tmp_path, capsys) -> Non
     assert payload["data"]["status"] == "planned"
     assert payload["data"]["plan"]["version"] == 2
     assert payload["data"]["plan"]["segments"][0]["voltages"] == [0.0, 0.4, 0.8, 1.0]
+
+
+def test_ramp_list_v2_file_loop_override_upgrades_to_v4(tmp_path, capsys) -> None:
+    ramp_file = tmp_path / "example.ramp-list.json"
+    ramp_file.write_text(
+        json.dumps({
+            "kind": "powers-tool-ramp-list",
+            "version": 2,
+            "segments": [{
+                "channel": 1,
+                "current": 0.1,
+                "start_voltage": 0,
+                "stop_voltage": 1,
+                "step_voltage": 1,
+                "delay_ms": 0,
+                "hold_ms": 0,
+            }],
+        }),
+        encoding="utf-8",
+    )
+
+    assert cli.main([
+        "ramp-list", "--dry-run", "--json", "--model", "keysight-e36312a",
+        "--file", str(ramp_file), "--loop-count", "2",
+    ]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["data"]["plan"]["version"] == 4
+    assert payload["data"]["plan"]["loop_count"] == 2
+    assert payload["data"]["plan"]["enable_output"] is False
 
 
 def test_ramp_list_v1_file_is_rejected_without_conversion(tmp_path, capsys) -> None:

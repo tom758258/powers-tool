@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from powers_tool_core.core import OperationRequest, RuntimeOptions
-from powers_tool_core.ramp_list import RAMP_LIST_KIND, RAMP_LIST_VERSION, RAMP_LIST_VERSION_V2
+from powers_tool_core.ramp_list import RAMP_LIST_KIND, RAMP_LIST_VERSION
 
 
 def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any) -> None:
@@ -27,7 +27,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         metavar=("CHANNEL", "CURRENT", "START", "STOP", "STEP", "DELAY_MS", "HOLD_MS"),
         help="Repeatable segment: channel current start stop step additional-delay-ms hold-ms.",
     )
-    parser.add_argument("--completion-pulse-timing", choices=("segment", "step"), help="Emit a pulse after each segment or voltage step.")
+    parser.add_argument("--completion-pulse-timing", choices=("segment", "step", "loop"), help="Emit a pulse after each segment, voltage step, or completed loop set.")
     parser.add_argument("--completion-pulse-pins", type=runtime._trigger_pins_list, help="Comma-separated E36312A rear digital pulse pins.")
     parser.add_argument("--completion-pulse-polarity", choices=("positive", "negative"), default="positive", help="Completion pulse polarity.")
     parser.add_argument(
@@ -35,7 +35,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Enable each channel after its first validated segment setpoint.",
     )
-    parser.add_argument("--loop-count", type=runtime._positive_int, help="Total Ramp List iterations (1 to 255).")
+    parser.add_argument("--loop-count", type=runtime._loop_count, help="Total Ramp List iterations (1 to 255).")
     parser.add_argument(
         "--confirm",
         action="store_true",

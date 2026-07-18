@@ -184,7 +184,7 @@ planning field. Worker settings provide no identity default and reject all
 identity fields, including legacy `model_profile` and `model`.
 
 Command-specific fields match the CLI/core names, including `channel`,
-`voltage`, `current`, `max_errors`, `max_reads`, `file`, `document`,
+`voltage`, `current`, `loop_count`, `max_errors`, `max_reads`, `file`, `document`,
 `snapshot`, `wait_timeout_ms`, `poll_ms`, protection options, snapshot
 options, and sequence options. Raw JSON `channel` accepts an exact positive
 integer or exact `"all"`; booleans, floats, numeric strings, null, arrays, and
@@ -224,15 +224,20 @@ Expert settings. `read_termination` and `write_termination` accept `CR`, `LF`,
 settings `serial_remote` and `serial_local_on_close` request explicit
 `SYST:REM` and best-effort cleanup `SYST:LOC` for ASRL resources only.
 
-Ramp List version 2 documents remain accepted with fixed
-`enable_output: false` semantics. Version 3 requires `kind:
-"powers-tool-ramp-list"`, exact boolean `enable_output`, and 1 to 10 ordered
-`segments`. Version 1, missing or non-boolean v3 fields, unknown top-level
-fields, and future versions are rejected without conversion or fallback. Each
-segment contains `channel`,
+Ramp, Ramp List, and Sequence `loop_count` is a strict integer from 1 through
+255 and means total complete workflow executions. Invalid raw values are
+rejected before queue or artifact mutation. Explicit request overrides take
+precedence over document values.
+
+Ramp List v2 documents imply `enable_output: false` and `loop_count: 1`; v3
+requires exact `enable_output` and implies one iteration; v4 requires exact
+`enable_output` and `loop_count`. Sequence v1 forbids `loop_count` and implies
+one iteration; v2 requires it. Unknown or missing strict-version fields and
+future versions are rejected. Each Ramp List segment contains `channel`,
 `current`, `start_voltage`, `stop_voltage`, `step_voltage`, `delay_ms`, and
 `hold_ms`. An optional global `completion_pulse` contains `timing`
-(`segment` or `step`), E36312A rear digital `pins`, and `polarity`.
+(`segment`, `step`, or `loop`), E36312A rear digital `pins`, and `polarity`.
+Loop timing requires at least two iterations.
 
 Ramp accepts `completion_pulse_timing`; step timing accepts `delay_ms = 0`
 and uses software post-action pulses. Sequence accepts canonical
@@ -249,6 +254,11 @@ accepted only by the relevant Trigger commands.
 Post-action pulses modify and restore trigger/rear-pin settings unless
 explicitly left configured. Their global `*TRG` may trigger other armed BUS
 behavior.
+Loop-complete pulse results distinguish requested, attempted, fired,
+completed, restored, restore errors, and post-pulse errors. Because physical
+`*TRG` precedes restoration, a restore or later cleanup failure may be
+reported after the pulse fired. Workflow loop counters and terminal pulse
+success are therefore separate result dimensions.
 Native `trigger-step` and `trigger-list` reject `fire: true` with Immediate
 source, and BUS requests with `wait_complete: true` require `fire: true` in
 the same command. Native `trigger-list` arm-only requests require

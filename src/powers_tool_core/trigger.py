@@ -227,8 +227,10 @@ def run_post_action_completion_pulse(
     snapshot = power_supply.trigger_snapshot(channel)
     restored: bool | None = None
     restore_errors: list[str] = []
+    post_pulse_errors: list[str] = []
     fired = False
     completed = False
+    operation_error: Exception | None = None
     try:
         power_supply.abort_output_trigger(channel)
         configure_completion_output_pins(power_supply, selected_pins, polarity)
@@ -240,6 +242,8 @@ def run_post_action_completion_pulse(
         power_supply.fire_bus_trigger()
         fired = True
         completed = True
+    except Exception as exc:
+        operation_error = exc
     finally:
         if leave_configured:
             restored = False
@@ -250,8 +254,13 @@ def run_post_action_completion_pulse(
             except Exception as exc:
                 restored = False
                 restore_errors.append(str(exc))
+    try:
+        errors, _read_count = power_supply.read_error_queue(20)
+        post_pulse_errors.extend(str(error) for error in errors)
+    except Exception as exc:
+        post_pulse_errors.append(str(exc))
 
-    return trigger_result_payload(
+    result = trigger_result_payload(
         mode="completion-pulse",
         native=False,
         channel=channel,
@@ -263,7 +272,20 @@ def run_post_action_completion_pulse(
         completed=completed,
         restored=restored,
         restore_errors=restore_errors,
+        requested=True,
+        attempted=True,
+        post_pulse_errors=post_pulse_errors,
     )
+    if operation_error is not None or restore_errors or post_pulse_errors:
+        details = []
+        if operation_error is not None:
+            details.append(f"pulse failed: {operation_error}")
+        if restore_errors:
+            details.append("restore failed: " + "; ".join(restore_errors))
+        if post_pulse_errors:
+            details.append("post-pulse instrument errors: " + "; ".join(post_pulse_errors))
+        raise CoreExecutionError("completion pulse failed: " + "; ".join(details), trigger=result) from operation_error
+    return result
 
 
 def configure_completion_output_pins(
@@ -299,6 +321,9 @@ def trigger_result_payload(
     poll_ms: int | None = None,
     restored: bool | None = None,
     restore_errors: list[str] | None = None,
+    requested: bool | None = None,
+    attempted: bool | None = None,
+    post_pulse_errors: list[str] | None = None,
     fallback_reason: str | None = None,
     abort_attempted: bool | None = None,
     abort_succeeded: bool | None = None,
@@ -324,6 +349,12 @@ def trigger_result_payload(
     }
     if fallback_reason is not None:
         payload["fallback_reason"] = fallback_reason
+    if requested is not None:
+        payload["requested"] = requested
+    if attempted is not None:
+        payload["attempted"] = attempted
+    if post_pulse_errors is not None:
+        payload["post_pulse_errors"] = post_pulse_errors
     if abort_attempted is not None:
         payload["abort_attempted"] = abort_attempted
         payload["abort_succeeded"] = bool(abort_succeeded)

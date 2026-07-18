@@ -13,6 +13,7 @@ from powers_tool_core.cancellation import interruptible_sleep, raise_if_cancelle
 from powers_tool_core.connection import open_resource
 from powers_tool_core.core import (
     CommandCancelled,
+    CoreExecutionError,
     CoreIoError,
     CoreValidationError,
     CoreVerificationError,
@@ -37,11 +38,12 @@ from powers_tool_core.operations import (
 from powers_tool_core.safety import SafetyConfigError, SafetyValidationError, resolve_safety_config, validate_setpoint
 from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.stop_cleanup import CleanupReporter, cancel_workflow_with_safe_off
-from powers_tool_core.trigger import run_post_action_completion_pulse
+from powers_tool_core.trigger import run_post_action_completion_pulse, trigger_result_payload
 from powers_tool_core.workflow_validation import normalize_loop_count, validate_completion_pulse_planning_model
 
 RAMP_LIST_KIND = "powers-tool-ramp-list"
 RAMP_LIST_VERSION_V2 = 2
+RAMP_LIST_VERSION_V3 = 3
 RAMP_LIST_VERSION = 4
 MAX_RAMP_SEGMENTS = 10
 SEGMENT_FIELDS = frozenset(
@@ -152,22 +154,20 @@ def load_ramp_list_document(path: str) -> dict[str, Any]:
 
 
 def ramp_list_plan(request: OperationRequest, document: dict[str, Any]) -> dict[str, Any]:
-    if request.parameters.get("loop_count") is not None:
-        document = {**document, "loop_count": request.parameters["loop_count"], "version": RAMP_LIST_VERSION}
     if document.get("kind") != RAMP_LIST_KIND:
         raise CoreValidationError(f"ramp-list kind must be {RAMP_LIST_KIND!r}")
     version = document.get("version")
-    if type(version) is not int or version not in {RAMP_LIST_VERSION_V2, 3, RAMP_LIST_VERSION}:
+    if type(version) is not int or version not in {RAMP_LIST_VERSION_V2, RAMP_LIST_VERSION_V3, RAMP_LIST_VERSION}:
         raise CoreValidationError(f"unsupported ramp-list version: {version!r}")
     allowed_fields = {"kind", "version", "completion_pulse", "segments"}
-    if version in {3, RAMP_LIST_VERSION}:
+    if version in {RAMP_LIST_VERSION_V3, RAMP_LIST_VERSION}:
         allowed_fields.add("enable_output")
     if version == RAMP_LIST_VERSION:
         allowed_fields.add("loop_count")
     unknown = sorted(set(document) - allowed_fields)
     if unknown:
         raise CoreValidationError(f"unsupported ramp-list field(s): {', '.join(unknown)}")
-    if version in {3, RAMP_LIST_VERSION}:
+    if version in {RAMP_LIST_VERSION_V3, RAMP_LIST_VERSION}:
         if "enable_output" not in document:
             raise CoreValidationError(f"ramp-list version {version} requires enable_output")
         if type(document["enable_output"]) is not bool:
@@ -175,7 +175,20 @@ def ramp_list_plan(request: OperationRequest, document: dict[str, Any]) -> dict[
         enable_output = document["enable_output"]
     else:
         enable_output = False
-    loop_count = normalize_loop_count(document.get("loop_count", 1), field="ramp-list loop_count")
+    if version == RAMP_LIST_VERSION and "loop_count" not in document:
+        raise CoreValidationError("ramp-list version 4 requires loop_count")
+    document_loop_count = (
+        normalize_loop_count(document["loop_count"], field="ramp-list loop_count")
+        if version == RAMP_LIST_VERSION
+        else 1
+    )
+    override = request.parameters.get("loop_count")
+    loop_count = (
+        normalize_loop_count(override, field="ramp-list loop_count")
+        if override is not None
+        else document_loop_count
+    )
+    plan_version = RAMP_LIST_VERSION if override is not None else version
     raw_segments = document.get("segments")
     if not isinstance(raw_segments, list) or not raw_segments:
         raise CoreValidationError("ramp-list requires 1 to 10 segments")
@@ -196,7 +209,7 @@ def ramp_list_plan(request: OperationRequest, document: dict[str, Any]) -> dict[
     )
     return {
         "kind": RAMP_LIST_KIND,
-        "version": version,
+        "version": plan_version,
         "operation": {"name": "ramp-list"},
         "target": {
             "resource": request.runtime.resource,
@@ -352,7 +365,11 @@ def execute_ramp_list(
                 raise CoreValidationError("ramp-list completion pulses are only supported for E36312A")
             enabled_channels: list[int] = []
             completed_loops = 0
+            completed_segments = 0
+            completed_segment_executions = 0
+            loop_trigger: dict[str, Any] | None = None
             for loop_index in range(1, plan["loop_count"] + 1):
+                completed_segments = 0
                 for segment in plan["segments"]:
                     try:
                         raise_if_cancelled(stop_requested)
@@ -372,29 +389,41 @@ def execute_ramp_list(
                             sleep=sleep,
                             stop_requested=stop_requested,
                         )
-                        result["loop_index"] = loop_index
+                        if plan["loop_count"] > 1:
+                            result["loop_index"] = loop_index
                         results.append(result)
+                        completed_segments += 1
+                        completed_segment_executions += 1
                     except (CommandCancelled, KeyboardInterrupt) as exc:
+                        pending_trigger = (
+                            _pending_ramp_list_loop_pulse(plan)
+                            if (plan.get("completion_pulse") or {}).get("timing") == "loop"
+                            else None
+                        )
                         cancel_workflow_with_safe_off(
-                        power_supply,
-                        partial_result={
-                            "ramp_list_version": plan["version"],
-                            "enable_output": plan["enable_output"],
-                            "output_enable_executed": bool(enabled_channels),
-                            "enabled_channels": list(enabled_channels),
-                            "completed_segments": len(results),
-                            "segments": results,
-                            "failed_segment": {
-                                "loop_index": loop_index,
-                                "index": segment["index"],
-                                "channel": segment["channel"],
-                                "code": "interrupted",
-                                "message": str(exc),
+                            power_supply,
+                            partial_result={
+                                "ramp_list_version": plan["version"],
+                                "loop_count": plan["loop_count"],
+                                "completed_loops": completed_loops,
+                                "enable_output": plan["enable_output"],
+                                "output_enable_executed": bool(enabled_channels),
+                                "enabled_channels": list(enabled_channels),
+                                "completed_segments": completed_segments,
+                                "completed_segment_executions": completed_segment_executions,
+                                "segments": results,
+                                "failed_segment": {
+                                    "loop_index": loop_index,
+                                    "index": segment["index"],
+                                    "channel": segment["channel"],
+                                    "code": "interrupted",
+                                    "message": str(exc),
+                                },
+                                "trigger": pending_trigger,
                             },
-                        },
                             reporter=cleanup_reporter,
                         )
-                    except (VisaConnectionError, ValueError, CoreValidationError) as exc:
+                    except (VisaConnectionError, ValueError, CoreValidationError, CoreExecutionError) as exc:
                         failed_segment = {
                             "loop_index": loop_index,
                             "index": segment["index"],
@@ -402,13 +431,12 @@ def execute_ramp_list(
                             "code": "segment_failed",
                             "message": str(exc),
                         }
+                        if isinstance(exc, CoreExecutionError) and exc.trigger is not None:
+                            failed_segment["trigger"] = exc.trigger
                         break
                 if failed_segment is not None:
                     break
                 completed_loops += 1
-            if (plan.get("completion_pulse") or {}).get("timing") == "loop" and completed_loops == plan["loop_count"]:
-                last_channel = plan["segments"][-1]["channel"]
-                run_post_action_completion_pulse(power_supply, channel=last_channel, pins=plan["completion_pulse"]["pins"], polarity=plan["completion_pulse"]["polarity"])
             final_output_states = (
                 [
                     {
@@ -435,6 +463,11 @@ def execute_ramp_list(
                     state for state in final_output_states if state["enabled"] is not True
                 ]
                 if differences:
+                    pending = (
+                        _pending_ramp_list_loop_pulse(plan)
+                        if (plan.get("completion_pulse") or {}).get("timing") == "loop"
+                        else None
+                    )
                     raise CoreVerificationError(
                         "ramp-list final output-state verification failed",
                         verification={
@@ -443,29 +476,85 @@ def execute_ramp_list(
                             "checks": final_output_states,
                             "differences": differences,
                         },
+                        trigger=pending,
+                        data={
+                            "loop_count": plan["loop_count"],
+                            "completed_loops": completed_loops,
+                            "completed_segments": completed_segments,
+                            "completed_segment_executions": completed_segment_executions,
+                            "trigger": pending,
+                        },
                     )
+            if (
+                failed_segment is None
+                and (plan.get("completion_pulse") or {}).get("timing") == "loop"
+            ):
                 errors, _read_count = power_supply.read_error_queue(20)
                 if errors:
-                    raise ValueError(f"instrument errors: {errors}")
+                    pending = (
+                        _pending_ramp_list_loop_pulse(plan)
+                        if (plan.get("completion_pulse") or {}).get("timing") == "loop"
+                        else None
+                    )
+                    raise CoreExecutionError(
+                        f"ramp-list completed with instrument errors: {errors}",
+                        trigger=pending,
+                        data={
+                            "loop_count": plan["loop_count"],
+                            "completed_loops": completed_loops,
+                            "completed_segments": completed_segments,
+                            "completed_segment_executions": completed_segment_executions,
+                            "trigger": pending,
+                        },
+                    )
             try:
                 raise_if_cancelled(stop_requested)
             except CommandCancelled as exc:
+                pending_trigger = (
+                    _pending_ramp_list_loop_pulse(plan)
+                    if (plan.get("completion_pulse") or {}).get("timing") == "loop"
+                    else None
+                )
                 cancel_workflow_with_safe_off(
                     power_supply,
                     partial_result={
                         "ramp_list_version": plan["version"],
+                        "loop_count": plan["loop_count"],
+                        "loop_index": plan["loop_count"],
+                        "completed_loops": completed_loops,
                         "enable_output": plan["enable_output"],
                         "output_enable_executed": bool(enabled_channels),
                         "enabled_channels": list(enabled_channels),
-                        "completed_segments": len(results),
+                        "completed_segments": completed_segments,
+                        "completed_segment_executions": completed_segment_executions,
                         "segments": results,
                         "failed_segment": {
+                            "loop_index": plan["loop_count"],
                             "code": "interrupted",
                             "message": str(exc),
                         },
+                        "trigger": pending_trigger,
                     },
                     reporter=cleanup_reporter,
                 )
+            if failed_segment is None and (plan.get("completion_pulse") or {}).get("timing") == "loop":
+                last_channel = plan["segments"][-1]["channel"]
+                try:
+                    loop_trigger = run_post_action_completion_pulse(
+                        power_supply,
+                        channel=last_channel,
+                        pins=plan["completion_pulse"]["pins"],
+                        polarity=plan["completion_pulse"]["polarity"],
+                    )
+                except CoreExecutionError as exc:
+                    exc.data = {
+                        "loop_count": plan["loop_count"],
+                        "completed_loops": completed_loops,
+                        "completed_segments": completed_segments,
+                        "completed_segment_executions": completed_segment_executions,
+                        "trigger": exc.trigger,
+                    }
+                    raise
     except VisaConnectionError as exc:
         prefix = "ramp-list failed" if opened else "Could not open resource for ramp-list"
         raise CoreIoError(f"{prefix}: {exc}", opened=opened) from exc
@@ -485,10 +574,10 @@ def execute_ramp_list(
         },
         "status": "stopped" if stopped else ("failed" if failed_segment else "completed"),
         "segment_count": len(plan["segments"]),
-        "completed_segments": len(results),
+        "completed_segments": completed_segments,
         "loop_count": plan["loop_count"],
         "completed_loops": completed_loops,
-        "completed_segment_executions": len(results),
+        "completed_segment_executions": completed_segment_executions,
         "failed_segment": failed_segment,
         "stopped": stopped,
         "segments": results,
@@ -498,7 +587,36 @@ def execute_ramp_list(
         "enabled_channels": enabled_channels,
         "final_output_states": final_output_states,
         "cancellation_cleanup": None,
+        **(
+            {
+                "trigger": (
+                    loop_trigger
+                    if loop_trigger is not None
+                    else _pending_ramp_list_loop_pulse(plan)
+                )
+            }
+            if (plan.get("completion_pulse") or {}).get("timing") == "loop"
+            else {}
+        ),
     }
+
+
+def _pending_ramp_list_loop_pulse(plan: dict[str, Any]) -> dict[str, Any]:
+    pulse = plan["completion_pulse"]
+    return trigger_result_payload(
+        mode="completion-pulse",
+        native=False,
+        channel=plan["segments"][-1]["channel"],
+        pins=tuple(pulse["pins"]),
+        polarity=pulse["polarity"],
+        source="bus",
+        fired=False,
+        completed=False,
+        restored=None,
+        requested=True,
+        attempted=False,
+        post_pulse_errors=[],
+    )
 
 
 def execute_ramp_segment(

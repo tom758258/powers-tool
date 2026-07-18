@@ -660,6 +660,36 @@ def test_worker_rejects_removed_ramp_native_fields_before_artifact(running_worke
     assert not jobs_dir.exists() or not list(jobs_dir.iterdir())
 
 
+@pytest.mark.parametrize("loop_count", [0, -1, 256, True, 1.5, "2", None])
+def test_worker_rejects_invalid_ramp_loop_count_before_artifact(running_worker, loop_count):
+    url = f"http://127.0.0.1:{running_worker['port']}/command"
+    payload = {
+        "schema_version": 2,
+        "command": "ramp",
+        "arguments": {
+            "dry_run": True,
+            "channel": 1,
+            "start_voltage": 0,
+            "stop_voltage": 1,
+            "step_voltage": 0.5,
+            "current": 0.1,
+            "loop_count": loop_count,
+        },
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.urlopen(req)
+
+    assert exc_info.value.code == 400
+    jobs_dir = running_worker["artifacts_dir"] / "jobs"
+    assert not jobs_dir.exists() or not list(jobs_dir.iterdir())
+
+
 @pytest.mark.parametrize(
     "resource",
     [

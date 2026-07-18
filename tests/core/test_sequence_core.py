@@ -79,6 +79,40 @@ def test_sequence_core_has_no_webui_step_limit() -> None:
     assert data["step_count"] == 251
 
 
+def test_sequence_v2_requires_loop_count_and_v1_rejects_it() -> None:
+    with pytest.raises(CoreValidationError, match="version 2 requires loop_count"):
+        run_sequence(request({"version": 2, "steps": [{"action": "wait", "seconds": 0}]}, dry_run=True))
+    with pytest.raises(CoreValidationError, match="unsupported field"):
+        run_sequence(request({"version": 1, "loop_count": 2, "steps": [{"action": "wait", "seconds": 0}]}, dry_run=True))
+
+
+@pytest.mark.parametrize("loop_count", [0, -1, 256, True, 1.0, "2", None])
+def test_sequence_v2_loop_count_is_strict(loop_count: object) -> None:
+    with pytest.raises(CoreValidationError, match="integer from 1 to 255"):
+        run_sequence(request({
+            "version": 2,
+            "loop_count": loop_count,
+            "steps": [{"action": "wait", "seconds": 0}],
+        }, dry_run=True))
+
+
+def test_sequence_two_loops_report_current_and_cumulative_counts() -> None:
+    data = run_sequence(
+        request({
+            "version": 2,
+            "loop_count": 2,
+            "steps": [{"action": "wait", "seconds": 0}, {"action": "measure", "channel": 1}],
+        }),
+        opener=lambda *args, **kwargs: FakeSession(),
+        sleep=lambda seconds: None,
+    )
+
+    assert data["loop_count"] == data["completed_loops"] == 2
+    assert data["step_count"] == data["completed_steps"] == 2
+    assert data["completed_step_executions"] == 4
+    assert [item["loop_index"] for item in data["results"]] == [1, 1, 2, 2]
+
+
 def test_sequence_feature_requirements_are_normalized_deduplicated_and_host_only_free() -> None:
     plan = {
         "steps": [
@@ -185,6 +219,7 @@ def test_sequence_keyboard_interrupt_safe_off_cleanup() -> None:
 
     assert raised.value.data["status"] == "cancelled"
     assert raised.value.data["partial_result"]["failed_step"] == {
+        "loop_index": 1,
         "index": 1,
         "action": "wait",
         "code": "interrupted",

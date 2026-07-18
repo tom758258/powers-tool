@@ -1,4 +1,5 @@
-version: 1
+version: 2
+loop_count: 1
 steps:
   - action: log
     message: readonly EDU36311A hardware check

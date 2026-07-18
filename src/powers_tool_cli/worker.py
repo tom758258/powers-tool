@@ -26,6 +26,7 @@ from powers_tool_core.core import (
     ConfirmationRequiredError,
     CommandCancelled,
     CoreIoError,
+    CoreExecutionError,
     StopCleanupError,
 )
 from powers_tool_core.command_runner import run_core_command, validate_request_admission
@@ -819,14 +820,22 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             if result_data.get("status") == "failed":
                 failed_step = result_data.get("failed_step") or {}
                 msg = failed_step.get("message", "step failed")
-                raise ValueError(f"sequence step failed: {msg}")
+                raise CoreExecutionError(
+                    f"sequence step failed: {msg}",
+                    trigger=failed_step.get("trigger"),
+                    data=result_data,
+                )
         if cmd == "ramp-list":
             if result_data.get("status") == "stopped":
                 raise KeyboardInterrupt("ramp-list execution interrupted")
             if result_data.get("status") == "failed":
                 failed_segment = result_data.get("failed_segment") or {}
                 msg = failed_segment.get("message", "segment failed")
-                raise ValueError(f"ramp-list segment {failed_segment.get('index')} failed: {msg}")
+                raise CoreExecutionError(
+                    f"ramp-list segment {failed_segment.get('index')} failed: {msg}",
+                    trigger=failed_segment.get("trigger"),
+                    data=result_data,
+                )
 
     except (Exception, KeyboardInterrupt) as exc:
         ok = False
@@ -871,8 +880,10 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             "retryable": retryable,
         }
         final_status = "cancelled" if code in {"cancelled", "stopped"} else "failed"
-        if isinstance(exc, (CommandCancelled, StopCleanupError)):
+        if isinstance(exc, (CommandCancelled, StopCleanupError, CoreExecutionError)):
             result_data = dict(getattr(exc, "data", {}) or {})
+            if isinstance(exc, CoreExecutionError) and exc.trigger is not None:
+                result_data.setdefault("trigger", exc.trigger)
 
     duration_ms = round((time.perf_counter() - start_perf) * 1000, 3)
 

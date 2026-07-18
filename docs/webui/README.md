@@ -306,27 +306,37 @@ readback and one-shot post-command refreshes.
 
 The frontend keeps one job SSE controller and one live-data SSE controller.
 Ramp List uses a dedicated segment-card editor with versioned JSON Load/Save.
-It loads version 2 as output-enable unchecked and saves version 3 with an
-explicit boolean `enable_output`. Version 3 requires that exact boolean;
-version 1, malformed, unknown-field, and future-version documents are rejected
-without conversion. The editor supports up to 10 ordered segments and
-full-list trip guarding before submission.
+It loads v2/v3 as one execution and saves strict v4 with explicit
+`enable_output` and `loop_count`, including 1. The editor supports up to 10
+ordered segments and full-list trip guarding before submission.
 Sequence uses collapsed step cards with JSON Load/Save and supports up to 250
-steps in the WebUI. Loaded Sequence JSON is normalized to the canonical
-`{"version": 1, "steps": [...]}` shape before saving or running. CLI and Core
-Sequence YAML/JSON support is unchanged and has no WebUI step limit.
+steps in the WebUI. It loads v1 as one execution and always saves/runs strict
+v2 as `{"version": 2, "loop_count": N, "steps": [...]}`. It never serializes
+the internal camel-case state name. CLI and Core have no WebUI step limit.
 Job Result history is expanded by default and can be collapsed or cleared
 without changing Result Detail.
 
 ### Pulse Workflows
 
-Cycle Output exposes an optional finished pulse. Ramp exposes mutually
-exclusive Segment complete and Every-step pulse controls. Ramp List Load/Save
-preserves its global pulse configuration, and Sequence includes a Trigger pulse
-action.
+Cycle Output exposes an optional finished pulse. Ramp uses one Pulse timing
+selector: None, Every step, Ramp complete, or Loop complete. Ramp List uses
+None, Every step, Segment complete, or Loop complete. Sequence retains only
+its per-Step Trigger pulse action.
+
+Ramp places Enable output first, then Enable loop, Channel/Current, Ramp
+setpoints, and Pulse timing. Ramp List places Enable loop between Enable each
+channel and Pulse timing. Sequence places Enable loop between its toolbar and
+Step 1; Create snapshot has no Loop state. Loop count is conditionally created
+inline only when enabled, defaults to 2, and accepts integers 2 through 255.
+Turning Loop off removes the field, makes the effective value 1, and resets a
+selected Loop-complete pulse to None. The Loop-complete option is disabled
+while Loop is off.
 
 Pulse rear pins are independent of output channels and are E36312A-only.
-Controls are disabled when the selected resource is known to be another model.
+Controls are disabled when the selected resource is definitively known to be
+another model. While identity is unknown, pulse details remain configurable,
+but Run stays blocked with E36312A planning/support guidance until a suitable
+model is selected or detected.
 Pulse detail fields in Cycle Output and Ramp appear only after a pulse option
 is enabled. Rear-pin fields use a selector for every valid pin combination,
 including All. Ramp and Ramp List Every-step pulse accept a zero millisecond

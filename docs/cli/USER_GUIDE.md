@@ -110,6 +110,20 @@ Please note:
 * These are documentation convenience variables, not hidden CLI defaults.
 * Live commands still require an explicit `--resource` argument.
 
+## Finite Workflow Loops
+
+Ramp, Ramp List, and Sequence accept `--loop-count N`. The value is the total
+number of complete executions: 1 is the normal single run, 2 restarts once,
+and 255 is the maximum. Values outside the strict integer range 1 through 255
+are rejected. For Ramp List and Sequence files, an explicit CLI value wins;
+otherwise the file value is used, then 1 for older supported file versions.
+
+Ramp can pulse after every step, after each complete Ramp iteration, or once
+after all loops. Ramp List can pulse after every step, after each Segment, or
+once after all loops. Loop-complete pulse timing requires at least two total
+executions. Sequence keeps its existing per-Step `trigger-pulse` action and
+does not add a top-level completion pulse.
+
 ## E3646A RS-232 / ASRL
 
 E3646A product LIVE support is ASRL/RS-232 + system VISA only. Its exact

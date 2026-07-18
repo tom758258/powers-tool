@@ -3,6 +3,7 @@ import pytest
 from powers_tool_core.core import (
     CommandCancelled,
     ConfirmationRequiredError,
+    CoreExecutionError,
     CoreValidationError,
     OperationRequest,
     RuntimeOptions,
@@ -1063,6 +1064,200 @@ def test_ramp_step_completion_pulse_accepts_nonnegative_delay(delay_ms) -> None:
     )
 
     assert len([step for step in plan["steps"] if step["action"] == "completion_pulse"]) == 2
+
+
+@pytest.mark.parametrize("loop_count", [0, -1, 256, True, 1.0, "2", None])
+def test_ramp_loop_count_requires_strict_integer_1_to_255(loop_count: object) -> None:
+    with pytest.raises(CoreValidationError, match="loop_count must be an integer from 1 to 255"):
+        output_plan(request(
+            "ramp",
+            start_voltage=0,
+            stop_voltage=1,
+            step_voltage=1,
+            loop_count=loop_count,
+        ))
+
+
+def test_ramp_two_loops_reuse_session_and_repeat_only_voltage_path() -> None:
+    session = OutputStateSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0", output_enabled=False)
+    opener_calls = 0
+
+    def opener(*args, **kwargs):
+        nonlocal opener_calls
+        opener_calls += 1
+        return session
+
+    params = request(
+        "ramp",
+        start_voltage=0,
+        stop_voltage=1,
+        step_voltage=1,
+        current=0.05,
+        enable_output=True,
+        loop_count=2,
+    ).parameters
+    data = run_operation(
+        OperationRequest(
+            command="ramp",
+            runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+            parameters=params,
+        ),
+        opener=opener,
+        sleep=lambda seconds: None,
+    )
+
+    assert opener_calls == 1
+    assert session.writes.count("CURR 0.05,(@1)") == 1
+    assert session.writes.count("OUTP ON,(@1)") == 1
+    assert [item for item in session.writes if item.startswith("VOLT ")] == [
+        "VOLT 0,(@1)", "VOLT 1,(@1)", "VOLT 0,(@1)", "VOLT 1,(@1)",
+    ]
+    assert data["loop_count"] == data["completed_loops"] == 2
+    assert data["completed_step_executions"] == 4
+
+
+@pytest.mark.parametrize(("timing", "expected_calls"), [("segment", 2), ("loop", 1)])
+def test_ramp_completion_pulse_boundaries(monkeypatch, timing: str, expected_calls: int) -> None:
+    calls: list[int] = []
+
+    def pulse(_power_supply, *, channel, **kwargs):
+        calls.append(channel)
+        return {"requested": True, "attempted": True, "fired": True, "completed": True}
+
+    monkeypatch.setattr("powers_tool_core.operations.run_post_action_completion_pulse", pulse)
+    params = request(
+        "ramp",
+        start_voltage=0,
+        stop_voltage=1,
+        step_voltage=1,
+        loop_count=2,
+        completion_pulse_timing=timing,
+        completion_pulse_pins=(1,),
+    ).parameters
+    data = run_operation(
+        OperationRequest(
+            command="ramp",
+            runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+            parameters=params,
+        ),
+        opener=lambda *args, **kwargs: FakeSession(),
+        sleep=lambda seconds: None,
+    )
+
+    assert calls == [1] * expected_calls
+    assert data["completed_loops"] == 2
+    if timing == "loop":
+        assert data["trigger"]["attempted"] is True
+    else:
+        assert [item["loop_index"] for item in data["triggers"]] == [1, 2]
+
+
+def test_ramp_loop_pulse_failure_keeps_completed_loop_count(monkeypatch) -> None:
+    trigger = {
+        "requested": True,
+        "attempted": True,
+        "fired": False,
+        "completed": False,
+        "restored": True,
+        "restore_errors": [],
+        "post_pulse_errors": [],
+    }
+
+    def pulse(*args, **kwargs):
+        raise CoreExecutionError("pulse command failed", trigger=trigger)
+
+    monkeypatch.setattr("powers_tool_core.operations.run_post_action_completion_pulse", pulse)
+    params = request(
+        "ramp",
+        start_voltage=0,
+        stop_voltage=1,
+        step_voltage=1,
+        loop_count=2,
+        completion_pulse_timing="loop",
+        completion_pulse_pins=(1,),
+    ).parameters
+    with pytest.raises(CoreExecutionError) as raised:
+        run_operation(
+            OperationRequest(
+                command="ramp",
+                runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+                parameters=params,
+            ),
+            opener=lambda *args, **kwargs: FakeSession(),
+            sleep=lambda seconds: None,
+        )
+
+    assert raised.value.data["completed_loops"] == 2
+    assert raised.value.trigger == trigger
+
+
+@pytest.mark.parametrize("failure_stage", ["setpoint", "output_state", "instrument_error", "cancellation"])
+def test_ramp_pre_loop_pulse_failure_never_attempts_pulse(monkeypatch, failure_stage: str) -> None:
+    class FinalFailureSession(OutputStateSession):
+        def __init__(self) -> None:
+            super().__init__(idn="KEYSIGHT,E36312A,SERIAL0000,1.0", output_enabled=False)
+            self.output_queries = 0
+
+        def query(self, command: str) -> str:
+            if failure_stage == "setpoint" and command == "VOLT? (@1)":
+                self.queries.append(command)
+                return "0"
+            if failure_stage == "output_state" and command == "OUTP? (@1)":
+                self.output_queries += 1
+                self.queries.append(command)
+                return "1" if self.output_queries == 1 else "0"
+            if failure_stage == "instrument_error" and command == "SYST:ERR?":
+                self.queries.append(command)
+                return '-200,"Execution error"'
+            return super().query(command)
+
+    pulse_calls = 0
+
+    def pulse(*args, **kwargs):
+        nonlocal pulse_calls
+        pulse_calls += 1
+        return {"attempted": True}
+
+    monkeypatch.setattr("powers_tool_core.operations.run_post_action_completion_pulse", pulse)
+    session = FinalFailureSession()
+    parameters = request(
+        "ramp",
+        start_voltage=0,
+        stop_voltage=1,
+        step_voltage=1,
+        loop_count=2,
+        completion_pulse_timing="loop",
+        completion_pulse_pins=(1,),
+        enable_output=failure_stage == "output_state",
+        verify_after_write=failure_stage in {"setpoint", "output_state"},
+    ).parameters
+    core_request = OperationRequest(
+        command="ramp",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+        parameters=parameters,
+    )
+    stop_requested = (
+        (lambda: "SYST:ERR?" in session.queries)
+        if failure_stage == "cancellation"
+        else None
+    )
+
+    with pytest.raises((CoreExecutionError, CommandCancelled)) as raised:
+        run_operation(
+            core_request,
+            opener=lambda *args, **kwargs: session,
+            sleep=lambda seconds: None,
+            stop_requested=stop_requested,
+        )
+
+    assert pulse_calls == 0
+    if isinstance(raised.value, CommandCancelled):
+        trigger = raised.value.data["partial_result"]["trigger"]
+    else:
+        trigger = raised.value.trigger
+    assert trigger["requested"] is True
+    assert trigger["attempted"] is False
+    assert trigger["fired"] is False
 
 
 def _trigger_snapshot_responses() -> dict[str, str]:

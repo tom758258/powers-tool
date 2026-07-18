@@ -1097,7 +1097,7 @@ def _add_ramp_completion_pulse_arguments(parser: argparse.ArgumentParser) -> Non
         "--completion-pulse-timing",
         choices=("segment", "step", "loop"),
         default="segment",
-        help="Emit one pulse after the operation or after every software ramp step.",
+        help="Pulse after each Ramp, after every voltage step, or once after all loops.",
     )
 
 
@@ -3965,6 +3965,16 @@ def _run_sequence(args: argparse.Namespace) -> int:
             code="sequence_failed",
             message=str(exc),
         )
+    except CoreExecutionError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=execution,
+            code="sequence_failed",
+            message=str(exc),
+            data=dict(getattr(exc, "data", {}) or {})
+            or ({"trigger": exc.trigger} if exc.trigger is not None else None),
+        )
     except CoreValidationError as exc:
         return _emit_cli_error(
             args,
@@ -4067,6 +4077,16 @@ def _run_ramp_list(args: argparse.Namespace) -> int:
             execution=_execution_for_args(args, hardware_intent=True),
             code="ramp_list_failed" if exc.opened else "connection_failed",
             message=str(exc),
+        )
+    except CoreExecutionError as exc:
+        return _emit_safe_io_error(
+            args,
+            request=request,
+            execution=_execution_for_args(args, hardware_intent=True),
+            code="ramp_list_failed",
+            message=str(exc),
+            data=dict(getattr(exc, "data", {}) or {})
+            or ({"trigger": exc.trigger} if exc.trigger is not None else None),
         )
 
     if data["status"] in {"failed", "stopped"}:
@@ -5066,7 +5086,14 @@ def _run_core_output_real(args: argparse.Namespace) -> int:
             hardware_intent=True,
         )
     except CoreVerificationError as exc:
-        return _emit_verification_error(args, request, execution, exc.verification)
+        return _emit_verification_error(
+            args,
+            request,
+            execution,
+            exc.verification,
+            data=dict(getattr(exc, "data", {}) or {})
+            or ({"trigger": exc.trigger} if exc.trigger is not None else None),
+        )
     except CoreValidationError as exc:
         if "completion-pulse" in str(exc):
             return _emit_cli_error(
@@ -5109,6 +5136,8 @@ def _run_core_output_real(args: argparse.Namespace) -> int:
             execution=execution,
             code=f"{args.command.replace('-', '_')}_failed",
             message=str(exc),
+            data=dict(getattr(exc, "data", {}) or {})
+            or ({"trigger": exc.trigger} if exc.trigger is not None else None),
         )
 
     try:
@@ -9422,6 +9451,16 @@ def _positive_int(value: str) -> int:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+def _loop_count(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("loop-count must be an integer from 1 to 255") from exc
+    if parsed < 1 or parsed > 255:
+        raise argparse.ArgumentTypeError("loop-count must be an integer from 1 to 255")
+    return parsed
+
+
 def _lifecycle_timeout_ms(value: str) -> int:
     try:
         parsed = int(value)
@@ -9704,7 +9743,7 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
         "step_voltage": getattr(args, "step_voltage", None),
         "delay_ms": getattr(args, "delay_ms", 0),
         "enable_output": getattr(args, "enable_output", False),
-        "loop_count": getattr(args, "loop_count", 1),
+        "loop_count": getattr(args, "loop_count", None) or 1,
         "completion_pulse_pins": _completion_pulse_pins(args) if hasattr(args, "completion_pulse_pins") else (),
         "completion_pulse_channel": getattr(args, "completion_pulse_channel", None),
         "completion_pulse_polarity": getattr(args, "completion_pulse_polarity", "positive"),
@@ -10198,6 +10237,7 @@ def _emit_verification_error(
     request: dict[str, Any],
     execution: dict[str, Any],
     verification: dict[str, Any],
+    data: dict[str, Any] | None = None,
 ) -> int:
     message = "write verification failed"
     if args.json:
@@ -10209,6 +10249,7 @@ def _emit_verification_error(
             code="verification_failed",
             message=message,
             retryable=False,
+            data=data,
             metadata={"verification": verification},
         )
     else:
