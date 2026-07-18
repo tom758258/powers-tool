@@ -45,6 +45,7 @@ from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.stop_cleanup import CleanupReporter, cancel_workflow_with_safe_off
 from powers_tool_core.trigger import run_post_action_completion_pulse, trigger_result_payload
 from powers_tool_core.workflow_validation import (
+    normalize_completion_pulse_channel,
     normalize_loop_count,
     validate_completion_pulse_planning_model,
     validate_general_workflow_parameters,
@@ -216,7 +217,7 @@ def output_plan(request: OperationRequest) -> dict[str, Any]:
         _validate_ramp_completion_pulse(request)
         loop_count = normalize_loop_count(p.get("loop_count", 1))
         pulse_timing = p.get("completion_pulse_timing", "segment")
-        pulse_channel = _completion_pulse_channel(request, channel)
+        pulse_channel = _completion_pulse_channel(request, channel) if _completion_pulse_requested(request) else channel
         enable_output = p.get("enable_output", False)
         steps = [_driver_step(1, "set_current_limit", channel=channel, current=_json_safe_number(p["current"]))]
         index = 2
@@ -482,7 +483,7 @@ def _execute_output_write(
                 ),
             )
         _raise_verification_failed(verification)
-        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=_completion_pulse_channel(request, channel))
+        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
         _raise_on_instrument_errors(power_supply, command)
         data = _resource_payload(request, idn, channel=channel, voltage=p["voltage"], current=p["current"])
         data["channels"] = list(channels)
@@ -520,7 +521,7 @@ def _execute_output_write(
             ),
         )
         _raise_verification_failed(verification)
-        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=_completion_pulse_channel(request, channel))
+        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
         _raise_on_instrument_errors(power_supply, command)
         data = _resource_payload(request, idn, channel=channel)
         data["output_enabled"] = True
@@ -547,7 +548,7 @@ def _execute_output_write(
             ),
         )
         _raise_verification_failed(verification)
-        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=_completion_pulse_channel(request, channel))
+        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
         _raise_on_instrument_errors(power_supply, command)
         data = _resource_payload(request, idn, channel=channel)
         data["output_enabled"] = False
@@ -609,7 +610,7 @@ def _execute_output_write(
         finally:
             for selected_channel in enabled_channels:
                 power_supply.output_off(channel=selected_channel)
-        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=_completion_pulse_channel(request, channel))
+        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
         _raise_on_instrument_errors(power_supply, command)
         data = _resource_payload(request, idn, channel=channel, duration_ms=p.get("duration_ms", 0))
         data["cycled"] = True
@@ -1143,9 +1144,8 @@ def _validate_requested_completion_pulse_power_supply(
 
 
 def _completion_pulse_channel(request: OperationRequest, default_channel: int | str | None = None) -> int:
-    configured = request.parameters.get("completion_pulse_channel")
-    if configured is not None:
-        return int(configured)
+    if "completion_pulse_channel" in request.parameters:
+        return normalize_completion_pulse_channel(request.parameters["completion_pulse_channel"])
     if isinstance(default_channel, int):
         return default_channel
     return 1

@@ -1526,21 +1526,36 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         let rampListLoopEnabled = byId(rerenderedEditor, "ramp-list-loop-enabled");
         rampListLoopEnabled.checked = true;
         rampListLoopEnabled.listeners.change.forEach((listener) => listener());
+        let rerenderedTiming = byId(rerenderedEditor, "ramp-list-pulse-timing");
+        strictAssert.equal(rerenderedTiming.children[3].disabled, false);
+        rerenderedTiming.value = "loop";
+        rerenderedTiming.listeners.change.forEach((listener) => listener());
+        rerenderedEditor = commandForm.children[0];
         let rampListLoopCount = byId(rerenderedEditor, "ramp-list-loop-count");
         rampListLoopCount.value = "1.5";
         rampListLoopCount.listeners.input.forEach((listener) => listener());
+        rerenderedTiming = byId(rerenderedEditor, "ramp-list-pulse-timing");
+        strictAssert.equal(state.rampListCompletionPulse.timing, "loop");
+        strictAssert.equal(rerenderedTiming.value, "loop");
+        strictAssert.equal(rerenderedTiming.children[3].disabled, true);
         renderForm("ramp-list");
         rerenderedEditor = commandForm.children[0];
         rampListLoopEnabled = byId(rerenderedEditor, "ramp-list-loop-enabled");
         rampListLoopCount = byId(rerenderedEditor, "ramp-list-loop-count");
+        rerenderedTiming = byId(rerenderedEditor, "ramp-list-pulse-timing");
         strictAssert.equal(rampListLoopEnabled.checked, true);
         strictAssert.equal(rampListLoopCount.value, "1.5");
+        strictAssert.equal(rerenderedTiming.value, "loop");
+        strictAssert.equal(rerenderedTiming.children[3].disabled, true);
         const invalidRampRun = { disabled: false };
         strictAssert.equal(updateWorkflowDocumentValidity("ramp-list", invalidRampRun), false);
         strictAssert.equal(invalidRampRun.disabled, true);
         strictAssert.equal(byId(rerenderedEditor, "save-ramp-list").disabled, true);
         rampListLoopCount.value = "3";
         rampListLoopCount.listeners.input.forEach((listener) => listener());
+        strictAssert.equal(rerenderedTiming.value, "loop");
+        strictAssert.equal(rerenderedTiming.children[3].disabled, false);
+        strictAssert.equal(state.rampListCompletionPulse.timing, "loop");
         const validRampRun = { disabled: false };
         strictAssert.equal(updateWorkflowDocumentValidity("ramp-list", validRampRun), true);
         strictAssert.equal(validRampRun.disabled, false);
@@ -2715,6 +2730,84 @@ def test_api_rejects_invalid_static_parameter_before_creating_job(client: TestCl
     assert response.status_code == 400
     assert "voltage" in response.json()["detail"]
     assert len(job_manager.jobs) == jobs_before
+
+
+@pytest.mark.parametrize("pulse_channel", [True, 1.5, "2", None, 0, -1, 4])
+def test_api_rejects_invalid_completion_pulse_channel_before_creating_job(
+    client: TestClient,
+    pulse_channel: object,
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = len(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "ramp",
+            "runtime": {"simulate": True, "resource": "USB0::SIM::E36312A::INSTR"},
+            "parameters": {
+                "channel": 1,
+                "start_voltage": 0,
+                "stop_voltage": 1,
+                "step_voltage": 1,
+                "current": 0.1,
+                "completion_pulse_pins": [1],
+                "completion_pulse_channel": pulse_channel,
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "completion_pulse_channel must be an integer from 1 to 3" in response.json()["detail"]
+    assert len(job_manager.jobs) == jobs_before
+
+
+def test_api_rejects_completion_pulse_channel_without_pins_before_creating_job(client: TestClient) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    jobs_before = len(job_manager.jobs)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "ramp",
+            "runtime": {"simulate": True, "resource": "USB0::SIM::E36312A::INSTR"},
+            "parameters": {
+                "channel": 1,
+                "start_voltage": 0,
+                "stop_voltage": 1,
+                "step_voltage": 1,
+                "current": 0.1,
+                "completion_pulse_channel": 2,
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "completion_pulse_channel requires completion_pulse_pins" in response.json()["detail"]
+    assert len(job_manager.jobs) == jobs_before
+
+
+@pytest.mark.parametrize("pulse_channel", [1, 3])
+def test_api_accepts_valid_completion_pulse_channel(client: TestClient, pulse_channel: int) -> None:
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "ramp",
+            "runtime": {"simulate": True, "resource": "USB0::SIM::E36312A::INSTR"},
+            "parameters": {
+                "channel": 1,
+                "start_voltage": 0,
+                "stop_voltage": 1,
+                "step_voltage": 1,
+                "current": 0.1,
+                "completion_pulse_pins": [1],
+                "completion_pulse_channel": pulse_channel,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
 
 
 @pytest.mark.parametrize("field", ["model_profile", "model"])

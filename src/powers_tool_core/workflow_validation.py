@@ -40,6 +40,14 @@ def normalize_loop_count(value: Any, *, field: str = "loop_count") -> int:
     return value
 
 
+def normalize_completion_pulse_channel(value: Any) -> int:
+    """Return one strict output-channel anchor for a completion pulse."""
+
+    if type(value) is not int or not 1 <= value <= 3:
+        raise CoreValidationError("completion_pulse_channel must be an integer from 1 to 3")
+    return value
+
+
 def validate_general_workflow_parameters(request: OperationRequest) -> None:
     """Reject removed or command-inapplicable general workflow fields."""
 
@@ -56,6 +64,10 @@ def validate_general_workflow_parameters(request: OperationRequest) -> None:
         raise CoreValidationError("completion_pulse_timing is only accepted by ramp")
     if request.command == "ramp":
         normalize_loop_count(request.parameters.get("loop_count", 1))
+    if "completion_pulse_channel" in request.parameters:
+        normalize_completion_pulse_channel(request.parameters["completion_pulse_channel"])
+        if not request.parameters.get("completion_pulse_pins"):
+            raise CoreValidationError("completion_pulse_channel requires completion_pulse_pins")
 
 
 def validate_completion_pulse_planning_model(

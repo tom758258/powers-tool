@@ -3009,9 +3009,6 @@ function updateRampListPulse(name, value) {
       ? parseRearPins(value)
       : value;
   }
-  if (state.rampListCompletionPulse?.timing === "loop" && !(effectiveRampListLoopCount() >= 2)) {
-    state.rampListCompletionPulse = null;
-  }
   renderForm("ramp-list");
   updateSelectedCommandState();
 }
@@ -3939,15 +3936,18 @@ function refreshLoopCompleteOption(command) {
       ? document.getElementById("ramp-list-pulse-timing")
       : null;
   if (!timing) return;
-  const enabled = command === "ramp"
+  const loopChecked = command === "ramp"
     ? Boolean(document.getElementById("param-loop_enabled")?.checked)
-    : effectiveRampListLoopCount() >= 2;
+    : state.rampListLoopEnabled;
+  const enabled = command === "ramp"
+    ? loopChecked
+    : loopChecked && effectiveRampListLoopCount() >= 2;
   const loopOption = Array.from(timing.options || []).find((option) => option.value === "loop");
   if (loopOption) {
     loopOption.disabled = !enabled;
     loopOption.title = enabled ? "" : "Enable loop to select Loop complete.";
   }
-  if (!enabled && timing.value === "loop") timing.value = "";
+  if (!loopChecked && timing.value === "loop") timing.value = "";
 }
 
 function renderLoopControl({
@@ -3990,6 +3990,7 @@ function renderLoopControl({
       const parsed = count.value === "" ? Number.NaN : Number(count.value);
       onDraft(count.value);
       onValue(Number.isInteger(parsed) && parsed >= 2 && parsed <= 255 ? parsed : Number.NaN);
+      refreshLoopCompleteOption(prefix);
       if (["ramp-list", "sequence"].includes(prefix)) updateWorkflowDocumentValidity(prefix);
       updateSelectedCommandState();
     };

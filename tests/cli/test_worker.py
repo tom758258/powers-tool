@@ -160,6 +160,98 @@ def test_worker_rejects_coercible_channel_before_artifacts(
     assert not (tmp_path / "jobs").exists()
 
 
+@pytest.mark.parametrize("pulse_channel", [True, 1.5, "2", None, 0, -1, 4])
+def test_worker_rejects_invalid_completion_pulse_channel_before_artifacts(
+    tmp_path: Path,
+    pulse_channel: object,
+) -> None:
+    state = _worker_validation_state(tmp_path)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "ramp",
+            "arguments": {
+                "dry_run": True,
+                "planning_model_id": "keysight-e36312a",
+                "channel": 1,
+                "start_voltage": 0,
+                "stop_voltage": 1,
+                "step_voltage": 1,
+                "current": 0.1,
+                "completion_pulse_pins": [1],
+                "completion_pulse_channel": pulse_channel,
+            },
+        },
+        state,
+    )
+
+    assert status == 400
+    assert payload["error"]["code"] == "argument_error"
+    assert "completion_pulse_channel must be an integer from 1 to 3" in payload["error"]["message"]
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
+def test_worker_rejects_completion_pulse_channel_without_pins_before_artifacts(tmp_path: Path) -> None:
+    state = _worker_validation_state(tmp_path)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "ramp",
+            "arguments": {
+                "dry_run": True,
+                "planning_model_id": "keysight-e36312a",
+                "channel": 1,
+                "start_voltage": 0,
+                "stop_voltage": 1,
+                "step_voltage": 1,
+                "current": 0.1,
+                "completion_pulse_channel": 2,
+            },
+        },
+        state,
+    )
+
+    assert status == 400
+    assert "completion_pulse_channel requires completion_pulse_pins" in payload["error"]["message"]
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
+@pytest.mark.parametrize("pulse_channel", [1, 3])
+def test_worker_accepts_valid_completion_pulse_channel(
+    tmp_path: Path,
+    pulse_channel: int,
+) -> None:
+    state = _worker_validation_state(tmp_path)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "ramp",
+            "arguments": {
+                "dry_run": True,
+                "planning_model_id": "keysight-e36312a",
+                "channel": 1,
+                "start_voltage": 0,
+                "stop_voltage": 1,
+                "step_voltage": 1,
+                "current": 0.1,
+                "completion_pulse_pins": [1],
+                "completion_pulse_channel": pulse_channel,
+            },
+        },
+        state,
+    )
+
+    assert status == 202
+    assert payload["arguments"]["completion_pulse_channel"] == pulse_channel
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
 def test_worker_rejects_incomplete_protection_inventory_before_artifacts(tmp_path: Path) -> None:
     state = _worker_validation_state(tmp_path)
     snapshot = _worker_snapshot_document()

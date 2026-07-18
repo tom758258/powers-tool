@@ -29,6 +29,11 @@ Power Worker, and WebUI Commands. Adapter defaults are not limits.
   booleans, floats, strings, null, zero, negatives, and 256 are rejected.
   `1` is one normal execution, while `2` restarts once. Ramp List v4 and
   Sequence v2 require the field. Older supported document versions imply 1.
+- A general completion pulse may set `completion_pulse_channel` as its output
+  trigger anchor. An explicitly supplied value must be an exact integer from 1
+  through 3 and requires non-empty `completion_pulse_pins`; booleans, floats,
+  strings, null, zero, negatives, and values above 3 are rejected. The anchor
+  channel and rear pins are independent settings.
 - `hold_ms`, settle delays, and Sequence waits are non-negative.
 - Cycle Output, Smoke Output, and Sequence Cycle `duration_ms` are positive
   integers.

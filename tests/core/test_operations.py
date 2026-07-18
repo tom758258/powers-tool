@@ -10,6 +10,7 @@ from powers_tool_core.core import (
     UnsupportedModelError,
 )
 from powers_tool_core.operations import output_plan, run_operation
+from powers_tool_core.command_runner import validate_request_admission
 from powers_tool_core.support_policy import LiveSupportPolicyError
 
 
@@ -1042,7 +1043,7 @@ def test_ramp_dry_run_completion_pulse_plan_is_independent_of_output_enable(
 
 
 @pytest.mark.parametrize("timing", ["step", "segment", "loop"])
-@pytest.mark.parametrize(("pulse_channel", "expected_channel"), [(None, 1), (2, 2)])
+@pytest.mark.parametrize(("pulse_channel", "expected_channel"), [(None, 1), (1, 1), (2, 2), (3, 3)])
 def test_ramp_dry_run_and_execution_use_same_completion_pulse_anchor(
     monkeypatch,
     timing: str,
@@ -1092,6 +1093,93 @@ def test_ramp_dry_run_and_execution_use_same_completion_pulse_anchor(
     assert set(planned_channels) == {expected_channel}
     assert pulse_channels
     assert set(pulse_channels) == {expected_channel}
+
+
+@pytest.mark.parametrize("pulse_channel", [True, 1.5, "2", None, 0, -1, 4])
+def test_completion_pulse_channel_is_strict_in_all_core_admission_modes(pulse_channel: object) -> None:
+    parameters = request(
+        "ramp",
+        start_voltage=0,
+        stop_voltage=1,
+        step_voltage=1,
+        completion_pulse_pins=(1,),
+        completion_pulse_channel=pulse_channel,
+    ).parameters
+    dry_request = OperationRequest(
+        command="ramp",
+        runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+        parameters=parameters,
+    )
+    simulate_request = OperationRequest(
+        command="ramp",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", simulate=True),
+        parameters=parameters,
+    )
+    real_request = OperationRequest(
+        command="ramp",
+        runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+        parameters=parameters,
+    )
+    opened = False
+
+    def opener(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("invalid pulse channel must fail before VISA open")
+
+    for action in (
+        lambda: validate_request_admission(dry_request),
+        lambda: output_plan(dry_request),
+        lambda: run_operation(simulate_request),
+        lambda: run_operation(real_request, opener=opener),
+    ):
+        with pytest.raises(CoreValidationError, match="completion_pulse_channel must be an integer from 1 to 3"):
+            action()
+    assert opened is False
+
+
+def test_completion_pulse_channel_requires_pulse_pins_in_all_core_admission_modes() -> None:
+    parameters = request(
+        "ramp",
+        start_voltage=0,
+        stop_voltage=1,
+        step_voltage=1,
+        completion_pulse_channel=2,
+    ).parameters
+    requests = (
+        OperationRequest(
+            command="ramp",
+            runtime=RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+            parameters=parameters,
+        ),
+        OperationRequest(
+            command="ramp",
+            runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", simulate=True),
+            parameters=parameters,
+        ),
+        OperationRequest(
+            command="ramp",
+            runtime=RuntimeOptions(resource="USB0::SIM::E36312A::INSTR", confirm=True),
+            parameters=parameters,
+        ),
+    )
+    opened = False
+
+    def opener(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("inapplicable pulse channel must fail before VISA open")
+
+    actions = (
+        lambda: validate_request_admission(requests[0]),
+        lambda: output_plan(requests[0]),
+        lambda: run_operation(requests[1]),
+        lambda: run_operation(requests[2], opener=opener),
+    )
+    for action in actions:
+        with pytest.raises(CoreValidationError, match="completion_pulse_channel requires completion_pulse_pins"):
+            action()
+    assert opened is False
 
 
 @pytest.mark.parametrize("field", ["completion_pulse_mode", "completion_pulse_dwell_ms", "wait_timeout_ms", "poll_ms"])

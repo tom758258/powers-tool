@@ -240,7 +240,10 @@ future versions are rejected. Each Ramp List segment contains `channel`,
 Loop timing requires at least two iterations.
 
 Ramp accepts `completion_pulse_timing`; step timing accepts `delay_ms = 0`
-and uses software post-action pulses. Sequence accepts canonical
+and uses software post-action pulses. An explicit `completion_pulse_channel`
+must be an exact integer from 1 through 3 and requires non-empty
+`completion_pulse_pins`; invalid or inapplicable raw values are rejected before
+queue or artifact mutation. Sequence accepts canonical
 `trigger-pulse` actions with `channel`, `pins`, `polarity`, and optional
 `leave_trigger_configured` for E36312A only. Sequence must not bypass model
 feature gates: EDU36311A trigger/native LIST and snapshot/restore remain

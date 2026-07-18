@@ -9751,6 +9751,8 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
     }
     if args.command == "ramp":
         parameters["completion_pulse_timing"] = getattr(args, "completion_pulse_timing", "segment")
+    if parameters["completion_pulse_channel"] is None:
+        parameters.pop("completion_pulse_channel")
     if args.command == "set":
         parameters = _drop_none_setpoints(parameters)
     return OperationRequest(
