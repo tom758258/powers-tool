@@ -3267,6 +3267,7 @@ def _run_tcpip_session_fixture(
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+function Get-FileHash {{ throw "legacy Get-FileHash must not be invoked" }}
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "{target}"
@@ -3305,6 +3306,63 @@ $record = Invoke-ValidationCommand -Case $case
     result = _run_powershell_command(command, env=env)
     assert result.returncode == 0, result.stdout + result.stderr
     return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_generated_artifact_fingerprints_use_dotnet_sha256_and_preserve_nonfile_shapes(tmp_path):
+    file_path = tmp_path / "artifact.txt"
+    missing_path = tmp_path / "missing.txt"
+    directory_path = tmp_path / "artifact-directory"
+    file_path.write_bytes(b"abc")
+    directory_path.mkdir()
+    command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+function Get-FileHash {{ throw "legacy Get-FileHash must not be invoked" }}
+$fileFingerprint = @(Get-GeneratedArtifactFingerprints -Paths @("{file_path}"))[0][0]
+$missingFingerprint = @(Get-GeneratedArtifactFingerprints -Paths @("{missing_path}"))[0][0]
+$directoryFingerprint = @(Get-GeneratedArtifactFingerprints -Paths @("{directory_path}"))[0][0]
+[pscustomobject]@{{
+    direct_sha256 = Get-FileSha256 -LiteralPath "{file_path}"
+    file = $fileFingerprint
+    missing = $missingFingerprint
+    directory = $directoryFingerprint
+}} | ConvertTo-Json -Depth 10 -Compress
+'''
+    result = _run_powershell_command(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    fingerprints = json.loads(result.stdout.strip())
+    expected_sha256 = "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+    assert fingerprints["direct_sha256"] == expected_sha256
+    assert fingerprints["file"]["sha256"] == expected_sha256
+    assert fingerprints["direct_sha256"] == fingerprints["file"]["sha256"]
+    assert set(fingerprints["file"]) == {
+        "path",
+        "exists",
+        "kind",
+        "length",
+        "last_write_utc_ticks",
+        "sha256",
+    }
+    assert fingerprints["file"]["exists"] is True
+    assert fingerprints["file"]["kind"] == "file"
+    assert fingerprints["file"]["length"] == 3
+    assert isinstance(fingerprints["file"]["last_write_utc_ticks"], int)
+    assert set(fingerprints["missing"]) == set(fingerprints["file"])
+    assert fingerprints["missing"] == {
+        "path": str(missing_path.resolve()),
+        "exists": False,
+        "kind": None,
+        "length": None,
+        "last_write_utc_ticks": None,
+        "sha256": None,
+    }
+    assert set(fingerprints["directory"]) == set(fingerprints["file"])
+    assert fingerprints["directory"]["exists"] is True
+    assert fingerprints["directory"]["kind"] == "directory"
+    assert fingerprints["directory"]["length"] is None
+    assert isinstance(fingerprints["directory"]["last_write_utc_ticks"], int)
+    assert fingerprints["directory"]["sha256"] is None
 
 
 def test_tcpip_first_pre_io_open_failure_recovers_once_with_attempt_artifacts(tmp_path):

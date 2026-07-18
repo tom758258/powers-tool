@@ -1771,6 +1771,24 @@ function Get-CaseAssertionFailures {
     return $failures.ToArray()
 }
 
+function Get-FileSha256 {
+    [OutputType([string])]
+    param([Parameter(Mandatory = $true)][string]$LiteralPath)
+
+    $sha256 = $null
+    $fileStream = $null
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        $fileStream = [System.IO.File]::OpenRead($LiteralPath)
+        $hashBytes = $sha256.ComputeHash($fileStream)
+        return [System.BitConverter]::ToString($hashBytes).Replace("-", "")
+    }
+    finally {
+        if ($null -ne $fileStream) { $fileStream.Dispose() }
+        if ($null -ne $sha256) { $sha256.Dispose() }
+    }
+}
+
 function Get-GeneratedArtifactFingerprints {
     param([string[]]$Paths = @())
 
@@ -1795,7 +1813,7 @@ function Get-GeneratedArtifactFingerprints {
             kind = if ($isFile) { "file" } else { "directory" }
             length = if ($isFile) { $item.Length } else { $null }
             last_write_utc_ticks = $item.LastWriteTimeUtc.Ticks
-            sha256 = if ($isFile) { (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash } else { $null }
+            sha256 = if ($isFile) { Get-FileSha256 -LiteralPath $item.FullName } else { $null }
         })
     }
     return ,($fingerprints.ToArray())
