@@ -160,6 +160,68 @@ def test_worker_rejects_coercible_channel_before_artifacts(
     assert not (tmp_path / "jobs").exists()
 
 
+@pytest.mark.parametrize(
+    ("command", "arguments"),
+    [
+        ("protection-set", {"all": False, "ocp": "on"}),
+        ("protection-status", {"all": False}),
+        ("clear-protection", {"all": False}),
+    ],
+)
+def test_worker_rejects_false_protection_all_before_artifacts(
+    tmp_path: Path,
+    command: str,
+    arguments: dict[str, object],
+) -> None:
+    state = _worker_validation_state(tmp_path)
+
+    status, payload = worker_mod._validate_command_body(
+        {"schema_version": 2, "command": command, "arguments": arguments},
+        state,
+    )
+
+    assert status == 400
+    assert "all=false" in payload["error"]["message"]
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
+def test_worker_restore_requires_channel_before_artifacts(tmp_path: Path) -> None:
+    state = _worker_validation_state(tmp_path)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "restore-from-snapshot",
+            "arguments": {"document": _worker_snapshot_document()},
+        },
+        state,
+    )
+
+    assert status == 400
+    assert "restore-from-snapshot requires channel" in payload["error"]["message"]
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
+def test_worker_queues_restore_admitted_runtime(tmp_path: Path) -> None:
+    state = _worker_validation_state(tmp_path)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "restore-from-snapshot",
+            "arguments": {"document": _worker_snapshot_document(), "channel": "all"},
+        },
+        state,
+    )
+
+    assert status == 202
+    admitted = payload["_admitted_request"]
+    assert admitted.runtime.planning_model_id == "keysight-e36312a"
+    assert admitted.parameters["channel"] == "all"
+
+
 @pytest.mark.parametrize("pulse_channel", [True, 1.5, "2", None, 0, -1, 4])
 def test_worker_rejects_invalid_completion_pulse_channel_before_artifacts(
     tmp_path: Path,

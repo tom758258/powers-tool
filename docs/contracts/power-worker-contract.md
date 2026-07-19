@@ -207,7 +207,8 @@ Restore snapshot documents must contain non-empty `outputs`, `readback`, and
 `protection_settings` sections with exactly the same channel inventory. A
 channel protection record is required even when each optional protection
 field is null; incomplete snapshots are rejected instead of partially
-restored.
+restored. Restore also requires an explicit `channel` selector; exact `"all"`
+is valid, but an omitted selector is rejected before artifact creation.
 
 `set` arguments require `channel` plus `voltage`, `current`, or both. An
 omitted setpoint is left unchanged on the instrument and must not be replaced
@@ -258,7 +259,7 @@ feature gates: EDU36311A trigger/native LIST and snapshot/restore remain
 disabled, and E3646A protection, trigger/native LIST, snapshot/restore,
 completion-pulse, and native LIST remain disabled. Rear pulse pins and output
 channels are separate.
-Ramp rejects the removed `completion_pulse_mode`,
+General output/ramp commands reject the removed `completion_pulse_mode`,
 `completion_pulse_dwell_ms`, `wait_timeout_ms`, and `poll_ms` fields before
 artifact creation or queue mutation. Native LIST and trigger wait controls are
 accepted only by the relevant Trigger commands.

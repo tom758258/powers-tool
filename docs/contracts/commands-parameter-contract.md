@@ -32,7 +32,10 @@ completion-pulse and other presence-sensitive settings remain absent unless
 the caller supplied them. Protection uses the canonical `channel` selector;
 the compatibility form `all: true` becomes `channel: "all"`. Supplying both
 forms, including `all: false`, is rejected; a lone `all: false` is not an
-all-channel selector.
+all-channel selector and is an admission failure. `protection-status` and
+`protection-set` default to `channel: "all"` only when no selector was
+supplied at all. `clear-protection` always requires an explicit `channel` or
+`all: true` selector.
 
 ## Fixed Limits
 
@@ -49,6 +52,8 @@ all-channel selector.
   guesses.
 - `apply`, `ramp`, `smoke-output`, Ramp List, and Sequence set/apply steps keep
   their complete setpoint requirements.
+- `restore-from-snapshot` requires an explicit `channel`, accepting one exact
+  positive integer or exact `"all"`; omission never defaults to all channels.
 - `step_voltage` must be finite and greater than zero.
 - Ramp and Ramp List `delay_ms` is the additional delay after each voltage
   step completes before starting the next step. It is a non-negative integer.

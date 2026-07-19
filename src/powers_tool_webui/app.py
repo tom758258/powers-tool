@@ -65,6 +65,15 @@ WEBUI_RUNTIME_FIELDS = {
     "expected_model_id",
     "planning_profile_id",
 }
+_WEBUI_SERIAL_OPTION_FIELDS = (
+    "baud_rate",
+    "data_bits",
+    "parity",
+    "stop_bits",
+    "flow_control",
+    "read_termination",
+    "write_termination",
+)
 LEGACY_RUNTIME_IDENTITY_FIELDS = {"model_profile", "model"}
 
 # Mount static files if directory exists
@@ -228,6 +237,7 @@ async def create_job(request: Request):
         if artifacts:
             raise HTTPException(status_code=400, detail="artifacts has unsupported field(s): " + ", ".join(sorted(artifacts)))
     validation_runtime = _validated_webui_runtime(runtime)
+    admitted_request = None
     try:
         request_type = (
             SequenceRequest
@@ -253,8 +263,13 @@ async def create_job(request: Request):
     except (CoreValidationError, OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    admitted_runtime = (
+        admitted_request.runtime if admitted_request is not None else validation_runtime
+    )
+    canonical_runtime = _canonical_webui_runtime(admitted_runtime)
+
     # Hardware lock check at submission time for jobs that touch real hardware.
-    if not validation_runtime.simulate and not validation_runtime.dry_run and command != "live-data":
+    if not admitted_runtime.simulate and not admitted_runtime.dry_run and command != "live-data":
         if job_manager.is_hardware_locked():
             raise HTTPException(
                 status_code=409,
@@ -263,7 +278,7 @@ async def create_job(request: Request):
 
     job_id = await job_manager.submit_job(
         command=command,
-        runtime=runtime,
+        runtime=canonical_runtime,
         parameters=admitted_parameters,
         artifacts=artifacts,
         admitted_request=(None if command in {"capabilities", "safety inspect"} else admitted_request),
@@ -313,6 +328,37 @@ def _validated_webui_runtime(runtime: Any) -> RuntimeOptions:
         return build_runtime_options(runtime)
     except (CoreValidationError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _canonical_webui_runtime(runtime: RuntimeOptions) -> dict[str, Any]:
+    """Return the public WebUI runtime representation used by one queued job."""
+
+    serial_options = runtime.serial_options
+    return {
+        "resource": runtime.resource,
+        "resource_alias": runtime.resource_alias,
+        "safety_config": runtime.safety_config,
+        "simulate": runtime.simulate,
+        "dry_run": runtime.dry_run,
+        "backend": runtime.backend,
+        "timeout_ms": runtime.timeout_ms,
+        "log_scpi": runtime.log_scpi,
+        "confirm": runtime.confirm,
+        "serial_options": (
+            None
+            if serial_options is None
+            else {
+                field: getattr(serial_options, field)
+                for field in _WEBUI_SERIAL_OPTION_FIELDS
+                if getattr(serial_options, field) is not None
+            }
+        ),
+        "serial_remote": runtime.serial_remote,
+        "serial_local_on_close": runtime.serial_local_on_close,
+        "planning_model_id": runtime.planning_model_id,
+        "expected_model_id": runtime.expected_model_id,
+        "planning_profile_id": runtime.planning_profile_id,
+    }
 
 
 async def _execute_job_background(job_id: str):
@@ -430,7 +476,7 @@ async def start_live_data(request: Request):
 
     job_id = await job_manager.submit_job(
         command="live-data",
-        runtime=runtime,
+        runtime=_canonical_webui_runtime(validation_runtime),
         parameters=payload.get("parameters", {}),
     )
     asyncio.create_task(_execute_live_data_background(job_id))

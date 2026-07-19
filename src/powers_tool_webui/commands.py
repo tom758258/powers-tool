@@ -200,9 +200,9 @@ def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
 
 def execute_job_command(job: Job) -> dict[str, Any]:
     command = job.command
-    runtime = build_runtime_options(job.runtime)
     if command not in WEBUI_JOB_COMMANDS:
         raise CoreValidationError(f"command is not supported by /api/jobs: {command}")
+    runtime = build_runtime_options(job.runtime)
     if command == "capabilities":
         return _capabilities(runtime)
     if command == "safety inspect":

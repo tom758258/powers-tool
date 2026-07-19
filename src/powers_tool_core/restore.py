@@ -366,7 +366,7 @@ def _restore_channels(request: OperationRequest, snapshot: dict[str, Any]) -> tu
         request.parameters,
         "channel",
         allow_all=True,
-        default="all",
+        required=True,
     )
     if selected == "all":
         channels = tuple(channel for channel in available if channel in E36312APowerSupply.capabilities.channels)

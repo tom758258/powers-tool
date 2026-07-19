@@ -4673,6 +4673,75 @@ def test_api_rejects_removed_ramp_native_fields_before_creating_job(client: Test
     assert len(job_manager.jobs) == jobs_before
 
 
+@pytest.mark.parametrize(
+    ("command", "parameters"),
+    [
+        ("protection-set", {"all": False, "ocp": "on"}),
+        ("protection-status", {"all": False}),
+        ("clear-protection", {"all": False}),
+    ],
+)
+def test_api_rejects_false_protection_all_before_job_or_lock(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    parameters: dict[str, object],
+) -> None:
+    from powers_tool_webui.jobs import job_manager
+
+    async def forbidden_submit(**kwargs: object) -> str:
+        raise AssertionError("invalid request must not create a job")
+
+    def forbidden_lock_check() -> bool:
+        raise AssertionError("invalid request must not inspect the hardware lock")
+
+    monkeypatch.setattr(job_manager, "submit_job", forbidden_submit)
+    monkeypatch.setattr(job_manager, "is_hardware_locked", forbidden_lock_check)
+    response = client.post(
+        "/api/jobs",
+        json={"command": command, "runtime": {"simulate": True}, "parameters": parameters},
+    )
+
+    assert response.status_code == 400
+    assert "all=false" in response.json()["detail"]
+
+
+def test_api_restore_requires_channel_before_job_or_lock(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from powers_tool_core.command_runner import run_core_command
+    from powers_tool_core.core import OperationRequest, RuntimeOptions
+    from powers_tool_webui.jobs import job_manager
+
+    snapshot = run_core_command(
+        OperationRequest(
+            "snapshot",
+            RuntimeOptions(simulate=True, resource="USB0::SIM::E36312A::INSTR"),
+        )
+    )
+
+    async def forbidden_submit(**kwargs: object) -> str:
+        raise AssertionError("invalid request must not create a job")
+
+    def forbidden_lock_check() -> bool:
+        raise AssertionError("invalid request must not inspect the hardware lock")
+
+    monkeypatch.setattr(job_manager, "submit_job", forbidden_submit)
+    monkeypatch.setattr(job_manager, "is_hardware_locked", forbidden_lock_check)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "restore-from-snapshot",
+            "runtime": {"simulate": True, "resource": "USB0::SIM::E36312A::INSTR"},
+            "parameters": {"document": snapshot},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "restore-from-snapshot requires channel" in response.json()["detail"]
+
+
 def test_sse_event_order(client: TestClient):
     payload = {
         "command": "read-status",
@@ -5739,6 +5808,75 @@ def test_api_restore_from_snapshot_dry_run(client: TestClient):
     assert "OUTP ON,(@1)" in [step["command"] for step in result["plan"]["steps"]]
     assert client.get("/api/health").json()["hardware_locked"] is False
     assert result["restored_channels"] == [1, 2, 3]
+
+
+def test_webui_job_reports_admitted_runtime(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from powers_tool_core.command_runner import run_core_command
+    from powers_tool_core.core import OperationRequest, RuntimeOptions
+    from powers_tool_webui import app as web_app
+
+    snapshot = run_core_command(
+        OperationRequest(
+            "snapshot",
+            RuntimeOptions(simulate=True, resource="USB0::SIM::E36312A::INSTR"),
+        )
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_execute(job: Any) -> dict[str, object]:
+        captured["runtime"] = job.admitted_request.runtime
+        return {"status": "planned"}
+
+    monkeypatch.setattr(web_app, "execute_job_command", fake_execute)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "restore-from-snapshot",
+            "runtime": {
+                "resource": "USB0::SIM::E36312A::INSTR",
+                "simulate": True,
+                "timeout_ms": 4321,
+            },
+            "parameters": {"document": snapshot, "channel": "all"},
+        },
+    )
+
+    assert response.status_code == 200
+    job = client.get(f"/api/jobs/{response.json()['job_id']}").json()
+    assert job["runtime"]["planning_model_id"] == "keysight-e36312a"
+    assert job["runtime"]["resource"] == "USB0::SIM::E36312A::INSTR"
+    assert job["runtime"]["timeout_ms"] == 4321
+    assert "support_policy_mode" not in job["runtime"]
+    assert "validation_allow_pending_live_support" not in job["runtime"]
+    runtime = captured["runtime"]
+    assert runtime.planning_model_id == job["runtime"]["planning_model_id"]
+    assert runtime.resource == job["runtime"]["resource"]
+    assert runtime.timeout_ms == job["runtime"]["timeout_ms"]
+
+
+@pytest.mark.parametrize("command", ["capabilities", "safety inspect"])
+def test_webui_special_jobs_keep_validated_public_runtime(
+    client: TestClient,
+    command: str,
+) -> None:
+    response = client.post(
+        "/api/jobs",
+        json={"command": command, "runtime": {"dry_run": True}, "parameters": {}},
+    )
+
+    assert response.status_code == 200
+    runtime = client.get(f"/api/jobs/{response.json()['job_id']}").json()["runtime"]
+    assert set(runtime) == {
+        "resource", "resource_alias", "safety_config", "simulate", "dry_run",
+        "backend", "timeout_ms", "log_scpi", "confirm", "serial_options",
+        "serial_remote", "serial_local_on_close", "planning_model_id",
+        "expected_model_id", "planning_profile_id",
+    }
+    assert runtime["dry_run"] is True
+    assert "support_policy_mode" not in runtime
 
 
 def test_api_sequence_execution(client: TestClient):

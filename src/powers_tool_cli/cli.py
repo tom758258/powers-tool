@@ -9968,7 +9968,16 @@ def _core_command_parameters(command: str, values: dict[str, Any]) -> dict[str, 
         for name, value in values.items()
         if name in allowed
         and value is not None
-        and not (name == "all" and value is False)
+        and not (
+            name == "all"
+            and (
+                value is False
+                or (
+                    command in {"protection-status", "protection-set", "clear-protection"}
+                    and values.get("channel") is not None
+                )
+            )
+        )
         and not (name == "completion_pulse_pins" and not value)
     }
 

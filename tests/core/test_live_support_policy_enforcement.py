@@ -583,7 +583,7 @@ def test_product_mode_restore_rejects_pending_pyvisa_scope_before_restore_scpi()
             confirm=True,
             support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
         ),
-        {"document": _restore_document()},
+        {"document": _restore_document(), "channel": 1},
     )
     with pytest.raises(LiveSupportPolicyError, match="transport_pending"):
         run_restore(request, opener=lambda *args, **kwargs: session)
@@ -602,7 +602,7 @@ def test_validation_mode_restore_keeps_identity_and_confirmation_guards() -> Non
             confirm=True,
             support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
         ),
-        {"document": _restore_document(serial="OTHER")},
+        {"document": _restore_document(serial="OTHER"), "channel": 1},
     )
     with pytest.raises(CoreValidationError, match="does not match snapshot serial"):
         run_restore(mismatch_request, opener=lambda *args, **kwargs: mismatch_session)
@@ -626,7 +626,7 @@ def test_validation_mode_restore_keeps_identity_and_confirmation_guards() -> Non
                     backend="@py",
                     support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
                 ),
-                {"document": _restore_document()},
+                {"document": _restore_document(), "channel": 1},
             ),
             opener=opener,
         )
@@ -641,7 +641,7 @@ def test_validation_mode_restore_keeps_identity_and_confirmation_guards() -> Non
             confirm=True,
             support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
         ),
-        {"document": _restore_document(voltage=999.0)},
+        {"document": _restore_document(voltage=999.0), "channel": 1},
     )
     with pytest.raises(CoreIoError, match="voltage 999 exceeds effective maximum"):
         run_restore(unsafe_request, opener=lambda *args, **kwargs: unsafe_session)

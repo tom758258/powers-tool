@@ -128,6 +128,155 @@ def test_protection_all_requires_exact_boolean() -> None:
         validate_request_admission(OperationRequest("protection-set", RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), {"all": 1, "ocp": "on"}))
 
 
+def test_protection_set_false_all_is_rejected() -> None:
+    opened = False
+
+    def forbidden_opener(*args: object, **kwargs: object) -> object:
+        nonlocal opened
+        opened = True
+        raise AssertionError("admission must not open hardware")
+
+    with pytest.raises(CoreValidationError, match="all=false"):
+        run_core_command(
+            OperationRequest(
+                "protection-set",
+                RuntimeOptions(resource="USB0::FAKE::INSTR"),
+                {"all": False, "ocp": "on"},
+            ),
+            opener=forbidden_opener,
+        )
+    assert opened is False
+
+
+def test_protection_status_false_all_is_rejected() -> None:
+    opened = False
+
+    def forbidden_opener(*args: object, **kwargs: object) -> object:
+        nonlocal opened
+        opened = True
+        raise AssertionError("admission must not open hardware")
+
+    with pytest.raises(CoreValidationError, match="all=false"):
+        run_core_command(
+            OperationRequest(
+                "protection-status",
+                RuntimeOptions(resource="USB0::FAKE::INSTR"),
+                {"all": False},
+            ),
+            opener=forbidden_opener,
+        )
+    assert opened is False
+
+
+def test_protection_all_true_normalizes_to_channel_all() -> None:
+    admitted = validate_request_admission(
+        OperationRequest(
+            "protection-set",
+            RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+            {"all": True, "ocp": "on"},
+        )
+    )
+
+    assert admitted.parameters == {"channel": "all", "ocp": "on"}
+    assert "all" not in admitted.parameters
+    assert validate_request_admission(admitted) == admitted
+
+
+def test_protection_channel_and_all_false_conflict() -> None:
+    with pytest.raises(CoreValidationError, match="mutually exclusive"):
+        validate_request_admission(
+            OperationRequest(
+                "protection-set",
+                RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+                {"channel": 1, "all": False, "ocp": "on"},
+            )
+        )
+
+
+def test_clear_protection_false_all_is_rejected() -> None:
+    opened = False
+
+    def forbidden_opener(*args: object, **kwargs: object) -> object:
+        nonlocal opened
+        opened = True
+        raise AssertionError("admission must not open hardware")
+
+    with pytest.raises(CoreValidationError, match="all=false"):
+        run_core_command(
+            OperationRequest(
+                "clear-protection",
+                RuntimeOptions(resource="USB0::FAKE::INSTR"),
+                {"all": False},
+            ),
+            opener=forbidden_opener,
+        )
+    assert opened is False
+
+
+def test_removed_general_field_has_specific_diagnostic() -> None:
+    with pytest.raises(
+        CoreValidationError,
+        match="ramp field wait_timeout_ms has been removed",
+    ):
+        validate_request_admission(
+            OperationRequest(
+                "ramp",
+                RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+                {"wait_timeout_ms": 1},
+            )
+        )
+
+
+def test_unknown_field_remains_generic() -> None:
+    with pytest.raises(CoreValidationError, match="has unknown field\\(s\\): invented"):
+        validate_request_admission(
+            OperationRequest(
+                "ramp",
+                RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+                {"invented": 1},
+            )
+        )
+
+
+def test_known_but_inapplicable_field_has_specific_diagnostic() -> None:
+    with pytest.raises(CoreValidationError, match="measure has known-but-inapplicable field\\(s\\): voltage"):
+        validate_request_admission(
+            OperationRequest(
+                "measure",
+                RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+                {"channel": 1, "voltage": 1.0},
+            )
+        )
+
+
+def test_completion_pulse_dependency_preserves_presence() -> None:
+    runtime = RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a")
+    base = {"channel": 1, "voltage": 1.0}
+
+    assert validate_request_admission(OperationRequest("set", runtime, base)).parameters == base
+    pins_only = validate_request_admission(
+        OperationRequest("set", runtime, {**base, "completion_pulse_pins": [1]})
+    )
+    assert pins_only.parameters == {**base, "completion_pulse_pins": (1,)}
+    with pytest.raises(CoreValidationError, match="completion_pulse_channel requires completion_pulse_pins"):
+        validate_request_admission(
+            OperationRequest("set", runtime, {**base, "completion_pulse_channel": 1})
+        )
+    both = validate_request_admission(
+        OperationRequest(
+            "set",
+            runtime,
+            {**base, "completion_pulse_channel": 1, "completion_pulse_pins": [1]},
+        )
+    )
+    assert both.parameters == {
+        **base,
+        "completion_pulse_channel": 1,
+        "completion_pulse_pins": (1,),
+    }
+    assert validate_request_admission(both) == both
+
+
 def test_restore_multiple_sources_are_rejected_before_file_access() -> None:
     with pytest.raises(CoreValidationError, match="mutually exclusive"):
         validate_request_admission(OperationRequest("restore-from-snapshot", RuntimeOptions(dry_run=True), {"file": "snapshot.json", "snapshot": "other.json"}))

@@ -54,6 +54,19 @@ _PULSE_FIELDS = {
     "completion_pulse_channel": Field("pulse_channel"),
     "leave_trigger_configured": BOOLEAN_FALSE,
 }
+_PULSE_DEPENDENCIES = {
+    "completion_pulse_channel": ("completion_pulse_pins",),
+}
+_REMOVED_GENERAL_WORKFLOW_FIELDS = {
+    "completion_pulse_mode": "use the post-action completion-pulse contract instead",
+    "completion_pulse_dwell_ms": "use the post-action completion-pulse contract instead",
+    "wait_timeout_ms": "trigger wait controls are accepted only by trigger commands",
+    "poll_ms": "trigger wait controls are accepted only by trigger commands",
+}
+_GENERAL_PULSE_CONTRACT_OPTIONS = {
+    "dependencies": _PULSE_DEPENDENCIES,
+    "removed_fields": _REMOVED_GENERAL_WORKFLOW_FIELDS,
+}
 _VERIFY_FIELDS = {
     "verify_after_write": BOOLEAN_FALSE,
     "settle_ms": Field("nonnegative_int", default=0),
@@ -83,13 +96,13 @@ COMMAND_CONTRACTS: dict[str, CommandContract] = {
         ocp_delay_trigger=Field("enum", values=frozenset({"setting-change", "cc-transition"})),
     ), at_least_one=(("ovp_voltage", "ocp", "ocp_delay", "ocp_delay_trigger"),)),
     "clear-protection": CommandContract(_fields(channel=ALL_CHANNEL, all=Field("bool")), exactly_one_of=(("channel", "all"),)),
-    "set": CommandContract(_fields(channel=Field("channel", required=True), voltage=Field("nonnegative_number"), current=Field("nonnegative_number"), **_VERIFY_FIELDS, **_PULSE_FIELDS), at_least_one=(("voltage", "current"),)),
-    "apply": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), voltage=Field("nonnegative_number", required=True), current=Field("nonnegative_number", required=True), no_output=BOOLEAN_FALSE, **_VERIFY_FIELDS, **_PULSE_FIELDS)),
-    "output-on": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
-    "output-off": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
-    "safe-off": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
+    "set": CommandContract(_fields(channel=Field("channel", required=True), voltage=Field("nonnegative_number"), current=Field("nonnegative_number"), **_VERIFY_FIELDS, **_PULSE_FIELDS), at_least_one=(("voltage", "current"),), **_GENERAL_PULSE_CONTRACT_OPTIONS),
+    "apply": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), voltage=Field("nonnegative_number", required=True), current=Field("nonnegative_number", required=True), no_output=BOOLEAN_FALSE, **_VERIFY_FIELDS, **_PULSE_FIELDS), **_GENERAL_PULSE_CONTRACT_OPTIONS),
+    "output-on": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), **_VERIFY_FIELDS, **_PULSE_FIELDS), **_GENERAL_PULSE_CONTRACT_OPTIONS),
+    "output-off": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), **_VERIFY_FIELDS, **_PULSE_FIELDS), **_GENERAL_PULSE_CONTRACT_OPTIONS),
+    "safe-off": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), **_VERIFY_FIELDS, **_PULSE_FIELDS), **_GENERAL_PULSE_CONTRACT_OPTIONS),
     "output-state": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True))),
-    "cycle-output": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), duration_ms=Field("positive_int", default=500), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
+    "cycle-output": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), duration_ms=Field("positive_int", default=500), **_VERIFY_FIELDS, **_PULSE_FIELDS), **_GENERAL_PULSE_CONTRACT_OPTIONS),
     "ramp": CommandContract(_fields(
         channel=Field("channel", required=True),
         current=Field("nonnegative_number", required=True),
@@ -102,11 +115,11 @@ COMMAND_CONTRACTS: dict[str, CommandContract] = {
         completion_pulse_timing=Field("enum", default="segment", values=frozenset({"segment", "step", "loop"})),
         **_VERIFY_FIELDS,
         **_PULSE_FIELDS,
-    )),
-    "smoke-output": CommandContract(_fields(channel=Field("channel", required=True), voltage=Field("nonnegative_number", required=True), current=Field("nonnegative_number", required=True), duration_ms=Field("positive_int", default=500), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
+    ), **_GENERAL_PULSE_CONTRACT_OPTIONS),
+    "smoke-output": CommandContract(_fields(channel=Field("channel", required=True), voltage=Field("nonnegative_number", required=True), current=Field("nonnegative_number", required=True), duration_ms=Field("positive_int", default=500), **_VERIFY_FIELDS, **_PULSE_FIELDS), **_GENERAL_PULSE_CONTRACT_OPTIONS),
     "ramp-list": CommandContract(_fields(file=STRING, document=DOCUMENT, lint=BOOLEAN_FALSE, loop_count=Field("range_int")), mutually_exclusive=(("file", "document"),)),
     "sequence": CommandContract(_fields(file=STRING, document=DOCUMENT, lint=BOOLEAN_FALSE, loop_count=Field("range_int")), mutually_exclusive=(("file", "document"),)),
-    "restore-from-snapshot": CommandContract(_fields(document=DOCUMENT, snapshot=STRING, file=STRING, channel=ALL_CHANNEL, restore_output_state=BOOLEAN_FALSE), mutually_exclusive=(("document", "snapshot", "file"),)),
+    "restore-from-snapshot": CommandContract(_fields(document=DOCUMENT, snapshot=STRING, file=STRING, channel=Field("channel", required=True, allow_all=True), restore_output_state=BOOLEAN_FALSE), mutually_exclusive=(("document", "snapshot", "file"),)),
     "trigger-pulse": CommandContract(_fields(channel=Field("channel", default=1), pin=Field("pin"), pins=Field("pin_list"), polarity=Field("enum", default="positive", values=frozenset({"positive", "negative"})), exclusive_pins=BOOLEAN_FALSE, max_errors=Field("positive_int", default=20)), exactly_one_of=(("pin", "pins"),)),
     "trigger-status": CommandContract(_fields(channel=Field("channel", allow_all=True, default="all"), max_errors=Field("positive_int", default=20))),
     "trigger-step": CommandContract(_fields(
@@ -115,7 +128,7 @@ COMMAND_CONTRACTS: dict[str, CommandContract] = {
         voltage=Field("nonnegative_number"), current=Field("nonnegative_number"), fire=BOOLEAN_FALSE,
         wait_complete=BOOLEAN_FALSE, wait_timeout_ms=Field("positive_int", default=10000), poll_ms=Field("min50_int", default=200),
         **_PULSE_FIELDS,
-    )),
+    ), dependencies=_PULSE_DEPENDENCIES),
     "trigger-list": CommandContract(_fields(
         channel=Field("channel", required=True),
         source=Field("enum", default="bus", values=frozenset({"bus", "immediate", "pin1", "pin2", "pin3", "ext"})),
@@ -145,6 +158,17 @@ SEQUENCE_ACTION_CONTRACTS: dict[str, CommandContract] = {
     "set": CommandContract(_fields(channel=Field("channel", default=1), voltage=Field("nonnegative_number", required=True), current=Field("nonnegative_number", required=True))),
     "apply": CommandContract(_fields(channel=Field("channel", default=1, allow_all=True), voltage=Field("nonnegative_number", required=True), current=Field("nonnegative_number", required=True), no_output=BOOLEAN_FALSE)),
 }
+
+
+_KNOWN_PARAMETER_NAMES = frozenset(
+    name
+    for contract in (*COMMAND_CONTRACTS.values(), *SEQUENCE_ACTION_CONTRACTS.values())
+    for name in (
+        *contract.fields,
+        *(contract.aliases or {}),
+        *(contract.removed_fields or {}),
+    )
+)
 
 
 def command_parameter_names(command: str) -> frozenset[str]:
@@ -183,17 +207,9 @@ def validate_and_normalize_request(
     semantic_defaults = request.command.startswith("trigger-") or request.command in {
         "read-status", "readback", "protection-status", "protection-set",
     }
-    if "completion_pulse_channel" in raw:
-        _normalize_field(
-            "completion_pulse_channel", raw["completion_pulse_channel"], Field("pulse_channel")
-        )
-        if not raw.get("completion_pulse_pins"):
-            raise CoreValidationError("completion_pulse_channel requires completion_pulse_pins")
     normalized = _admit_parameters(
         request.command, raw, contract, materialize_defaults=semantic_defaults
     )
-    if "completion_pulse_channel" in normalized and "completion_pulse_pins" not in normalized:
-        raise CoreValidationError("completion_pulse_channel requires completion_pulse_pins")
     if request.command == "trigger-fire" and normalized["wait_complete"] and "channel" not in normalized:
         raise CoreValidationError("trigger-fire wait_complete requires channel as the abort target")
     return replace(request, parameters=normalized)
@@ -209,13 +225,11 @@ def _normalize_protection_selector(command: str, raw: dict[str, Any]) -> dict[st
     all_value = raw["all"]
     if type(all_value) is not bool:
         raise CoreValidationError("all must be a boolean")
+    if not all_value:
+        raise CoreValidationError("all=false is not a valid protection selector")
     raw = dict(raw)
     raw.pop("all")
-    if all_value:
-        raw["channel"] = "all"
-    elif command == "clear-protection":
-        # A false legacy flag is not a selector.
-        raise CoreValidationError("clear-protection requires channel or all=true")
+    raw["channel"] = "all"
     return raw
 
 
@@ -252,7 +266,12 @@ def _admit_parameters(
     if unknown:
         if label == "measure-all" and unknown == ["channel"]:
             raise CoreValidationError("measure-all always reads all channels and does not accept channel")
-        raise CoreValidationError(f"{label} has unknown or inapplicable field(s): {', '.join(unknown)}")
+        unknown_fields = [name for name in unknown if name not in _KNOWN_PARAMETER_NAMES]
+        if unknown_fields:
+            raise CoreValidationError(f"{label} has unknown field(s): {', '.join(unknown_fields)}")
+        raise CoreValidationError(
+            f"{label} has known-but-inapplicable field(s): {', '.join(unknown)}"
+        )
     normalized: dict[str, Any] = {}
     # Invalid supplied values are more useful than an unrelated missing field.
     for name, field in contract.fields.items():
@@ -353,7 +372,7 @@ def _normalize_field(name: str, value: Any, field: Field) -> Any:
         return value
     number = _number(name, value)
     if kind == "nonnegative_number" and number < 0:
-        raise CoreValidationError(f"{name} must be non-negative")
+        raise CoreValidationError(f"{name} must be a finite non-negative number")
     if kind == "positive_number" and number <= 0:
         raise CoreValidationError(f"{name} must be positive")
     return number

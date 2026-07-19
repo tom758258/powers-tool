@@ -243,7 +243,10 @@ def _ensure_protection_supported(request: OperationRequest) -> None:
 
 
 def _selected_channel(request: OperationRequest) -> int | str:
-    return request.parameters.get("channel", "all")
+    try:
+        return request.parameters["channel"]
+    except KeyError as exc:
+        raise CoreValidationError("protection request is missing admitted channel") from exc
 
 
 def _channels(selected: int | str | None, supported: tuple[int, ...]) -> tuple[int, ...]:

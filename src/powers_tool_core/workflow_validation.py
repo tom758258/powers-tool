@@ -20,15 +20,6 @@ GENERAL_PULSE_COMMANDS = frozenset(
     }
 )
 
-REMOVED_GENERAL_WORKFLOW_FIELDS = frozenset(
-    {
-        "completion_pulse_mode",
-        "completion_pulse_dwell_ms",
-        "wait_timeout_ms",
-        "poll_ms",
-    }
-)
-
 COMPLETION_PULSE_PLANNING_MODEL_ID = "keysight-e36312a"
 
 
@@ -49,24 +40,21 @@ def normalize_completion_pulse_channel(value: Any) -> int:
 
 
 def validate_general_workflow_parameters(request: OperationRequest) -> None:
-    """Reject removed or command-inapplicable general workflow fields."""
+    """Validate execution-relevant general workflow semantics."""
 
     if request.command not in GENERAL_PULSE_COMMANDS:
         return
     if request.command == "set" and request.parameters.get("voltage") is None and request.parameters.get("current") is None:
         raise CoreValidationError("set requires voltage, current, or both")
-    removed = sorted(REMOVED_GENERAL_WORKFLOW_FIELDS.intersection(request.parameters))
-    if removed:
-        raise CoreValidationError(
-            f"{request.command} does not accept removed Native LIST/trigger-wait field(s): {', '.join(removed)}"
-        )
     if request.command != "ramp" and "completion_pulse_timing" in request.parameters:
         raise CoreValidationError("completion_pulse_timing is only accepted by ramp")
     if request.command == "ramp":
         normalize_loop_count(request.parameters.get("loop_count", 1))
+    # Direct operation helpers remain public test/programmatic entry points;
+    # admitted requests take the registry dependency path above this layer.
     if "completion_pulse_channel" in request.parameters:
         normalize_completion_pulse_channel(request.parameters["completion_pulse_channel"])
-        if not request.parameters.get("completion_pulse_pins"):
+        if "completion_pulse_pins" not in request.parameters:
             raise CoreValidationError("completion_pulse_channel requires completion_pulse_pins")
 
 

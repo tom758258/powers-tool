@@ -99,7 +99,7 @@ def test_restore_rejects_wrong_kind_and_cli_envelope() -> None:
             OperationRequest(
                 "restore-from-snapshot",
                 RuntimeOptions(dry_run=True),
-                {"document": {"schema_version": 2, "data": snapshot}},
+                {"document": {"schema_version": 2, "data": snapshot}, "channel": 1},
             )
         )
 
@@ -184,6 +184,38 @@ def test_restore_output_state_omission_defaults_to_false() -> None:
     assert result["restore_output_state"] is False
     assert "reported_identity" not in result
     assert "resolved_identity" not in result
+
+
+def test_restore_requires_explicit_channel_before_opener() -> None:
+    opened = False
+
+    def forbidden_opener(*args: object, **kwargs: object) -> object:
+        nonlocal opened
+        opened = True
+        raise AssertionError("admission must not open hardware")
+
+    with pytest.raises(CoreValidationError, match="restore-from-snapshot requires channel"):
+        run_core_command(
+            OperationRequest(
+                "restore-from-snapshot",
+                RuntimeOptions(resource="USB0::FAKE::INSTR"),
+                {"document": _snapshot()},
+            ),
+            opener=forbidden_opener,
+        )
+    assert opened is False
+
+
+def test_restore_explicit_all_channel_is_valid() -> None:
+    result = run_core_command(
+        OperationRequest(
+            "restore-from-snapshot",
+            RuntimeOptions(dry_run=True),
+            {"document": _snapshot(), "channel": "all"},
+        )
+    )
+
+    assert result["restored_channels"] == [1, 2, 3]
 
 
 @pytest.mark.parametrize(
