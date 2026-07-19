@@ -8,11 +8,12 @@ power supplies. Version 2.0.0 provides one installable distribution,
 `powers_tool_cli`, and `powers_tool_webui`.
 
 The framework is vendor-neutral, but current Product-active and
-hardware-validated models are the Keysight models listed below. Vendor-neutral
-architecture does not mean arbitrary or unknown power supplies are supported:
-unregistered or unresolved live hardware fails closed. Vendor-specific
-drivers, aliases, manuals, SCPI behavior, evidence, and support tables retain
-their correct vendor names.
+hardware-validated models are `keysight-e36312a` (Keysight E36312A),
+`keysight-edu36311a` (Keysight EDU36311A), and `keysight-e3646a` (Keysight
+E3646A). Vendor-neutral architecture does not mean arbitrary or unknown power
+supplies are supported: unregistered or unresolved live hardware fails closed.
+Vendor-specific drivers, aliases, manuals, SCPI behavior, evidence, and support
+tables retain their correct vendor names.
 
 The shared Core runtime owns identity resolution, drivers, SCPI behavior,
 safety, and exact live-support decisions. The CLI and WebUI are parallel
@@ -21,9 +22,11 @@ boundary to local automation. The project supports USB, LAN, and explicit
 RS-232/ASRL communication through VISA, with safety-first dry-run, simulator,
 and machine-readable workflows.
 
-Powers Tool was previously developed as Keysight Powers. Version 2.0.0
-introduces the vendor-neutral product and package identity; old names are not
-supported aliases. See the [version 2 migration guide](docs/migration-v2.md).
+Live hardware is identified from `*IDN?` and remains fail closed outside the
+documented exact support scope. See [Supported Models](docs/core/supported-models.md)
+for current model and connection coverage, and the
+[CLI README](docs/cli/README.md#planning-identities-and-live-expected-model-guards)
+for planning and expected-model behavior.
 
 ## Features
 
@@ -40,112 +43,6 @@ supported aliases. See the [version 2 migration guide](docs/migration-v2.md).
 - Produce JSON and JSONL output for automation, agents, and orchestrators
 - Keep real hardware output opt-in; default tests and simulator flows do not
   enable instrument output
-
-## Planning And Live Expected-Model Guards
-
-Dry-run and simulator flows do not open real VISA hardware. For commands that
-need model-specific planning, `--model` maps to the canonical physical
-`planning_model_id`. `--profile generic-scpi` selects the separate nonphysical
-`planning_profile_id` for supported dry-run commands. The two are mutually
-exclusive, and simulator mode accepts only a physical planning model unless a
-known deterministic SIM resource supplies it.
-
-In live mode, `--model` maps to `expected_model_id` and is only a safety guard. The
-connected instrument is still identified with `*IDN?`, and Core requires the
-reported manufacturer and model to resolve to one canonical physical
-`model_id` before checking the selected model and before any setup or write
-SCPI. The selected model never overrides the IDN-detected driver.
-`generic-scpi` is no-hardware planning only and is never a physical or live
-expected model. Bare model names and legacy runtime aliases are rejected.
-
-For model-aware live commands, Core makes the final product decision after
-`*IDN?` using canonical `model_id + command + transport + backend + required
-feature`. Missing exact metadata and pending TCPIP/pyvisa-py scopes
-fail closed; system-VISA evidence does not validate another backend. Identity
-diagnostics do not imply command support, and no validation bypass exists.
-Unsupported model, command, and mode failures are intentional feature-lock
-behavior; selecting a model is not a feature unlock.
-
-Sequence and native trigger commands also enforce request-specific feature
-metadata for sequence actions and trigger sources. A Product-open command does
-not automatically open a future action or source; missing and pending feature
-metadata fails closed. Physical models have explicit Product-active,
-candidate, catalog-only, or de-scoped lifecycle boundaries. This release adds
-the lifecycle framework without enabling a new model.
-
-Valid no-hardware examples:
-
-```powershell
-uv run powers-tool set --dry-run --model keysight-e3646a --channel 1 --voltage 1 --current 0.05
-uv run powers-tool readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
-uv run powers-tool trigger-step --dry-run --model keysight-e36312a --channel 1 --source bus --fire
-uv run powers-tool set --dry-run --profile generic-scpi --channel 1 --voltage 1 --current 0.05
-```
-
-Live guard example:
-
-```powershell
-uv run powers-tool set --model keysight-e36312a --resource "$env:POWER_USB_RESOURCE" --channel 1 --voltage 1 --current 0.05
-```
-
-This command requires the connected `*IDN?` model to be `E36312A`; it does not
-force the E36312A driver if another model answers.
-
-Current model boundaries are enforced across Core, CLI, and WebUI backend
-direct jobs. Feature-family and simulator support do not mean every command in
-that family has accepted product LIVE evidence. The exact command inventory is
-listed in [Supported Models](docs/core/supported-models.md). The independently
-reviewed 2026-07-17 evidence opens the listed `output-on`, `measure-all`,
-`trigger-pulse`, `trigger-fire`, `restore-from-snapshot`, `log`, and
-resource-backed `doctor` scopes only for their exact model, transport, and
-system-VISA combinations. E3646A product LIVE remains ASRL / RS-232 + system VISA only,
-and its `ramp-list` and step-limited `sequence` are software workflows, not
-native LIST.
-
-For output commands, `voltage` means the output voltage setpoint and `current`
-means the output current limit/current setting for E36312A, EDU36311A, and
-E3646A. Core exposes official programming-range metadata from the model
-programming manuals separately from the existing DC output rating safety
-limits. E3646A programming ranges are range-dependent: LOW/P8V is 0 to 8.24 V
-and 0 to 3.09 A, while HIGH/P20V is 0 to 20.60 V and 0 to 1.545 A. Powers Tool does
-not currently claim an official manual-required decimal-place rejection rule
-and does not round or truncate user setpoints before SCPI.
-
-This is intentionally rejected:
-
-```powershell
-uv run powers-tool trigger-step --dry-run --resource USB0::FAKE::E36312A::INSTR --channel 1 --source bus --fire
-```
-
-Fake or live-looking resource strings are placeholders and must not imply a
-real instrument model. Deterministic SIM resources, such as
-`USB0::SIM::E36312A::INSTR`, are allowed because they map to known simulator
-IDN/model data.
-
-## Current Hardware Scope
-
-Internal live validation uses the Product CLI and Core directly. The wrapper
-loads `internal_validation_candidate_inventory()` in memory; that inventory is
-currently empty after promotion, while its completeness gate remains available
-for future candidates. Wrapper runs remain evidence-only and never change
-Product capabilities, the support registry, or accepted evidence automatically.
-Product mode remains fail-closed, and Worker and WebUI requests cannot select
-validation mode.
-
-| Lifecycle | Canonical model IDs | Current boundary |
-| --- | --- | --- |
-| Product-active | `keysight-e36312a` (Keysight E36312A), `keysight-edu36311a` (Keysight EDU36311A), `keysight-e3646a` (Keysight E3646A) | Exact Product-open scopes only |
-| Candidate | None | No candidate models |
-| Catalog-only | `keysight-e36313a`, `keysight-e36233a`, `keysight-e36441a`, `keysight-e36155a` | Identity/catalog metadata only |
-| De-scoped | `keysight-e36103b`, `keysight-e36232a` | Blocked from Product and Validation use |
-
-E36312A and EDU36311A TCPIP + `pyvisa_py` scopes remain pending and
-Product-closed. E3646A remains Product-open only for its existing ASRL/RS-232
-+ `system_visa` exact scopes; USB and TCPIP are not current E3646A scopes. A
-successful identity diagnostic does not imply control support, and suite or
-feature-family labels do not register additional commands. The complete
-command and connection matrix is in
-[Supported Models](docs/core/supported-models.md).
 
 ## Project Structure
 
@@ -355,72 +252,9 @@ Run the full no-hardware suite:
 .\.venv\Scripts\python.exe -m pytest tests -q -p no:cacheprovider
 ```
 
-Scripted no-hardware and live validation workflows are documented in the
-[CLI README](docs/cli/README.md).
-
-The maintained public validation entry points are layered as follows:
-
-- `scripts\preflight-cli.ps1` runs model-aware CLI dry-run and simulator
-  validation without hardware for one active model or all active models.
-- `scripts\live-cli-check.ps1` always runs that external preflight, then the
-  selected suite's exact plans, before any optional interactive live work.
-- `scripts\release-acceptance.ps1` is the complete version-neutral isolated
-  release gate and includes both the all-model preflight and a representative
-  live `-PlanOnly` contract check.
-
-Live feature validation is suite-based. For each active model, `-Suite full`
-is the complete validation gate for all currently project-supported LIVE
-features of that model. With a passing expanded full-suite record for the
-approved model and connection, the model's currently project-supported LIVE
-features may be opened. Disabled, unimplemented, out-of-scope, or factory-only
-features are not implied by the pass.
-
-A passed `scripts\live-cli-check.ps1` run validates only the selected target
-model, connection type, suite, and cases recorded in that run's artifacts. It
-does not mean every factory feature on that instrument, or the same feature on
-another connection, is live validated.
-
-Current accepted evidence connections are scoped by model, connection, suite,
-and exact recorded cases:
-
-- E36312A USB + system VISA
-- E36312A LAN + system VISA
-- EDU36311A USB + system VISA
-- EDU36311A LAN + system VISA
-- E3646A ASRL / RS-232 + system VISA
-
-These connections now have both the immutable 2026-07-09 historical records
-and independently reviewed 2026-07-17 system-VISA full-suite records. The
-current records preserve reviewed artifact paths and SHA-256 values as
-promotion-time provenance; runtime and clean CI do not require the ignored
-artifacts to exist.
-
-The E36312A expanded `trigger-list` suite includes Product-open `trigger-fire`
-and `trigger-pulse` cases for USB or TCPIP with system VISA.
-`trigger-pulse` requires an operator to observe one positive pulse on rear
-Pin 1 after connecting Pin 4 Common as the digital signal reference. Passing
-the expanded suite does not automatically promote any command to Product.
-
-Core references accepted bundles by stable evidence ID. Historical records
-remain unchanged. System-VISA evidence does not validate
-pyvisa-py, a custom backend, another transport, model, vendor, command, or
-feature. Passing a later validation artifact remains candidate evidence only;
-promotion requires a separate explicit evidence review and policy change.
-
-Only the exact commands in the Core policy matrix are product-open on these
-connections. E3646A live validation is restricted to ASRL / RS-232; E3646A
-USB and LAN remain outside the current scope.
-
-Examples:
-
-```powershell
-.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection LAN -Resource $env:E36312A_LAN_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target keysight-edu36311a -Connection USB -Resource $env:EDU36311A_USB_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target keysight-edu36311a -Connection LAN -Resource $env:EDU36311A_LAN_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target keysight-e3646a -Connection ASRL -Resource $env:E3646A_ASRL_RESOURCE -Suite full
-.\scripts\live-cli-check.ps1 -Target keysight-e36312a -Connection USB -Resource $env:E36312A_USB_RESOURCE -Suite output -PlanOnly
-```
+For scripted validation, live hardware checks, and release acceptance, see the
+[CLI README](docs/cli/README.md#scripted-validation). Hardware validation is
+explicit opt-in and requires a user-provided VISA resource.
 
 ## Contributing
 
