@@ -46,6 +46,9 @@ def run_protection(
     opener: Callable[..., Any] = open_resource,
     scpi_logger: Callable[[str, str, str], None] | None = None,
 ) -> dict[str, Any]:
+    from powers_tool_core.command_runner import validate_request_admission
+
+    request = validate_request_admission(request)
     if request.command == "protection-status":
         return _run_status(request, opener=opener, scpi_logger=scpi_logger)
     if request.command == "protection-set":
@@ -240,7 +243,7 @@ def _ensure_protection_supported(request: OperationRequest) -> None:
 
 
 def _selected_channel(request: OperationRequest) -> int | str:
-    return "all" if request.parameters.get("all", False) else request.parameters.get("channel", "all")
+    return request.parameters.get("channel", "all")
 
 
 def _channels(selected: int | str | None, supported: tuple[int, ...]) -> tuple[int, ...]:

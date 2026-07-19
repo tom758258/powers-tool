@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from copy import deepcopy
 from typing import Any
 
 from powers_tool_core import capabilities as core_capabilities
@@ -198,17 +199,20 @@ def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
 
 
 def execute_job_command(job: Job) -> dict[str, Any]:
-    runtime = build_runtime_options(job.runtime)
     command = job.command
+    runtime = build_runtime_options(job.runtime)
     if command not in WEBUI_JOB_COMMANDS:
         raise CoreValidationError(f"command is not supported by /api/jobs: {command}")
     if command == "capabilities":
         return _capabilities(runtime)
     if command == "safety inspect":
         return _safety_inspect(runtime)
+    request = deepcopy(job.admitted_request) if job.admitted_request is not None else None
+    runtime = request.runtime if request is not None else runtime
     if _requires_real_confirmation(command, runtime):
         raise ConfirmationRequiredError(f"Command '{command}' affects hardware output and requires explicit confirmation.")
-    request = _request_for_job(command, runtime, job.parameters)
+    if request is None:
+        request = _request_for_job(command, runtime, job.parameters)
     def report_cleanup(result: Any) -> None:
         payload = result.to_dict()
         job.cleanup.append(payload)

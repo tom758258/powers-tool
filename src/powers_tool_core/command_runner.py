@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 from typing import Any, Callable
 
@@ -37,6 +38,15 @@ def validate_request_admission(
         from powers_tool_core.trigger import validate_trigger_request
 
         validate_trigger_request(request)
+        if request.command == "trigger-list":
+            missing = [
+                name for name in ("channel", "voltages", "currents", "dwell")
+                if name not in request.parameters
+            ]
+            if missing:
+                raise CoreValidationError(
+                    "trigger-list requires " + ", ".join(missing)
+                )
 
     if isinstance(request, SequenceRequest) or request.command == "sequence":
         from powers_tool_core.sequence import load_sequence_document, sequence_plan
@@ -47,10 +57,21 @@ def validate_request_admission(
             document = load_sequence_document(str(request.parameters["file"]))
         if document is None:
             raise CoreValidationError("sequence requires file or document")
-        plan = sequence_plan(request, document)
-        if (request.runtime.dry_run or request.runtime.simulate) and sequence_feature_requirements(plan):
+        if not isinstance(document, dict):
+            raise CoreValidationError("sequence document must be an object")
+        canonical_parameters = {
+            key: value for key, value in request.parameters.items() if key not in {"file", "document"}
+        }
+        request = replace(request, parameters={**canonical_parameters, "document": deepcopy(document)})
+        if (request.runtime.dry_run or request.runtime.simulate) and any(
+            isinstance(step, dict)
+            and (step.get("action") == "trigger-pulse" or step.get("type") == "trigger-pulse")
+            for step in request.parameters["document"].get("steps", [])
+        ):
             request = _apply_no_hardware_support_gate(request)
-            sequence_plan(request, document)
+        plan = sequence_plan(request, request.parameters["document"])
+        if (request.runtime.dry_run or request.runtime.simulate) and sequence_feature_requirements(plan):
+            sequence_plan(request, request.parameters["document"])
         return request
 
     if request.command == "restore-from-snapshot":
@@ -64,7 +85,15 @@ def validate_request_admission(
     if request.command == "ramp-list":
         from powers_tool_core.ramp_list import ramp_list_document_for_request, ramp_list_plan
 
-        ramp_list_plan(request, ramp_list_document_for_request(request))
+        document = ramp_list_document_for_request(request)
+        request = replace(
+            request,
+            parameters={
+                **{key: value for key, value in request.parameters.items() if key not in {"file", "document"}},
+                "document": deepcopy(document),
+            },
+        )
+        ramp_list_plan(request, request.parameters["document"])
     return request
 
 
@@ -97,7 +126,9 @@ def run_core_command(
             kwargs["opener"] = opener
         if sleep is not None:
             kwargs["sleep"] = sleep
-        return run_sequence(request, **kwargs)
+        from powers_tool_core.sequence import _run_sequence_admitted
+
+        return _run_sequence_admitted(request, **kwargs)
     if command == "ramp-list":
         kwargs = {
             "stop_requested": stop_requested,
@@ -108,7 +139,9 @@ def run_core_command(
             kwargs["opener"] = opener
         if sleep is not None:
             kwargs["sleep"] = sleep
-        return run_ramp_list(request, **kwargs)
+        from powers_tool_core.ramp_list import _run_ramp_list_admitted
+
+        return _run_ramp_list_admitted(request, **kwargs)
     if isinstance(request, TriggerRequest) or command.startswith("trigger-"):
         kwargs = {"stop_requested": stop_requested, "scpi_logger": scpi_logger}
         if opener is not None:
@@ -143,7 +176,9 @@ def run_core_command(
         }
         if opener is not None:
             kwargs["opener"] = opener
-        return run_restore(request, **kwargs)
+        from powers_tool_core.restore import _run_restore_admitted
+
+        return _run_restore_admitted(request, **kwargs)
     if command in {"read-status", "readback", "measure-all"}:
         kwargs = {"scpi_logger": scpi_logger}
         if opener is not None:

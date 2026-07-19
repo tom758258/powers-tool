@@ -6,6 +6,7 @@ import asyncio
 import threading
 import time
 import uuid
+from copy import deepcopy
 from contextlib import asynccontextmanager
 from enum import Enum
 from typing import Any, AsyncIterator, Dict, List, Optional
@@ -40,12 +41,14 @@ class Job:
         runtime: Dict[str, Any],
         parameters: Dict[str, Any],
         artifacts: Optional[Dict[str, Any]] = None,
+        admitted_request: Any | None = None,
     ):
         self.job_id = job_id
         self.command = command
-        self.runtime = runtime
-        self.parameters = parameters
-        self.artifacts = artifacts or {}
+        self.runtime = deepcopy(runtime)
+        self.parameters = deepcopy(parameters)
+        self.artifacts = deepcopy(artifacts) if artifacts else {}
+        self.admitted_request = deepcopy(admitted_request)
         self.status = JobStatus.ACCEPTED
         self.result: Optional[Dict[str, Any]] = None
         self.error: Optional[str] = None
@@ -116,9 +119,10 @@ class JobManager:
         runtime: Dict[str, Any],
         parameters: Dict[str, Any],
         artifacts: Optional[Dict[str, Any]] = None,
+        admitted_request: Any | None = None,
     ) -> str:
         job_id = str(uuid.uuid4())
-        job = Job(job_id, command, runtime, parameters, artifacts)
+        job = Job(job_id, command, runtime, parameters, artifacts, admitted_request)
         job.add_event("accepted", {"message": f"Job {command} accepted"})
         async with self._lock:
             self.jobs[job_id] = job

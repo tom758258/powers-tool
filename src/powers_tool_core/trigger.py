@@ -76,12 +76,14 @@ def run_trigger(
 
 
 def validate_trigger_request(request: TriggerRequest) -> None:
-    """Reject trigger controls that cannot complete or restore safely."""
+    """Reject unsafe trigger-control combinations on an admitted request.
 
-    request = validate_and_normalize_request(request)
+    This helper remains intentionally usable by the isolated trigger-control
+    tests; public runners and adapters perform full contract admission first.
+    """
 
     if request.command == "trigger-fire":
-        if request.parameters["wait_complete"] and request.parameters.get("channel") is None:
+        if request.parameters.get("wait_complete", False) and request.parameters.get("channel") is None:
             raise CoreValidationError(
                 "trigger-fire wait_complete requires channel as the abort target "
                 "if the wait times out or is interrupted"
@@ -90,9 +92,9 @@ def validate_trigger_request(request: TriggerRequest) -> None:
     if request.command not in {"trigger-step", "trigger-list"}:
         return
     source = str(request.parameters.get("source", "bus")).strip().lower()
-    fire = request.parameters["fire"]
-    wait_complete = request.parameters["wait_complete"]
-    leave_configured = request.parameters["leave_trigger_configured"]
+    fire = request.parameters.get("fire", False)
+    wait_complete = request.parameters.get("wait_complete", False)
+    leave_configured = request.parameters.get("leave_trigger_configured", False)
     immediate = source in {"immediate", "imm"}
     if immediate and fire:
         raise CoreValidationError(f"{request.command} source=immediate does not accept fire=true; INIT starts it immediately")

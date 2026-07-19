@@ -72,9 +72,33 @@ def run_ramp_list(
 ) -> dict[str, Any]:
     """Lint, plan, or execute a versioned ramp list."""
 
-    request = validate_and_normalize_request(request)
+    from powers_tool_core.command_runner import validate_request_admission
+
+    return _run_ramp_list_admitted(
+        validate_request_admission(request),
+        opener=opener,
+        sleep=sleep,
+        scpi_logger=scpi_logger,
+        stop_requested=stop_requested,
+        cleanup_reporter=cleanup_reporter,
+    )
+
+
+def _run_ramp_list_admitted(
+    request: OperationRequest,
+    *,
+    opener: Callable[..., Any] = open_resource,
+    sleep: Callable[[float], None] = time.sleep,
+    scpi_logger: Callable[[str, str, str], None] | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+    cleanup_reporter: CleanupReporter | None = None,
+) -> dict[str, Any]:
+    """Execute one admitted Ramp List request without reading its source again."""
+
     request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
-    document = ramp_list_document_for_request(request)
+    document = request.parameters.get("document")
+    if not isinstance(document, dict):
+        raise CoreValidationError("admitted ramp-list requires document")
     plan = ramp_list_plan(request, document)
     if request.runtime.simulate:
         _validate_known_simulated_plan(request, plan)

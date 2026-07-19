@@ -15,7 +15,6 @@ from fastapi.staticfiles import StaticFiles
 from powers_tool_core.core import CommandCancelled, CoreExecutionError, CoreValidationError, OperationRequest, RuntimeOptions, SequenceRequest, StopCleanupError, TriggerRequest
 from powers_tool_core.identity import IdentityResolutionError, resolve_physical_model_identity
 from powers_tool_core.parameter_constraints import parameter_constraints_metadata
-from powers_tool_core.sequence import load_sequence_document
 from powers_tool_core.command_runner import validate_request_admission
 from powers_tool_core.model_metadata import product_active_model_metadata
 
@@ -247,9 +246,10 @@ async def create_job(request: Request):
                 runtime=validation_runtime,
                 parameters=parameters,
             )
+            admitted_request = validate_request_admission(validation_request)
             if command == "sequence":
-                _validate_webui_sequence_size(parameters)
-            admitted_parameters = validate_request_admission(validation_request).parameters
+                _validate_webui_sequence_size(admitted_request.parameters)
+            admitted_parameters = admitted_request.parameters
     except (CoreValidationError, OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -266,6 +266,7 @@ async def create_job(request: Request):
         runtime=runtime,
         parameters=admitted_parameters,
         artifacts=artifacts,
+        admitted_request=(None if command in {"capabilities", "safety inspect"} else admitted_request),
     )
 
     job = job_manager.jobs.get(job_id)
@@ -614,11 +615,6 @@ def _validate_webui_sequence_size(parameters: Any) -> None:
     if not isinstance(parameters, dict):
         return
     document = parameters.get("document")
-    if document is None and parameters.get("file"):
-        try:
-            document = load_sequence_document(str(parameters["file"]))
-        except (CoreValidationError, OSError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not isinstance(document, dict):
         return
     steps = document.get("steps")

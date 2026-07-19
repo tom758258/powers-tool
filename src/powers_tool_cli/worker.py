@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import datetime
 import json
 import sys
@@ -273,6 +274,12 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
             planning_model_id=arguments.get("planning_model_id"),
             expected_model_id=arguments.get("expected_model_id"),
             planning_profile_id=arguments.get("planning_profile_id"),
+            backend=settings.get("backend"),
+            timeout_ms=settings.get("timeout_ms", 5000),
+            confirm=arguments.get("confirm_output", False),
+            serial_options=_serial_options_from_settings(settings),
+            serial_remote=bool(settings.get("serial_remote", False)),
+            serial_local_on_close=bool(settings.get("serial_local_on_close", False)),
         )
     except CoreValidationError as exc:
         return 400, _command_response(
@@ -308,7 +315,12 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
             return 409, _command_response("rejected", command, job_id, reason="output_changes_not_allowed", error={"code": "output_changes_not_allowed", "message": "live output-affecting commands require settings.allow_output_writes=true"})
         if not confirm_output:
             return 409, _command_response("rejected", command, job_id, reason="output_confirmation_required", error={"code": "output_confirmation_required", "message": "live output-affecting commands require arguments.confirm_output=true"})
-    return 202, {"command": command, "arguments": normalized_arguments, **({"job_id": job_id} if job_id is not None else {})}
+    return 202, {
+        "command": command,
+        "arguments": normalized_arguments,
+        "_admitted_request": admitted_request,
+        **({"job_id": job_id} if job_id is not None else {}),
+    }
 
 
 class WorkerState:
@@ -496,6 +508,7 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
             body_data = validation[1]
             cmd = body_data["command"]
             arguments = body_data["arguments"]
+            admitted_request = body_data.pop("_admitted_request")
             client_job_id = body_data.get("job_id")
 
             with state.lock:
@@ -553,6 +566,7 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                     "worker_job_id": worker_job_id,
                     "command": cmd,
                     "arguments": arguments,
+                    "request": deepcopy(admitted_request),
                     "dir": job_dir,
                 }
                 state.lock.notify_all()
@@ -711,27 +725,37 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             }
     emit_event(config, "job_started", {"job_id": client_job_id, "worker_job_id": worker_job_id, "command": cmd, "run_id": state.run_id})
 
-    params = _command_parameters(arguments)
-    confirm_req = arguments.get("confirm_output", False)
-    dry_run_req = arguments.get("dry_run", False)
-
-    # Initialize RuntimeOptions
-    runtime = RuntimeOptions(
-        resource=settings.get("resource"),
-        resource_alias=settings.get("resource_alias"),
-        safety_config=settings.get("safety_config"),
-        simulate=(config["mode"] == "simulate"),
-        dry_run=dry_run_req,
-        planning_model_id=arguments.get("planning_model_id"),
-        expected_model_id=arguments.get("expected_model_id"),
-        planning_profile_id=arguments.get("planning_profile_id"),
-        backend=settings.get("backend"),
-        timeout_ms=settings.get("timeout_ms", 5000),
-        confirm=confirm_req,
-        serial_options=_serial_options_from_settings(settings),
-        serial_remote=bool(settings.get("serial_remote", False)),
-        serial_local_on_close=bool(settings.get("serial_local_on_close", False)),
-    )
+    request = job.get("request")
+    if not isinstance(request, (OperationRequest, TriggerRequest, SequenceRequest)):
+        # Compatibility for in-process callers predating queued admission.
+        # HTTP submissions always carry the admitted request above.
+        runtime = RuntimeOptions(
+            resource=settings.get("resource"),
+            resource_alias=settings.get("resource_alias"),
+            safety_config=settings.get("safety_config"),
+            simulate=(config["mode"] == "simulate"),
+            dry_run=arguments.get("dry_run", False),
+            planning_model_id=arguments.get("planning_model_id"),
+            expected_model_id=arguments.get("expected_model_id"),
+            planning_profile_id=arguments.get("planning_profile_id"),
+            backend=settings.get("backend"),
+            timeout_ms=settings.get("timeout_ms", 5000),
+            confirm=arguments.get("confirm_output", False),
+            serial_options=_serial_options_from_settings(settings),
+            serial_remote=bool(settings.get("serial_remote", False)),
+            serial_local_on_close=bool(settings.get("serial_local_on_close", False)),
+        )
+        request_type = (
+            SequenceRequest if cmd == "sequence" else TriggerRequest
+            if cmd.startswith("trigger-") else OperationRequest
+        )
+        request = request_type(cmd, runtime, _command_parameters(arguments))
+    # Admission owns canonical parameters and materialized documents.  Copy so
+    # no worker-local code can mutate the queued submission.
+    request = deepcopy(request)
+    params = request.parameters
+    runtime = request.runtime
+    confirm_req = runtime.confirm
 
     opener = get_opener(state)
     start_perf = time.perf_counter()
@@ -753,17 +777,12 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
     try:
         if cmd == "sequence":
             doc = params.get("document")
-            if doc is None:
-                fp = params.get("file")
-                if fp is not None:
-                    doc = load_sequence_document(str(fp))
-                else:
-                    raise CoreValidationError("sequence requires file or document parameter")
+            if not isinstance(doc, dict):
+                raise CoreValidationError("worker sequence request is missing admitted document")
 
             # Output-affecting double-confirmation check
             if doc is not None:
-                plan_req = SequenceRequest(command="sequence", runtime=runtime, parameters=params)
-                plan = sequence_plan(plan_req, doc)
+                plan = sequence_plan(request, doc)
                 has_writes = any(
                     step.get("action") in {
                         "set", "apply", "output-on", "output-off", "safe-off", "cycle-output", "ramp", "smoke-output", "trigger-pulse"
@@ -779,14 +798,8 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
                             "and request confirm=true"
                         )
 
-            req = SequenceRequest(command="sequence", runtime=runtime, parameters=params)
-        elif cmd.startswith("trigger-"):
-            req = TriggerRequest(command=cmd, runtime=runtime, parameters=params)
-        else:
-            req = OperationRequest(command=cmd, runtime=runtime, parameters=params)
-
         result_data = run_core_command(
-            req,
+            request,
             opener=opener,
             stop_requested=lambda: state.stop_event.is_set() or state.job_cancel_event.is_set(),
             cleanup_reporter=report_cleanup,

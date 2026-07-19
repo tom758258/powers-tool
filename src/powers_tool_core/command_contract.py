@@ -27,6 +27,10 @@ class CommandContract:
     fields: Mapping[str, Field]
     aliases: Mapping[str, str] = None  # alias -> canonical
     mutually_exclusive: tuple[tuple[str, ...], ...] = ()
+    exactly_one_of: tuple[tuple[str, ...], ...] = ()
+    at_least_one: tuple[tuple[str, ...], ...] = ()
+    dependencies: Mapping[str, tuple[str, ...]] = None
+    removed_fields: Mapping[str, str] = None
 
 
 def _fields(*names: str, **typed: Field) -> dict[str, Field]:
@@ -36,7 +40,7 @@ def _fields(*names: str, **typed: Field) -> dict[str, Field]:
 
 
 BOOLEAN_FALSE = Field("bool", default=False)
-POSITIVE_INTEGER = Field("int", required=False)
+POSITIVE_INTEGER = Field("int", required=True)
 NUMBER = Field("number")
 CHANNEL = Field("channel")
 ALL_CHANNEL = Field("channel", allow_all=True)
@@ -63,31 +67,31 @@ COMMAND_CONTRACTS: dict[str, CommandContract] = {
     "verify": CommandContract({}),
     "clear": CommandContract({}),
     "error": CommandContract(_fields(max_reads=Field("positive_int", default=20))),
-    "measure": CommandContract(_fields(channel=CHANNEL)),
+    "measure": CommandContract(_fields(channel=Field("channel", required=True))),
     "measure-all": CommandContract({}),
-    "read-status": CommandContract(_fields(channel=ALL_CHANNEL, max_errors=Field("positive_int", default=20))),
-    "readback": CommandContract(_fields(channel=ALL_CHANNEL)),
+    "read-status": CommandContract(_fields(channel=Field("channel", allow_all=True, default="all"), max_errors=Field("positive_int", default=20))),
+    "readback": CommandContract(_fields(channel=Field("channel", allow_all=True, default="all"))),
     "identify": CommandContract({}),
     "snapshot": CommandContract(_fields(max_errors=Field("positive_int", default=20))),
-    "protection-status": CommandContract(_fields(channel=ALL_CHANNEL, all=BOOLEAN_FALSE)),
+    "protection-status": CommandContract(_fields(channel=Field("channel", allow_all=True, default="all"), all=Field("bool"))),
     "protection-set": CommandContract(_fields(
-        channel=ALL_CHANNEL,
-        all=BOOLEAN_FALSE,
+        channel=Field("channel", allow_all=True, default="all"),
+        all=Field("bool"),
         ovp_voltage=Field("nonnegative_number"),
         ocp=Field("enum", values=frozenset({"on", "off"})),
         ocp_delay=Field("nonnegative_number"),
         ocp_delay_trigger=Field("enum", values=frozenset({"setting-change", "cc-transition"})),
-    )),
-    "clear-protection": CommandContract(_fields(channel=ALL_CHANNEL, all=BOOLEAN_FALSE)),
-    "set": CommandContract(_fields(channel=CHANNEL, voltage=Field("nonnegative_number"), current=Field("nonnegative_number"), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
-    "apply": CommandContract(_fields(channel=ALL_CHANNEL, voltage=Field("nonnegative_number", required=True), current=Field("nonnegative_number", required=True), no_output=BOOLEAN_FALSE, **_VERIFY_FIELDS, **_PULSE_FIELDS)),
-    "output-on": CommandContract(_fields(channel=ALL_CHANNEL, **_VERIFY_FIELDS, **_PULSE_FIELDS)),
-    "output-off": CommandContract(_fields(channel=ALL_CHANNEL, **_VERIFY_FIELDS, **_PULSE_FIELDS)),
-    "safe-off": CommandContract(_fields(channel=ALL_CHANNEL, **_VERIFY_FIELDS, **_PULSE_FIELDS)),
-    "output-state": CommandContract(_fields(channel=ALL_CHANNEL)),
-    "cycle-output": CommandContract(_fields(channel=ALL_CHANNEL, duration_ms=Field("positive_int", default=500), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
+    ), at_least_one=(("ovp_voltage", "ocp", "ocp_delay", "ocp_delay_trigger"),)),
+    "clear-protection": CommandContract(_fields(channel=ALL_CHANNEL, all=Field("bool")), exactly_one_of=(("channel", "all"),)),
+    "set": CommandContract(_fields(channel=Field("channel", required=True), voltage=Field("nonnegative_number"), current=Field("nonnegative_number"), **_VERIFY_FIELDS, **_PULSE_FIELDS), at_least_one=(("voltage", "current"),)),
+    "apply": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), voltage=Field("nonnegative_number", required=True), current=Field("nonnegative_number", required=True), no_output=BOOLEAN_FALSE, **_VERIFY_FIELDS, **_PULSE_FIELDS)),
+    "output-on": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
+    "output-off": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
+    "safe-off": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
+    "output-state": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True))),
+    "cycle-output": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), duration_ms=Field("positive_int", default=500), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
     "ramp": CommandContract(_fields(
-        channel=CHANNEL,
+        channel=Field("channel", required=True),
         current=Field("nonnegative_number", required=True),
         start_voltage=Field("nonnegative_number", required=True),
         stop_voltage=Field("nonnegative_number", required=True),
@@ -99,21 +103,21 @@ COMMAND_CONTRACTS: dict[str, CommandContract] = {
         **_VERIFY_FIELDS,
         **_PULSE_FIELDS,
     )),
-    "smoke-output": CommandContract(_fields(channel=CHANNEL, voltage=Field("nonnegative_number", required=True), current=Field("nonnegative_number", required=True), duration_ms=Field("positive_int", default=500), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
+    "smoke-output": CommandContract(_fields(channel=Field("channel", required=True), voltage=Field("nonnegative_number", required=True), current=Field("nonnegative_number", required=True), duration_ms=Field("positive_int", default=500), **_VERIFY_FIELDS, **_PULSE_FIELDS)),
     "ramp-list": CommandContract(_fields(file=STRING, document=DOCUMENT, lint=BOOLEAN_FALSE, loop_count=Field("range_int")), mutually_exclusive=(("file", "document"),)),
     "sequence": CommandContract(_fields(file=STRING, document=DOCUMENT, lint=BOOLEAN_FALSE, loop_count=Field("range_int")), mutually_exclusive=(("file", "document"),)),
     "restore-from-snapshot": CommandContract(_fields(document=DOCUMENT, snapshot=STRING, file=STRING, channel=ALL_CHANNEL, restore_output_state=BOOLEAN_FALSE), mutually_exclusive=(("document", "snapshot", "file"),)),
-    "trigger-pulse": CommandContract(_fields(channel=CHANNEL, pin=Field("pin"), pins=Field("pin_list"), polarity=Field("enum", default="positive", values=frozenset({"positive", "negative"})), exclusive_pins=BOOLEAN_FALSE, max_errors=Field("positive_int", default=20)), mutually_exclusive=(("pin", "pins"),)),
-    "trigger-status": CommandContract(_fields(channel=ALL_CHANNEL, max_errors=Field("positive_int", default=20))),
+    "trigger-pulse": CommandContract(_fields(channel=Field("channel", default=1), pin=Field("pin"), pins=Field("pin_list"), polarity=Field("enum", default="positive", values=frozenset({"positive", "negative"})), exclusive_pins=BOOLEAN_FALSE, max_errors=Field("positive_int", default=20)), exactly_one_of=(("pin", "pins"),)),
+    "trigger-status": CommandContract(_fields(channel=Field("channel", allow_all=True, default="all"), max_errors=Field("positive_int", default=20))),
     "trigger-step": CommandContract(_fields(
-        channel=CHANNEL,
+        channel=Field("channel", required=True),
         source=Field("enum", default="bus", values=frozenset({"bus", "immediate", "pin1", "pin2", "pin3", "ext"})),
         voltage=Field("nonnegative_number"), current=Field("nonnegative_number"), fire=BOOLEAN_FALSE,
         wait_complete=BOOLEAN_FALSE, wait_timeout_ms=Field("positive_int", default=10000), poll_ms=Field("min50_int", default=200),
         **_PULSE_FIELDS,
     )),
     "trigger-list": CommandContract(_fields(
-        channel=CHANNEL,
+        channel=Field("channel", required=True),
         source=Field("enum", default="bus", values=frozenset({"bus", "immediate", "pin1", "pin2", "pin3", "ext"})),
         voltages=Field("number_list"), currents=Field("number_list"), dwell=Field("number_list"),
         bost_list=Field("bool_list"), eost_list=Field("bool_list"), trigger_output_pins=Field("pin_list"),
@@ -124,7 +128,7 @@ COMMAND_CONTRACTS: dict[str, CommandContract] = {
         pins=Field("pin_list"), polarity=Field("enum", values=frozenset({"positive", "negative"})), leave_trigger_configured=BOOLEAN_FALSE,
     ), aliases={"voltage_list": "voltages", "current_list": "currents", "dwell_list": "dwell"}, mutually_exclusive=(("voltages", "voltage_list"), ("currents", "current_list"), ("dwell", "dwell_list"))),
     "trigger-fire": CommandContract(_fields(channel=CHANNEL, wait_complete=BOOLEAN_FALSE, wait_timeout_ms=Field("positive_int", default=10000), poll_ms=Field("min50_int", default=200))),
-    "trigger-abort": CommandContract(_fields(channel=ALL_CHANNEL, max_errors=Field("positive_int", default=20))),
+    "trigger-abort": CommandContract(_fields(channel=Field("channel", required=True, allow_all=True), max_errors=Field("positive_int", default=20))),
 }
 
 SEQUENCE_ACTION_CONTRACTS: dict[str, CommandContract] = {
@@ -158,33 +162,9 @@ def validate_sequence_action_parameters(action: str, parameters: Any) -> dict[st
     contract = SEQUENCE_ACTION_CONTRACTS[action]
     if not isinstance(parameters, dict):
         raise CoreValidationError(f"sequence {action} parameters must be an object")
-    raw = dict(parameters)
-    aliases = contract.aliases or {}
-    for group in contract.mutually_exclusive:
-        present = [name for name in group if name in raw]
-        if len(present) > 1:
-            raise CoreValidationError(f"sequence {action} alias conflict: {', '.join(present)}")
-    for alias, canonical in aliases.items():
-        if alias in raw:
-            raw[canonical] = raw.pop(alias)
-    unknown = sorted(set(raw) - set(contract.fields))
-    if unknown:
-        raise CoreValidationError(f"sequence {action} has inapplicable field(s): {', '.join(unknown)}")
-    normalized: dict[str, Any] = {}
-    for name, field in contract.fields.items():
-        if name not in raw:
-            continue
-        value = raw[name]
-        if value is None:
-            raise CoreValidationError(f"sequence {action} {name} must not be null")
-        normalized[name] = _normalize_field(name, value, field)
-    for name, field in contract.fields.items():
-        if name not in normalized:
-            if field.required:
-                raise CoreValidationError(f"sequence {action} requires {name}")
-            if field.default is not _MISSING:
-                normalized[name] = field.default
-    return normalized
+    return _admit_parameters(
+        f"sequence {action}", parameters, contract, materialize_defaults=True
+    )
 
 
 def validate_and_normalize_request(
@@ -198,28 +178,83 @@ def validate_and_normalize_request(
     if not isinstance(request.parameters, dict):
         raise CoreValidationError("parameters must be an object")
     raw = dict(request.parameters)
+    if request.command.startswith("protection-") or request.command == "clear-protection":
+        raw = _normalize_protection_selector(request.command, raw)
+    semantic_defaults = request.command.startswith("trigger-") or request.command in {
+        "read-status", "readback", "protection-status", "protection-set",
+    }
+    if "completion_pulse_channel" in raw:
+        _normalize_field(
+            "completion_pulse_channel", raw["completion_pulse_channel"], Field("pulse_channel")
+        )
+        if not raw.get("completion_pulse_pins"):
+            raise CoreValidationError("completion_pulse_channel requires completion_pulse_pins")
+    normalized = _admit_parameters(
+        request.command, raw, contract, materialize_defaults=semantic_defaults
+    )
+    if "completion_pulse_channel" in normalized and "completion_pulse_pins" not in normalized:
+        raise CoreValidationError("completion_pulse_channel requires completion_pulse_pins")
+    if request.command == "trigger-fire" and normalized["wait_complete"] and "channel" not in normalized:
+        raise CoreValidationError("trigger-fire wait_complete requires channel as the abort target")
+    return replace(request, parameters=normalized)
+
+
+def _normalize_protection_selector(command: str, raw: dict[str, Any]) -> dict[str, Any]:
+    """Keep the legacy all flag at the boundary while exposing one selector."""
+
+    if "channel" in raw and "all" in raw:
+        raise CoreValidationError("channel and all are mutually exclusive")
+    if "all" not in raw:
+        return raw
+    all_value = raw["all"]
+    if type(all_value) is not bool:
+        raise CoreValidationError("all must be a boolean")
+    raw = dict(raw)
+    raw.pop("all")
+    if all_value:
+        raw["channel"] = "all"
+    elif command == "clear-protection":
+        # A false legacy flag is not a selector.
+        raise CoreValidationError("clear-protection requires channel or all=true")
+    return raw
+
+
+def _admit_parameters(
+    label: str,
+    parameters: Any,
+    contract: CommandContract,
+    *,
+    materialize_defaults: bool,
+) -> dict[str, Any]:
+    if not isinstance(parameters, dict):
+        raise CoreValidationError(f"{label} parameters must be an object")
+    raw = dict(parameters)
     aliases = contract.aliases or {}
+    removed = contract.removed_fields or {}
+    removed_present = sorted(set(raw) & set(removed))
+    if removed_present:
+        name = removed_present[0]
+        raise CoreValidationError(f"{label} field {name} has been removed: {removed[name]}")
     for group in contract.mutually_exclusive:
         present = [name for name in group if name in raw]
         if len(present) > 1:
-            if any(name in aliases for name in present) or any(name in aliases.values() for name in present):
-                raise CoreValidationError(f"alias conflict: {', '.join(present)} cannot be supplied together")
-            raise CoreValidationError(f"mutually exclusive fields: {', '.join(present)}")
+            if any(name in aliases or name in aliases.values() for name in present):
+                raise CoreValidationError(f"{label} alias conflict: {', '.join(present)} cannot be supplied together")
+            raise CoreValidationError(f"{label} mutually exclusive fields: {', '.join(present)}")
+    for group in contract.exactly_one_of:
+        present = [name for name in group if name in raw]
+        if len(present) != 1:
+            raise CoreValidationError(f"{label} requires exactly one of: {', '.join(group)}")
     for alias, canonical in aliases.items():
         if alias in raw:
             raw[canonical] = raw.pop(alias)
-    if "completion_pulse_channel" in raw:
-        _normalize_field("completion_pulse_channel", raw["completion_pulse_channel"], Field("pulse_channel"))
-        if not raw.get("completion_pulse_pins"):
-            raise CoreValidationError("completion_pulse_channel requires completion_pulse_pins")
     unknown = sorted(set(raw) - set(contract.fields))
     if unknown:
-        if request.command == "measure-all" and unknown == ["channel"]:
+        if label == "measure-all" and unknown == ["channel"]:
             raise CoreValidationError("measure-all always reads all channels and does not accept channel")
-        raise CoreValidationError(f"{request.command} has unknown or inapplicable field(s): {', '.join(unknown)}")
+        raise CoreValidationError(f"{label} has unknown or inapplicable field(s): {', '.join(unknown)}")
     normalized: dict[str, Any] = {}
-    # Validate supplied values first so an invalid supplied field wins over a
-    # separate missing required field, as it did before central admission.
+    # Invalid supplied values are more useful than an unrelated missing field.
     for name, field in contract.fields.items():
         if name not in raw:
             continue
@@ -233,16 +268,24 @@ def validate_and_normalize_request(
             if not field.nullable:
                 raise CoreValidationError(f"{name} must not be null")
             normalized[name] = None
-            continue
-        normalized[name] = _normalize_field(name, value, field)
+        else:
+            normalized[name] = _normalize_field(name, value, field)
+    for group in contract.at_least_one:
+        if not any(name in normalized for name in group):
+            if label == "set" and group == ("voltage", "current"):
+                raise CoreValidationError("set requires voltage, current, or both")
+            raise CoreValidationError(f"{label} requires at least one of: {', '.join(group)}")
     for name, field in contract.fields.items():
         if name in normalized:
             continue
         if field.required:
-            raise CoreValidationError(f"{request.command} requires {name}")
-        if field.default is not _MISSING and request.command.startswith("trigger-"):
+            raise CoreValidationError(f"{label} requires {name}")
+        if materialize_defaults and field.default is not _MISSING:
             normalized[name] = field.default
-    return replace(request, parameters=normalized)
+    for field, required_fields in (contract.dependencies or {}).items():
+        if field in normalized and any(required not in normalized for required in required_fields):
+            raise CoreValidationError(f"{label} {field} requires {', '.join(required_fields)}")
+    return normalized
 
 
 def _normalize_field(name: str, value: Any, field: Field) -> Any:

@@ -50,7 +50,32 @@ def run_sequence(
 ) -> dict[str, Any]:
     """Lint, plan, or execute a sequence request."""
 
-    request = validate_and_normalize_request(request)
+    # Public Core entry points must offer the same fail-closed admission as
+    # adapter routing.  The internal runner receives an already materialized
+    # document and never reopens a user-provided path.
+    from powers_tool_core.command_runner import validate_request_admission
+
+    return _run_sequence_admitted(
+        validate_request_admission(request),
+        opener=opener,
+        sleep=sleep,
+        scpi_logger=scpi_logger,
+        stop_requested=stop_requested,
+        cleanup_reporter=cleanup_reporter,
+    )
+
+
+def _run_sequence_admitted(
+    request: SequenceRequest,
+    *,
+    opener: Callable[..., Any] = open_resource,
+    sleep: Callable[[float], None] = time.sleep,
+    scpi_logger: Callable[[str, str, str], None] | None = None,
+    stop_requested: Callable[[], bool] | None = None,
+    cleanup_reporter: CleanupReporter | None = None,
+) -> dict[str, Any]:
+    """Execute one admitted Sequence request without source-file fallback."""
+
     planning_resolved = False
     if request.runtime.dry_run or request.runtime.simulate:
         try:
@@ -60,11 +85,8 @@ def run_sequence(
             if "planning require planning_model_id" not in str(exc):
                 raise
     document = request.parameters.get("document")
-    if document is None:
-        file_path = request.parameters.get("file")
-        if file_path is None:
-            raise CoreValidationError("sequence requires file or document")
-        document = load_sequence_document(str(file_path))
+    if not isinstance(document, dict):
+        raise CoreValidationError("admitted sequence requires document")
 
     plan = sequence_plan(request, document)
     if sequence_feature_requirements(plan) and not planning_resolved:
@@ -275,12 +297,14 @@ def sequence_step_preview(
 
 
 def normalize_sequence_step(index: int, raw_step: Any) -> dict[str, Any]:
-    if isinstance(raw_step, str):
-        return {"index": index, "action": raw_step, "parameters": {}}
     if not isinstance(raw_step, dict):
         raise CoreValidationError(f"sequence step {index} must be a mapping")
+    if "action" in raw_step and "type" in raw_step:
+        raise CoreValidationError(f"sequence step {index} cannot contain both action and type")
     if "action" in raw_step or "type" in raw_step:
-        action = str(raw_step.get("action", raw_step.get("type")))
+        action = raw_step.get("action", raw_step.get("type"))
+        if type(action) is not str:
+            raise CoreValidationError(f"sequence step {index} action must be a string")
         parameters = {key: value for key, value in raw_step.items() if key not in {"action", "type", "index"}}
     elif len(raw_step) == 1:
         action, value = next(iter(raw_step.items()))

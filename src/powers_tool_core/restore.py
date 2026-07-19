@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 import json
 import math
@@ -34,7 +35,25 @@ def run_restore(
     scpi_logger: Callable[[str, str, str], None] | None = None,
     stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
-    request = validate_and_normalize_request(request)
+    from powers_tool_core.command_runner import validate_request_admission
+
+    return _run_restore_admitted(
+        validate_request_admission(request),
+        opener=opener,
+        scpi_logger=scpi_logger,
+        stop_requested=stop_requested,
+    )
+
+
+def _run_restore_admitted(
+    request: OperationRequest,
+    *,
+    opener: Callable[..., Any] = open_resource,
+    scpi_logger: Callable[[str, str, str], None] | None = None,
+    stop_requested: StopRequested = None,
+) -> dict[str, Any]:
+    """Execute an admitted restore request using its canonical document only."""
+
     if request.command != "restore-from-snapshot":
         raise CoreValidationError(f"unsupported restore command {request.command!r}")
     request, snapshot = prepare_restore_request(request)
@@ -204,6 +223,17 @@ def validate_restore_admission(request: OperationRequest) -> OperationRequest:
 
     request = validate_and_normalize_request(request)
     request, snapshot = prepare_restore_request(request)
+    request = replace(
+        request,
+        parameters={
+            **{
+                key: value
+                for key, value in request.parameters.items()
+                if key not in {"file", "snapshot", "document"}
+            },
+            "document": deepcopy(snapshot),
+        },
+    )
     restore_output_state = strict_boolean_parameter(
         request.parameters,
         "restore_output_state",
@@ -300,6 +330,12 @@ def validate_snapshot_document(document: dict[str, Any]) -> dict[str, Any]:
         )
     outputs = _validate_output_records(document.get("outputs"))
     readback = _validate_readback_records(document.get("readback"))
+    # These read-only producer sections are optional in older schema-2
+    # snapshots, but become strict as soon as they are present.
+    if "measurements" in document:
+        _validate_measurement_records(document["measurements"])
+    if "protection" in document:
+        _validate_snapshot_protection(document["protection"])
     protection = _validate_protection_records(document.get("protection_settings"))
     if not outputs:
         raise CoreValidationError("snapshot outputs must not be empty")
@@ -495,6 +531,36 @@ def _validate_readback_records(records: Any) -> dict[int, dict[str, Any]]:
                 f"snapshot readback[].setpoints.{field}",
             )
     return by_channel
+
+
+def _validate_measurement_records(records: Any) -> dict[int, dict[str, Any]]:
+    by_channel = _validated_channel_records(records, "measurements")
+    for record in by_channel.values():
+        _reject_unknown_fields(record, {"channel", "measurements"}, "snapshot measurements[]")
+        readings = record.get("measurements")
+        if not isinstance(readings, dict):
+            raise CoreValidationError("snapshot measurements[].measurements must be an object")
+        _reject_unknown_fields(
+            readings, {"voltage", "current"}, "snapshot measurements[].measurements"
+        )
+        for field in ("voltage", "current"):
+            _require_finite_number(
+                readings.get(field), f"snapshot measurements[].measurements.{field}"
+            )
+    return by_channel
+
+
+def _validate_snapshot_protection(value: Any) -> None:
+    if not isinstance(value, dict):
+        raise CoreValidationError("snapshot protection must be an object")
+    _reject_unknown_fields(
+        value,
+        {"over_voltage_tripped", "over_current_tripped"},
+        "snapshot protection",
+    )
+    for field in ("over_voltage_tripped", "over_current_tripped"):
+        if type(value.get(field)) is not bool:
+            raise CoreValidationError(f"snapshot protection.{field} must be a boolean")
 
 
 def _validate_protection_records(records: Any) -> dict[int, dict[str, Any]]:

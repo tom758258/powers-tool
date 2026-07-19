@@ -18,6 +18,22 @@ values are already parsed Python primitives and pass through the same Core
 contract. Aliases are accepted only when one spelling is supplied; two aliases
 for the same value are an admission error.
 
+Admission canonicalizes a request once, before a Worker job, WebUI job, VISA
+open, or hardware lock. Sequence, Ramp List, and snapshot-restore file sources
+are read and strictly validated at that boundary, deep-copied into `document`,
+and their source path field is removed. Execution consumes only this admitted
+document, so replacing or deleting a source file after submission cannot
+change a queued workflow. Re-admitting an already admitted request is
+idempotent.
+
+Only semantic defaults are materialized. In particular, trigger controls and
+read-only/all-channel selectors have canonical defaults, while optional
+completion-pulse and other presence-sensitive settings remain absent unless
+the caller supplied them. Protection uses the canonical `channel` selector;
+the compatibility form `all: true` becomes `channel: "all"`. Supplying both
+forms, including `all: false`, is rejected; a lone `all: false` is not an
+all-channel selector.
+
 ## Fixed Limits
 
 - Public Core and raw JSON `channel` values are type-strict: an accepted
