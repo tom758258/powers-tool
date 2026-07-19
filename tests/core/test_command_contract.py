@@ -1,0 +1,133 @@
+import pytest
+
+from powers_tool_core.command_runner import run_core_command, validate_request_admission
+from powers_tool_core.core import CoreValidationError, RuntimeOptions, SequenceRequest, TriggerRequest, OperationRequest
+
+
+def test_trigger_step_string_fire_is_rejected() -> None:
+    with pytest.raises(CoreValidationError, match="fire"):
+        validate_request_admission(TriggerRequest("trigger-step", RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), {"channel": 1, "fire": "false"}))
+
+
+def test_trigger_list_alias_conflict_is_rejected() -> None:
+    with pytest.raises(CoreValidationError, match="alias conflict"):
+        validate_request_admission(TriggerRequest("trigger-list", RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), {"channel": 1, "voltages": [1.0], "voltage_list": [1.0]}))
+
+
+def test_sequence_wait_shorthand_scalar_is_rejected() -> None:
+    request = SequenceRequest("sequence", RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), {"document": {"version": 1, "steps": [{"wait": 3}]}})
+    with pytest.raises(CoreValidationError, match="must contain an object"):
+        validate_request_admission(request)
+
+
+def test_protection_ocp_enum_is_fail_closed() -> None:
+    with pytest.raises(CoreValidationError, match="ocp"):
+        validate_request_admission(OperationRequest("protection-set", RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), {"ocp": "disabled"}))
+
+
+@pytest.mark.parametrize("command", ["trigger-step", "trigger-list"])
+def test_trigger_fire_string_false_is_rejected_before_opener(command: str) -> None:
+    opened = False
+
+    def opener(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        raise AssertionError("admission must not open hardware")
+
+    parameters = {"channel": 1, "fire": "false"}
+    if command == "trigger-list":
+        parameters.update(voltages=[1.0], currents=[0.1], dwell=[0.01], leave_trigger_configured=True)
+    with pytest.raises(CoreValidationError, match="fire"):
+        run_core_command(TriggerRequest(command, RuntimeOptions(resource="USB0::FAKE::INSTR"), parameters), opener=opener)
+    assert opened is False
+
+
+@pytest.mark.parametrize("field", ["wait_complete", "leave_trigger_configured", "exclusive_pins"])
+def test_trigger_boolean_strings_are_rejected_without_wait_or_hardware(field: str) -> None:
+    parameters = {"channel": 1, field: "false"}
+    command = "trigger-step"
+    if field == "exclusive_pins":
+        command = "trigger-pulse"
+        parameters = {"channel": 1, "pins": [1], field: "false"}
+    with pytest.raises(CoreValidationError, match=field):
+        validate_request_admission(
+            TriggerRequest(command, RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), parameters)
+        )
+
+
+@pytest.mark.parametrize(
+    ("canonical", "alias", "value"),
+    [
+        ("voltages", "voltage_list", [1.0]),
+        ("currents", "current_list", [0.1]),
+        ("dwell", "dwell_list", [0.01]),
+    ],
+)
+def test_trigger_list_each_alias_conflict_is_rejected(canonical: str, alias: str, value: list[float]) -> None:
+    parameters = {
+        "channel": 1,
+        "voltages": [1.0],
+        "currents": [0.1],
+        "dwell": [0.01],
+        "leave_trigger_configured": True,
+        canonical: value,
+        alias: value,
+    }
+    with pytest.raises(CoreValidationError, match="alias conflict"):
+        validate_request_admission(
+            TriggerRequest("trigger-list", RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), parameters)
+        )
+
+
+def test_sequence_action_rejects_another_actions_field() -> None:
+    request = SequenceRequest(
+        "sequence",
+        RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"),
+        {"document": {"version": 1, "steps": [{"action": "wait", "seconds": 1, "voltage": 5.0}]}},
+    )
+    with pytest.raises(CoreValidationError, match="inapplicable"):
+        validate_request_admission(request)
+
+
+def test_sequence_file_and_document_are_mutually_exclusive() -> None:
+    with pytest.raises(CoreValidationError, match="mutually exclusive"):
+        validate_request_admission(
+            SequenceRequest("sequence", RuntimeOptions(dry_run=True), {"file": "sequence.json", "document": {"version": 1, "steps": [{"wait": {"seconds": 1}}]}})
+        )
+
+
+def test_ramp_list_null_loop_count_and_numeric_string_segment_are_rejected() -> None:
+    document = {
+        "kind": "powers-tool-ramp-list",
+        "version": 2,
+        "segments": [{"channel": 1, "current": 0.1, "start_voltage": 0, "stop_voltage": 1, "step_voltage": 1, "delay_ms": 0, "hold_ms": 0}],
+    }
+    with pytest.raises(CoreValidationError, match="loop_count must not be null"):
+        validate_request_admission(OperationRequest("ramp-list", RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), {"document": document, "loop_count": None}))
+    document["segments"][0]["current"] = "0.1"
+    with pytest.raises(CoreValidationError, match="invalid numeric value"):
+        validate_request_admission(OperationRequest("ramp-list", RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), {"document": document}))
+
+
+@pytest.mark.parametrize("field", ["verify_after_write", "no_output", "leave_trigger_configured"])
+@pytest.mark.parametrize("value", ["false", 0, 1])
+def test_workflow_booleans_require_exact_json_boolean(field: str, value: object) -> None:
+    command = "apply" if field != "leave_trigger_configured" else "trigger-step"
+    parameters = {"channel": 1, "voltage": 1.0, "current": 0.1, field: value}
+    if command.startswith("trigger"):
+        parameters = {"channel": 1, field: value}
+        request = TriggerRequest(command, RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), parameters)
+    else:
+        request = OperationRequest(command, RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), parameters)
+    with pytest.raises(CoreValidationError, match=field):
+        validate_request_admission(request)
+
+
+def test_protection_all_requires_exact_boolean() -> None:
+    with pytest.raises(CoreValidationError, match="all"):
+        validate_request_admission(OperationRequest("protection-set", RuntimeOptions(dry_run=True, planning_model_id="keysight-e36312a"), {"all": 1, "ocp": "on"}))
+
+
+def test_restore_multiple_sources_are_rejected_before_file_access() -> None:
+    with pytest.raises(CoreValidationError, match="mutually exclusive"):
+        validate_request_admission(OperationRequest("restore-from-snapshot", RuntimeOptions(dry_run=True), {"file": "snapshot.json", "snapshot": "other.json"}))

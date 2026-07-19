@@ -40,6 +40,7 @@ from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.stop_cleanup import CleanupReporter, cancel_workflow_with_safe_off
 from powers_tool_core.trigger import run_post_action_completion_pulse, trigger_result_payload
 from powers_tool_core.workflow_validation import normalize_loop_count, validate_completion_pulse_planning_model
+from powers_tool_core.command_contract import validate_and_normalize_request
 
 RAMP_LIST_KIND = "powers-tool-ramp-list"
 RAMP_LIST_VERSION_V2 = 2
@@ -71,6 +72,7 @@ def run_ramp_list(
 ) -> dict[str, Any]:
     """Lint, plan, or execute a versioned ramp list."""
 
+    request = validate_and_normalize_request(request)
     request = replace(request, runtime=resolve_no_hardware_runtime(request.runtime))
     document = ramp_list_document_for_request(request)
     plan = ramp_list_plan(request, document)
@@ -259,16 +261,14 @@ def normalize_ramp_segment(request: OperationRequest, index: int, raw_segment: A
         raise CoreValidationError(f"ramp-list segment {index} is missing field(s): {', '.join(missing)}")
     try:
         channel = _strict_integer(raw_segment["channel"])
-        current = float(raw_segment["current"])
-        start_voltage = float(raw_segment["start_voltage"])
-        stop_voltage = float(raw_segment["stop_voltage"])
-        step_voltage = float(raw_segment["step_voltage"])
+        current = _strict_number(raw_segment["current"])
+        start_voltage = _strict_number(raw_segment["start_voltage"])
+        stop_voltage = _strict_number(raw_segment["stop_voltage"])
+        step_voltage = _strict_number(raw_segment["step_voltage"])
         delay_ms = _strict_integer(raw_segment["delay_ms"])
         hold_ms = _strict_integer(raw_segment["hold_ms"])
     except (TypeError, ValueError) as exc:
         raise CoreValidationError(f"ramp-list segment {index} contains an invalid numeric value") from exc
-    if any(isinstance(raw_segment[field], bool) for field in ("current", "start_voltage", "stop_voltage", "step_voltage")):
-        raise CoreValidationError(f"ramp-list segment {index} contains an invalid numeric value")
     if channel < 1:
         raise CoreValidationError(f"ramp-list segment {index} channel must be a positive integer")
     if (
@@ -746,6 +746,12 @@ def _safety_limits(request: OperationRequest, *, channel: int, model: str | None
 def _strict_integer(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError("value must be an integer")
+    return value
+
+
+def _strict_number(value: Any) -> int | float:
+    if type(value) not in {int, float} or not math.isfinite(value):
+        raise CoreValidationError("ramp-list segment contains an invalid numeric value")
     return value
 
 

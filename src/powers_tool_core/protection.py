@@ -289,13 +289,9 @@ def _has_set_operation(parameters: dict[str, Any]) -> bool:
 def _optional_ocp_delay(value: Any) -> float | None:
     if value is None:
         return None
-    try:
-        delay = float(value)
-    except (TypeError, ValueError) as exc:
-        raise CoreValidationError("ocp_delay must be a finite non-negative number") from exc
-    if not math.isfinite(delay) or delay < 0:
+    if type(value) not in {int, float} or not math.isfinite(value) or value < 0:
         raise CoreValidationError("ocp_delay must be a finite non-negative number")
-    return delay
+    return value
 
 
 def _optional_ocp_delay_trigger(value: Any) -> str | None:

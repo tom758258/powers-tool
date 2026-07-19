@@ -77,7 +77,7 @@ def _run_error(
     scpi_logger: Callable[[str, str, str], None] | None,
 ) -> dict[str, Any]:
     resource = _require_resource(request)
-    max_reads = int(request.parameters.get("max_reads", 20))
+    max_reads = request.parameters.get("max_reads", 20)
     instrument = _open_session(request, opener=opener, scpi_logger=scpi_logger)
     with instrument:
         errors, read_count = _read_error_queue(instrument.session, max_reads)
@@ -95,7 +95,7 @@ def _run_measure(
     opener: Callable[..., Any],
     scpi_logger: Callable[[str, str, str], None] | None,
 ) -> dict[str, Any]:
-    channel = int(request.parameters.get("channel", 1))
+    channel = request.parameters.get("channel", 1)
     resource = _require_resource(request)
     if channel == 1 and not request.runtime.simulate and resource_interface(resource) != "ASRL":
         instrument, idn = _open_power_supply(request, opener=opener, scpi_logger=scpi_logger)

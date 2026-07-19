@@ -11,6 +11,7 @@ from powers_tool_core.discovery import run_discovery
 from powers_tool_core.instrument_io import run_instrument_io
 from powers_tool_core.model_resolution import resolve_no_hardware_runtime
 from powers_tool_core.operations import run_operation
+from powers_tool_core.command_contract import validate_and_normalize_request
 from powers_tool_core.parameter_constraints import validate_request_parameters
 from powers_tool_core.protection import run_protection
 from powers_tool_core.ramp_list import run_ramp_list
@@ -28,6 +29,7 @@ def validate_request_admission(
 ) -> OperationRequest | TriggerRequest | SequenceRequest:
     """Validate one command request without hardware I/O or state mutation."""
 
+    request = validate_and_normalize_request(request)
     validate_request_parameters(request)
     if isinstance(request, OperationRequest):
         validate_general_workflow_parameters(request)

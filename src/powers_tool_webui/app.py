@@ -200,7 +200,16 @@ async def get_commands():
 @app.post("/api/jobs")
 async def create_job(request: Request):
     """Submit a new job for execution."""
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="request body must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="request body must be an object")
+    allowed_top_level = {"command", "runtime", "parameters", "artifacts"}
+    unknown_top_level = sorted(set(payload) - allowed_top_level)
+    if unknown_top_level:
+        raise HTTPException(status_code=400, detail=f"unknown top-level field(s): {', '.join(unknown_top_level)}")
     command = payload.get("command")
     runtime = payload.get("runtime", {})
     parameters = payload.get("parameters", {})
@@ -214,6 +223,11 @@ async def create_job(request: Request):
         )
     if not isinstance(parameters, dict):
         raise HTTPException(status_code=400, detail="parameters must be an object")
+    if artifacts is not None:
+        if not isinstance(artifacts, dict):
+            raise HTTPException(status_code=400, detail="artifacts must be an object or null")
+        if artifacts:
+            raise HTTPException(status_code=400, detail="artifacts has unsupported field(s): " + ", ".join(sorted(artifacts)))
     validation_runtime = _validated_webui_runtime(runtime)
     try:
         request_type = (
@@ -223,14 +237,19 @@ async def create_job(request: Request):
             if command.startswith("trigger-")
             else OperationRequest
         )
-        validation_request = request_type(
-            command=command,
-            runtime=validation_runtime,
-            parameters=parameters,
-        )
-        if command == "sequence":
-            _validate_webui_sequence_size(parameters)
-        validate_request_admission(validation_request)
+        if command in {"capabilities", "safety inspect"}:
+            if parameters:
+                raise CoreValidationError(f"{command} does not accept parameters")
+            admitted_parameters = {}
+        else:
+            validation_request = request_type(
+                command=command,
+                runtime=validation_runtime,
+                parameters=parameters,
+            )
+            if command == "sequence":
+                _validate_webui_sequence_size(parameters)
+            admitted_parameters = validate_request_admission(validation_request).parameters
     except (CoreValidationError, OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -245,7 +264,7 @@ async def create_job(request: Request):
     job_id = await job_manager.submit_job(
         command=command,
         runtime=runtime,
-        parameters=parameters,
+        parameters=admitted_parameters,
         artifacts=artifacts,
     )
 

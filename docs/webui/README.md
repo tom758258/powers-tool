@@ -54,6 +54,16 @@ Core owns:
 The WebUI must use Core public APIs instead of importing CLI adapter code or
 reimplementing instrument behavior.
 
+## Job Parameter Admission
+
+`POST /api/jobs` accepts only `command`, `runtime`, `parameters`, and optional
+empty `artifacts` at its top level. Unknown top-level fields return HTTP 400.
+`parameters` are admitted by the Core-owned command contract before a job is
+queued or a hardware lock is acquired. The WebUI does not duplicate per-command
+allowlists, aliases, or type coercion; invalid exact types, explicit nulls,
+unknown/inapplicable fields, and alias conflicts return HTTP 400 rather than a
+server error. The admitted canonical request is the one executed by the job.
+
 ## Run
 
 From the repository root:

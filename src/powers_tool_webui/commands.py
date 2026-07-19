@@ -357,10 +357,6 @@ def execute_live_panel_read(runtime: RuntimeOptions, parameters: dict[str, Any])
 
 def _request_for_job(command: str, runtime: RuntimeOptions, parameters: dict[str, Any]) -> OperationRequest | TriggerRequest | SequenceRequest:
     normalized_parameters = _normalize_parameters(parameters)
-    if command == "list-resources":
-        normalized_parameters["live_only"] = bool(normalized_parameters.get("live_only", False))
-    if command == "clear-protection" and normalized_parameters.get("channel") == "all":
-        normalized_parameters["all"] = True
     if command in TRIGGER_COMMANDS:
         return TriggerRequest(command=command, runtime=runtime, parameters=normalized_parameters)
     if command == "sequence":

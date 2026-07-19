@@ -5,6 +5,12 @@ This contract extends `common-cli-jsonl-contract.md` with Power command names an
 Numeric command fields follow the shared
 [Commands parameter contract](commands-parameter-contract.md).
 
+CLI flags are parsed by argparse into Python primitives before Core admission.
+Raw JSON sent through Worker or WebUI is stricter: Core rejects numeric strings,
+boolean-like strings, booleans used as numbers, explicit nulls unless a field
+is documented nullable, unknown/inapplicable fields, and conflicting aliases.
+The same admitted canonical request is used for planning and execution.
+
 ## CLI Commands
 
 The installed Python distribution is `powers-tool`. CLI JSON payloads use

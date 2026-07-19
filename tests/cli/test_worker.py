@@ -193,6 +193,25 @@ def test_worker_rejects_invalid_completion_pulse_channel_before_artifacts(
     assert not (tmp_path / "jobs").exists()
 
 
+def test_worker_uses_core_contract_for_inapplicable_parameter(tmp_path: Path) -> None:
+    state = _worker_validation_state(tmp_path)
+
+    status, payload = worker_mod._validate_command_body(
+        {
+            "schema_version": 2,
+            "command": "set",
+            "arguments": {"channel": 1, "voltage": 1.0, "duration_ms": 1},
+        },
+        state,
+    )
+
+    assert status == 400
+    assert "inapplicable" in payload["error"]["message"]
+    assert payload["error"]["code"] == "argument_error"
+    assert state.next_job is None
+    assert not (tmp_path / "jobs").exists()
+
+
 def test_worker_rejects_completion_pulse_channel_without_pins_before_artifacts(tmp_path: Path) -> None:
     state = _worker_validation_state(tmp_path)
 

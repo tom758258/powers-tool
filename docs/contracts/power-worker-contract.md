@@ -66,6 +66,14 @@ missing/non-string command, non-object `arguments`, non-string `job_id`,
 unknown command names, and invalid Power arguments return `400` before any
 VISA I/O, queue mutation, or artifact creation.
 
+Command parameters are admitted only by the Core command-parameter contract.
+The Worker does not maintain a second command allowlist, alias policy, or type
+coercion rule. The admitted canonical parameters, rather than the raw JSON
+arguments, are retained for queued execution. JSON booleans and integers must
+be exact values; explicit `null`, alias conflicts, unknown fields, and fields
+that belong to a different command are rejected before a hardware lock or VISA
+session is acquired.
+
 Every `/command` response is a JSON object with integer `schema_version: 2`,
 `status`, `command`, and `job_id`. In the HTTP response, `command` is the
 submitted command string, for example `"read-status"`.

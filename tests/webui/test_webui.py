@@ -2499,6 +2499,21 @@ def client():
     return TestClient(app)
 
 
+def test_api_jobs_rejects_unknown_top_level_field_with_400(client: TestClient) -> None:
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": "set",
+            "runtime": {"dry_run": True, "planning_model_id": "keysight-e36312a"},
+            "parameters": {"channel": 1, "voltage": 1.0},
+            "unexpected": True,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "unknown top-level field" in response.json()["detail"]
+
+
 class FakeCoreSession:
     def __init__(self, idn: str, *, query_responses: dict[str, str] | None = None) -> None:
         self.idn = idn

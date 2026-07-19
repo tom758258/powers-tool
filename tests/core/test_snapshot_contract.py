@@ -44,6 +44,41 @@ def test_snapshot_document_uses_schema_2_canonical_identity() -> None:
     assert "idn" not in snapshot
 
 
+def test_snapshot_producer_fixture_remains_restore_compatible_under_strict_schema() -> None:
+    snapshot = _snapshot()
+
+    assert validate_snapshot_document(snapshot) == snapshot
+
+
+@pytest.mark.parametrize(
+    ("path", "field"),
+    [
+        ("top", "unexpected"),
+        ("reported_identity", "unexpected"),
+        ("resolved_identity", "unexpected"),
+        ("outputs", "unexpected"),
+        ("readback", "unexpected"),
+        ("setpoints", "unexpected"),
+        ("protection_settings", "unexpected"),
+        ("protection", "unexpected"),
+    ],
+)
+def test_snapshot_strict_schema_rejects_unknown_fields_at_every_restore_boundary(path: str, field: str) -> None:
+    snapshot = _snapshot()
+    if path == "top":
+        snapshot[field] = True
+    elif path == "setpoints":
+        snapshot["readback"][0]["setpoints"][field] = True
+    elif path == "protection":
+        snapshot["protection_settings"][0]["protection"][field] = True
+    else:
+        record = snapshot[path][0] if path in {"outputs", "readback", "protection_settings"} else snapshot[path]
+        record[field] = True
+
+    with pytest.raises(CoreValidationError, match="unsupported field"):
+        validate_snapshot_document(snapshot)
+
+
 @pytest.mark.parametrize("schema_version", [None, 1, "2", 2.0, True, False, 3])
 def test_restore_rejects_invalid_snapshot_schema_versions(schema_version: object) -> None:
     snapshot = _snapshot()

@@ -1022,8 +1022,8 @@ def _verify_setpoints_after_write(
         return {"passed": True, "checks": [], "differences": []}
     voltage = p.get("voltage") if expected_voltage is None else expected_voltage
     current = p.get("current")
-    voltage_tolerance = float(p.get("setpoint_voltage_tolerance", 0.001))
-    current_tolerance = float(p.get("setpoint_current_tolerance", 0.001))
+    voltage_tolerance = p.get("setpoint_voltage_tolerance", 0.001)
+    current_tolerance = p.get("setpoint_current_tolerance", 0.001)
     tolerances = {"voltage": voltage_tolerance, "current": current_tolerance}
     checks = []
     differences = []
@@ -1113,7 +1113,7 @@ def _attach_verification_if_requested(request: OperationRequest, data: dict[str,
 
 
 def _completion_pulse_requested(request: OperationRequest) -> bool:
-    return bool(request.parameters.get("completion_pulse_pins"))
+    return "completion_pulse_pins" in request.parameters
 
 
 def _step_completion_pulse_requested(request: OperationRequest) -> bool:
@@ -1188,7 +1188,7 @@ def _maybe_run_completion_pulse(
         channel=channel,
         pins=pins,
         polarity=request.parameters.get("completion_pulse_polarity", "positive"),
-        leave_configured=bool(request.parameters.get("leave_trigger_configured", False)),
+        leave_configured=request.parameters.get("leave_trigger_configured", False),
     )
     return trigger
 

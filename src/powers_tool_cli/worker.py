@@ -269,7 +269,7 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
             resource_alias=settings.get("resource_alias"),
             safety_config=settings.get("safety_config"),
             simulate=state.config["mode"] == "simulate",
-            dry_run=bool(arguments.get("dry_run", False)),
+            dry_run=arguments.get("dry_run", False),
             planning_model_id=arguments.get("planning_model_id"),
             expected_model_id=arguments.get("expected_model_id"),
             planning_profile_id=arguments.get("planning_profile_id"),
@@ -294,17 +294,21 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
             runtime=validation_runtime,
             parameters=_command_parameters(arguments),
         )
-        validate_request_admission(validation_request)
+        admitted_request = validate_request_admission(validation_request)
     except (CoreValidationError, OSError, ValueError) as exc:
         return 400, _command_response("error", command, job_id, error={"code": "argument_error", "message": str(exc)})
-    dry_run = bool(arguments.get("dry_run", False))
-    confirm_output = bool(arguments.get("confirm_output", False))
+    normalized_arguments = {
+        key: value for key, value in arguments.items() if key in RUNTIME_ARGUMENT_KEYS
+    }
+    normalized_arguments.update(admitted_request.parameters)
+    dry_run = normalized_arguments.get("dry_run", False)
+    confirm_output = normalized_arguments.get("confirm_output", False)
     if command in OUTPUT_AFFECTING_COMMANDS and state.config["mode"] == "live" and not dry_run:
         if not state.config.get("settings", {}).get("allow_output_writes", False):
             return 409, _command_response("rejected", command, job_id, reason="output_changes_not_allowed", error={"code": "output_changes_not_allowed", "message": "live output-affecting commands require settings.allow_output_writes=true"})
         if not confirm_output:
             return 409, _command_response("rejected", command, job_id, reason="output_confirmation_required", error={"code": "output_confirmation_required", "message": "live output-affecting commands require arguments.confirm_output=true"})
-    return 202, {"command": command, "arguments": arguments, **({"job_id": job_id} if job_id is not None else {})}
+    return 202, {"command": command, "arguments": normalized_arguments, **({"job_id": job_id} if job_id is not None else {})}
 
 
 class WorkerState:
@@ -708,8 +712,8 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
     emit_event(config, "job_started", {"job_id": client_job_id, "worker_job_id": worker_job_id, "command": cmd, "run_id": state.run_id})
 
     params = _command_parameters(arguments)
-    confirm_req = bool(arguments.get("confirm_output", False))
-    dry_run_req = bool(arguments.get("dry_run", False))
+    confirm_req = arguments.get("confirm_output", False)
+    dry_run_req = arguments.get("dry_run", False)
 
     # Initialize RuntimeOptions
     runtime = RuntimeOptions(

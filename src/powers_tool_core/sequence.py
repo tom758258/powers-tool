@@ -32,6 +32,7 @@ from powers_tool_core.support_features import (
 )
 from powers_tool_core.trigger import run_post_action_completion_pulse, trigger_pulse_scpi
 from powers_tool_core.workflow_validation import normalize_loop_count
+from powers_tool_core.command_contract import validate_and_normalize_request, validate_sequence_action_parameters
 
 IDN_QUERY = "*IDN?"
 OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, E3646APowerSupply, EDU36311APowerSupply)
@@ -49,6 +50,7 @@ def run_sequence(
 ) -> dict[str, Any]:
     """Lint, plan, or execute a sequence request."""
 
+    request = validate_and_normalize_request(request)
     planning_resolved = False
     if request.runtime.dry_run or request.runtime.simulate:
         try:
@@ -234,13 +236,13 @@ def sequence_step_preview(
     parameters = step["parameters"]
     if action == "set":
         channel = sequence_channel(parameters.get("channel", 1))
-        voltage = _format_text_value(float(parameters["voltage"]))
-        current = _format_text_value(float(parameters["current"]))
+        voltage = _format_text_value(parameters["voltage"])
+        current = _format_text_value(parameters["current"])
         return {"commands": [f"CURR {current},(@{channel})", f"VOLT {voltage},(@{channel})"]}
     if action == "apply":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
-        voltage = _format_text_value(float(parameters["voltage"]))
-        current = _format_text_value(float(parameters["current"]))
+        voltage = _format_text_value(parameters["voltage"])
+        current = _format_text_value(parameters["current"])
         commands: list[str] = []
         for selected_channel in sequence_preview_channels(channel, planning_model_id=planning_model_id, planning_profile_id=planning_profile_id):
             commands.append(f"CURR {current},(@{selected_channel})")
@@ -261,7 +263,7 @@ def sequence_step_preview(
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
         commands = [f"OUTP ON,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, planning_model_id=planning_model_id, planning_profile_id=planning_profile_id)]
         commands.extend(f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, planning_model_id=planning_model_id, planning_profile_id=planning_profile_id))
-        return {"commands": commands, "duration_ms": int(parameters.get("duration_ms", 500))}
+        return {"commands": commands, "duration_ms": parameters.get("duration_ms", 500)}
     if action == "safe-off":
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
         return {"commands": [f"OUTP OFF,(@{selected_channel})" for selected_channel in sequence_preview_channels(channel, planning_model_id=planning_model_id, planning_profile_id=planning_profile_id)]}
@@ -279,15 +281,17 @@ def normalize_sequence_step(index: int, raw_step: Any) -> dict[str, Any]:
         raise CoreValidationError(f"sequence step {index} must be a mapping")
     if "action" in raw_step or "type" in raw_step:
         action = str(raw_step.get("action", raw_step.get("type")))
-        parameters = {key: value for key, value in raw_step.items() if key not in {"action", "type"}}
+        parameters = {key: value for key, value in raw_step.items() if key not in {"action", "type", "index"}}
     elif len(raw_step) == 1:
         action, value = next(iter(raw_step.items()))
-        parameters = value if isinstance(value, dict) else {}
+        if not isinstance(value, dict):
+            raise CoreValidationError(f"sequence step {index} shorthand {action!r} must contain an object")
+        parameters = value
     else:
         raise CoreValidationError(f"sequence step {index} requires action")
     if action not in SEQUENCE_ACTIONS:
         raise CoreValidationError(f"unsupported sequence step {index} action: {action}")
-    return {"index": index, "action": action, "parameters": parameters}
+    return {"index": index, "action": action, "parameters": validate_sequence_action_parameters(action, parameters)}
 
 
 def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> None:
@@ -311,17 +315,14 @@ def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> No
         sequence_pulse_pins(parameters.get("pins"))
         if parameters.get("polarity", "positive") not in {"positive", "negative"}:
             raise CoreValidationError("trigger-pulse polarity must be positive or negative")
-        if not isinstance(parameters.get("leave_trigger_configured", False), bool):
-            raise CoreValidationError("trigger-pulse leave_trigger_configured must be boolean")
     if action == "wait":
-        seconds = float(parameters.get("seconds", parameters.get("duration_sec", 0)))
-        if not math.isfinite(seconds) or seconds < 0:
-            raise CoreValidationError("wait seconds must be a finite non-negative number")
+        # The centralized sequence action contract already enforces this type.
+        seconds = parameters["seconds"]
     if action in {"set", "apply"}:
         channel = sequence_channel(parameters.get("channel", 1), allow_all=(action == "apply"))
         _validate_no_hardware_sequence_channels(request, channel)
-        voltage = float(parameters["voltage"])
-        current = float(parameters["current"])
+        voltage = parameters["voltage"]
+        current = parameters["current"]
         limits = _safety_limits(request)
         channels = (1, 2, 3) if channel == "all" else (channel,)
         try:
@@ -332,7 +333,7 @@ def validate_sequence_step(request: SequenceRequest, step: dict[str, Any]) -> No
     elif action in {"output-on", "output-off", "cycle-output"}:
         channel = sequence_channel(parameters.get("channel", 1), allow_all=True)
         _validate_no_hardware_sequence_channels(request, channel)
-        duration_ms = int(parameters.get("duration_ms", 500))
+        duration_ms = parameters.get("duration_ms", 500)
         if action == "cycle-output" and duration_ms < 1:
             raise CoreValidationError("cycle-output duration_ms must be at least 1")
         try:
@@ -545,9 +546,9 @@ def execute_sequence_step(
             result["outputs"] = outputs
         return result
     if action == "log":
-        return {"index": step["index"], "action": action, "message": str(parameters.get("message", ""))}
+        return {"index": step["index"], "action": action, "message": parameters.get("message", "")}
     if action == "wait":
-        seconds = float(parameters.get("seconds", parameters.get("duration_sec", 0)))
+        seconds = parameters["seconds"]
         interruptible_sleep(seconds, sleep=sleep, stop_requested=stop_requested)
         return {"index": step["index"], "action": action, "seconds": seconds}
     if action == "trigger-pulse":
@@ -587,18 +588,18 @@ def execute_sequence_step(
                 power_supply.output_on(channel=selected_channel)
                 enabled_channels.append(selected_channel)
             interruptible_sleep(
-                int(parameters.get("duration_ms", 500)) / 1000,
+                parameters.get("duration_ms", 500) / 1000,
                 sleep=sleep,
                 stop_requested=stop_requested,
             )
         finally:
             for selected_channel in enabled_channels:
                 power_supply.output_off(channel=selected_channel)
-        return {"index": step["index"], "action": action, "channel": channel, "duration_ms": int(parameters.get("duration_ms", 500))}
+        return {"index": step["index"], "action": action, "channel": channel, "duration_ms": parameters.get("duration_ms", 500)}
     if action in {"set", "apply"}:
         channel = sequence_channel(parameters.get("channel", 1), allow_all=(action == "apply"))
-        voltage = float(parameters["voltage"])
-        current = float(parameters["current"])
+        voltage = parameters["voltage"]
+        current = parameters["current"]
         for selected_channel in sequence_channels(channel, power_supply.capabilities.channels):
             raise_if_cancelled(stop_requested)
             power_supply.set_current_limit(channel=selected_channel, current=current)
@@ -641,7 +642,7 @@ def _preflight_sequence(request: SequenceRequest, power_supply: Any, plan: dict[
         if action in {"set", "apply"}:
             selected = sequence_channel(parameters.get("channel", 1), allow_all=(action == "apply"))
             for channel in sequence_channels(selected, power_supply.capabilities.channels):
-                state[channel] = {"voltage": float(parameters["voltage"]), "current": float(parameters["current"])}
+                state[channel] = {"voltage": parameters["voltage"], "current": parameters["current"]}
                 _validate_sequence_effective(request, power_supply, model, channel, state[channel])
         if action in {"output-on", "cycle-output"} or (action == "apply" and not parameters.get("no_output", False)):
             selected = sequence_channel(parameters.get("channel", 1), allow_all=True)

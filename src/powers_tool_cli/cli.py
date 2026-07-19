@@ -46,6 +46,7 @@ from powers_tool_cli.cli_io import (
 )
 from powers_tool_core.connection import DEFAULT_TIMEOUT_MS, SerialOptions, list_resources, normalize_serial_termination, open_resource
 from powers_tool_core.command_runner import run_core_command
+from powers_tool_core.command_contract import command_parameter_names
 from powers_tool_core.core import (
     CommandCancelled,
     ConfirmationRequiredError,
@@ -9751,10 +9752,7 @@ def _operation_request_for_args(args: argparse.Namespace) -> OperationRequest:
     }
     if args.command == "ramp":
         parameters["completion_pulse_timing"] = getattr(args, "completion_pulse_timing", "segment")
-    if parameters["completion_pulse_channel"] is None:
-        parameters.pop("completion_pulse_channel")
-    if args.command == "set":
-        parameters = _drop_none_setpoints(parameters)
+    parameters = _core_command_parameters(args.command, parameters)
     return OperationRequest(
         command=args.command,
         runtime=RuntimeOptions(
@@ -9807,7 +9805,7 @@ def _target_core_request_for_args(args: argparse.Namespace) -> OperationRequest:
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
             support_policy_mode=_support_policy_mode_for_args(args),
         ),
-        parameters=parameters,
+        parameters=_core_command_parameters(args.command, parameters),
     )
 
 
@@ -9934,6 +9932,8 @@ def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
             _safety_limits_for_channel(args, config["channel"], model="E36312A"),
         )
         parameters.update(config)
+        if not parameters.get("pins"):
+            parameters.pop("pins", None)
         if "begin_outputs" in config:
             parameters.pop("completion_pulse_pins", None)
             parameters.pop("completion_pulse_polarity", None)
@@ -9955,8 +9955,21 @@ def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
             log_scpi=getattr(args, "log_scpi", False),
             support_policy_mode=_support_policy_mode_for_args(args),
         ),
-        parameters=parameters,
+        parameters=_core_command_parameters(args.command, parameters),
     )
+
+
+def _core_command_parameters(command: str, values: dict[str, Any]) -> dict[str, Any]:
+    """Remove argparse-only defaults using the Core-owned command contract."""
+
+    allowed = command_parameter_names(command)
+    return {
+        name: value
+        for name, value in values.items()
+        if name in allowed
+        and value is not None
+        and not (name == "completion_pulse_pins" and not value)
+    }
 
 
 def _core_trigger_resource_data(args: argparse.Namespace, data: dict[str, Any]) -> dict[str, Any]:

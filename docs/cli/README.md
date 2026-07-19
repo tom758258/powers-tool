@@ -1,5 +1,13 @@
 # Powers Tool CLI
 
+## Parameter Admission
+
+The CLI sends argparse-parsed Python primitives to the shared Core command
+contract. This preserves valid flag usage while keeping raw Worker/WebUI JSON
+fail closed: Core rejects unknown or inapplicable fields, aliases supplied
+together, explicit nulls unless documented nullable, and coercible strings or
+numbers used in place of exact booleans, integers, or finite numeric fields.
+
 Vendor-neutral CLI adapter for controlling supported DC power supplies.
 Current Product-active and hardware-validated models are the documented
 Keysight models; unknown live hardware remains fail closed.

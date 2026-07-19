@@ -1,5 +1,15 @@
 # Powers Tool Core
 
+## Command Parameter Admission
+
+Core owns the fail-closed command parameter registry used by all public command
+adapters. Admission happens before hardware locks, VISA opens, SCPI I/O, or
+state changes. Each command accepts only its documented fields; known fields
+from another command are rejected as inapplicable. Raw values use exact JSON
+types (boolean, integer, and finite number), explicit null is rejected unless
+explicitly nullable, and aliases may not be supplied together. See the
+[command parameter contract](../contracts/commands-parameter-contract.md).
+
 Vendor-neutral Core library and driver layer for controlling supported DC
 power supplies safely. Current Product-active and hardware-validated drivers
 are for the documented Keysight models; unknown live hardware remains closed.

@@ -616,8 +616,8 @@ def test_unsupported_model_ramp_list_completion_pulse_rejects_before_segment_wri
 
     req = OperationRequest(
         command="ramp-list",
-        parameters={"document": doc, "confirm": True},
-        runtime=RuntimeOptions(resource=resource, dry_run=False, simulate=False)
+            parameters={"document": doc},
+            runtime=RuntimeOptions(resource=resource, dry_run=False, simulate=False, confirm=True)
     )
     session = UnsupportedPulseFakeSession()
     with pytest.raises(CoreValidationError, match="completion pulses are only supported for E36312A"):
@@ -649,8 +649,8 @@ def test_e3646a_ramp_list_simulate_and_real_execution() -> None:
 
     req_real = OperationRequest(
         command="ramp-list",
-        parameters={"document": doc, "confirm": True},
-        runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False)
+            parameters={"document": doc},
+            runtime=RuntimeOptions(resource="ASRL1::INSTR", dry_run=False, simulate=False, confirm=True)
     )
     session = E3646AFakeSession()
     data_real = run_ramp_list(req_real, opener=lambda *args, **kwargs: session, sleep=lambda seconds: None)

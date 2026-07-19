@@ -51,7 +51,7 @@ def run_snapshot(
                 f"Found {type(power_supply).__name__} from *IDN? response."
             )
         channels = power_supply.capabilities.channels
-        errors, read_count = _read_errors(power_supply, int(request.parameters.get("max_errors", 20)))
+        errors, read_count = _read_errors(power_supply, request.parameters.get("max_errors", 20))
         protection_by_channel = [
             {
                 "over_voltage_tripped": power_supply.over_voltage_protection_tripped(channel=channel),

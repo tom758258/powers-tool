@@ -24,6 +24,7 @@ from powers_tool_core.parameter_constraints import strict_boolean_parameter, str
 from powers_tool_core.setpoint_limits import validate_effective_setpoint
 from powers_tool_core.testing.simulator import SimulatedResourceManager
 from powers_tool_core.snapshot import SNAPSHOT_KIND, SNAPSHOT_SCHEMA_VERSION
+from powers_tool_core.command_contract import validate_and_normalize_request
 
 
 def run_restore(
@@ -33,6 +34,7 @@ def run_restore(
     scpi_logger: Callable[[str, str, str], None] | None = None,
     stop_requested: StopRequested = None,
 ) -> dict[str, Any]:
+    request = validate_and_normalize_request(request)
     if request.command != "restore-from-snapshot":
         raise CoreValidationError(f"unsupported restore command {request.command!r}")
     request, snapshot = prepare_restore_request(request)
@@ -200,6 +202,7 @@ def prepare_restore_request(
 def validate_restore_admission(request: OperationRequest) -> OperationRequest:
     """Validate restore document, identity, channels, and plan without I/O."""
 
+    request = validate_and_normalize_request(request)
     request, snapshot = prepare_restore_request(request)
     restore_output_state = strict_boolean_parameter(
         request.parameters,
@@ -245,12 +248,23 @@ def validate_snapshot_document(document: dict[str, Any]) -> dict[str, Any]:
         raise CoreValidationError("snapshot requires integer schema_version=2")
     if document.get("kind") != SNAPSHOT_KIND:
         raise CoreValidationError(f"snapshot kind must be {SNAPSHOT_KIND!r}")
+    _reject_unknown_fields(
+        document,
+        {
+            "schema_version", "kind", "resource", "reported_identity", "resolved_identity",
+            "errors", "read_count", "outputs", "readback", "measurements", "protection",
+            "protection_settings",
+        },
+        "snapshot",
+    )
     reported = document.get("reported_identity")
     resolved = document.get("resolved_identity")
     if not isinstance(reported, dict):
         raise CoreValidationError("snapshot reported_identity must be an object")
     if not isinstance(resolved, dict):
         raise CoreValidationError("snapshot resolved_identity must be an object")
+    _reject_unknown_fields(reported, {"manufacturer", "model", "serial", "firmware", "parse_ok"}, "snapshot reported_identity")
+    _reject_unknown_fields(resolved, {"vendor_id", "model_id", "model_name", "display_name"}, "snapshot resolved_identity")
     if reported.get("parse_ok") is not True:
         raise CoreValidationError("snapshot reported_identity.parse_ok must be true")
     for field in ("manufacturer", "model", "serial", "firmware"):
@@ -461,6 +475,7 @@ def _validated_channel_records(records: Any, section: str) -> dict[int, dict[str
 def _validate_output_records(records: Any) -> dict[int, dict[str, Any]]:
     by_channel = _validated_channel_records(records, "outputs")
     for record in by_channel.values():
+        _reject_unknown_fields(record, {"channel", "enabled"}, "snapshot outputs[]")
         if type(record.get("enabled")) is not bool:
             raise CoreValidationError("snapshot outputs[].enabled must be a boolean")
     return by_channel
@@ -469,9 +484,11 @@ def _validate_output_records(records: Any) -> dict[int, dict[str, Any]]:
 def _validate_readback_records(records: Any) -> dict[int, dict[str, Any]]:
     by_channel = _validated_channel_records(records, "readback")
     for record in by_channel.values():
+        _reject_unknown_fields(record, {"channel", "setpoints"}, "snapshot readback[]")
         setpoints = record.get("setpoints")
         if not isinstance(setpoints, dict):
             raise CoreValidationError("snapshot readback[].setpoints must be an object")
+        _reject_unknown_fields(setpoints, {"voltage", "current"}, "snapshot readback[].setpoints")
         for field in ("voltage", "current"):
             _require_finite_number(
                 setpoints.get(field),
@@ -483,11 +500,13 @@ def _validate_readback_records(records: Any) -> dict[int, dict[str, Any]]:
 def _validate_protection_records(records: Any) -> dict[int, dict[str, Any]]:
     by_channel = _validated_channel_records(records, "protection_settings")
     for record in by_channel.values():
+        _reject_unknown_fields(record, {"channel", "protection"}, "snapshot protection_settings[]")
         protection = record.get("protection")
         if not isinstance(protection, dict):
             raise CoreValidationError(
                 "snapshot protection_settings[].protection must be an object"
             )
+        _reject_unknown_fields(protection, {"ovp_voltage", "ocp_enabled", "ocp_delay", "ocp_delay_trigger"}, "snapshot protection_settings[].protection")
         ovp_voltage = protection.get("ovp_voltage")
         if ovp_voltage is not None:
             _require_finite_number(
@@ -521,6 +540,12 @@ def _require_finite_number(value: Any, field: str) -> None:
         raise CoreValidationError(f"{field} must be a finite number")
     if not math.isfinite(float(value)):
         raise CoreValidationError(f"{field} must be a finite number")
+
+
+def _reject_unknown_fields(value: dict[str, Any], allowed: set[str], label: str) -> None:
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise CoreValidationError(f"{label} has unsupported field(s): {', '.join(unknown)}")
 
 
 def _require_restore_channels(snapshot: dict[str, Any], channels: tuple[int, ...]) -> None:

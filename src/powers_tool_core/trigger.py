@@ -31,6 +31,7 @@ from powers_tool_core.support_features import (
     normalize_real_trigger_source,
     trigger_feature_requirements,
 )
+from powers_tool_core.command_contract import validate_and_normalize_request
 
 IDN_QUERY = "*IDN?"
 
@@ -50,6 +51,7 @@ def run_trigger(
 ) -> dict[str, Any]:
     """Run a trigger command or return a dry-run trigger plan."""
 
+    request = validate_and_normalize_request(request)
     validate_trigger_request(request)
     request = _resolve_trigger_runtime(request)
     if request.runtime.dry_run:
@@ -76,8 +78,10 @@ def run_trigger(
 def validate_trigger_request(request: TriggerRequest) -> None:
     """Reject trigger controls that cannot complete or restore safely."""
 
+    request = validate_and_normalize_request(request)
+
     if request.command == "trigger-fire":
-        if request.parameters.get("wait_complete", False) and request.parameters.get("channel") is None:
+        if request.parameters["wait_complete"] and request.parameters.get("channel") is None:
             raise CoreValidationError(
                 "trigger-fire wait_complete requires channel as the abort target "
                 "if the wait times out or is interrupted"
@@ -86,9 +90,9 @@ def validate_trigger_request(request: TriggerRequest) -> None:
     if request.command not in {"trigger-step", "trigger-list"}:
         return
     source = str(request.parameters.get("source", "bus")).strip().lower()
-    fire = request.parameters.get("fire", False) is True
-    wait_complete = request.parameters.get("wait_complete", False) is True
-    leave_configured = request.parameters.get("leave_trigger_configured", False) is True
+    fire = request.parameters["fire"]
+    wait_complete = request.parameters["wait_complete"]
+    leave_configured = request.parameters["leave_trigger_configured"]
     immediate = source in {"immediate", "imm"}
     if immediate and fire:
         raise CoreValidationError(f"{request.command} source=immediate does not accept fire=true; INIT starts it immediately")
@@ -129,14 +133,15 @@ def _require_trigger_planning_model(command: str, planning_model_id: str | None)
 def trigger_plan(request: TriggerRequest) -> dict[str, object]:
     """Build the unchanged SCPI preview for trigger commands."""
 
+    request = validate_and_normalize_request(request)
     request = _resolve_trigger_runtime(request)
     p = request.parameters
     if request.command == "trigger-pulse":
         scpi = trigger_pulse_scpi(
             tuple(p.get("pins") or ((p["pin"],) if p.get("pin") is not None else ())),
             p.get("polarity", "positive"),
-            int(p.get("channel", 1)),
-            exclusive_pins=bool(p.get("exclusive_pins", False)),
+            p.get("channel", 1),
+            exclusive_pins=p["exclusive_pins"],
         )
         description = (
             "Preview configuring an E36312A rear digital trigger output pin then arming a "
@@ -145,7 +150,7 @@ def trigger_plan(request: TriggerRequest) -> dict[str, object]:
         )
     elif request.command == "trigger-status":
         channel = p.get("channel", "all")
-        channels = (1, 2, 3) if channel == "all" else (int(channel),)
+        channels = (1, 2, 3) if channel == "all" else (channel,)
         scpi = tuple(
             command
             for pin in (1, 2, 3)
@@ -162,31 +167,31 @@ def trigger_plan(request: TriggerRequest) -> dict[str, object]:
         description = "Preview reading E36312A trigger pin and channel status."
     elif request.command == "trigger-step":
         scpi = trigger_step_scpi(
-            channel=int(p["channel"]),
-            source=str(p.get("source", "bus")),
+            channel=p["channel"],
+            source=p.get("source", "bus"),
             voltage=p.get("voltage"),
             current=p.get("current"),
             pins=tuple(p.get("completion_pulse_pins") or ()),
             polarity=str(p.get("completion_pulse_polarity", "positive")),
-            fire=bool(p.get("fire", False)),
-            wait_complete=bool(p.get("wait_complete", False)),
+            fire=p["fire"],
+            wait_complete=p["wait_complete"],
         )
         description = "Preview a native E36312A STEP transient trigger."
     elif request.command == "trigger-list":
         config = trigger_list_config(p)
         scpi = trigger_list_scpi(
             **config,
-            exclusive_pins=bool(p.get("exclusive_pins", False)),
-            fire=bool(p.get("fire", False)),
-            wait_complete=bool(p.get("wait_complete", False)),
+            exclusive_pins=p["exclusive_pins"],
+            fire=p["fire"],
+            wait_complete=p["wait_complete"],
         )
         description = "Preview a native E36312A LIST transient trigger."
     elif request.command == "trigger-fire":
-        scpi = ("*TRG", *_wait_complete_preview_commands(bool(p.get("wait_complete", False))))
+        scpi = ("*TRG", *_wait_complete_preview_commands(p["wait_complete"]))
         description = "Preview firing an already armed BUS trigger."
     elif request.command == "trigger-abort":
         channel = p.get("channel", "all")
-        channels = (1, 2, 3) if channel == "all" else (int(channel),)
+        channels = (1, 2, 3) if channel == "all" else (channel,)
         scpi = tuple(f"ABOR (@{selected})" for selected in channels)
         description = "Preview aborting E36312A trigger/list execution."
     else:
@@ -494,9 +499,9 @@ def trigger_list_config(parameters: dict[str, Any]) -> dict[str, Any]:
     channel = parameters.get("channel")
     if channel is None:
         raise CoreValidationError("trigger-list requires channel")
-    voltages = _float_tuple(parameters.get("voltages", parameters.get("voltage_list")))
-    currents = _float_tuple(parameters.get("currents", parameters.get("current_list")))
-    dwell = _float_tuple(parameters.get("dwell", parameters.get("dwell_list")))
+    voltages = _float_tuple(parameters.get("voltages"))
+    currents = _float_tuple(parameters.get("currents"))
+    dwell = _float_tuple(parameters.get("dwell"))
     if voltages is None:
         raise CoreValidationError("trigger-list requires voltage list")
     if currents is None:
@@ -541,8 +546,8 @@ def trigger_list_config(parameters: dict[str, Any]) -> dict[str, Any]:
     if polarity not in {"positive", "negative"}:
         raise CoreValidationError("trigger-list output polarity must be positive or negative")
     return {
-        "channel": int(channel),
-        "source": str(parameters.get("source", "bus")).lower(),
+        "channel": channel,
+        "source": parameters.get("source", "bus"),
         "voltages": voltages,
         "currents": currents,
         "dwell": dwell,
@@ -551,7 +556,7 @@ def trigger_list_config(parameters: dict[str, Any]) -> dict[str, Any]:
         "final_eost_pulse": False,
         "begin_outputs": begin_outputs,
         "end_outputs": end_outputs,
-        "count": int(parameters.get("count", 1)),
+        "count": parameters.get("count", 1),
     }
 
 
@@ -674,7 +679,7 @@ def _run_trigger_pulse(
                     f"{unsupported_command_message('trigger-pulse', _power_supply_model(power_supply), 'live')}\n"
                     f"Found {type(power_supply).__name__} from *IDN? response."
                 )
-            channel = int(p.get("channel", 1))
+            channel = p.get("channel", 1)
             snapshots = tuple(
                 power_supply.trigger_snapshot(selected_channel)
                 for selected_channel in power_supply.capabilities.channels
@@ -695,7 +700,7 @@ def _run_trigger_pulse(
                     power_supply,
                     pins,
                     str(p.get("polarity", "positive")),
-                    exclusive_pins=bool(p.get("exclusive_pins", False)),
+                    exclusive_pins=p["exclusive_pins"],
                 )
                 power_supply.set_triggered_current(channel=channel, current=current)
                 power_supply.set_triggered_voltage(channel=channel, voltage=voltage)
@@ -733,7 +738,7 @@ def _run_trigger_pulse(
                 "_resource": request.runtime.resource,
                 "idn": idn,
                 "pins": list(pins),
-                "exclusive_pins": bool(p.get("exclusive_pins", False)),
+                "exclusive_pins": p["exclusive_pins"],
                 "channel": channel,
                 "polarity": str(p.get("polarity", "positive")),
                 "triggered": True,
@@ -742,7 +747,7 @@ def _run_trigger_pulse(
             }
             if p.get("pin") is not None:
                 data["pin"] = p["pin"]
-                data["exclusive_pin"] = bool(p.get("exclusive_pins", False))
+                data["exclusive_pin"] = p["exclusive_pins"]
             return data
     except VisaConnectionError as exc:
         raise CoreIoError(f"{'trigger-pulse failed' if opened else 'Could not open resource for trigger-pulse'}: {exc}", opened=opened) from exc
@@ -756,7 +761,7 @@ def _run_trigger_status(
 ) -> dict[str, Any]:
     p = request.parameters
     selected = p.get("channel", "all")
-    channels = (1, 2, 3) if selected == "all" else (int(selected),)
+    channels = (1, 2, 3) if selected == "all" else (selected,)
     opened = False
     try:
         with opener(request.runtime.resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
@@ -796,7 +801,7 @@ def _run_trigger_status(
 def _trigger_channels_from_selection(selected: int | str, supported_channels: tuple[int, ...]) -> tuple[int, ...]:
     if selected == "all":
         return supported_channels
-    channel = int(selected)
+    channel = selected
     if channel not in supported_channels:
         raise CoreValidationError(f"channel {channel} is not supported; supported: {supported_channels}")
     return (channel,)
@@ -855,14 +860,14 @@ def _run_trigger_step(
                 trigger = _native_step(
                     request,
                     power_supply,
-                    channel=int(p["channel"]),
+                    channel=p["channel"],
                     source=source,
                     voltage=p.get("voltage"),
                     current=p.get("current"),
                     pins=tuple(p.get("completion_pulse_pins") or ()),
                     polarity=str(p.get("completion_pulse_polarity", "positive")),
-                    fire=bool(p.get("fire", False)),
-                    wait_complete=bool(p.get("wait_complete", False)),
+                    fire=p["fire"],
+                    wait_complete=p["wait_complete"],
                     sleep=sleep,
                     stop_requested=stop_requested,
                 )
@@ -907,9 +912,9 @@ def _run_trigger_list(
                 request,
                 power_supply,
                 **config,
-                exclusive_pins=bool(p.get("exclusive_pins", False)),
-                fire=bool(p.get("fire", False)),
-                wait_complete=bool(p.get("wait_complete", False)),
+                exclusive_pins=p["exclusive_pins"],
+                fire=p["fire"],
+                wait_complete=p["wait_complete"],
                 sleep=sleep,
                 stop_requested=stop_requested,
             )
@@ -952,7 +957,7 @@ def _run_trigger_fire(
             try:
                 power_supply.fire_bus_trigger()
                 fired = True
-                if p.get("wait_complete", False):
+                if p["wait_complete"]:
                     wait_for_trigger_completion(power_supply, timeout_ms=_trigger_wait_timeout_ms(p), poll_ms=_trigger_poll_interval_ms(p), sleep=sleep, stop_requested=stop_requested)
                     completed = True
                 _raise_on_instrument_errors(power_supply, request.command)
@@ -970,8 +975,8 @@ def _run_trigger_fire(
                     channel=int(channel) if channel is not None else None,
                     fired=fired,
                     completed=completed,
-                    wait_timeout_ms=_trigger_wait_timeout_ms(p) if p.get("wait_complete", False) else None,
-                    poll_ms=_trigger_poll_interval_ms(p) if p.get("wait_complete", False) else None,
+                    wait_timeout_ms=_trigger_wait_timeout_ms(p) if p["wait_complete"] else None,
+                    poll_ms=_trigger_poll_interval_ms(p) if p["wait_complete"] else None,
                     abort_attempted=abort_attempted,
                     abort_succeeded=abort_attempted and not abort_errors,
                     abort_errors=abort_errors,
@@ -988,12 +993,12 @@ def _run_trigger_fire(
                 "trigger": trigger_result_payload(
                     mode="fire",
                     native=True,
-                    channel=int(p["channel"]) if p.get("channel") is not None else None,
+                    channel=p["channel"] if p.get("channel") is not None else None,
                     armed=False,
                     fired=fired,
                     completed=completed,
-                    wait_timeout_ms=_trigger_wait_timeout_ms(p) if p.get("wait_complete", False) else None,
-                    poll_ms=_trigger_poll_interval_ms(p) if p.get("wait_complete", False) else None,
+                    wait_timeout_ms=_trigger_wait_timeout_ms(p) if p["wait_complete"] else None,
+                    poll_ms=_trigger_poll_interval_ms(p) if p["wait_complete"] else None,
                 )
             }
     except VisaConnectionError as exc:
@@ -1043,7 +1048,7 @@ def _run_trigger_abort(
 ) -> dict[str, Any]:
     p = request.parameters
     channel = p.get("channel", "all")
-    channels = (1, 2, 3) if channel == "all" else (int(channel),)
+    channels = (1, 2, 3) if channel == "all" else (channel,)
     opened = False
     try:
         with opener(request.runtime.resource, backend=request.runtime.backend, timeout_ms=request.runtime.timeout_ms) as instrument:
@@ -1063,7 +1068,7 @@ def _run_trigger_abort(
                     power_supply.abort_output_trigger(selected_channel)
                 except Exception as exc:
                     errors.append(str(exc))
-            queue_errors, read_count = _read_error_queue(power_supply, int(p.get("max_errors", 20)))
+            queue_errors, read_count = _read_error_queue(power_supply, p.get("max_errors", 20))
             if queue_errors:
                 raise CoreExecutionError(f"{request.command} completed with instrument errors: {queue_errors}")
             return {
@@ -1132,7 +1137,7 @@ def _native_step(
                 power_supply.abort_output_trigger(channel)
                 raise
     finally:
-        if not request.parameters.get("leave_trigger_configured", False):
+        if not request.parameters["leave_trigger_configured"]:
             power_supply.restore_trigger_snapshot(snapshot)
     return trigger_result_payload(
         mode="step",
@@ -1146,7 +1151,7 @@ def _native_step(
         completed=completed,
         wait_timeout_ms=_trigger_wait_timeout_ms(request.parameters) if wait_complete else None,
         poll_ms=_trigger_poll_interval_ms(request.parameters) if wait_complete else None,
-        restored=not request.parameters.get("leave_trigger_configured", False),
+        restored=not request.parameters["leave_trigger_configured"],
     )
 
 
@@ -1225,7 +1230,7 @@ def _native_list(
                 power_supply.abort_output_trigger(channel)
                 raise
     finally:
-        if not request.parameters.get("leave_trigger_configured", False):
+        if not request.parameters["leave_trigger_configured"]:
             power_supply.restore_trigger_snapshot(snapshot)
     return trigger_result_payload(
         mode=result_mode,
@@ -1239,7 +1244,7 @@ def _native_list(
         completed=completed,
         wait_timeout_ms=_trigger_wait_timeout_ms(request.parameters, dwell=dwell, count=count) if wait_complete else None,
         poll_ms=_trigger_poll_interval_ms(request.parameters) if wait_complete else None,
-        restored=not request.parameters.get("leave_trigger_configured", False),
+        restored=not request.parameters["leave_trigger_configured"],
     )
 
 
@@ -1296,14 +1301,14 @@ def _wait_complete_preview_commands(wait_complete: bool) -> tuple[str, ...]:
 def _trigger_wait_timeout_ms(parameters: dict[str, Any], *, dwell: tuple[float, ...] = (), count: int = 1) -> int:
     configured = parameters.get("wait_timeout_ms")
     if configured is not None:
-        return int(configured)
+        return configured
     if dwell:
         return int(sum(dwell) * max(count, 1) * 1000) + 5000
     return 10000
 
 
 def _trigger_poll_interval_ms(parameters: dict[str, Any]) -> int:
-    return max(int(parameters.get("poll_ms", 200)), 50)
+    return max(parameters.get("poll_ms", 200), 50)
 
 
 def _format_text_value(value: object) -> str:
@@ -1324,10 +1329,10 @@ def _float_tuple(value: Any) -> tuple[float, ...] | None:
     if value is None:
         return None
     if isinstance(value, tuple):
-        return tuple(float(item) for item in value)
+        return value
     if isinstance(value, list):
-        return tuple(float(item) for item in value)
-    return (float(value),)
+        return tuple(value)
+    return (value,)
 
 
 def _bool_tuple(value: Any) -> tuple[bool, ...] | None:

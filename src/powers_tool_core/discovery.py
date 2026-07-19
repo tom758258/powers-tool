@@ -43,7 +43,7 @@ def _run_list_resources(
     except VisaConnectionError as exc:
         raise CoreIoError(f"Could not list VISA resources: {exc}", opened=False) from exc
 
-    live_only = bool(request.parameters.get("live_only", False))
+    live_only = request.parameters.get("live_only", False)
     if not live_only:
         payloads = [
             resource_payload(resource, simulated=request.runtime.simulate, reachable=None, idn_raw=None)

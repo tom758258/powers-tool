@@ -3,6 +3,21 @@
 Core owns the numeric parameter constraints used by direct Core requests, CLI,
 Power Worker, and WebUI Commands. Adapter defaults are not limits.
 
+## Raw Request Admission
+
+Core is the single authority for command parameter admission. Every raw Worker
+and WebUI command request is checked against its command-specific allowed
+fields before a hardware lock, VISA open, or SCPI I/O. Unknown fields and
+fields belonging to another command fail closed. Explicit JSON `null` is
+rejected unless a documented field is nullable.
+
+Raw booleans are exact JSON booleans, integers are exact JSON integers, and
+numeric values are finite JSON numbers; strings such as `"false"` and `"1"`,
+booleans used as numbers, and numeric strings are not coerced. CLI argparse
+values are already parsed Python primitives and pass through the same Core
+contract. Aliases are accepted only when one spelling is supplied; two aliases
+for the same value are an admission error.
+
 ## Fixed Limits
 
 - Public Core and raw JSON `channel` values are type-strict: an accepted
