@@ -50,25 +50,26 @@ place.
 ## Package Contents
 
 - `powers_tool_cli.cli`: top-level argument parser, command dispatch, request
-  mapping, JSON envelope conversion, lifecycle HTTP runners, rendering, SCPI
+  mapping, lifecycle HTTP runners, stream emission, error/exit mapping, SCPI
   logging, and runtime adapters into core.
 - `powers_tool_cli.cli_io`: stable JSON success/error envelope helpers and
   optional `--save-json` output.
+- `powers_tool_cli.cli_rendering`: pure human-readable success-line formatters
+  for shared Output, Trigger, plan, and Sequence summaries.
 - `powers_tool_cli.worker`: local async worker service, config validation,
   event emission, job queueing, artifact writing, and `/command`/`/stop` HTTP
   endpoints.
 - `powers_tool_cli.commands.lifecycle`: Worker lifecycle parser registration.
 - `powers_tool_cli.commands.output`: output command parser registration, runner
   adapter, and JSON request-envelope mapping. Shared mapping primitives, Core
-  adaptation, JSON handling, dispatch, and rendering remain in `cli.py`.
+  adaptation, JSON handling, and dispatch remain in `cli.py`.
 - `powers_tool_cli.commands.ramp_list`: independent Ramp List parser
   registration and request-envelope mapping.
 - `powers_tool_cli.commands.sequence`: sequence command registration and CLI
   request conversion.
 - `powers_tool_cli.commands.trigger`: Trigger parser registration, runner
   adapter, and Trigger JSON request-envelope mapping. Shared mapping
-  primitives, Core adaptation, JSON handling, dispatch, and rendering remain
-  in `cli.py`.
+  primitives, Core adaptation, JSON handling, and dispatch remain in `cli.py`.
 
 ## Install
 

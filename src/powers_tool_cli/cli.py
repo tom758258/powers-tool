@@ -44,6 +44,7 @@ from powers_tool_cli.cli_io import (
     set_json_save_path,
     set_json_start_time,
 )
+from powers_tool_cli import cli_rendering
 from powers_tool_core.connection import DEFAULT_TIMEOUT_MS, SerialOptions, list_resources, normalize_serial_termination, open_resource
 from powers_tool_core.command_runner import run_core_command
 from powers_tool_core.command_contract import command_parameter_names
@@ -4943,9 +4944,7 @@ def _sequence_cleanup_safe_off(power_supply: GenericScpiPowerSupply) -> dict[str
 
 
 def _print_sequence_summary(data: dict[str, Any]) -> None:
-    print(f"Resource: {data['resource'] if isinstance(data['resource'], str) else data['resource'].get('name')}")
-    print(f"Status: {data['status']}")
-    print(f"Completed steps: {data['completed_steps']}")
+    _emit_text_lines(cli_rendering.format_sequence_summary(data))
 
 
 def _run_core_output_real(args: argparse.Namespace) -> int:
@@ -8136,63 +8135,18 @@ def _core_output_resource_data(args: argparse.Namespace, data: dict[str, Any]) -
 
 
 def _print_core_output_result(args: argparse.Namespace, resource_data: dict[str, Any]) -> None:
-    if args.command == "set":
-        print(f"Resource: {args.resource}")
-        print(f"Channel: {args.channel}")
-        print(f"Current limit: {_format_text_value(args.current)} A")
-        print(f"Voltage: {_format_text_value(args.voltage)} V")
-        return
-    if args.command == "apply":
-        print(f"Resource: {args.resource}")
-        print(f"Channel: {args.channel}")
-        print(f"Current limit: {_format_text_value(args.current)} A")
-        print(f"Voltage: {_format_text_value(args.voltage)} V")
-        print(f"Output enabled: {str(not args.no_output).lower()}")
-        return
-    if args.command == "output-on":
-        print(f"Resource: {args.resource}")
-        print(f"Channel: {args.channel}")
-        print("Output enabled: True")
-        return
-    if args.command == "output-off":
-        print(f"Resource: {args.resource}")
-        print(f"Channel: {args.channel}")
-        print("Output enabled: False")
-        return
-    if args.command == "safe-off":
-        print(f"Resource: {args.resource}")
-        print(f"Channel: {args.channel}")
-        for output in resource_data["outputs"]:
-            print(f"Channel {output['channel']}: Output enabled: {output['enabled']}")
-        return
-    if args.command == "output-state":
-        print(f"Resource: {args.resource}")
-        print(f"Channel: {args.channel}")
-        if args.channel == "all":
-            for output in resource_data["outputs"]:
-                print(f"Channel {output['channel']}: Output enabled: {str(output['enabled']).lower()}")
-        else:
-            print(f"Output enabled: {str(resource_data['output_enabled']).lower()}")
-        return
-    if args.command == "cycle-output":
-        print(f"Resource: {args.resource}")
-        print(f"Channel: {args.channel}")
-        print("Cycle complete: true")
-        return
-    if args.command == "ramp":
-        print(f"Resource: {args.resource}")
-        print(f"Channel: {args.channel}")
-        print(f"Steps: {resource_data['steps']}")
-        return
-    elif args.command == "smoke-output":
-        measurements = resource_data["measurements"]
-        print(f"Resource: {args.resource}")
-        print(f"Channel: {args.channel}")
-        print(f"Measured voltage: {_format_text_value(measurements['voltage'])} V")
-        print(f"Measured current: {_format_text_value(measurements['current'])} A")
-        print(f"Final output enabled: {resource_data['output']['final_enabled']}")
-        return
-    raise ValueError(f"unsupported core output command: {args.command}")
+    _emit_text_lines(
+        cli_rendering.format_core_output_result(
+            command=args.command,
+            resource=args.resource,
+            channel=args.channel,
+            current=getattr(args, "current", None),
+            voltage=getattr(args, "voltage", None),
+            no_output=getattr(args, "no_output", False),
+            resource_data=resource_data,
+            value_to_text=_format_text_value,
+        )
+    )
 
 
 def _list_resources(
@@ -9606,27 +9560,15 @@ def _core_trigger_resource_data(args: argparse.Namespace, data: dict[str, Any]) 
 
 
 def _print_core_trigger_result(args: argparse.Namespace, data: dict[str, Any]) -> None:
-    if "plan" in data:
-        _print_scpi_plan(data["plan"], mode=_mode_for_args(args), dry_run=True)
-    elif args.command == "trigger-pulse":
-        print(f"Resource: {args.resource}")
-        print("Pins: " + ", ".join(str(pin) for pin in data["pins"]))
-        print(f"Exclusive pins: {str(data['exclusive_pins']).lower()}")
-        print(f"Polarity: {data['polarity']}")
-        print("Triggered: True")
-    elif args.command == "trigger-status":
-        print(f"Resource: {args.resource}")
-        print(f"Channel: {data['channel']}")
-    elif args.command == "trigger-list":
-        print(f"Resource: {args.resource}")
-        print(f"Steps: {data['steps']}")
-    elif args.command == "trigger-step":
-        print(f"Resource: {args.resource}")
-        print(f"Triggered: {str(data['trigger']['completed']).lower()}")
-    elif args.command == "trigger-fire":
-        print("Triggered: true")
-    elif args.command == "trigger-abort":
-        print(f"Channel {args.channel}: aborted")
+    _emit_text_lines(
+        cli_rendering.format_core_trigger_result(
+            command=args.command,
+            resource=args.resource,
+            channel=getattr(args, "channel", None),
+            mode=_mode_for_args(args),
+            data=data,
+        )
+    )
 
 
 def _append_write_followup_steps(
@@ -9689,30 +9631,23 @@ def _output_plan_description(command: str) -> str:
 
 
 def _print_output_plan(plan: dict[str, Any], *, mode: str, dry_run: bool) -> None:
-    label = "Dry-run" if dry_run else "Simulation"
-    print(f"{label} plan for {plan['operation']['name']}")
-    print(f"Mode: {mode}")
-    print(f"Resource: {plan['target']['resource']}")
-    print(f"Channel: {plan['target']['channel']}")
-    print(f"Hardware touched: {str(plan['hardware_touched']).lower()}")
-    print("Steps:")
-    for step in plan["steps"]:
-        parameters = " ".join(
-            f"{name}={_format_text_value(value)}"
-            for name, value in step["parameters"].items()
+    _emit_text_lines(
+        cli_rendering.format_output_plan(
+            plan,
+            mode=mode,
+            dry_run=dry_run,
+            value_to_text=_format_text_value,
         )
-        print(f"{step['index']}. {step['action']} {parameters}".rstrip())
+    )
 
 
 def _print_scpi_plan(plan: dict[str, object], *, mode: str, dry_run: bool) -> None:
-    label = "Dry-run" if dry_run else "Simulation"
-    print(f"{label} plan for {plan['operation']['name']}")
-    print(f"Mode: {mode}")
-    print(f"Resource: {plan['target']['resource']}")
-    print(f"Hardware touched: {str(plan['hardware_touched']).lower()}")
-    print("Steps:")
-    for step in plan["steps"]:
-        print(f"{step['index']}. {step['command']}")
+    _emit_text_lines(cli_rendering.format_scpi_plan(plan, mode=mode, dry_run=dry_run))
+
+
+def _emit_text_lines(lines: Sequence[str]) -> None:
+    for line in lines:
+        print(line)
 
 
 def _json_safe_number(value: float) -> float | str:
