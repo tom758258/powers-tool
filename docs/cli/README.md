@@ -65,8 +65,10 @@ place.
   registration and request-envelope mapping.
 - `powers_tool_cli.commands.sequence`: sequence command registration and CLI
   request conversion.
-- `powers_tool_cli.commands.trigger`: trigger command registration and CLI
-  request conversion.
+- `powers_tool_cli.commands.trigger`: Trigger parser registration, runner
+  adapter, and Trigger JSON request-envelope mapping. Shared mapping
+  primitives, Core adaptation, JSON handling, dispatch, and rendering remain
+  in `cli.py`.
 
 ## Install
 

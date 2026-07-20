@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from typing import Any
 
 
@@ -193,6 +194,195 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     runtime._add_timeout_argument(trigger_abort_parser)
     trigger_abort_parser.add_argument("--log-scpi", action="store_true", help="Print SCPI commands and responses to stderr.")
     trigger_abort_parser.set_defaults(func=run_trigger, _runtime=runtime)
+
+
+def request_for_args(args: argparse.Namespace, runtime: Any) -> dict[str, Any]:
+    if args.command == "trigger-pulse":
+        pins = runtime._trigger_pins_for_args(args)
+        request = {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "pins": list(pins),
+            "channel": getattr(args, "channel", 1),
+            "polarity": args.polarity,
+            "exclusive_pins": getattr(args, "exclusive_pins", False),
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+        }
+        if args.pin is not None:
+            request["pin"] = args.pin
+            request["exclusive_pin"] = getattr(args, "exclusive_pins", False)
+        return request
+    if args.command == "trigger-status":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": args.channel,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "trigger-step":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": args.channel,
+            "source": args.source,
+            "voltage": runtime._json_safe_number(args.voltage) if args.voltage is not None else None,
+            "current": runtime._json_safe_number(args.current) if args.current is not None else None,
+            "fire": args.fire,
+            "wait_complete": args.wait_complete,
+            "wait_timeout_ms": getattr(args, "wait_timeout_ms", None),
+            "poll_ms": getattr(args, "poll_ms", 200),
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+            **runtime._completion_request_fields(args),
+        }
+    if args.command == "trigger-list":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "file": getattr(args, "file", None),
+            "channel": getattr(args, "channel", None),
+            "source": args.source,
+            "voltage_list": list(args.voltage_list) if args.voltage_list is not None else None,
+            "current_list": list(args.current_list) if args.current_list is not None else None,
+            "dwell_list": list(args.dwell_list) if args.dwell_list is not None else None,
+            "bost_list": list(args.bost_list) if getattr(args, "bost_list", None) is not None else None,
+            "eost_list": list(args.eost_list) if getattr(args, "eost_list", None) is not None else None,
+            "trigger_output_pins": list(args.trigger_output_pins) if getattr(args, "trigger_output_pins", None) is not None else None,
+            "trigger_output_polarity": getattr(args, "trigger_output_polarity", None),
+            "count": args.count,
+            "fire": args.fire,
+            "wait_complete": args.wait_complete,
+            "wait_timeout_ms": getattr(args, "wait_timeout_ms", None),
+            "poll_ms": getattr(args, "poll_ms", 200),
+            "exclusive_pins": getattr(args, "exclusive_pins", False),
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+            **runtime._completion_request_fields(args),
+        }
+    if args.command == "trigger-fire":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": getattr(args, "channel", None),
+            "wait_complete": args.wait_complete,
+            "wait_timeout_ms": getattr(args, "wait_timeout_ms", None),
+            "poll_ms": getattr(args, "poll_ms", 200),
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+        }
+    if args.command == "trigger-abort":
+        return {
+            "resource": args.resource,
+            "resource_alias": getattr(args, "resource_alias", None),
+            "channel": args.channel,
+            "max_errors": args.max_errors,
+            "safety_config": getattr(args, "safety_config", None),
+            "backend": getattr(args, "backend", None),
+            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+        }
+    return {}
+
+
+def request_from_argv(
+    command: str,
+    argv: Sequence[str],
+    runtime: Any,
+) -> dict[str, Any]:
+    if command == "trigger-pulse":
+        pin = runtime._pin_from_argv(argv)
+        pins = runtime._pins_from_argv(argv)
+        request = {
+            "resource": runtime._option_value(argv, "--resource"),
+            "resource_alias": runtime._option_value(argv, "--resource-alias"),
+            "pins": pins if pins is not None else ([pin] if pin is not None else None),
+            "channel": runtime._channel_from_argv(argv) or 1,
+            "polarity": runtime._option_value(argv, "--polarity") or "positive",
+            "exclusive_pins": "--exclusive-pins" in argv or "--exclusive-pin" in argv,
+            "safety_config": runtime._option_value(argv, "--safety-config"),
+            "backend": runtime._option_value(argv, "--backend"),
+            "timeout_ms": runtime._timeout_from_argv(argv),
+        }
+        if pin is not None:
+            request["pin"] = pin
+            request["exclusive_pin"] = "--exclusive-pins" in argv or "--exclusive-pin" in argv
+        return request
+    if command == "trigger-status":
+        return {
+            "resource": runtime._option_value(argv, "--resource"),
+            "resource_alias": runtime._option_value(argv, "--resource-alias"),
+            "channel": runtime._status_channel_from_argv(argv) or "all",
+            "safety_config": runtime._option_value(argv, "--safety-config"),
+            "backend": runtime._option_value(argv, "--backend"),
+            "timeout_ms": runtime._timeout_from_argv(argv),
+        }
+    if command == "trigger-step":
+        return {
+            "resource": runtime._option_value(argv, "--resource"),
+            "resource_alias": runtime._option_value(argv, "--resource-alias"),
+            "channel": runtime._channel_from_argv(argv),
+            "source": runtime._option_value(argv, "--source") or "bus",
+            "voltage": runtime._number_from_argv(argv, "--voltage"),
+            "current": runtime._number_from_argv(argv, "--current"),
+            "fire": "--fire" in argv,
+            "wait_complete": "--wait-complete" in argv,
+            "wait_timeout_ms": runtime._int_option_from_argv(argv, "--wait-timeout-ms", None),
+            "poll_ms": runtime._int_option_from_argv(argv, "--poll-ms", 200),
+            "safety_config": runtime._option_value(argv, "--safety-config"),
+            "backend": runtime._option_value(argv, "--backend"),
+            "timeout_ms": runtime._timeout_from_argv(argv),
+            **runtime._completion_request_fields_from_argv(argv),
+        }
+    if command == "trigger-list":
+        return {
+            "resource": runtime._option_value(argv, "--resource"),
+            "resource_alias": runtime._option_value(argv, "--resource-alias"),
+            "file": runtime._option_value(argv, "--file"),
+            "channel": runtime._channel_from_argv(argv),
+            "source": runtime._option_value(argv, "--source") or "bus",
+            "voltage_list": runtime._float_list_from_argv(argv, "--voltage-list"),
+            "current_list": runtime._float_list_from_argv(argv, "--current-list"),
+            "dwell_list": runtime._float_list_from_argv(argv, "--dwell-list"),
+            "count": runtime._int_option_from_argv(argv, "--count", 1),
+            "fire": "--fire" in argv,
+            "wait_complete": "--wait-complete" in argv,
+            "wait_timeout_ms": runtime._int_option_from_argv(argv, "--wait-timeout-ms", None),
+            "poll_ms": runtime._int_option_from_argv(argv, "--poll-ms", 200),
+            "exclusive_pins": "--exclusive-pins" in argv,
+            "safety_config": runtime._option_value(argv, "--safety-config"),
+            "backend": runtime._option_value(argv, "--backend"),
+            "timeout_ms": runtime._timeout_from_argv(argv),
+            **runtime._completion_request_fields_from_argv(argv),
+        }
+    if command == "trigger-fire":
+        return {
+            "resource": runtime._option_value(argv, "--resource"),
+            "resource_alias": runtime._option_value(argv, "--resource-alias"),
+            "channel": runtime._channel_from_argv(argv),
+            "wait_complete": "--wait-complete" in argv,
+            "wait_timeout_ms": runtime._int_option_from_argv(argv, "--wait-timeout-ms", None),
+            "poll_ms": runtime._int_option_from_argv(argv, "--poll-ms", 200),
+            "safety_config": runtime._option_value(argv, "--safety-config"),
+            "backend": runtime._option_value(argv, "--backend"),
+            "timeout_ms": runtime._timeout_from_argv(argv),
+        }
+    if command == "trigger-abort":
+        return {
+            "resource": runtime._option_value(argv, "--resource"),
+            "resource_alias": runtime._option_value(argv, "--resource-alias"),
+            "channel": runtime._channel_from_argv(argv),
+            "max_errors": runtime._max_errors_from_argv(argv),
+            "safety_config": runtime._option_value(argv, "--safety-config"),
+            "backend": runtime._option_value(argv, "--backend"),
+            "timeout_ms": runtime._timeout_from_argv(argv),
+        }
+    return {}
 
 
 def run_trigger(args: argparse.Namespace) -> int:

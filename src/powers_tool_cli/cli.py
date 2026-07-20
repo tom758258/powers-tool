@@ -8405,96 +8405,10 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "backend": getattr(args, "backend", None),
             "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         }
-    if args.command == "trigger-pulse":
-        pins = _trigger_pins_for_args(args)
-        request = {
-            "resource": args.resource,
-            "resource_alias": getattr(args, "resource_alias", None),
-            "pins": list(pins),
-            "channel": getattr(args, "channel", 1),
-            "polarity": args.polarity,
-            "exclusive_pins": getattr(args, "exclusive_pins", False),
-            "safety_config": getattr(args, "safety_config", None),
-            "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-        }
-        if args.pin is not None:
-            request["pin"] = args.pin
-            request["exclusive_pin"] = getattr(args, "exclusive_pins", False)
-        return request
-    if args.command == "trigger-status":
-        return {
-            "resource": args.resource,
-            "resource_alias": getattr(args, "resource_alias", None),
-            "channel": args.channel,
-            "safety_config": getattr(args, "safety_config", None),
-            "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-        }
-    if args.command == "trigger-step":
-        return {
-            "resource": args.resource,
-            "resource_alias": getattr(args, "resource_alias", None),
-            "channel": args.channel,
-            "source": args.source,
-            "voltage": _json_safe_number(args.voltage) if args.voltage is not None else None,
-            "current": _json_safe_number(args.current) if args.current is not None else None,
-            "fire": args.fire,
-            "wait_complete": args.wait_complete,
-            "wait_timeout_ms": getattr(args, "wait_timeout_ms", None),
-            "poll_ms": getattr(args, "poll_ms", 200),
-            "safety_config": getattr(args, "safety_config", None),
-            "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-            **_completion_request_fields(args),
-        }
-    if args.command == "trigger-list":
-        return {
-            "resource": args.resource,
-            "resource_alias": getattr(args, "resource_alias", None),
-            "file": getattr(args, "file", None),
-            "channel": getattr(args, "channel", None),
-            "source": args.source,
-            "voltage_list": list(args.voltage_list) if args.voltage_list is not None else None,
-            "current_list": list(args.current_list) if args.current_list is not None else None,
-            "dwell_list": list(args.dwell_list) if args.dwell_list is not None else None,
-            "bost_list": list(args.bost_list) if getattr(args, "bost_list", None) is not None else None,
-            "eost_list": list(args.eost_list) if getattr(args, "eost_list", None) is not None else None,
-            "trigger_output_pins": list(args.trigger_output_pins) if getattr(args, "trigger_output_pins", None) is not None else None,
-            "trigger_output_polarity": getattr(args, "trigger_output_polarity", None),
-            "count": args.count,
-            "fire": args.fire,
-            "wait_complete": args.wait_complete,
-            "wait_timeout_ms": getattr(args, "wait_timeout_ms", None),
-            "poll_ms": getattr(args, "poll_ms", 200),
-            "exclusive_pins": getattr(args, "exclusive_pins", False),
-            "safety_config": getattr(args, "safety_config", None),
-            "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-            **_completion_request_fields(args),
-        }
-    if args.command == "trigger-fire":
-        return {
-            "resource": args.resource,
-            "resource_alias": getattr(args, "resource_alias", None),
-            "channel": getattr(args, "channel", None),
-            "wait_complete": args.wait_complete,
-            "wait_timeout_ms": getattr(args, "wait_timeout_ms", None),
-            "poll_ms": getattr(args, "poll_ms", 200),
-            "safety_config": getattr(args, "safety_config", None),
-            "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-        }
-    if args.command == "trigger-abort":
-        return {
-            "resource": args.resource,
-            "resource_alias": getattr(args, "resource_alias", None),
-            "channel": args.channel,
-            "max_errors": args.max_errors,
-            "safety_config": getattr(args, "safety_config", None),
-            "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
-        }
+    from powers_tool_cli.commands import trigger as trigger_commands
+
+    if args.command in trigger_commands.TRIGGER_COMMANDS:
+        return trigger_commands.request_for_args(args, sys.modules[__name__])
     if args.command == "read-status":
         channel = "all" if getattr(args, "all", False) else args.channel
         return _with_serial_request_fields(args, {
@@ -8710,93 +8624,10 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
             "backend": _option_value(argv, "--backend"),
             "timeout_ms": _timeout_from_argv(argv),
         }
-    if command == "trigger-pulse":
-        pin = _pin_from_argv(argv)
-        pins = _pins_from_argv(argv)
-        request = {
-            "resource": _option_value(argv, "--resource"),
-            "resource_alias": _option_value(argv, "--resource-alias"),
-            "pins": pins if pins is not None else ([pin] if pin is not None else None),
-            "channel": _channel_from_argv(argv) or 1,
-            "polarity": _option_value(argv, "--polarity") or "positive",
-            "exclusive_pins": "--exclusive-pins" in argv or "--exclusive-pin" in argv,
-            "safety_config": _option_value(argv, "--safety-config"),
-            "backend": _option_value(argv, "--backend"),
-            "timeout_ms": _timeout_from_argv(argv),
-        }
-        if pin is not None:
-            request["pin"] = pin
-            request["exclusive_pin"] = "--exclusive-pins" in argv or "--exclusive-pin" in argv
-        return request
-    if command == "trigger-status":
-        return {
-            "resource": _option_value(argv, "--resource"),
-            "resource_alias": _option_value(argv, "--resource-alias"),
-            "channel": _status_channel_from_argv(argv) or "all",
-            "safety_config": _option_value(argv, "--safety-config"),
-            "backend": _option_value(argv, "--backend"),
-            "timeout_ms": _timeout_from_argv(argv),
-        }
-    if command == "trigger-step":
-        return {
-            "resource": _option_value(argv, "--resource"),
-            "resource_alias": _option_value(argv, "--resource-alias"),
-            "channel": _channel_from_argv(argv),
-            "source": _option_value(argv, "--source") or "bus",
-            "voltage": _number_from_argv(argv, "--voltage"),
-            "current": _number_from_argv(argv, "--current"),
-            "fire": "--fire" in argv,
-            "wait_complete": "--wait-complete" in argv,
-            "wait_timeout_ms": _int_option_from_argv(argv, "--wait-timeout-ms", None),
-            "poll_ms": _int_option_from_argv(argv, "--poll-ms", 200),
-            "safety_config": _option_value(argv, "--safety-config"),
-            "backend": _option_value(argv, "--backend"),
-            "timeout_ms": _timeout_from_argv(argv),
-            **_completion_request_fields_from_argv(argv),
-        }
-    if command == "trigger-list":
-        return {
-            "resource": _option_value(argv, "--resource"),
-            "resource_alias": _option_value(argv, "--resource-alias"),
-            "file": _option_value(argv, "--file"),
-            "channel": _channel_from_argv(argv),
-            "source": _option_value(argv, "--source") or "bus",
-            "voltage_list": _float_list_from_argv(argv, "--voltage-list"),
-            "current_list": _float_list_from_argv(argv, "--current-list"),
-            "dwell_list": _float_list_from_argv(argv, "--dwell-list"),
-            "count": _int_option_from_argv(argv, "--count", 1),
-            "fire": "--fire" in argv,
-            "wait_complete": "--wait-complete" in argv,
-            "wait_timeout_ms": _int_option_from_argv(argv, "--wait-timeout-ms", None),
-            "poll_ms": _int_option_from_argv(argv, "--poll-ms", 200),
-            "exclusive_pins": "--exclusive-pins" in argv,
-            "safety_config": _option_value(argv, "--safety-config"),
-            "backend": _option_value(argv, "--backend"),
-            "timeout_ms": _timeout_from_argv(argv),
-            **_completion_request_fields_from_argv(argv),
-        }
-    if command == "trigger-fire":
-        return {
-            "resource": _option_value(argv, "--resource"),
-            "resource_alias": _option_value(argv, "--resource-alias"),
-            "channel": _channel_from_argv(argv),
-            "wait_complete": "--wait-complete" in argv,
-            "wait_timeout_ms": _int_option_from_argv(argv, "--wait-timeout-ms", None),
-            "poll_ms": _int_option_from_argv(argv, "--poll-ms", 200),
-            "safety_config": _option_value(argv, "--safety-config"),
-            "backend": _option_value(argv, "--backend"),
-            "timeout_ms": _timeout_from_argv(argv),
-        }
-    if command == "trigger-abort":
-        return {
-            "resource": _option_value(argv, "--resource"),
-            "resource_alias": _option_value(argv, "--resource-alias"),
-            "channel": _channel_from_argv(argv),
-            "max_errors": _max_errors_from_argv(argv),
-            "safety_config": _option_value(argv, "--safety-config"),
-            "backend": _option_value(argv, "--backend"),
-            "timeout_ms": _timeout_from_argv(argv),
-        }
+    from powers_tool_cli.commands import trigger as trigger_commands
+
+    if command in trigger_commands.TRIGGER_COMMANDS:
+        return trigger_commands.request_from_argv(command, argv, sys.modules[__name__])
     if command == "read-status":
         channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")
         return _with_serial_request_fields_from_argv(argv, {
