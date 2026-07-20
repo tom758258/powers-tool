@@ -2227,6 +2227,191 @@ def test_frontend_workspace_result_keys_isolate_complete_execution_context() -> 
     run_frontend_javascript_assertions(assertions)
 
 
+def test_frontend_execution_mode_transition_refreshes_selected_context_once() -> None:
+    assertions = textwrap.dedent(
+        r"""
+        const strictAssert = require("node:assert/strict");
+        (async () => {
+
+        class FakeClassList {
+          add() {}
+          toggle() {}
+        }
+
+        class FakeSelect {
+          constructor(value = "") {
+            this.value = value;
+            this.options = [];
+            this.children = [];
+            this.classList = new FakeClassList();
+          }
+          replaceChildren() {
+            this.value = "";
+            this.options = [];
+            this.children = [];
+          }
+          add(option) {
+            this.options.push(option);
+            this.children.push(option);
+          }
+          append(...children) {
+            this.children.push(...children);
+            children.forEach((child) => this.options.push(...(child.children || [])));
+          }
+        }
+
+        class FakeInput {
+          constructor() {
+            this.type = "number";
+            this.dataset = {};
+            this.attributes = {};
+            for (const name of ["min", "max", "step", "title"]) {
+              Object.defineProperty(this, name, {
+                get: () => this.attributes[name] ?? "",
+                set: (value) => { this.attributes[name] = String(value); }
+              });
+            }
+          }
+          setAttribute(name, value) { this.attributes[name] = String(value); }
+          getAttribute(name) { return this.attributes[name] ?? null; }
+          hasAttribute(name) { return Object.prototype.hasOwnProperty.call(this.attributes, name); }
+          removeAttribute(name) { delete this.attributes[name]; }
+        }
+
+        const createControl = (value = "") => ({
+          value,
+          checked: false,
+          disabled: false,
+          hidden: false,
+          title: "",
+          textContent: "",
+          className: "",
+          classList: new FakeClassList(),
+          parentElement: { hidden: false },
+          firstChild: { textContent: "" }
+        });
+        const identity = new FakeSelect("keysight-e36312a");
+        const elements = new Map([
+          ["expected-model-id", identity],
+          ["resource", createControl("RESOURCE-REAL")],
+          ["resource-select", new FakeSelect("RESOURCE-REAL")],
+          ["real-write-enabled", createControl()],
+          ["execution-mode-badge", createControl()],
+          ["execution-mode-help", createControl()],
+          ["identity-model-label", createControl()],
+          ["command-form", createControl()],
+          ["workspace-summary-content", createControl()]
+        ]);
+        ["scan", "live-start", "serial-baud-rate", "serial-data-bits", "serial-parity", "serial-stop-bits", "serial-flow-control", "serial-read-termination", "serial-write-termination", "serial-remote", "serial-local-on-close"].forEach((id) => elements.set(id, createControl()));
+        const radios = ["real", "simulate", "dry-run"].map((value) => ({ value, checked: value === "real", disabled: false, title: "" }));
+
+        globalThis.Option = function Option(text, value) { return { textContent: text, value: String(value) }; };
+        document.getElementById = (id) => elements.get(id) || null;
+        document.createElement = () => ({ children: [], append(...children) { this.children.push(...children); } });
+        document.querySelectorAll = (selector) => selector === 'input[name="execution-mode"]' ? radios : [];
+        document.querySelector = (selector) => {
+          const match = selector.match(/\[value="([^"]+)"\]/);
+          return match ? radios.find((radio) => radio.value === match[1]) || null : null;
+        };
+
+        state.executionMode = "real";
+        state.executionModeTransition = false;
+        state.workflowControl = { phase: "idle" };
+        state.basicActionStates = {};
+        state.jobs = [];
+        state.selected = "set";
+        state.realIdentityCache = { expectedModelId: "keysight-e36312a" };
+        state.planningIdentityCache = { simulate: "keysight-e3646a", "dry-run": "profile:generic-scpi" };
+        state.physicalModels = [
+          { model_id: "keysight-e36312a", display_name: "Keysight E36312A" },
+          { model_id: "keysight-e3646a", display_name: "Keysight E3646A" }
+        ];
+        state.planningProfiles = {
+          "generic-scpi": { profile_id: "generic-scpi", display_name: "Generic SCPI" }
+        };
+        state.parameterConstraints = {
+          voltage: { min: 0, max: 100, step: 0.1, description: "Generic voltage guidance" }
+        };
+        state.electricalRatingsByModel = {
+          "keysight-e36312a": { channels: [{ channel: 1, max_voltage: 6, max_current: 5 }] },
+          "keysight-e3646a": { channels: [{ channel: 1, max_voltage: 20, max_current: 1 }] }
+        };
+        state.resourceModels = { "RESOURCE-REAL": "keysight-e3646a" };
+        state.resourceChannelModels = { "RESOURCE-REAL": "keysight-e3646a" };
+        state.livePanel = null;
+        state.workspaceResults = {};
+
+        const realJob = {
+          command: "set",
+          runtime: { resource: "RESOURCE-REAL", simulate: false, dry_run: false, expected_model_id: "keysight-e36312a" },
+          result: { resource: { name: "RESOURCE-REAL", model_id: "keysight-e3646a" } }
+        };
+        const realKey = buildWorkspaceResultKey(workspaceResultContextForJob(realJob));
+        state.workspaceResults[realKey] = { marker: "real" };
+
+        const selectedCalls = [];
+        const formLimits = [];
+        const workspaceViews = [];
+        const clientFailures = [];
+        stopRealLiveJobsAndWait = async () => {};
+        renderBlankLivePanel = () => {};
+        renderClientResult = (...args) => clientFailures.push(args);
+        updateDeviceResourceSummary = () => {};
+        syncBasicFromLivePanel = () => {};
+        renderCommands = () => {};
+        selectCommand = (name) => {
+          selectedCalls.push(name);
+          const input = new FakeInput();
+          refreshInputElectricalConstraints(input, "voltage");
+          formLimits.push({ mode: state.executionMode, max: input.max, title: input.title });
+          const context = currentWorkspaceResultContext(name);
+          workspaceViews.push({ context, marker: state.workspaceResults[buildWorkspaceResultKey(context)]?.marker || null });
+        };
+        renderWorkspaceSummary = () => {
+          const context = currentWorkspaceResultContext(state.selected);
+          workspaceViews.push({ context, marker: state.workspaceResults[buildWorkspaceResultKey(context)]?.marker || null });
+        };
+
+        await handleExecutionModeChange({ target: radios[1] });
+        strictAssert.equal(identity.value, "keysight-e3646a");
+        strictAssert.deepEqual(formLimits.at(-1), { mode: "simulate", max: "20", title: "Official independent-channel DC output rating: maximum 20 V." });
+        strictAssert.equal(workspaceViews.at(-1).context.executionMode, "simulate");
+        strictAssert.equal(workspaceViews.at(-1).marker, null, "Simulate must not show the Real result");
+
+        const simulateContext = currentWorkspaceResultContext("set");
+        state.workspaceResults[buildWorkspaceResultKey(simulateContext)] = { marker: "simulate" };
+        await handleExecutionModeChange({ target: radios[2] });
+        strictAssert.equal(identity.value, "profile:generic-scpi");
+        strictAssert.deepEqual(formLimits.at(-1), { mode: "dry-run", max: "100", title: "Generic voltage guidance" });
+        strictAssert.equal(workspaceViews.at(-1).context.executionMode, "dry-run");
+        strictAssert.equal(workspaceViews.at(-1).marker, null, "Dry-run must not show the Simulate result");
+
+        await handleExecutionModeChange({ target: radios[0] });
+        strictAssert.equal(identity.value, "keysight-e36312a");
+        strictAssert.deepEqual(formLimits.at(-1), { mode: "real", max: "6", title: "Official independent-channel DC output rating: maximum 6 V." });
+        const realContext = workspaceViews.at(-1).context;
+        strictAssert.equal(realContext.resource, "RESOURCE-REAL");
+        strictAssert.equal(realContext.expectedModelGuard, "keysight-e36312a");
+        strictAssert.equal(realContext.canonicalModelId, "keysight-e3646a");
+        strictAssert.notEqual(realContext.expectedModelGuard, realContext.canonicalModelId);
+        strictAssert.equal(workspaceViews.at(-1).marker, "real");
+        strictAssert.equal(buildWorkspaceResultKey(realContext), realKey);
+        strictAssert.deepEqual(selectedCalls, ["set", "set", "set"]);
+
+        stopRealLiveJobsAndWait = async () => { throw new Error("Live stop failed"); };
+        await handleExecutionModeChange({ target: radios[1] });
+        strictAssert.equal(state.executionMode, "real");
+        strictAssert.deepEqual(selectedCalls, ["set", "set", "set"]);
+        strictAssert.equal(clientFailures.length, 1);
+        })().catch((error) => {
+          console.error(error);
+          process.exitCode = 1;
+        });
+        """
+    )
+    run_frontend_javascript_assertions(assertions)
+
+
 def test_static_workspace_capabilities_and_identify_use_result_fields():
     _index_html, app_js, _styles_css = read_static_texts()
 

@@ -475,7 +475,7 @@ function hasRealWriteAuthorization() {
   return state.executionMode === "real" && state.realWriteAuthorization === realAuthorizationContext();
 }
 
-function updateExecutionModeUi() {
+function updateExecutionModeUi({ renderCommands: shouldRenderCommands = true } = {}) {
   const noHardware = isNoHardwareMode();
   const jobBusy = state.executionModeTransition || state.workflowControl.phase !== "idle" || Object.values(state.basicActionStates).some((action) => ["pending", "submitting", "active", "stopping"].includes(action.status)) || state.jobs.some((job) => ["accepted", "started", "progress", "running", "cancel_requested"].includes(job.status));
   document.querySelectorAll('input[name="execution-mode"]').forEach((radio) => {
@@ -510,7 +510,7 @@ function updateExecutionModeUi() {
   }
   populateIdentitySelector();
   updateDeviceResourceSummary();
-  renderCommands();
+  if (shouldRenderCommands) renderCommands();
   syncBasicFromLivePanel(state.livePanel);
 }
 
@@ -549,6 +549,7 @@ function populateIdentitySelector() {
 async function handleExecutionModeChange(event) {
   const requested = event.target.value;
   if (requested === state.executionMode || state.executionModeTransition) return;
+  let modeChanged = false;
   event.target.checked = false;
   document.querySelector(`input[name="execution-mode"][value="${state.executionMode}"]`).checked = true;
   state.executionModeTransition = true;
@@ -560,6 +561,7 @@ async function handleExecutionModeChange(event) {
       clearRealWriteAuthorization();
     }
     state.executionMode = requested;
+    modeChanged = true;
     if (requested === "real") clearRealWriteAuthorization();
     document.querySelector(`input[name="execution-mode"][value="${requested}"]`).checked = true;
     renderBlankLivePanel("ok", "Execution mode changed.");
@@ -567,7 +569,11 @@ async function handleExecutionModeChange(event) {
     renderClientResult("Execution mode", "failed", error.message || String(error), { error: "Mode change cancelled" });
   } finally {
     state.executionModeTransition = false;
-    updateExecutionModeUi();
+    updateExecutionModeUi({ renderCommands: !modeChanged || !state.selected });
+    if (modeChanged) {
+      if (state.selected) selectCommand(state.selected);
+      else renderWorkspaceSummary();
+    }
   }
 }
 
