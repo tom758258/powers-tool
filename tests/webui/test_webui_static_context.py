@@ -292,7 +292,7 @@ const strictAssert = require("node:assert/strict");
 strictAssert.equal(typeof globalThis.PowersToolWebUI.context.buildWorkspaceResultKey, "function");
 strictAssert.equal(typeof state, "object");
 """,
-        source_names=("app-context.js", "app.js"),
+        source_names=("app-context.js", "app-electrical.js", "app.js"),
     )
 
 

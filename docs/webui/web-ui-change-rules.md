@@ -31,6 +31,7 @@ Preferred editable frontend files:
 - `src/powers_tool_webui/static/styles.css`
 - `src/powers_tool_webui/static/app.js`
 - `src/powers_tool_webui/static/app-context.js`
+- `src/powers_tool_webui/static/app-electrical.js`
 
 Optional, only when a stable UI contract changes or a new public behavior needs
 coverage:
@@ -287,13 +288,17 @@ If WebUI JavaScript changed, also run:
 
 ```powershell
 node --check src\powers_tool_webui\static\app-context.js
+node --check src\powers_tool_webui\static\app-electrical.js
 node --check src\powers_tool_webui\static\app.js
 ```
 
 `app-context.js` owns only pure execution/workspace context helpers. It must
 not access the DOM, fetch, EventSource, or mutable application state.
-`app.js` owns the DOM/state adapters and loads after the helper through the
-explicit script order in `index.html`.
+`app-electrical.js` owns only pure electrical input-constraint calculation. It
+must not access the DOM, fetch, EventSource, or mutable application state.
+`app.js` owns the DOM/state adapters and loads after both helpers through the
+explicit `app-context.js`, `app-electrical.js`, then `app.js` script order in
+`index.html`.
 
 When practical, run broader no-hardware checks:
 

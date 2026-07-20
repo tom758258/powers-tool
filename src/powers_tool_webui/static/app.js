@@ -1,4 +1,5 @@
 const webuiContext = globalThis.PowersToolWebUI?.context;
+const webuiElectrical = globalThis.PowersToolWebUI?.electrical;
 const requiredWebuiContextApiNames = [
   "isNoHardwareExecutionMode",
   "buildWorkspaceResultKey",
@@ -13,7 +14,11 @@ if (invalidWebuiContextApiNames.length) {
     `PowersToolWebUI.context failed to load before app.js; missing or invalid function APIs: ${invalidWebuiContextApiNames.join(", ")}.`
   );
 }
+if (typeof webuiElectrical?.resolveInputElectricalConstraint !== "function") {
+  throw new Error("PowersToolWebUI.electrical failed to load before app.js; missing or invalid function API: resolveInputElectricalConstraint.");
+}
 const { buildWorkspaceResultKey } = webuiContext;
+const { resolveInputElectricalConstraint } = webuiElectrical;
 
 const state = {
   executionMode: "real",
@@ -2970,29 +2975,30 @@ function enforcePulseFormRules(command, name, input) {
 
 function applyParameterConstraint(input, name) {
   if (input.type !== "number") return;
-  const constraint = state.parameterConstraints[name];
-  if (!constraint) return;
-  if (constraint.min !== undefined) input.min = String(constraint.min);
-  if (constraint.max !== undefined) input.max = String(constraint.max);
-  input.step = String(constraint.step ?? "any");
-  if (constraint.exclusive_min !== undefined) input.dataset.exclusiveMin = String(constraint.exclusive_min);
-  if (constraint.description) input.title = constraint.description;
+  const parameter = resolveInputElectricalConstraint({
+    parameterConstraints: state.parameterConstraints,
+    electricalRatingsByModel: state.electricalRatingsByModel,
+    modelId: null,
+    channel: null,
+    parameterName: name
+  }).parameter;
+  if (!parameter) return;
+  Object.entries(parameter.attributes).forEach(([attribute, value]) => { input[attribute] = value; });
+  if (parameter.exclusiveMin !== undefined) input.dataset.exclusiveMin = parameter.exclusiveMin;
 }
 
 function applyElectricalRatingConstraint(input, name) {
   if (input.type !== "number" || !["voltage", "start_voltage", "stop_voltage", "current"].includes(name)) return;
   restoreBaseElectricalConstraints(input);
-  const suppliedRating = arguments.length >= 3 ? arguments[2] : undefined;
-  const rating = suppliedRating === undefined ? selectedChannelRating() : suppliedRating;
-  if (!rating) return;
+  const constraint = arguments.length >= 3 ? arguments[2] : selectedInputElectricalConstraint(name);
+  if (!constraint?.override) return;
   input.dataset.electricalBaseConstraints = JSON.stringify(Object.fromEntries(
     ELECTRICAL_CONSTRAINT_ATTRIBUTES.map((attribute) => [
       attribute,
       input.hasAttribute(attribute) ? input.getAttribute(attribute) : null
     ])
   ));
-  input.setAttribute("max", String(name === "current" ? rating.max_current : rating.max_voltage));
-  input.setAttribute("title", `Official independent-channel DC output rating: maximum ${input.max} ${name === "current" ? "A" : "V"}.`);
+  Object.entries(constraint.override.attributes).forEach(([attribute, value]) => input.setAttribute(attribute, value));
 }
 
 function restoreBaseElectricalConstraints(input) {
@@ -3019,15 +3025,17 @@ function selectedChannelRating() {
 }
 
 function selectedChannelRatingFor(selected) {
-  const model = selectedElectricalRatingModel();
-  const ratings = state.electricalRatingsByModel?.[model]?.channels;
-  if (!Array.isArray(ratings)) return null;
-  const channels = selected === "all" ? ratings : ratings.filter((rating) => String(rating.channel) === String(selected));
-  if (!channels.length) return null;
-  return {
-    max_voltage: Math.min(...channels.map((rating) => Number(rating.max_voltage))),
-    max_current: Math.min(...channels.map((rating) => Number(rating.max_current)))
-  };
+  return selectedInputElectricalConstraint("voltage", selected).rating;
+}
+
+function selectedInputElectricalConstraint(name, channel = document.getElementById("param-channel")?.value || "1") {
+  return resolveInputElectricalConstraint({
+    parameterConstraints: state.parameterConstraints,
+    electricalRatingsByModel: state.electricalRatingsByModel,
+    modelId: selectedElectricalRatingModel(),
+    channel,
+    parameterName: name
+  });
 }
 
 function refreshElectricalRatingConstraints() {
@@ -3062,8 +3070,7 @@ function refreshBasicInputConstraints() {
       input.setCustomValidity("");
       return;
     }
-    const rating = selectedChannelRatingFor(channel);
-    applyElectricalRatingConstraint(input, name, rating);
+    applyElectricalRatingConstraint(input, name, selectedInputElectricalConstraint(name, channel));
     validateBasicInput(input);
   });
 }

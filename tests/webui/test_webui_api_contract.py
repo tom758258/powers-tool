@@ -41,14 +41,17 @@ def test_index_uses_cache_busted_assets_and_no_store(client: TestClient):
     assert response.headers["Cache-Control"] == "no-store"
     assert '/static/styles.css?v=' in response.text
     assert '/static/app-context.js?v=' in response.text
+    assert '/static/app-electrical.js?v=' in response.text
     assert '/static/app.js?v=' in response.text
     assert f"Unofficial Tool v{__version__}" in response.text
     assert "__WEBUI_VERSION__" not in response.text
     javascript_urls = re.findall(r'<script src="([^"]+)"', response.text)
     assert javascript_urls == [
         f"/static/app-context.js?v={__version__}",
+        f"/static/app-electrical.js?v={__version__}",
         re.search(r'(/static/app\.js\?v=[^"]+)', response.text).group(1),
     ]
+    assert all(re.search(r"\?v=[^&\"]+", asset_url) for asset_url in javascript_urls)
     for asset_url in javascript_urls:
         asset_response = client.get(asset_url)
         assert asset_response.status_code == 200
@@ -58,6 +61,7 @@ def test_index_uses_cache_busted_assets_and_no_store(client: TestClient):
 def test_static_assets_accept_query_string_and_no_store(client: TestClient):
     for asset_path, expected_text in (
         ("/static/app-context.js?v=test", "PowersToolWebUI.context"),
+        ("/static/app-electrical.js?v=test", "PowersToolWebUI.electrical"),
         ("/static/app.js?v=test", "async function scanResources()"),
     ):
         response = client.get(asset_path)

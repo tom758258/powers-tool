@@ -18,7 +18,8 @@ The WebUI ships inside the single `powers-tool` distribution while
 preserving the `powers_tool_webui` import boundary. It depends on the
 shared `powers_tool_core` runtime and the distribution's `webui` extra.
 Its frontend is static `index.html`, `styles.css`, `app.js`, and small native
-JavaScript helpers such as `app-context.js`; no Node toolchain is required.
+JavaScript helpers such as `app-context.js` and `app-electrical.js`; no Node
+toolchain is required.
 
 ## Package And Entry Point
 
@@ -479,6 +480,7 @@ After editing WebUI JavaScript, also run:
 
 ```powershell
 node --check src\powers_tool_webui\static\app-context.js
+node --check src\powers_tool_webui\static\app-electrical.js
 node --check src\powers_tool_webui\static\app.js
 ```
 

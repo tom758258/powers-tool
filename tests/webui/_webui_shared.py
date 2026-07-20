@@ -183,10 +183,11 @@ globalThis.document = {
 
 def run_frontend_javascript_assertions(
     assertions: str,
-    source_names: tuple[str, ...] = ("app-context.js", "app.js"),
+    source_names: tuple[str, ...] = ("app-context.js", "app-electrical.js", "app.js"),
     *,
     bootstrap: str = "",
     expected_failure_substrings: tuple[str, ...] = (),
+    after_source_assertions: dict[str, str] | None = None,
 ) -> None:
     node = shutil.which("node")
     assert node is not None, "Node.js is required for WebUI JavaScript behavior tests."
@@ -199,6 +200,7 @@ const vm = require("node:vm");
 const bootstrapSource = {json.dumps(FRONTEND_JAVASCRIPT_BOOTSTRAP + bootstrap)};
 const productionScripts = {json.dumps(production_scripts)};
 const assertionsSource = {json.dumps(assertions)};
+const afterSourceAssertions = {json.dumps(after_source_assertions or {})};
 const sandbox = {{
   console,
   require,
@@ -216,6 +218,9 @@ function runScript(source, filename) {{
 runScript(bootstrapSource, "frontend-test-bootstrap.js");
 for (const {{ sourceName, source }} of productionScripts) {{
   runScript(source, sourceName);
+  if (Object.hasOwn(afterSourceAssertions, sourceName)) {{
+    runScript(afterSourceAssertions[sourceName], `frontend-test-after-${{sourceName}}`);
+  }}
 }}
 runScript(assertionsSource, "frontend-test-assertions.js");
 """
