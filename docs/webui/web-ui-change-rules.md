@@ -292,12 +292,15 @@ node --check src\powers_tool_webui\static\app-electrical.js
 node --check src\powers_tool_webui\static\app.js
 ```
 
-`app-context.js` owns only pure execution/workspace context helpers. It must
-not access the DOM, fetch, EventSource, or mutable application state.
+`app-context.js` owns only pure execution/workspace context and workspace-result
+entry/lookup helpers. It must not access the DOM, fetch, EventSource, or mutable
+application state. Direct behavior coverage for those helpers belongs in
+`tests/webui/test_webui_static_context.py`.
 `app-electrical.js` owns only pure electrical input-constraint calculation. It
 must not access the DOM, fetch, EventSource, or mutable application state.
-`app.js` owns the DOM/state adapters and loads after both helpers through the
-explicit `app-context.js`, `app-electrical.js`, then `app.js` script order in
+`app.js` owns the DOM/state adapters, workspace cache mutation, rendering, and
+job lifecycle, and loads after both helpers through the explicit
+`app-context.js`, `app-electrical.js`, then `app.js` script order in
 `index.html`.
 
 When practical, run broader no-hardware checks:

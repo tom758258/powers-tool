@@ -4,7 +4,9 @@ const requiredWebuiContextApiNames = [
   "isNoHardwareExecutionMode",
   "buildWorkspaceResultKey",
   "buildWorkspaceResultContextForJob",
-  "buildCurrentWorkspaceResultContext"
+  "buildCurrentWorkspaceResultContext",
+  "buildWorkspaceResultEntry",
+  "findWorkspaceResult"
 ];
 const invalidWebuiContextApiNames = requiredWebuiContextApiNames.filter(
   (name) => typeof webuiContext?.[name] !== "function"
@@ -17,7 +19,7 @@ if (invalidWebuiContextApiNames.length) {
 if (typeof webuiElectrical?.resolveInputElectricalConstraint !== "function") {
   throw new Error("PowersToolWebUI.electrical failed to load before app.js; missing or invalid function API: resolveInputElectricalConstraint.");
 }
-const { buildWorkspaceResultKey } = webuiContext;
+const { buildWorkspaceResultEntry, findWorkspaceResult } = webuiContext;
 const { resolveInputElectricalConstraint } = webuiElectrical;
 
 const state = {
@@ -3332,13 +3334,6 @@ function renderResult(data) {
   document.getElementById("result").textContent = JSON.stringify(data, null, 2);
 }
 
-function workspaceResultContextForJob(job) {
-  return webuiContext.buildWorkspaceResultContextForJob(job, {
-    commandModelByResource: state.resourceModels,
-    channelModelByResource: state.resourceChannelModels
-  });
-}
-
 function currentWorkspaceResultContext(command) {
   return webuiContext.buildCurrentWorkspaceResultContext({
     command,
@@ -3351,13 +3346,16 @@ function currentWorkspaceResultContext(command) {
 }
 
 function captureWorkspaceResult(job) {
-  if (!job || job.status !== "finished" || !job.command || !job.result) return false;
-  const context = workspaceResultContextForJob(job);
-  const resource = context.resource || "";
+  const entry = buildWorkspaceResultEntry(job, {
+    commandModelByResource: state.resourceModels,
+    channelModelByResource: state.resourceChannelModels
+  });
+  if (!entry) return false;
+  const resource = entry.context.resource || "";
   if (["capabilities", "identify", "verify"].includes(job.command)) {
     captureResourceLiveSupport(job, resource);
   }
-  state.workspaceResults[buildWorkspaceResultKey(context)] = job;
+  state.workspaceResults[entry.key] = entry.job;
   renderWorkspaceSummary();
   return true;
 }
@@ -3371,7 +3369,7 @@ function renderWorkspaceSummary() {
     return;
   }
   const context = currentWorkspaceResultContext(state.selected);
-  const job = state.workspaceResults[buildWorkspaceResultKey(context)];
+  const job = findWorkspaceResult(state.workspaceResults, context);
   if (!job) {
     renderWorkspaceEmpty(container, "Run this command to see its latest successful result for the active execution context.");
     return;

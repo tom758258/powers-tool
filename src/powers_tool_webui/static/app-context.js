@@ -86,13 +86,29 @@
     };
   }
 
+  function buildWorkspaceResultEntry(job, modelMaps = {}) {
+    if (!job || job.status !== "finished" || !job.command || !job.result) return null;
+    const context = buildWorkspaceResultContextForJob(job, modelMaps);
+    return {
+      context,
+      key: buildWorkspaceResultKey(context),
+      job
+    };
+  }
+
+  function findWorkspaceResult(workspaceResults, context) {
+    return workspaceResults[buildWorkspaceResultKey(context)] || null;
+  }
+
   try {
     Object.defineProperty(namespace, "context", {
       value: Object.freeze({
         isNoHardwareExecutionMode,
         buildWorkspaceResultKey,
         buildWorkspaceResultContextForJob,
-        buildCurrentWorkspaceResultContext
+        buildCurrentWorkspaceResultContext,
+        buildWorkspaceResultEntry,
+        findWorkspaceResult
       }),
       enumerable: true,
       writable: false,

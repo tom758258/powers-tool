@@ -19,7 +19,9 @@ preserving the `powers_tool_webui` import boundary. It depends on the
 shared `powers_tool_core` runtime and the distribution's `webui` extra.
 Its frontend is static `index.html`, `styles.css`, `app.js`, and small native
 JavaScript helpers such as `app-context.js` and `app-electrical.js`; no Node
-toolchain is required.
+toolchain is required. `app-context.js` owns pure execution/workspace context
+and workspace-result entry/lookup helpers, while `app.js` retains cache
+mutation and all workspace rendering.
 
 ## Package And Entry Point
 

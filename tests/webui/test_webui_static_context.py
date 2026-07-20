@@ -17,6 +17,8 @@ CONTEXT_API_NAMES = (
     "buildWorkspaceResultKey",
     "buildWorkspaceResultContextForJob",
     "buildCurrentWorkspaceResultContext",
+    "buildWorkspaceResultEntry",
+    "findWorkspaceResult",
 )
 
 
@@ -27,7 +29,12 @@ def context_api_bootstrap(*, missing: str | None = None, invalid: str | None = N
             continue
         value = "null" if api_name == invalid else "() => ({})"
         properties.append(f"{api_name}: {value}")
-    return f"globalThis.PowersToolWebUI = {{ context: {{ {', '.join(properties)} }} }};"
+    return (
+        "globalThis.PowersToolWebUI = { "
+        f"context: {{ {', '.join(properties)} }}, "
+        "electrical: { resolveInputElectricalConstraint: () => ({}) } "
+        "};"
+    )
 
 
 def test_static_context_helper_is_pure_and_loaded_before_app() -> None:
@@ -45,6 +52,8 @@ def test_static_context_helper_is_pure_and_loaded_before_app() -> None:
         "buildWorkspaceResultKey",
         "buildWorkspaceResultContextForJob",
         "buildCurrentWorkspaceResultContext",
+        "buildWorkspaceResultEntry",
+        "findWorkspaceResult",
     ):
         assert f"function {function_name}" in context_js
 
@@ -58,7 +67,9 @@ strictAssert.equal(Object.isFrozen(context), true);
 strictAssert.deepEqual(Object.keys(context).sort(), [
   "buildCurrentWorkspaceResultContext",
   "buildWorkspaceResultContextForJob",
+  "buildWorkspaceResultEntry",
   "buildWorkspaceResultKey",
+  "findWorkspaceResult",
   "isNoHardwareExecutionMode"
 ]);
 strictAssert.equal(context.isNoHardwareExecutionMode("real"), false);
@@ -201,6 +212,135 @@ strictAssert.equal(
     )
 
 
+def test_frontend_workspace_result_entry_and_lookup_preserve_cache_contract() -> None:
+    assertions = r"""
+const strictAssert = require("node:assert/strict");
+const context = globalThis.PowersToolWebUI.context;
+const namespace = globalThis.PowersToolWebUI;
+const globalKeysBefore = Reflect.ownKeys(globalThis);
+const contextDescriptorBefore = Object.getOwnPropertyDescriptor(namespace, "context");
+const modelMaps = {
+  commandModelByResource: { "RESOURCE-A": "keysight-e36312a" },
+  channelModelByResource: { "RESOURCE-A": "keysight-edu36311a" }
+};
+const runtime = {
+  resource: "RESOURCE-A",
+  simulate: false,
+  dry_run: false,
+  expected_model_id: "keysight-e36312a"
+};
+const result = { resource: { name: "RESOURCE-A", model_id: "keysight-e3646a" } };
+const job = { status: "finished", command: "identify", runtime, result };
+const immutableBefore = JSON.parse(JSON.stringify({ job, runtime, result, modelMaps }));
+const expectedContext = context.buildWorkspaceResultContextForJob(job, modelMaps);
+const entry = context.buildWorkspaceResultEntry(job, modelMaps);
+
+strictAssert.equal(Object.getPrototypeOf(entry), Object.prototype);
+strictAssert.deepEqual(entry.context, expectedContext);
+strictAssert.equal(entry.key, context.buildWorkspaceResultKey(expectedContext));
+strictAssert.strictEqual(entry.job, job);
+const secondEntry = context.buildWorkspaceResultEntry(job, modelMaps);
+strictAssert.notStrictEqual(secondEntry, entry);
+strictAssert.notStrictEqual(secondEntry.context, entry.context);
+strictAssert.strictEqual(secondEntry.job, job);
+strictAssert.deepEqual({ job, runtime, result, modelMaps }, immutableBefore);
+
+strictAssert.equal(context.buildWorkspaceResultEntry(undefined, modelMaps), null);
+strictAssert.equal(context.buildWorkspaceResultEntry(null, modelMaps), null);
+for (const status of ["accepted", "started", "failed", "cancelled"]) {
+  strictAssert.equal(context.buildWorkspaceResultEntry({ ...job, status }, modelMaps), null);
+}
+strictAssert.equal(context.buildWorkspaceResultEntry({ ...job, command: "" }, modelMaps), null);
+for (const falsyResult of [null, false, 0, ""]) {
+  strictAssert.equal(context.buildWorkspaceResultEntry({ ...job, result: falsyResult }, modelMaps), null);
+}
+const emptyResultJob = { ...job, result: {} };
+strictAssert.strictEqual(context.buildWorkspaceResultEntry(emptyResultJob, modelMaps).job, emptyResultJob);
+
+const cache = Object.create(null);
+const lookupContext = entry.context;
+const lookupContextBefore = JSON.parse(JSON.stringify(lookupContext));
+const cacheKeysBeforeMiss = Reflect.ownKeys(cache);
+strictAssert.equal(context.findWorkspaceResult(cache, lookupContext), null);
+strictAssert.deepEqual(Reflect.ownKeys(cache), cacheKeysBeforeMiss);
+strictAssert.deepEqual(lookupContext, lookupContextBefore);
+cache[entry.key] = job;
+const cacheKeysBeforeHit = Reflect.ownKeys(cache);
+strictAssert.strictEqual(context.findWorkspaceResult(cache, lookupContext), job);
+strictAssert.deepEqual(Reflect.ownKeys(cache), cacheKeysBeforeHit);
+const laterJob = { ...job, result: { resource: { name: "RESOURCE-A", model_id: "keysight-e3646a" }, marker: "later" } };
+const laterEntry = context.buildWorkspaceResultEntry(laterJob, modelMaps);
+strictAssert.equal(laterEntry.key, entry.key);
+cache[laterEntry.key] = laterEntry.job;
+strictAssert.strictEqual(context.findWorkspaceResult(cache, lookupContext), laterJob);
+
+const jobFor = (command, runtimeValue, resultValue) => ({
+  status: "finished", command, runtime: runtimeValue, result: resultValue
+});
+const realBase = context.buildWorkspaceResultEntry(jobFor(
+  "identify",
+  { resource: "RESOURCE-A", simulate: false, dry_run: false, expected_model_id: "keysight-e36312a" },
+  { resource: { name: "RESOURCE-A", model_id: "keysight-e3646a" } }
+), modelMaps);
+const realOtherResource = context.buildWorkspaceResultEntry(jobFor(
+  "identify",
+  { resource: "RESOURCE-B", simulate: false, dry_run: false, expected_model_id: "keysight-e36312a" },
+  { resource: { name: "RESOURCE-B", model_id: "keysight-e3646a" } }
+), modelMaps);
+const realOtherExpected = context.buildWorkspaceResultEntry(jobFor(
+  "identify",
+  { resource: "RESOURCE-A", simulate: false, dry_run: false, expected_model_id: "keysight-edu36311a" },
+  { resource: { name: "RESOURCE-A", model_id: "keysight-e3646a" } }
+), modelMaps);
+const realOtherCanonical = context.buildWorkspaceResultEntry(jobFor(
+  "identify",
+  { resource: "RESOURCE-A", simulate: false, dry_run: false, expected_model_id: "keysight-e36312a" },
+  { resource: { name: "RESOURCE-A", model_id: "keysight-edu36311a" } }
+), modelMaps);
+const realOtherCommand = context.buildWorkspaceResultEntry(jobFor(
+  "capabilities",
+  { resource: "RESOURCE-A", simulate: false, dry_run: false, expected_model_id: "keysight-e36312a" },
+  { resource: { name: "RESOURCE-A", model_id: "keysight-e3646a" } }
+), modelMaps);
+const simulateA = context.buildWorkspaceResultEntry(jobFor(
+  "identify",
+  { resource: "PRESERVED-REAL", simulate: true, dry_run: false, planning_model_id: "keysight-e36312a" },
+  {}
+));
+const simulateB = context.buildWorkspaceResultEntry(jobFor(
+  "identify",
+  { resource: "PRESERVED-OTHER", simulate: true, dry_run: false, planning_model_id: "keysight-edu36311a" },
+  {}
+));
+const dryModel = context.buildWorkspaceResultEntry(jobFor(
+  "identify",
+  { simulate: false, dry_run: true, planning_model_id: "keysight-e36312a" },
+  {}
+));
+const dryProfile = context.buildWorkspaceResultEntry(jobFor(
+  "identify",
+  { simulate: false, dry_run: true, planning_profile_id: "generic-scpi" },
+  {}
+));
+for (const isolatedEntry of [realOtherResource, realOtherExpected, realOtherCanonical, realOtherCommand, simulateA, dryModel, dryProfile]) {
+  strictAssert.notEqual(realBase.key, isolatedEntry.key);
+}
+strictAssert.notEqual(simulateA.key, simulateB.key);
+strictAssert.notEqual(dryModel.key, dryProfile.key);
+strictAssert.notEqual(simulateA.key, dryModel.key);
+strictAssert.notEqual(simulateA.key, dryProfile.key);
+
+strictAssert.deepEqual(Reflect.ownKeys(globalThis), globalKeysBefore);
+strictAssert.strictEqual(namespace.context, context);
+strictAssert.deepEqual(Object.getOwnPropertyDescriptor(namespace, "context"), contextDescriptorBefore);
+"""
+
+    run_frontend_javascript_assertions(
+        assertions,
+        source_names=("app-context.js",),
+    )
+
+
 def test_frontend_context_helper_adds_only_namespace_global_property() -> None:
     assertions = r"""
 const strictAssert = require("node:assert/strict");
@@ -290,6 +430,8 @@ def test_frontend_classic_scripts_load_context_before_app() -> None:
         r"""
 const strictAssert = require("node:assert/strict");
 strictAssert.equal(typeof globalThis.PowersToolWebUI.context.buildWorkspaceResultKey, "function");
+strictAssert.equal(typeof globalThis.PowersToolWebUI.context.buildWorkspaceResultEntry, "function");
+strictAssert.equal(typeof globalThis.PowersToolWebUI.context.findWorkspaceResult, "function");
 strictAssert.equal(typeof state, "object");
 """,
         source_names=("app-context.js", "app-electrical.js", "app.js"),

@@ -12,6 +12,8 @@ CONTEXT_API_NAMES = (
     "buildWorkspaceResultKey",
     "buildWorkspaceResultContextForJob",
     "buildCurrentWorkspaceResultContext",
+    "buildWorkspaceResultEntry",
+    "findWorkspaceResult",
 )
 
 

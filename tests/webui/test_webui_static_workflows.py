@@ -256,16 +256,17 @@ def test_static_workspace_summary_keeps_latest_success_by_complete_execution_con
 
     capture = extract_js_function(app_js, "captureWorkspaceResult")
     render = extract_js_function(app_js, "renderWorkspaceSummary")
-    job_context = extract_js_function(app_js, "workspaceResultContextForJob")
     current_context = extract_js_function(app_js, "currentWorkspaceResultContext")
 
     assert 'id="workspace-summary-content"' in index_html
     assert "workspaceResults: {}" in app_js
-    assert 'job.status !== "finished"' in capture
-    assert "workspaceResultContextForJob(job)" in capture
-    assert "buildWorkspaceResultKey(context)" in capture
+    assert "buildWorkspaceResultEntry(job, {" in capture
+    assert "if (!entry) return false;" in capture
+    assert "state.workspaceResults[entry.key] = entry.job;" in capture
     assert "currentWorkspaceResultContext(state.selected)" in render
-    assert "buildWorkspaceResultKey(context)" in render
+    assert "findWorkspaceResult(state.workspaceResults, context)" in render
+    assert '"Choose a command to view its latest successful result."' in render
+    assert '"Run this command to see its latest successful result for the active execution context."' in render
     assert "renderCapabilitiesWorkspaceSummary(container, job.result);" in render
     assert "renderIdentifyWorkspaceSummary(container, job.result);" in render
     assert "captureWorkspaceResult(job);" in app_js
@@ -273,7 +274,8 @@ def test_static_workspace_summary_keeps_latest_success_by_complete_execution_con
     assert "function buildWorkspaceResultKey(context)" in context_js
     assert "function buildWorkspaceResultContextForJob(job, modelMaps = {})" in context_js
     assert "function buildCurrentWorkspaceResultContext(snapshot)" in context_js
-    assert "webuiContext.buildWorkspaceResultContextForJob(job" in job_context
+    assert "function buildWorkspaceResultEntry(job, modelMaps = {})" in context_js
+    assert "function findWorkspaceResult(workspaceResults, context)" in context_js
     assert "webuiContext.buildCurrentWorkspaceResultContext({" in current_context
 
 
@@ -293,6 +295,7 @@ def test_frontend_workspace_result_keys_isolate_complete_execution_context() -> 
         state.resourceChannelModels = { "RESOURCE-A": "keysight-e36312a" };
 
         const realJob = (resource, expected, modelId) => ({
+          status: "finished",
           command: "identify",
           runtime: {
             resource,
@@ -302,14 +305,17 @@ def test_frontend_workspace_result_keys_isolate_complete_execution_context() -> 
           },
           result: { resource: { name: resource, model_id: modelId } }
         });
-        const keyForJob = (job) => buildWorkspaceResultKey(workspaceResultContextForJob(job));
+        const keyForJob = (job) => PowersToolWebUI.context.buildWorkspaceResultEntry(job, {
+          commandModelByResource: state.resourceModels,
+          channelModelByResource: state.resourceChannelModels
+        }).key;
 
         state.executionMode = "real";
         const realA = realJob("RESOURCE-A", "keysight-e36312a", "keysight-e36312a");
         const realAKey = keyForJob(realA);
         strictAssert.equal(
           realAKey,
-          buildWorkspaceResultKey(currentWorkspaceResultContext("identify")),
+          PowersToolWebUI.context.buildWorkspaceResultKey(currentWorkspaceResultContext("identify")),
           "identical Real context must restore its result"
         );
         strictAssert.notEqual(realAKey, keyForJob(realJob("RESOURCE-B", "keysight-e36312a", "keysight-e36312a")));
@@ -319,6 +325,7 @@ def test_frontend_workspace_result_keys_isolate_complete_execution_context() -> 
         state.executionMode = "simulate";
         elements.get("expected-model-id").value = "keysight-e36312a";
         const simulateA = {
+          status: "finished",
           command: "identify",
           runtime: { resource: "PRESERVED-A", simulate: true, dry_run: false, planning_model_id: "keysight-e36312a" },
           result: {}
@@ -328,7 +335,7 @@ def test_frontend_workspace_result_keys_isolate_complete_execution_context() -> 
           runtime: { ...simulateA.runtime, resource: "PRESERVED-B" }
         };
         strictAssert.equal(keyForJob(simulateA), keyForJob(simulateAWithOtherPreservedResource));
-        strictAssert.equal(keyForJob(simulateA), buildWorkspaceResultKey(currentWorkspaceResultContext("identify")));
+        strictAssert.equal(keyForJob(simulateA), PowersToolWebUI.context.buildWorkspaceResultKey(currentWorkspaceResultContext("identify")));
         strictAssert.notEqual(keyForJob(simulateA), keyForJob({
           ...simulateA,
           runtime: { ...simulateA.runtime, planning_model_id: "keysight-edu36311a" }
@@ -338,16 +345,88 @@ def test_frontend_workspace_result_keys_isolate_complete_execution_context() -> 
         state.executionMode = "dry-run";
         elements.get("expected-model-id").value = "profile:generic-scpi";
         const dryProfile = {
+          status: "finished",
           command: "identify",
           runtime: { simulate: false, dry_run: true, planning_profile_id: "generic-scpi" },
           result: {}
         };
-        strictAssert.equal(keyForJob(dryProfile), buildWorkspaceResultKey(currentWorkspaceResultContext("identify")));
+        strictAssert.equal(keyForJob(dryProfile), PowersToolWebUI.context.buildWorkspaceResultKey(currentWorkspaceResultContext("identify")));
         strictAssert.notEqual(keyForJob(dryProfile), keyForJob({
           ...dryProfile,
           runtime: { simulate: false, dry_run: true, planning_model_id: "keysight-e36312a" }
         }));
         strictAssert.notEqual(keyForJob(dryProfile), keyForJob(simulateA));
+        """
+    )
+    run_frontend_javascript_assertions(assertions)
+
+
+def test_frontend_workspace_capture_keeps_helper_and_lifecycle_boundaries() -> None:
+    assertions = textwrap.dedent(
+        r"""
+        const strictAssert = require("node:assert/strict");
+        state.workspaceResults = Object.create(null);
+        state.resourceModels = { "RESOURCE-A": "keysight-e36312a" };
+        state.resourceChannelModels = { "RESOURCE-A": "keysight-edu36311a" };
+        const liveSupportCalls = [];
+        const renderCalls = [];
+        captureResourceLiveSupport = (job, resource) => {
+          liveSupportCalls.push({ job, resource });
+          return true;
+        };
+        renderWorkspaceSummary = () => renderCalls.push("rendered");
+        const jobFor = (command, result = { resource: { name: "RESOURCE-A", model_id: "keysight-e3646a" } }) => ({
+          status: "finished",
+          command,
+          runtime: {
+            resource: "RESOURCE-A",
+            simulate: false,
+            dry_run: false,
+            expected_model_id: "keysight-e36312a"
+          },
+          result
+        });
+
+        for (const invalidJob of [
+          null,
+          undefined,
+          { ...jobFor("set"), status: "failed" },
+          { ...jobFor("set"), status: "cancelled" },
+          { ...jobFor("set"), command: "" },
+          { ...jobFor("set"), result: null }
+        ]) {
+          strictAssert.equal(captureWorkspaceResult(invalidJob), false);
+        }
+        strictAssert.deepEqual(Reflect.ownKeys(state.workspaceResults), []);
+        strictAssert.deepEqual(liveSupportCalls, []);
+        strictAssert.deepEqual(renderCalls, []);
+
+        const first = jobFor("set", {});
+        const firstBefore = JSON.parse(JSON.stringify(first));
+        strictAssert.equal(captureWorkspaceResult(first), true);
+        const firstEntry = PowersToolWebUI.context.buildWorkspaceResultEntry(first, {
+          commandModelByResource: state.resourceModels,
+          channelModelByResource: state.resourceChannelModels
+        });
+        strictAssert.strictEqual(state.workspaceResults[firstEntry.key], first);
+        strictAssert.deepEqual(first, firstBefore);
+        strictAssert.deepEqual(renderCalls, ["rendered"]);
+
+        const later = jobFor("set", { marker: "later" });
+        strictAssert.equal(captureWorkspaceResult(later), true);
+        strictAssert.strictEqual(state.workspaceResults[firstEntry.key], later);
+        strictAssert.deepEqual(renderCalls, ["rendered", "rendered"]);
+
+        for (const command of ["capabilities", "identify", "verify"]) {
+          const job = jobFor(command);
+          strictAssert.equal(captureWorkspaceResult(job), true);
+          strictAssert.strictEqual(liveSupportCalls.at(-1).job, job);
+          strictAssert.equal(liveSupportCalls.at(-1).resource, "RESOURCE-A");
+        }
+        const liveSupportCount = liveSupportCalls.length;
+        strictAssert.equal(captureWorkspaceResult(jobFor("trigger-status")), true);
+        strictAssert.equal(liveSupportCalls.length, liveSupportCount);
+        strictAssert.equal(renderCalls.length, 6);
         """
     )
     run_frontend_javascript_assertions(assertions)
@@ -468,11 +547,15 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         state.workspaceResults = {};
 
         const realJob = {
+          status: "finished",
           command: "set",
           runtime: { resource: "RESOURCE-REAL", simulate: false, dry_run: false, expected_model_id: "keysight-e36312a" },
           result: { resource: { name: "RESOURCE-REAL", model_id: "keysight-e3646a" } }
         };
-        const realKey = buildWorkspaceResultKey(workspaceResultContextForJob(realJob));
+        const realKey = PowersToolWebUI.context.buildWorkspaceResultEntry(realJob, {
+          commandModelByResource: state.resourceModels,
+          channelModelByResource: state.resourceChannelModels
+        }).key;
         state.workspaceResults[realKey] = { marker: "real" };
 
         const selectedCalls = [];
@@ -491,11 +574,11 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
           refreshInputElectricalConstraints(input, "voltage");
           formLimits.push({ mode: state.executionMode, max: input.max, title: input.title });
           const context = currentWorkspaceResultContext(name);
-          workspaceViews.push({ context, marker: state.workspaceResults[buildWorkspaceResultKey(context)]?.marker || null });
+          workspaceViews.push({ context, marker: PowersToolWebUI.context.findWorkspaceResult(state.workspaceResults, context)?.marker || null });
         };
         renderWorkspaceSummary = () => {
           const context = currentWorkspaceResultContext(state.selected);
-          workspaceViews.push({ context, marker: state.workspaceResults[buildWorkspaceResultKey(context)]?.marker || null });
+          workspaceViews.push({ context, marker: PowersToolWebUI.context.findWorkspaceResult(state.workspaceResults, context)?.marker || null });
         };
 
         await handleExecutionModeChange({ target: radios[1] });
@@ -505,7 +588,7 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         strictAssert.equal(workspaceViews.at(-1).marker, null, "Simulate must not show the Real result");
 
         const simulateContext = currentWorkspaceResultContext("set");
-        state.workspaceResults[buildWorkspaceResultKey(simulateContext)] = { marker: "simulate" };
+        state.workspaceResults[PowersToolWebUI.context.buildWorkspaceResultKey(simulateContext)] = { marker: "simulate" };
         await handleExecutionModeChange({ target: radios[2] });
         strictAssert.equal(identity.value, "profile:generic-scpi");
         strictAssert.deepEqual(formLimits.at(-1), { mode: "dry-run", max: "100", title: "Generic voltage guidance" });
@@ -521,7 +604,7 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         strictAssert.equal(realContext.canonicalModelId, "keysight-e3646a");
         strictAssert.notEqual(realContext.expectedModelGuard, realContext.canonicalModelId);
         strictAssert.equal(workspaceViews.at(-1).marker, "real");
-        strictAssert.equal(buildWorkspaceResultKey(realContext), realKey);
+        strictAssert.equal(PowersToolWebUI.context.buildWorkspaceResultKey(realContext), realKey);
         strictAssert.deepEqual(selectedCalls, ["set", "set", "set"]);
 
         stopRealLiveJobsAndWait = async () => { throw new Error("Live stop failed"); };
