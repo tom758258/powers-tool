@@ -17,8 +17,8 @@ runtime.
 The WebUI ships inside the single `powers-tool` distribution while
 preserving the `powers_tool_webui` import boundary. It depends on the
 shared `powers_tool_core` runtime and the distribution's `webui` extra.
-Its frontend is static `index.html`, `styles.css`, and `app.js`; no Node
-toolchain is required.
+Its frontend is static `index.html`, `styles.css`, `app.js`, and small native
+JavaScript helpers such as `app-context.js`; no Node toolchain is required.
 
 ## Package And Entry Point
 
@@ -475,9 +475,10 @@ Focused launcher and package validation:
 .\.venv\Scripts\python.exe -m pytest tests\webui\test_launcher.py tests\webui\test_webui_import.py tests\core\test_distribution_metadata.py -q -p no:cacheprovider
 ```
 
-After editing `src/powers_tool_webui/static/app.js`, also run:
+After editing WebUI JavaScript, also run:
 
 ```powershell
+node --check src\powers_tool_webui\static\app-context.js
 node --check src\powers_tool_webui\static\app.js
 ```
 

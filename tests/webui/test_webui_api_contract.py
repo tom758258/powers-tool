@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any
 
@@ -39,17 +40,31 @@ def test_index_uses_cache_busted_assets_and_no_store(client: TestClient):
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "no-store"
     assert '/static/styles.css?v=' in response.text
+    assert '/static/app-context.js?v=' in response.text
     assert '/static/app.js?v=' in response.text
     assert f"Unofficial Tool v{__version__}" in response.text
     assert "__WEBUI_VERSION__" not in response.text
+    javascript_urls = re.findall(r'<script src="([^"]+)"', response.text)
+    assert javascript_urls == [
+        f"/static/app-context.js?v={__version__}",
+        re.search(r'(/static/app\.js\?v=[^"]+)', response.text).group(1),
+    ]
+    for asset_url in javascript_urls:
+        asset_response = client.get(asset_url)
+        assert asset_response.status_code == 200
+        assert asset_response.headers["Cache-Control"] == "no-store"
 
 
 def test_static_assets_accept_query_string_and_no_store(client: TestClient):
-    response = client.get("/static/app.js?v=test")
+    for asset_path, expected_text in (
+        ("/static/app-context.js?v=test", "PowersToolWebUI.context"),
+        ("/static/app.js?v=test", "async function scanResources()"),
+    ):
+        response = client.get(asset_path)
 
-    assert response.status_code == 200
-    assert response.headers["Cache-Control"] == "no-store"
-    assert "async function scanResources()" in response.text
+        assert response.status_code == 200
+        assert response.headers["Cache-Control"] == "no-store"
+        assert expected_text in response.text
 
 
 def test_health_check(client: TestClient):

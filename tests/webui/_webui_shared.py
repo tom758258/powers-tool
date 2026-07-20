@@ -38,6 +38,10 @@ def read_static_texts() -> tuple[str, str, str]:
     )
 
 
+def read_static_javascript(filename: str) -> str:
+    return (STATIC_DIR / filename).read_text(encoding="utf-8")
+
+
 def simulated_e36312a_runtime() -> dict[str, Any]:
     return {
         "resource": "USB0::SIM::E36312A::INSTR",
@@ -167,10 +171,13 @@ def extract_js_function(app_js: str, function_name: str) -> str:
     raise AssertionError(f"Could not extract function {function_name}")
 
 
-def run_frontend_javascript_assertions(assertions: str) -> None:
+def run_frontend_javascript_assertions(
+    assertions: str,
+    source_names: tuple[str, ...] = ("app-context.js", "app.js"),
+) -> None:
     node = shutil.which("node")
     assert node is not None, "Node.js is required for WebUI JavaScript behavior tests."
-    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    javascript = "\n".join(read_static_javascript(name) for name in source_names)
     bootstrap = """
 globalThis.window = {};
 globalThis.document = {
@@ -180,7 +187,7 @@ globalThis.document = {
 """
     completed = subprocess.run(
         [node, "--input-type=commonjs"],
-        input=f"{bootstrap}\n{app_js}\n{assertions}",
+        input=f"{bootstrap}\n{javascript}\n{assertions}",
         text=True,
         encoding="utf-8",
         capture_output=True,

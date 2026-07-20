@@ -10,6 +10,7 @@ from _webui_shared import (
     assert_param_contract,
     extract_js_function,
     extract_param_block,
+    read_static_javascript,
     read_static_texts,
     run_frontend_javascript_assertions,
 )
@@ -251,9 +252,12 @@ def test_static_job_result_summary_contract():
 
 def test_static_workspace_summary_keeps_latest_success_by_complete_execution_context():
     index_html, app_js, _styles_css = read_static_texts()
+    context_js = read_static_javascript("app-context.js")
 
     capture = extract_js_function(app_js, "captureWorkspaceResult")
     render = extract_js_function(app_js, "renderWorkspaceSummary")
+    job_context = extract_js_function(app_js, "workspaceResultContextForJob")
+    current_context = extract_js_function(app_js, "currentWorkspaceResultContext")
 
     assert 'id="workspace-summary-content"' in index_html
     assert "workspaceResults: {}" in app_js
@@ -265,6 +269,12 @@ def test_static_workspace_summary_keeps_latest_success_by_complete_execution_con
     assert "renderCapabilitiesWorkspaceSummary(container, job.result);" in render
     assert "renderIdentifyWorkspaceSummary(container, job.result);" in render
     assert "captureWorkspaceResult(job);" in app_js
+    assert "function buildWorkspaceResultKey(context)" not in app_js
+    assert "function buildWorkspaceResultKey(context)" in context_js
+    assert "function buildWorkspaceResultContextForJob(job, modelMaps = {})" in context_js
+    assert "function buildCurrentWorkspaceResultContext(snapshot)" in context_js
+    assert "webuiContext.buildWorkspaceResultContextForJob(job" in job_context
+    assert "webuiContext.buildCurrentWorkspaceResultContext({" in current_context
 
 
 def test_frontend_workspace_result_keys_isolate_complete_execution_context() -> None:

@@ -30,6 +30,7 @@ Preferred editable frontend files:
 - `src/powers_tool_webui/static/index.html`
 - `src/powers_tool_webui/static/styles.css`
 - `src/powers_tool_webui/static/app.js`
+- `src/powers_tool_webui/static/app-context.js`
 
 Optional, only when a stable UI contract changes or a new public behavior needs
 coverage:
@@ -250,7 +251,7 @@ Avoid:
 - Hidden controls that still submit stale values.
 - Extra network dependencies.
 - A frontend build chain.
-- Broad rewrites of `app.js` when a small change is enough.
+- Broad rewrites of `app.js` or its small helper modules when a small change is enough.
 
 For this project, clarity beats spectacle. The UI should feel like a power
 supply control console: readable, calm, direct, and hard to misuse.
@@ -282,11 +283,17 @@ Run the narrowest relevant checks first:
 .\.venv\Scripts\python.exe -m pytest tests\webui -q -p no:cacheprovider
 ```
 
-If `app.js` changed, also run:
+If WebUI JavaScript changed, also run:
 
 ```powershell
+node --check src\powers_tool_webui\static\app-context.js
 node --check src\powers_tool_webui\static\app.js
 ```
+
+`app-context.js` owns only pure execution/workspace context helpers. It must
+not access the DOM, fetch, EventSource, or mutable application state.
+`app.js` owns the DOM/state adapters and loads after the helper through the
+explicit script order in `index.html`.
 
 When practical, run broader no-hardware checks:
 

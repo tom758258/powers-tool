@@ -1,3 +1,9 @@
+const webuiContext = globalThis.PowersToolWebUI?.context;
+if (!webuiContext) {
+  throw new Error("PowersToolWebUI.context failed to load before app.js.");
+}
+const { buildWorkspaceResultKey } = webuiContext;
+
 const state = {
   executionMode: "real",
   executionModeTransition: false,
@@ -454,7 +460,7 @@ function rememberCurrentExecutionIdentity() {
 }
 
 function isNoHardwareMode() {
-  return state.executionMode === "simulate" || state.executionMode === "dry-run";
+  return webuiContext.isNoHardwareExecutionMode(state.executionMode);
 }
 
 function realAuthorizationContext() {
@@ -3308,68 +3314,22 @@ function renderResult(data) {
   document.getElementById("result").textContent = JSON.stringify(data, null, 2);
 }
 
-function buildWorkspaceResultKey(context) {
-  return JSON.stringify({
-    command: context.command || "",
-    executionMode: context.executionMode || "real",
-    resource: context.resource || "",
-    expectedModelGuard: context.expectedModelGuard || "",
-    canonicalModelId: context.canonicalModelId || "",
-    planningModelId: context.planningModelId || "",
-    planningProfileId: context.planningProfileId || ""
+function workspaceResultContextForJob(job) {
+  return webuiContext.buildWorkspaceResultContextForJob(job, {
+    commandModelByResource: state.resourceModels,
+    channelModelByResource: state.resourceChannelModels
   });
 }
 
-function workspaceResultContextForJob(job) {
-  const runtime = job?.runtime || {};
-  const executionMode = runtime.simulate === true ? "simulate" : runtime.dry_run === true ? "dry-run" : "real";
-  if (executionMode === "simulate") {
-    return { command: job.command, executionMode, planningModelId: runtime.planning_model_id || "" };
-  }
-  if (executionMode === "dry-run") {
-    return {
-      command: job.command,
-      executionMode,
-      planningModelId: runtime.planning_model_id || "",
-      planningProfileId: runtime.planning_profile_id || ""
-    };
-  }
-  const resultResource = job?.result?.resource;
-  const resource = runtime.resource || resultResource?.name || (typeof resultResource === "string" ? resultResource : "");
-  const canonicalModelId = [
-    resultResource?.model_id,
-    job?.result?.live_support?.model_id,
-    job?.result?.resolved_identity?.model_id,
-    job?.result?.model_id,
-    detectedCommandModelForResource(resource),
-    detectedChannelModelForResource(resource)
-  ].find((value) => typeof value === "string" && value.trim()) || "";
-  return {
-    command: job.command,
-    executionMode,
-    resource,
-    expectedModelGuard: runtime.expected_model_id || "",
-    canonicalModelId
-  };
-}
-
 function currentWorkspaceResultContext(command) {
-  if (state.executionMode === "simulate") {
-    return { command, executionMode: "simulate", planningModelId: selectedPlanningIdentity() || "" };
-  }
-  if (state.executionMode === "dry-run") {
-    const identity = selectedPlanningIdentity() || "";
-    return identity.startsWith("profile:")
-      ? { command, executionMode: "dry-run", planningProfileId: identity.slice("profile:".length) }
-      : { command, executionMode: "dry-run", planningModelId: identity };
-  }
-  return {
+  return webuiContext.buildCurrentWorkspaceResultContext({
     command,
-    executionMode: "real",
+    executionMode: state.executionMode,
+    planningIdentity: selectedPlanningIdentity() || "",
     resource: valueOrNull("resource") || "",
     expectedModelGuard: selectedExpectedModel() || "",
     canonicalModelId: actualCurrentResourceModel() || ""
-  };
+  });
 }
 
 function captureWorkspaceResult(job) {
