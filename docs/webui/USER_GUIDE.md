@@ -6,7 +6,7 @@ vendor-neutral, while the currently validated hardware is the documented
 Keysight model set. This guide avoids developer details and focuses on normal
 local WebUI workflows. Developer setup, API behavior, validation, and UI change
 boundaries are documented in the
-[WebUI README](README.md) and [Web UI Change Rules](web-ui-change-rules.md).
+[WebUI README](README.md) and [WebUI Change Rules](web-ui-change-rules.md).
 
 ## Start The WebUI
 
@@ -344,5 +344,5 @@ Live Data does not override real command execution.
 
 - [WebUI README](README.md): API behavior, validation, development setup, and
   maintainer boundaries.
-- [Web UI Change Rules](web-ui-change-rules.md): developer and agent rules for
+- [WebUI Change Rules](web-ui-change-rules.md): developer and agent rules for
   UI changes.

@@ -1,4 +1,12 @@
-"""Shared core command router for CLI and WebUI adapters."""
+"""Core command-routing integration boundary for bundled adapters.
+
+``validate_request_admission()`` and ``run_core_command()`` are adapter-facing
+Core integration entry points used by the bundled CLI, Worker, and WebUI
+adapters. They accept parser-neutral Core request objects and keep
+serialization and presentation at the adapter boundary. Helpers prefixed with
+``_``, including ``_run_*_admitted``, are Core-internal handoffs for already
+admitted requests and are not stable adapter APIs.
+"""
 
 from __future__ import annotations
 
@@ -28,7 +36,12 @@ from powers_tool_core.workflow_validation import validate_general_workflow_param
 def validate_request_admission(
     request: OperationRequest | TriggerRequest | SequenceRequest,
 ) -> OperationRequest | TriggerRequest | SequenceRequest:
-    """Validate one command request without hardware I/O or state mutation."""
+    """Admit and canonicalize a request for the bundled adapter boundary.
+
+    Performs admission and canonicalization without hardware, VISA, or SCPI
+    I/O and without device-state mutation. File-backed requests may perform
+    local filesystem I/O during one-time materialization.
+    """
 
     request = validate_and_normalize_request(request)
     validate_request_parameters(request)
@@ -107,6 +120,13 @@ def run_core_command(
     scpi_logger: Callable[[str, str, str], None] | None = None,
     cleanup_reporter: CleanupReporter | None = None,
 ) -> dict[str, Any]:
+    """Admit and execute a parser-neutral request for bundled adapters.
+
+    This adapter-facing Core integration entry point re-admits the request
+    before dispatch; adapters retain serialization and presentation
+    responsibility.
+    """
+
     request = validate_request_admission(request)
     command = request.command
     if stop_requested is not None:

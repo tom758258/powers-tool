@@ -1,4 +1,4 @@
-# Web UI Change Rules
+# WebUI Change Rules
 
 This document is the maintainer and agent-facing working contract for WebUI
 polish and reorganization work. It is not an operator guide. It exists to let

@@ -9,7 +9,7 @@ Keysight models; unknown live hardware remains fail closed in Core.
 This README is the WebUI behavior, API, validation, and maintainer guide. For
 normal operator workflows, use the [WebUI User Guide](USER_GUIDE.md). For
 developer and agent UI-change boundaries, use the
-[Web UI Change Rules](web-ui-change-rules.md).
+[WebUI Change Rules](web-ui-change-rules.md).
 
 The WebUI and CLI are parallel product interfaces over the shared Core
 runtime.
@@ -513,5 +513,5 @@ authoritative.
 - [WebUI User Guide](USER_GUIDE.md): operator-facing WebUI usage guide.
 - [WebUI README](README.md): this WebUI behavior, API, validation, and
   maintainer guide.
-- [Web UI Change Rules](web-ui-change-rules.md): maintainer and agent-facing
+- [WebUI Change Rules](web-ui-change-rules.md): maintainer and agent-facing
   rules for UI changes.

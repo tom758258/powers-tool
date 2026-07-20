@@ -271,7 +271,7 @@ real-instrument evidence when applicable.
 - [CLI README](docs/cli/README.md)
 - [WebUI README](docs/webui/README.md)
 - [WebUI User Guide](docs/webui/USER_GUIDE.md)
-- [Web UI Change Rules](docs/webui/web-ui-change-rules.md)
+- [WebUI Change Rules](docs/webui/web-ui-change-rules.md)
 - [Repository Layout](docs/architecture/monorepo-layout.md)
 - [Testing Guidelines](docs/testing-guidelines.md)
 - [Public Contracts](docs/contracts)
