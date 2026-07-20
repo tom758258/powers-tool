@@ -47,6 +47,15 @@ def read_static_texts() -> tuple[str, str, str]:
     )
 
 
+def simulated_e36312a_runtime() -> dict[str, Any]:
+    return {
+        "resource": "USB0::SIM::E36312A::INSTR",
+        "simulate": True,
+        "timeout_ms": 5000,
+        "confirm": False,
+    }
+
+
 def static_tag_with_id(html: str, element_id: str) -> str:
     match = re.search(rf"<[^>]*\bid=\"{re.escape(element_id)}\"[^>]*>", html)
     if not match:
@@ -3180,12 +3189,7 @@ def test_hidden_list_resources_direct_submit_succeeds(client: TestClient):
 def test_post_job_simulate_set(client: TestClient):
     payload = {
         "command": "set",
-        "runtime": {
-            "resource": "USB0::SIM::E36312A::INSTR",
-            "simulate": True,
-            "timeout_ms": 5000,
-            "confirm": False
-        },
+        "runtime": simulated_e36312a_runtime(),
         "parameters": {"channel": 1, "voltage": 5.0, "current": 1.0}
     }
     response = client.post("/api/jobs", json=payload)
@@ -3210,12 +3214,7 @@ def test_post_job_simulate_set(client: TestClient):
 def test_post_job_simulate_set_accepts_voltage_only(client: TestClient):
     payload = {
         "command": "set",
-        "runtime": {
-            "resource": "USB0::SIM::E36312A::INSTR",
-            "simulate": True,
-            "timeout_ms": 5000,
-            "confirm": False,
-        },
+        "runtime": simulated_e36312a_runtime(),
         "parameters": {"channel": 1, "voltage": 5.0},
     }
     response = client.post("/api/jobs", json=payload)
@@ -3237,12 +3236,7 @@ def test_post_job_simulate_set_accepts_voltage_only(client: TestClient):
 def test_post_job_rejects_set_without_setpoints(client: TestClient):
     payload = {
         "command": "set",
-        "runtime": {
-            "resource": "USB0::SIM::E36312A::INSTR",
-            "simulate": True,
-            "timeout_ms": 5000,
-            "confirm": False,
-        },
+        "runtime": simulated_e36312a_runtime(),
         "parameters": {"channel": 1},
     }
     response = client.post("/api/jobs", json=payload)
@@ -3254,12 +3248,7 @@ def test_post_job_rejects_set_without_setpoints(client: TestClient):
 def test_post_job_simulate_set_rejects_string_channel(client: TestClient):
     payload = {
         "command": "set",
-        "runtime": {
-            "resource": "USB0::SIM::E36312A::INSTR",
-            "simulate": True,
-            "timeout_ms": 5000,
-            "confirm": False,
-        },
+        "runtime": simulated_e36312a_runtime(),
         "parameters": {"channel": "3", "voltage": 5.0, "current": 1.0},
     }
     response = client.post("/api/jobs", json=payload)
@@ -3280,12 +3269,7 @@ def test_post_job_simulate_apply_preserves_all_channel(client: TestClient, monke
 
     payload = {
         "command": "apply",
-        "runtime": {
-            "resource": "USB0::SIM::E36312A::INSTR",
-            "simulate": True,
-            "timeout_ms": 5000,
-            "confirm": False,
-        },
+        "runtime": simulated_e36312a_runtime(),
         "parameters": {"channel": "all", "voltage": 5.0, "current": 1.0},
     }
     response = client.post("/api/jobs", json=payload)

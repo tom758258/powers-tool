@@ -7,6 +7,78 @@ on:
       - main
 
 jobs:
+  quality:
+    name: CI quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out PR head or push commit
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Check WebUI JavaScript syntax
+        run: node --check src/powers_tool_webui/static/app.js
+
+      - name: Check tracked text hygiene
+        run: python scripts/check_text_hygiene.py
+
+      - name: Check committed range whitespace
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          is_valid_commit() {
+            git cat-file -e "$1^{commit}" 2>/dev/null
+          }
+
+          check_root_commit() {
+            echo "Checking root diff for $1"
+            git diff-tree --check --root -r "$1"
+          }
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            is_valid_commit "$PR_HEAD_SHA" || {
+              echo "PR head SHA is not available: $PR_HEAD_SHA" >&2
+              exit 1
+            }
+            if merge_base="$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")"; then
+              git diff --check "$merge_base" "$PR_HEAD_SHA"
+            else
+              echo "PR merge-base is unavailable; using root diff fallback." >&2
+              check_root_commit "$PR_HEAD_SHA"
+            fi
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            is_valid_commit "$PUSH_SHA" || {
+              echo "Push SHA is not available: $PUSH_SHA" >&2
+              exit 1
+            }
+            if [[ "$PUSH_BEFORE" =~ ^0+$ ]] || ! is_valid_commit "$PUSH_BEFORE"; then
+              echo "Push before SHA is unavailable; using root diff fallback." >&2
+              check_root_commit "$PUSH_SHA"
+            else
+              git diff --check "$PUSH_BEFORE" "$PUSH_SHA"
+            fi
+          else
+            echo "Unsupported event for committed-range whitespace check: $EVENT_NAME" >&2
+            exit 1
+          fi
+
   pytest-linux:
     name: Linux Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
