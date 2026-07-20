@@ -58,7 +58,11 @@ place.
   event emission, job queueing, artifact writing, and `/command`/`/stop` HTTP
   endpoints.
 - `powers_tool_cli.commands.lifecycle`: Worker lifecycle parser registration.
-- `powers_tool_cli.commands.output`: output command registration helpers.
+- `powers_tool_cli.commands.output`: output command parser registration, runner
+  adapter, and JSON request-envelope mapping. Shared mapping primitives, Core
+  adaptation, JSON handling, dispatch, and rendering remain in `cli.py`.
+- `powers_tool_cli.commands.ramp_list`: independent Ramp List parser
+  registration and request-envelope mapping.
 - `powers_tool_cli.commands.sequence`: sequence command registration and CLI
   request conversion.
 - `powers_tool_cli.commands.trigger`: trigger command registration and CLI
