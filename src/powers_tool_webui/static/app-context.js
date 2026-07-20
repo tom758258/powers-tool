@@ -1,8 +1,13 @@
 (function registerContextHelpers(root) {
   "use strict";
 
-  const namespace = root.PowersToolWebUI || {};
-  if (namespace.context) {
+  const hasExistingNamespace = "PowersToolWebUI" in root;
+  const existingNamespace = root.PowersToolWebUI;
+  if (hasExistingNamespace && (existingNamespace === null || typeof existingNamespace !== "object")) {
+    throw new Error("PowersToolWebUI namespace must be a usable object.");
+  }
+  const namespace = hasExistingNamespace ? existingNamespace : {};
+  if (Object.prototype.hasOwnProperty.call(namespace, "context")) {
     throw new Error("PowersToolWebUI.context is already initialized.");
   }
 
@@ -81,23 +86,31 @@
     };
   }
 
-  Object.defineProperty(namespace, "context", {
-    value: Object.freeze({
-      isNoHardwareExecutionMode,
-      buildWorkspaceResultKey,
-      buildWorkspaceResultContextForJob,
-      buildCurrentWorkspaceResultContext
-    }),
-    enumerable: true,
-    writable: false,
-    configurable: false
-  });
-  if (!root.PowersToolWebUI) {
-    Object.defineProperty(root, "PowersToolWebUI", {
-      value: namespace,
+  try {
+    Object.defineProperty(namespace, "context", {
+      value: Object.freeze({
+        isNoHardwareExecutionMode,
+        buildWorkspaceResultKey,
+        buildWorkspaceResultContextForJob,
+        buildCurrentWorkspaceResultContext
+      }),
       enumerable: true,
       writable: false,
       configurable: false
     });
+  } catch (error) {
+    throw new Error("PowersToolWebUI namespace cannot define its context API.");
+  }
+  if (!hasExistingNamespace) {
+    try {
+      Object.defineProperty(root, "PowersToolWebUI", {
+        value: namespace,
+        enumerable: true,
+        writable: false,
+        configurable: false
+      });
+    } catch (error) {
+      throw new Error("PowersToolWebUI namespace cannot be installed.");
+    }
   }
 })(globalThis);

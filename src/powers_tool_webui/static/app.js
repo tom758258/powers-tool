@@ -1,6 +1,17 @@
 const webuiContext = globalThis.PowersToolWebUI?.context;
-if (!webuiContext) {
-  throw new Error("PowersToolWebUI.context failed to load before app.js.");
+const requiredWebuiContextApiNames = [
+  "isNoHardwareExecutionMode",
+  "buildWorkspaceResultKey",
+  "buildWorkspaceResultContextForJob",
+  "buildCurrentWorkspaceResultContext"
+];
+const invalidWebuiContextApiNames = requiredWebuiContextApiNames.filter(
+  (name) => typeof webuiContext?.[name] !== "function"
+);
+if (invalidWebuiContextApiNames.length) {
+  throw new Error(
+    `PowersToolWebUI.context failed to load before app.js; missing or invalid function APIs: ${invalidWebuiContextApiNames.join(", ")}.`
+  );
 }
 const { buildWorkspaceResultKey } = webuiContext;
 

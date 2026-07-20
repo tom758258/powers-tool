@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -171,26 +172,65 @@ def extract_js_function(app_js: str, function_name: str) -> str:
     raise AssertionError(f"Could not extract function {function_name}")
 
 
-def run_frontend_javascript_assertions(
-    assertions: str,
-    source_names: tuple[str, ...] = ("app-context.js", "app.js"),
-) -> None:
-    node = shutil.which("node")
-    assert node is not None, "Node.js is required for WebUI JavaScript behavior tests."
-    javascript = "\n".join(read_static_javascript(name) for name in source_names)
-    bootstrap = """
+FRONTEND_JAVASCRIPT_BOOTSTRAP = """
 globalThis.window = {};
 globalThis.document = {
   addEventListener() {},
   getElementById() { return { value: "" }; }
 };
 """
+
+
+def run_frontend_javascript_assertions(
+    assertions: str,
+    source_names: tuple[str, ...] = ("app-context.js", "app.js"),
+    *,
+    bootstrap: str = "",
+    expected_failure_substrings: tuple[str, ...] = (),
+) -> None:
+    node = shutil.which("node")
+    assert node is not None, "Node.js is required for WebUI JavaScript behavior tests."
+    production_scripts = [
+        {"sourceName": name, "source": read_static_javascript(name)}
+        for name in source_names
+    ]
+    runner = f"""
+const vm = require("node:vm");
+const bootstrapSource = {json.dumps(FRONTEND_JAVASCRIPT_BOOTSTRAP + bootstrap)};
+const productionScripts = {json.dumps(production_scripts)};
+const assertionsSource = {json.dumps(assertions)};
+const sandbox = {{
+  console,
+  require,
+  setTimeout,
+  clearTimeout,
+  setInterval,
+  clearInterval
+}};
+const context = vm.createContext(sandbox);
+
+function runScript(source, filename) {{
+  return new vm.Script(source, {{ filename }}).runInContext(context);
+}}
+
+runScript(bootstrapSource, "frontend-test-bootstrap.js");
+for (const {{ sourceName, source }} of productionScripts) {{
+  runScript(source, sourceName);
+}}
+runScript(assertionsSource, "frontend-test-assertions.js");
+"""
     completed = subprocess.run(
         [node, "--input-type=commonjs"],
-        input=f"{bootstrap}\n{javascript}\n{assertions}",
+        input=runner,
         text=True,
         encoding="utf-8",
         capture_output=True,
         check=False,
     )
-    assert completed.returncode == 0, completed.stderr or completed.stdout
+    diagnostics = completed.stderr or completed.stdout
+    if expected_failure_substrings:
+        assert completed.returncode != 0, "Expected frontend JavaScript execution to fail."
+        for expected_substring in expected_failure_substrings:
+            assert expected_substring in diagnostics, diagnostics
+    else:
+        assert completed.returncode == 0, diagnostics
