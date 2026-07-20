@@ -404,9 +404,11 @@ does not clear OVP/OCP protection latches.
 
 Advanced Diagnostics exposes Clear Status / Errors, Get capabilities, Read
 device information, and Read errors. The Workspace keeps the latest successful
-result for each command and resource, while Result Detail keeps the complete
-raw job payload. Read errors removes each returned entry from the instrument
-error queue.
+result for each complete execution context: Real includes resource, Expected
+Model guard, and resolved canonical identity; Simulate and Dry-run include
+their physical planning model or planning profile. Result Detail keeps the
+complete raw job payload. Read errors removes each returned entry from the
+instrument error queue.
 
 ## Limits
 

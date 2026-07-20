@@ -2,6 +2,7 @@ const state = {
   executionMode: "real",
   executionModeTransition: false,
   realIdentityCache: { expectedModelId: "", resource: "", serial: {} },
+  planningIdentityCache: { simulate: "", "dry-run": "" },
   realWriteAuthorization: null,
   commands: {},
   commandSupportByModel: {},
@@ -96,6 +97,7 @@ const E3646A_GLOBAL_OUTPUT_DESCRIPTION = "E3646A uses global output control. Ena
 const E3646A_CAPABILITY_ERROR = "E3646A output controls are disabled because global-output capability metadata is missing or inconsistent.";
 const STOPPABLE_WORKFLOWS = new Set(["ramp", "ramp-list", "sequence"]);
 const WORKFLOW_STOP_DESCRIPTION = "Stop the active workflow and safely turn all outputs off.";
+const ELECTRICAL_CONSTRAINT_ATTRIBUTES = ["min", "max", "step", "title"];
 
 const PARAMS = {
   "list-resources": [{ name: "live_only", type: "checkbox", label: "Live only" }],
@@ -365,12 +367,9 @@ function updateDeviceResourceSummary() {
   const resource = document.getElementById("resource").value.trim();
   const clearedExactSupport = clearStaleResourceLiveSupport(resource);
   const select = document.getElementById("resource-select");
-  const resourceText = resource || "No resource";
-  const liveText = liveResourceSummary(resource, select);
-  const expectedText = expectedModelSummary();
-  const supportText = exactSupportContextSummary(resource);
-  summary.textContent = [resourceText, liveText, expectedText, supportText].filter(Boolean).join(" / ");
-  summary.title = summary.textContent;
+  const presentation = buildDeviceResourceSummary(resource, select);
+  summary.textContent = presentation.text;
+  summary.title = presentation.title;
   const detected = detectedCommandModelForResource(resource);
   const expected = selectedExpectedModel();
   if (expected && resourceModelDetectionRecorded(resource) && detected !== expected) {
@@ -381,6 +380,44 @@ function updateDeviceResourceSummary() {
     if (state.selected) selectCommand(state.selected);
     else renderCommands();
   }
+}
+
+function buildDeviceResourceSummary(resource, select) {
+  if (isNoHardwareMode()) {
+    const mode = state.executionMode === "simulate" ? "Simulate mode" : "Dry-run mode";
+    const planning = planningIdentitySummary(selectedPlanningIdentity());
+    const realContext = resource
+      ? `Real VISA resource preserved, not used: ${resource}`
+      : "Real VISA resource not used";
+    const text = [mode, planning, realContext].join(" / ");
+    return { text, title: text };
+  }
+
+  const canonicalModel = actualCurrentResourceModel();
+  const reportedModel = detectedResourceDisplayModel(resource);
+  const detection = canonicalModel
+    ? `Detected model: ${physicalModelDisplayName(canonicalModel)}`
+    : reportedModel
+      ? `Reported model: ${reportedModel} (canonical identity unresolved)`
+      : `Detection status: ${liveResourceSummary(resource, select)}`;
+  const text = [
+    "Real mode",
+    `VISA resource: ${resource || "not selected"}`,
+    detection,
+    `Expected Model guard: ${expectedModelSummary()}`,
+    exactSupportContextSummary(resource)
+  ].join(" / ");
+  return { text, title: text };
+}
+
+function planningIdentitySummary(identity) {
+  if (!identity) return state.executionMode === "simulate" ? "Planning model: not selected" : "Planning target: not selected";
+  if (identity.startsWith("profile:")) {
+    const profileId = identity.slice("profile:".length);
+    const profile = state.planningProfiles?.[profileId];
+    return `Planning profile: ${profile?.display_name || profile?.model_name || profileId}`;
+  }
+  return `Planning model: ${physicalModelDisplayName(identity)}`;
 }
 
 function liveResourceSummary(resource, select) {
@@ -405,6 +442,15 @@ function selectedExpectedModel() {
 
 function selectedPlanningIdentity() {
   return state.executionMode === "real" ? null : valueOrNull("expected-model-id");
+}
+
+function rememberCurrentExecutionIdentity() {
+  const identity = valueOrNull("expected-model-id") || "";
+  if (state.executionMode === "real") {
+    state.realIdentityCache.expectedModelId = identity;
+  } else if (Object.prototype.hasOwnProperty.call(state.planningIdentityCache, state.executionMode)) {
+    state.planningIdentityCache[state.executionMode] = identity;
+  }
 }
 
 function isNoHardwareMode() {
@@ -471,17 +517,19 @@ function updateExecutionModeUi() {
 function populateIdentitySelector() {
   const select = document.getElementById("expected-model-id");
   if (!select || !state.physicalModels.length) return;
-  const retained = select.value;
   select.replaceChildren();
   if (state.executionMode === "real") {
     select.add(new Option("Auto-detect", ""));
     state.physicalModels.forEach((model) => select.add(new Option(model.display_name || model.model_name, model.model_id)));
-    select.value = state.realIdentityCache.expectedModelId || retained;
+    const expected = state.realIdentityCache.expectedModelId;
+    select.value = state.physicalModels.some((model) => model.model_id === expected) ? expected : "";
   } else if (state.executionMode === "simulate") {
     select.add(new Option("Select simulation model", ""));
     state.physicalModels.forEach((model) => select.add(new Option(model.display_name || model.model_name, model.model_id)));
-    select.value = retained && state.physicalModels.some((model) => model.model_id === retained) ? retained : "";
+    const planned = state.planningIdentityCache.simulate;
+    select.value = state.physicalModels.some((model) => model.model_id === planned) ? planned : "";
   } else {
+    select.add(new Option("Select planning target", ""));
     const physical = document.createElement("optgroup"); physical.label = "Physical models";
     state.physicalModels.forEach((model) => physical.append(new Option(model.display_name || model.model_name, model.model_id)));
     select.append(physical);
@@ -491,7 +539,10 @@ function populateIdentitySelector() {
       if (profileId) profiles.append(new Option(profile.display_name || profile.model_name || profileId, `profile:${profileId}`));
     });
     select.append(profiles);
-    select.value = retained;
+    const planned = state.planningIdentityCache["dry-run"];
+    const physicalMatch = state.physicalModels.some((model) => model.model_id === planned);
+    const profileMatch = planned.startsWith("profile:") && Boolean(state.planningProfiles?.[planned.slice("profile:".length)]);
+    select.value = physicalMatch || profileMatch ? planned : "";
   }
 }
 
@@ -504,8 +555,8 @@ async function handleExecutionModeChange(event) {
   document.querySelectorAll('input[name="execution-mode"]').forEach((radio) => radio.disabled = true);
   try {
     await stopRealLiveJobsAndWait();
+    rememberCurrentExecutionIdentity();
     if (state.executionMode === "real") {
-      state.realIdentityCache.expectedModelId = valueOrNull("expected-model-id") || "";
       clearRealWriteAuthorization();
     }
     state.executionMode = requested;
@@ -620,14 +671,19 @@ function basicOutputPresentation() {
 }
 
 function selectedElectricalRatingModel() {
+  if (isNoHardwareMode()) {
+    const identity = selectedPlanningIdentity();
+    if (!identity || identity.startsWith("profile:")) return null;
+    return state.electricalRatingsByModel?.[identity] ? identity : null;
+  }
   const expected = selectedExpectedModel();
   if (expected && state.electricalRatingsByModel?.[expected]) return expected;
   return currentResourceModel();
 }
 
 function handleExpectedModelChanged() {
+  rememberCurrentExecutionIdentity();
   if (state.executionMode === "real") {
-    state.realIdentityCache.expectedModelId = valueOrNull("expected-model-id") || "";
     clearRealWriteAuthorization();
   }
   updateDeviceResourceSummary();
@@ -2902,10 +2958,36 @@ function applyParameterConstraint(input, name) {
 
 function applyElectricalRatingConstraint(input, name) {
   if (input.type !== "number" || !["voltage", "start_voltage", "stop_voltage", "current"].includes(name)) return;
-  const rating = selectedChannelRating();
+  restoreBaseElectricalConstraints(input);
+  const suppliedRating = arguments.length >= 3 ? arguments[2] : undefined;
+  const rating = suppliedRating === undefined ? selectedChannelRating() : suppliedRating;
   if (!rating) return;
-  input.max = String(name === "current" ? rating.max_current : rating.max_voltage);
-  input.title = `Official independent-channel DC output rating: maximum ${input.max} ${name === "current" ? "A" : "V"}.`;
+  input.dataset.electricalBaseConstraints = JSON.stringify(Object.fromEntries(
+    ELECTRICAL_CONSTRAINT_ATTRIBUTES.map((attribute) => [
+      attribute,
+      input.hasAttribute(attribute) ? input.getAttribute(attribute) : null
+    ])
+  ));
+  input.setAttribute("max", String(name === "current" ? rating.max_current : rating.max_voltage));
+  input.setAttribute("title", `Official independent-channel DC output rating: maximum ${input.max} ${name === "current" ? "A" : "V"}.`);
+}
+
+function restoreBaseElectricalConstraints(input) {
+  const serialized = input.dataset.electricalBaseConstraints;
+  if (!serialized) return;
+  const base = JSON.parse(serialized);
+  ELECTRICAL_CONSTRAINT_ATTRIBUTES.forEach((attribute) => {
+    if (base[attribute] === null || base[attribute] === undefined) input.removeAttribute(attribute);
+    else input.setAttribute(attribute, base[attribute]);
+  });
+  delete input.dataset.electricalBaseConstraints;
+}
+
+function refreshInputElectricalConstraints(input, name) {
+  restoreBaseElectricalConstraints(input);
+  applyParameterConstraint(input, name);
+  if (arguments.length >= 3) applyElectricalRatingConstraint(input, name, arguments[2]);
+  else applyElectricalRatingConstraint(input, name);
 }
 
 function selectedChannelRating() {
@@ -2927,8 +3009,7 @@ function selectedChannelRatingFor(selected) {
 
 function refreshElectricalRatingConstraints() {
   document.querySelectorAll("#command-form input[type=number]").forEach((input) => {
-    applyParameterConstraint(input, input.id.replace("param-", ""));
-    applyElectricalRatingConstraint(input, input.id.replace("param-", ""));
+    refreshInputElectricalConstraints(input, input.id.replace("param-", ""));
   });
 }
 
@@ -2950,20 +3031,16 @@ function refreshBasicInputConstraints() {
     const channel = Number(input.dataset.basicVoltage || input.dataset.basicCurrent);
     const name = input.dataset.basicVoltage ? "voltage" : "current";
     const unsupported = channelUnsupportedReason(channel);
-    input.removeAttribute("max");
-    input.title = "";
+    restoreBaseElectricalConstraints(input);
+    applyParameterConstraint(input, name);
     input.disabled = Boolean(unsupported);
     if (unsupported) {
       input.title = unsupported;
       input.setCustomValidity("");
       return;
     }
-    applyParameterConstraint(input, name);
     const rating = selectedChannelRatingFor(channel);
-    if (rating) {
-      input.max = String(name === "current" ? rating.max_current : rating.max_voltage);
-      input.title = `Official independent-channel DC output rating: maximum ${input.max} ${name === "current" ? "A" : "V"}.`;
-    }
+    applyElectricalRatingConstraint(input, name, rating);
     validateBasicInput(input);
   });
 }
@@ -3225,17 +3302,78 @@ function renderResult(data) {
   document.getElementById("result").textContent = JSON.stringify(data, null, 2);
 }
 
-function workspaceResultKey(command, resource) {
-  return `${command}\u0000${resource || ""}`;
+function buildWorkspaceResultKey(context) {
+  return JSON.stringify({
+    command: context.command || "",
+    executionMode: context.executionMode || "real",
+    resource: context.resource || "",
+    expectedModelGuard: context.expectedModelGuard || "",
+    canonicalModelId: context.canonicalModelId || "",
+    planningModelId: context.planningModelId || "",
+    planningProfileId: context.planningProfileId || ""
+  });
+}
+
+function workspaceResultContextForJob(job) {
+  const runtime = job?.runtime || {};
+  const executionMode = runtime.simulate === true ? "simulate" : runtime.dry_run === true ? "dry-run" : "real";
+  if (executionMode === "simulate") {
+    return { command: job.command, executionMode, planningModelId: runtime.planning_model_id || "" };
+  }
+  if (executionMode === "dry-run") {
+    return {
+      command: job.command,
+      executionMode,
+      planningModelId: runtime.planning_model_id || "",
+      planningProfileId: runtime.planning_profile_id || ""
+    };
+  }
+  const resultResource = job?.result?.resource;
+  const resource = runtime.resource || resultResource?.name || (typeof resultResource === "string" ? resultResource : "");
+  const canonicalModelId = [
+    resultResource?.model_id,
+    job?.result?.live_support?.model_id,
+    job?.result?.resolved_identity?.model_id,
+    job?.result?.model_id,
+    detectedCommandModelForResource(resource),
+    detectedChannelModelForResource(resource)
+  ].find((value) => typeof value === "string" && value.trim()) || "";
+  return {
+    command: job.command,
+    executionMode,
+    resource,
+    expectedModelGuard: runtime.expected_model_id || "",
+    canonicalModelId
+  };
+}
+
+function currentWorkspaceResultContext(command) {
+  if (state.executionMode === "simulate") {
+    return { command, executionMode: "simulate", planningModelId: selectedPlanningIdentity() || "" };
+  }
+  if (state.executionMode === "dry-run") {
+    const identity = selectedPlanningIdentity() || "";
+    return identity.startsWith("profile:")
+      ? { command, executionMode: "dry-run", planningProfileId: identity.slice("profile:".length) }
+      : { command, executionMode: "dry-run", planningModelId: identity };
+  }
+  return {
+    command,
+    executionMode: "real",
+    resource: valueOrNull("resource") || "",
+    expectedModelGuard: selectedExpectedModel() || "",
+    canonicalModelId: actualCurrentResourceModel() || ""
+  };
 }
 
 function captureWorkspaceResult(job) {
   if (!job || job.status !== "finished" || !job.command || !job.result) return false;
-  const resource = job.runtime?.resource || job.result?.resource?.name || "";
+  const context = workspaceResultContextForJob(job);
+  const resource = context.resource || "";
   if (["capabilities", "identify", "verify"].includes(job.command)) {
     captureResourceLiveSupport(job, resource);
   }
-  state.workspaceResults[workspaceResultKey(job.command, resource)] = job;
+  state.workspaceResults[buildWorkspaceResultKey(context)] = job;
   renderWorkspaceSummary();
   return true;
 }
@@ -3248,10 +3386,10 @@ function renderWorkspaceSummary() {
     renderWorkspaceEmpty(container, "Choose a command to view its latest successful result.");
     return;
   }
-  const resource = valueOrNull("resource") || "";
-  const job = state.workspaceResults[workspaceResultKey(state.selected, resource)];
+  const context = currentWorkspaceResultContext(state.selected);
+  const job = state.workspaceResults[buildWorkspaceResultKey(context)];
   if (!job) {
-    renderWorkspaceEmpty(container, "Run this command to see its latest successful result for the selected resource.");
+    renderWorkspaceEmpty(container, "Run this command to see its latest successful result for the active execution context.");
     return;
   }
   if (job.command === "capabilities") {
@@ -3279,7 +3417,8 @@ function renderWorkspaceSummary() {
   }
   appendWorkspaceFields(container, [
     ["Command", commandDisplayName(job.command)],
-    ["Resource", resource || "No resource selected"],
+    ["Execution mode", context.executionMode],
+    ["Resource", context.executionMode === "real" ? context.resource || "No resource selected" : "Not used"],
     ["Summary", successfulJobSummary(job)]
   ]);
 }

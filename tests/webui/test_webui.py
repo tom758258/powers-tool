@@ -363,20 +363,250 @@ def test_static_normal_model_dropdown_policy() -> None:
 def test_static_device_resource_summary_uses_model_wording():
     _html, app_js, _styles_css = read_static_texts()
     summary = extract_js_function(app_js, "updateDeviceResourceSummary")
-    live_summary = extract_js_function(app_js, "liveResourceSummary")
-    expected_summary = extract_js_function(app_js, "expectedModelSummary")
+    builder = extract_js_function(app_js, "buildDeviceResourceSummary")
 
-    assert "Auto-detect" in expected_summary
     assert "Manual" not in summary
-    assert "const liveText = liveResourceSummary(resource, select);" in summary
-    assert "const expectedText = expectedModelSummary();" in summary
-    assert '[resourceText, liveText, expectedText, supportText].filter(Boolean).join(" / ")' in summary
-    assert "exactSupportContextSummary(resource)" in summary
-    assert "detectedResourceDisplayModel(resource)" in live_summary
-    assert "return `live ${detected}`;" in live_summary
-    assert "physicalModelDisplayName(expected)" in expected_summary
+    assert "buildDeviceResourceSummary(resource, select)" in summary
+    assert "Real mode" in builder
+    assert "Simulate mode" in builder
+    assert "Dry-run mode" in builder
+    assert "Expected Model guard" in builder
+    assert "preserved, not used" in builder
+    assert "actualCurrentResourceModel()" in builder
+    assert "exactSupportContextSummary(resource)" in builder
     assert "resourceDisplayModels: {}" in app_js
     assert "state.resourceDisplayModels[resource] = detectedModel;" in app_js
+
+
+def test_frontend_planning_identity_state_is_page_local_and_mode_isolated() -> None:
+    assertions = textwrap.dedent(
+        r"""
+        const strictAssert = require("node:assert/strict");
+
+        class FakeContainer {
+          constructor() {
+            this.children = [];
+            this.label = "";
+          }
+          append(...children) { this.children.push(...children); }
+        }
+
+        class FakeSelect extends FakeContainer {
+          constructor() {
+            super();
+            this.value = "";
+            this.options = [];
+          }
+          replaceChildren() {
+            this.children = [];
+            this.options = [];
+            this.value = "";
+          }
+          add(option) {
+            this.children.push(option);
+            this.options.push(option);
+          }
+          append(...children) {
+            super.append(...children);
+            children.forEach((child) => this.options.push(...(child.children || [])));
+          }
+        }
+
+        globalThis.Option = function Option(text, value) {
+          return { textContent: text, value: String(value), disabled: false };
+        };
+        const select = new FakeSelect();
+        document.createElement = (tagName) => tagName === "optgroup" ? new FakeContainer() : {};
+        document.getElementById = (id) => id === "expected-model-id" ? select : null;
+
+        state.physicalModels = [
+          { model_id: "keysight-e36312a", display_name: "Keysight E36312A" },
+          { model_id: "keysight-e3646a", display_name: "Keysight E3646A" }
+        ];
+        state.planningProfiles = {
+          "generic-scpi": { profile_id: "generic-scpi", display_name: "Generic SCPI" }
+        };
+        state.realIdentityCache.expectedModelId = "";
+        state.planningIdentityCache = { simulate: "", "dry-run": "" };
+
+        state.executionMode = "simulate";
+        populateIdentitySelector();
+        strictAssert.equal(select.value, "", "first Simulate entry must be blank");
+        select.value = "keysight-e36312a";
+        rememberCurrentExecutionIdentity();
+
+        state.executionMode = "dry-run";
+        populateIdentitySelector();
+        strictAssert.equal(select.value, "", "first Dry-run entry must be blank");
+        select.value = "profile:generic-scpi";
+        rememberCurrentExecutionIdentity();
+
+        state.executionMode = "simulate";
+        populateIdentitySelector();
+        strictAssert.equal(select.value, "keysight-e36312a");
+
+        state.executionMode = "dry-run";
+        populateIdentitySelector();
+        strictAssert.equal(select.value, "profile:generic-scpi");
+
+        state.executionMode = "real";
+        populateIdentitySelector();
+        strictAssert.equal(select.value, "", "Dry-run identity must not become Expected Model");
+        select.value = "keysight-e3646a";
+        rememberCurrentExecutionIdentity();
+
+        state.executionMode = "simulate";
+        populateIdentitySelector();
+        strictAssert.equal(select.value, "keysight-e36312a", "Real guard must not replace Simulate identity");
+        """
+    )
+    run_frontend_javascript_assertions(assertions)
+
+    _html, app_js, _styles_css = read_static_texts()
+    assert 'planningIdentityCache: { simulate: "", "dry-run": "" }' in app_js
+    assert "localStorage" not in app_js
+    assert "sessionStorage" not in app_js
+    assert "rememberCurrentExecutionIdentity();" in extract_js_function(app_js, "handleExecutionModeChange")
+    assert "rememberCurrentExecutionIdentity();" in extract_js_function(app_js, "handleExpectedModelChanged")
+
+
+def test_frontend_planning_electrical_constraints_restore_base_values() -> None:
+    assertions = textwrap.dedent(
+        r"""
+        const strictAssert = require("node:assert/strict");
+
+        class FakeInput {
+          constructor() {
+            this.type = "number";
+            this.dataset = {};
+            this.attributes = {};
+            for (const name of ["min", "max", "step", "title"]) {
+              Object.defineProperty(this, name, {
+                get: () => this.attributes[name] ?? "",
+                set: (value) => { this.attributes[name] = String(value); }
+              });
+            }
+          }
+          setAttribute(name, value) { this.attributes[name] = String(value); }
+          getAttribute(name) { return this.attributes[name] ?? null; }
+          hasAttribute(name) { return Object.prototype.hasOwnProperty.call(this.attributes, name); }
+          removeAttribute(name) { delete this.attributes[name]; }
+        }
+
+        const identity = { value: "keysight-e36312a" };
+        const channel = { value: "1" };
+        document.getElementById = (id) => ({
+          "expected-model-id": identity,
+          "param-channel": channel
+        })[id] || null;
+
+        state.executionMode = "simulate";
+        state.parameterConstraints = {
+          voltage: { min: 0, max: 100, step: 0.1, description: "Generic voltage guidance" }
+        };
+        state.electricalRatingsByModel = {
+          "keysight-e36312a": { channels: [{ channel: 1, max_voltage: 6, max_current: 5 }] },
+          "keysight-e3646a": { channels: [{ channel: 1, max_voltage: 20, max_current: 1 }] }
+        };
+
+        const input = new FakeInput();
+        refreshInputElectricalConstraints(input, "voltage");
+        strictAssert.equal(input.min, "0");
+        strictAssert.equal(input.max, "6");
+        strictAssert.equal(input.step, "0.1");
+        strictAssert.match(input.title, /maximum 6 V/);
+
+        input.min = "1";
+        input.step = "2";
+        identity.value = "profile:generic-scpi";
+        refreshInputElectricalConstraints(input, "voltage");
+        strictAssert.equal(selectedElectricalRatingModel(), null);
+        strictAssert.equal(input.min, "0");
+        strictAssert.equal(input.max, "100");
+        strictAssert.equal(input.step, "0.1");
+        strictAssert.equal(input.title, "Generic voltage guidance");
+        strictAssert.equal(input.dataset.electricalBaseConstraints, undefined);
+
+        identity.value = "keysight-e3646a";
+        refreshInputElectricalConstraints(input, "voltage");
+        strictAssert.equal(input.max, "20");
+        strictAssert.match(input.title, /maximum 20 V/);
+
+        identity.value = "";
+        refreshInputElectricalConstraints(input, "voltage");
+        strictAssert.equal(input.min, "0");
+        strictAssert.equal(input.max, "100");
+        strictAssert.equal(input.step, "0.1");
+        strictAssert.equal(input.title, "Generic voltage guidance");
+        """
+    )
+    run_frontend_javascript_assertions(assertions)
+
+
+def test_frontend_device_resource_summary_is_mode_and_identity_aware() -> None:
+    assertions = textwrap.dedent(
+        r"""
+        const strictAssert = require("node:assert/strict");
+        const elements = new Map([
+          ["resource", { value: "USB0::KEPT::INSTR" }],
+          ["resource-select", { value: "USB0::KEPT::INSTR", options: [{ textContent: "USB0::KEPT::INSTR" }] }],
+          ["expected-model-id", { value: "keysight-e36312a" }],
+          ["device-resource-summary", { textContent: "", title: "" }]
+        ]);
+        document.getElementById = (id) => elements.get(id) || null;
+
+        state.physicalModels = [
+          { model_id: "keysight-e36312a", display_name: "Keysight E36312A" },
+          { model_id: "keysight-edu36311a", display_name: "Keysight EDU36311A" }
+        ];
+        state.planningProfiles = {
+          "generic-scpi": { profile_id: "generic-scpi", display_name: "Generic SCPI" }
+        };
+        state.resourceModels = { "USB0::KEPT::INSTR": "keysight-edu36311a" };
+        state.resourceChannelModels = { "USB0::KEPT::INSTR": "keysight-edu36311a" };
+        state.resourceDisplayModels = { "USB0::KEPT::INSTR": "EDU36311A" };
+        state.resourceLiveSupport = {
+          evaluated: true,
+          model_id: "keysight-edu36311a",
+          transport_scope: "usb",
+          backend_scope: "system_visa",
+          commands: {
+            set: { product_open: true, policy_exempt: false },
+            ramp: { product_open: false, policy_exempt: false, exact_scope_validation_status: "feature_pending" }
+          }
+        };
+        state.resourceLiveSupportContext = {
+          resource: "USB0::KEPT::INSTR",
+          model_id: "keysight-edu36311a"
+        };
+
+        state.executionMode = "real";
+        updateDeviceResourceSummary();
+        const summary = elements.get("device-resource-summary");
+        strictAssert.match(summary.textContent, /Real mode/);
+        strictAssert.match(summary.textContent, /VISA resource: USB0::KEPT::INSTR/);
+        strictAssert.match(summary.textContent, /Detected model: Keysight EDU36311A/);
+        strictAssert.match(summary.textContent, /Expected Model guard: Require Keysight E36312A/);
+        strictAssert.match(summary.textContent, /1 validated, 1 pending/);
+        strictAssert.match(summary.title, /does not match/);
+
+        state.executionMode = "simulate";
+        elements.get("expected-model-id").value = "keysight-e36312a";
+        updateDeviceResourceSummary();
+        strictAssert.match(summary.textContent, /Simulate mode/);
+        strictAssert.match(summary.textContent, /Planning model: Keysight E36312A/);
+        strictAssert.match(summary.textContent, /Real VISA resource preserved, not used: USB0::KEPT::INSTR/);
+        strictAssert.equal(summary.textContent.includes("Expected Model guard"), false);
+
+        state.executionMode = "dry-run";
+        elements.get("expected-model-id").value = "profile:generic-scpi";
+        updateDeviceResourceSummary();
+        strictAssert.match(summary.textContent, /Dry-run mode/);
+        strictAssert.match(summary.textContent, /Planning profile: Generic SCPI/);
+        strictAssert.match(summary.textContent, /preserved, not used/);
+        """
+    )
+    run_frontend_javascript_assertions(assertions)
 
 
 def test_static_model_profile_change_refreshes_effective_ui_model():
@@ -1903,7 +2133,7 @@ def test_static_job_result_summary_contract():
     assert "result.resources.length" in app_js
 
 
-def test_static_workspace_summary_keeps_latest_success_by_command_and_resource():
+def test_static_workspace_summary_keeps_latest_success_by_complete_execution_context():
     index_html, app_js, _styles_css = read_static_texts()
 
     capture = extract_js_function(app_js, "captureWorkspaceResult")
@@ -1912,11 +2142,89 @@ def test_static_workspace_summary_keeps_latest_success_by_command_and_resource()
     assert 'id="workspace-summary-content"' in index_html
     assert "workspaceResults: {}" in app_js
     assert 'job.status !== "finished"' in capture
-    assert "workspaceResultKey(job.command, resource)" in capture
-    assert "state.workspaceResults[workspaceResultKey(state.selected, resource)]" in render
+    assert "workspaceResultContextForJob(job)" in capture
+    assert "buildWorkspaceResultKey(context)" in capture
+    assert "currentWorkspaceResultContext(state.selected)" in render
+    assert "buildWorkspaceResultKey(context)" in render
     assert "renderCapabilitiesWorkspaceSummary(container, job.result);" in render
     assert "renderIdentifyWorkspaceSummary(container, job.result);" in render
     assert "captureWorkspaceResult(job);" in app_js
+
+
+def test_frontend_workspace_result_keys_isolate_complete_execution_context() -> None:
+    assertions = textwrap.dedent(
+        r"""
+        const strictAssert = require("node:assert/strict");
+        const elements = new Map([
+          ["resource", { value: "RESOURCE-A" }],
+          ["expected-model-id", { value: "keysight-e36312a" }]
+        ]);
+        document.getElementById = (id) => elements.get(id) || null;
+        state.livePanel = null;
+        state.resourceLiveSupport = null;
+        state.resourceLiveSupportContext = null;
+        state.resourceModels = { "RESOURCE-A": "keysight-e36312a" };
+        state.resourceChannelModels = { "RESOURCE-A": "keysight-e36312a" };
+
+        const realJob = (resource, expected, modelId) => ({
+          command: "identify",
+          runtime: {
+            resource,
+            simulate: false,
+            dry_run: false,
+            ...(expected ? { expected_model_id: expected } : {})
+          },
+          result: { resource: { name: resource, model_id: modelId } }
+        });
+        const keyForJob = (job) => buildWorkspaceResultKey(workspaceResultContextForJob(job));
+
+        state.executionMode = "real";
+        const realA = realJob("RESOURCE-A", "keysight-e36312a", "keysight-e36312a");
+        const realAKey = keyForJob(realA);
+        strictAssert.equal(
+          realAKey,
+          buildWorkspaceResultKey(currentWorkspaceResultContext("identify")),
+          "identical Real context must restore its result"
+        );
+        strictAssert.notEqual(realAKey, keyForJob(realJob("RESOURCE-B", "keysight-e36312a", "keysight-e36312a")));
+        strictAssert.notEqual(realAKey, keyForJob(realJob("RESOURCE-A", "", "keysight-e36312a")));
+        strictAssert.notEqual(realAKey, keyForJob(realJob("RESOURCE-A", "keysight-e36312a", "keysight-edu36311a")));
+
+        state.executionMode = "simulate";
+        elements.get("expected-model-id").value = "keysight-e36312a";
+        const simulateA = {
+          command: "identify",
+          runtime: { resource: "PRESERVED-A", simulate: true, dry_run: false, planning_model_id: "keysight-e36312a" },
+          result: {}
+        };
+        const simulateAWithOtherPreservedResource = {
+          ...simulateA,
+          runtime: { ...simulateA.runtime, resource: "PRESERVED-B" }
+        };
+        strictAssert.equal(keyForJob(simulateA), keyForJob(simulateAWithOtherPreservedResource));
+        strictAssert.equal(keyForJob(simulateA), buildWorkspaceResultKey(currentWorkspaceResultContext("identify")));
+        strictAssert.notEqual(keyForJob(simulateA), keyForJob({
+          ...simulateA,
+          runtime: { ...simulateA.runtime, planning_model_id: "keysight-edu36311a" }
+        }));
+        strictAssert.notEqual(realAKey, keyForJob(simulateA));
+
+        state.executionMode = "dry-run";
+        elements.get("expected-model-id").value = "profile:generic-scpi";
+        const dryProfile = {
+          command: "identify",
+          runtime: { simulate: false, dry_run: true, planning_profile_id: "generic-scpi" },
+          result: {}
+        };
+        strictAssert.equal(keyForJob(dryProfile), buildWorkspaceResultKey(currentWorkspaceResultContext("identify")));
+        strictAssert.notEqual(keyForJob(dryProfile), keyForJob({
+          ...dryProfile,
+          runtime: { simulate: false, dry_run: true, planning_model_id: "keysight-e36312a" }
+        }));
+        strictAssert.notEqual(keyForJob(dryProfile), keyForJob(simulateA));
+        """
+    )
+    run_frontend_javascript_assertions(assertions)
 
 
 def test_static_workspace_capabilities_and_identify_use_result_fields():
