@@ -28,8 +28,11 @@ TEXT_SUFFIXES = frozenset(
         ".yml",
     }
 )
-ROOT_TEXT_FILES = frozenset(
+SPECIAL_TEXT_FILENAMES = frozenset(
     {
+        ".editorconfig",
+        ".gitattributes",
+        ".gitignore",
         "AGENTS.md",
         "CHANGELOG.md",
         "LICENSE",
@@ -96,7 +99,7 @@ def is_checked_text_path(relative_path: Path) -> bool:
     # Documentation HTML is generated/presentation output. WebUI static HTML is source.
     if relative_path.parts and relative_path.parts[0] == "docs" and relative_path.suffix.lower() == ".html":
         return False
-    if relative_path.as_posix() in ROOT_TEXT_FILES:
+    if relative_path.name in SPECIAL_TEXT_FILENAMES:
         return True
     return relative_path.suffix.lower() in TEXT_SUFFIXES
 

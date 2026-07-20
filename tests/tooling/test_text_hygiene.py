@@ -65,18 +65,25 @@ def test_inspect_text_file_accepts_legitimate_non_ascii_text(tmp_path: Path) -> 
     assert CHECKER.inspect_text_file(path, Path("international.md")) == []
 
 
-def test_selected_text_paths_excludes_generated_docs_and_non_text_but_keeps_webui_source_html() -> None:
+def test_selected_text_paths_includes_control_files_and_webui_source_html() -> None:
     paths = (
+        Path(".editorconfig"),
+        Path(".gitattributes"),
+        Path(".gitignore"),
         Path("docs/generated-reference.html"),
         Path("docs/webui/README.zh-TW.html"),
         Path("Local/private.md"),
         Path("assets/logo.png"),
+        Path("tools/repository-control"),
         Path("scripts/check_text_hygiene.py"),
         Path("src/powers_tool_webui/static/index.html"),
         Path("tests/tooling/test_text_hygiene.py"),
     )
 
     assert CHECKER.selected_text_paths(paths) == (
+        Path(".editorconfig"),
+        Path(".gitattributes"),
+        Path(".gitignore"),
         Path("scripts/check_text_hygiene.py"),
         Path("src/powers_tool_webui/static/index.html"),
         Path("tests/tooling/test_text_hygiene.py"),

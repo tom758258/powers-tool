@@ -47,9 +47,11 @@ jobs:
             git cat-file -e "$1^{commit}" 2>/dev/null
           }
 
-          check_root_commit() {
-            echo "Checking root diff for $1"
-            git diff-tree --check --root -r "$1"
+          check_full_tree() {
+            local empty_tree
+            empty_tree="$(git hash-object -t tree /dev/null)"
+            echo "Checking full tree for $1"
+            git diff --check "$empty_tree" "$1"
           }
 
           if [[ "$EVENT_NAME" == "pull_request" ]]; then
@@ -60,8 +62,8 @@ jobs:
             if merge_base="$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")"; then
               git diff --check "$merge_base" "$PR_HEAD_SHA"
             else
-              echo "PR merge-base is unavailable; using root diff fallback." >&2
-              check_root_commit "$PR_HEAD_SHA"
+              echo "PR merge-base is unavailable; checking the full tree." >&2
+              check_full_tree "$PR_HEAD_SHA"
             fi
           elif [[ "$EVENT_NAME" == "push" ]]; then
             is_valid_commit "$PUSH_SHA" || {
@@ -69,8 +71,8 @@ jobs:
               exit 1
             }
             if [[ "$PUSH_BEFORE" =~ ^0+$ ]] || ! is_valid_commit "$PUSH_BEFORE"; then
-              echo "Push before SHA is unavailable; using root diff fallback." >&2
-              check_root_commit "$PUSH_SHA"
+              echo "Push before SHA is unavailable; checking the full tree." >&2
+              check_full_tree "$PUSH_SHA"
             else
               git diff --check "$PUSH_BEFORE" "$PUSH_SHA"
             fi
