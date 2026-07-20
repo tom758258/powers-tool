@@ -34,8 +34,9 @@ Preferred editable frontend files:
 Optional, only when a stable UI contract changes or a new public behavior needs
 coverage:
 
-- `tests/webui/test_webui.py`
-- `tests/webui/test_webui_docs_ownership.py`
+- `tests/webui/test_webui_*.py`
+- `tests/webui/_webui_*.py`
+- `tests/webui/conftest.py`
 
 Optional documentation updates:
 
