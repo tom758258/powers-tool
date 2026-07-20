@@ -24,6 +24,17 @@ TRIGGER_COMMANDS = (
 )
 
 
+_ARGUMENT_ERROR_MESSAGES = {
+    "missing_required": "one of the arguments --pin --pins is required",
+    "invalid_typed": "argument --channel: channel must be a positive integer",
+    "mutually_exclusive": "argument --pins: not allowed with argument --pin",
+    "unknown_option": "unrecognized arguments: --unknown-option",
+    "invalid_bost_list": (
+        "argument --bost-list: boolean lists accept true/false, on/off, or 1/0"
+    ),
+}
+
+
 def _parsed_request(argv: list[str]) -> tuple[argparse.Namespace, dict[str, object]]:
     args = cli.build_parser().parse_args(argv)
     return args, trigger.request_for_args(args, cli)
@@ -590,6 +601,156 @@ def test_trigger_parser_error_json_envelope_stays_machine_readable(capsys) -> No
     )
     assert payload["error"]["type"] == "validation"
     assert payload["error"]["code"] == "argument_error"
+    assert payload["error"]["message"] == _ARGUMENT_ERROR_MESSAGES["invalid_typed"]
+    assert payload["error"]["retryable"] is False
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_request", "message_key"),
+    [
+        pytest.param(
+            ["trigger-pulse", "--json", "--pin", "1", "--pins", "2"],
+            {
+                "resource": None,
+                "resource_alias": None,
+                "pins": [2],
+                "channel": 1,
+                "polarity": "positive",
+                "exclusive_pins": False,
+                "safety_config": None,
+                "backend": None,
+                "timeout_ms": 5000,
+                "pin": 1,
+                "exclusive_pin": False,
+            },
+            "mutually_exclusive",
+            id="trigger-pulse-pin-and-pins",
+        ),
+        pytest.param(
+            ["trigger-list", "--json", "--bost-list", "on,bad"],
+            {
+                "resource": None,
+                "resource_alias": None,
+                "file": None,
+                "channel": None,
+                "source": "bus",
+                "voltage_list": None,
+                "current_list": None,
+                "dwell_list": None,
+                "count": 1,
+                "fire": False,
+                "wait_complete": False,
+                "wait_timeout_ms": None,
+                "poll_ms": 200,
+                "exclusive_pins": False,
+                "safety_config": None,
+                "backend": None,
+                "timeout_ms": 5000,
+            },
+            "invalid_bost_list",
+            id="trigger-list-invalid-bost-list",
+        ),
+    ],
+)
+def test_trigger_parser_errors_preserve_special_raw_requests_before_emission(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+    expected_request: dict[str, object],
+    message_key: str,
+) -> None:
+    captured: list[dict[str, Any]] = []
+    emit_json_error = cli.emit_json_error
+
+    def capture_and_emit(**kwargs: Any) -> None:
+        captured.append(kwargs)
+        emit_json_error(**kwargs)
+
+    def fail_dispatch(*_args: object, **_kwargs: object) -> int:
+        raise AssertionError("parser failures must not dispatch trigger execution")
+
+    monkeypatch.setattr(cli, "emit_json_error", capture_and_emit)
+    monkeypatch.setattr(trigger, "run_trigger", fail_dispatch)
+    monkeypatch.setattr(cli, "_run_core_trigger", fail_dispatch)
+    monkeypatch.setattr(cli, "open_resource", fail_dispatch)
+    monkeypatch.setattr(cli, "_log_scpi", fail_dispatch)
+
+    assert cli.main(argv) == 2
+
+    assert len(captured) == 1
+    emitted = captured[0]
+    assert emitted["command"] == argv[0]
+    assert emitted["execution"] == {
+        "mode": "real",
+        "dry_run": False,
+        "hardware_touched": False,
+    }
+    assert emitted["request"] == expected_request
+    assert list(emitted["request"]) == list(expected_request)
+    assert emitted["error_type"] == "validation"
+    assert emitted["code"] == "argument_error"
+    assert emitted["message"] == _ARGUMENT_ERROR_MESSAGES[message_key]
+    assert emitted["retryable"] is False
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == 2
+    assert payload["ok"] is False
+    assert payload["status"] == "error"
+    assert payload["command"] == {"name": argv[0]}
+    assert payload["execution"] == emitted["execution"]
+    assert payload["request"] == expected_request
+    assert payload["error"] == {
+        "type": "validation",
+        "code": "argument_error",
+        "message": _ARGUMENT_ERROR_MESSAGES[message_key],
+        "retryable": False,
+    }
+
+
+@pytest.mark.parametrize(
+    ("argv", "message_key"),
+    [
+        pytest.param(
+            ["trigger-pulse", "--json"],
+            "missing_required",
+            id="missing-required",
+        ),
+        pytest.param(
+            ["trigger-abort", "--json", "--channel", "1", "--unknown-option"],
+            "unknown_option",
+            id="unknown-option",
+        ),
+    ],
+)
+def test_trigger_parser_error_messages_match_fixed_baselines(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+    message_key: str,
+) -> None:
+    def fail_dispatch(*_args: object, **_kwargs: object) -> int:
+        raise AssertionError("parser failures must not dispatch trigger execution")
+
+    monkeypatch.setattr(trigger, "run_trigger", fail_dispatch)
+    monkeypatch.setattr(cli, "_run_core_trigger", fail_dispatch)
+    monkeypatch.setattr(cli, "open_resource", fail_dispatch)
+    monkeypatch.setattr(cli, "_log_scpi", fail_dispatch)
+
+    assert cli.main(argv) == 2
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == 2
+    assert payload["ok"] is False
+    assert payload["status"] == "error"
+    assert payload["command"] == {"name": argv[0]}
+    assert payload["execution"] == {
+        "mode": "real",
+        "dry_run": False,
+        "hardware_touched": False,
+    }
+    assert payload["error"]["type"] == "validation"
+    assert payload["error"]["code"] == "argument_error"
+    assert payload["error"]["message"] == _ARGUMENT_ERROR_MESSAGES[message_key]
     assert payload["error"]["retryable"] is False
 
 
