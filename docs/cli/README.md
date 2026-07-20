@@ -49,13 +49,15 @@ place.
 
 ## Package Contents
 
-- `powers_tool_cli.cli`: top-level argument parser, command dispatch, JSON
-  envelope conversion, SCPI logging, and runtime adapters into core.
+- `powers_tool_cli.cli`: top-level argument parser, command dispatch, request
+  mapping, JSON envelope conversion, lifecycle HTTP runners, rendering, SCPI
+  logging, and runtime adapters into core.
 - `powers_tool_cli.cli_io`: stable JSON success/error envelope helpers and
   optional `--save-json` output.
 - `powers_tool_cli.worker`: local async worker service, config validation,
   event emission, job queueing, artifact writing, and `/command`/`/stop` HTTP
   endpoints.
+- `powers_tool_cli.commands.lifecycle`: Worker lifecycle parser registration.
 - `powers_tool_cli.commands.output`: output command registration helpers.
 - `powers_tool_cli.commands.sequence`: sequence command registration and CLI
   request conversion.
