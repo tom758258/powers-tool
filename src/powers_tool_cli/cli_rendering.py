@@ -2,16 +2,30 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 
 __all__ = [
     "format_core_output_result",
     "format_core_trigger_result",
+    "format_capabilities",
+    "format_doctor",
+    "format_error_queue",
+    "format_identify",
+    "format_list_resources",
+    "format_measure",
+    "format_measure_all",
     "format_output_plan",
+    "format_protection_status",
+    "format_read_status",
+    "format_readback",
+    "format_safety_inspect",
     "format_scpi_plan",
     "format_sequence_summary",
+    "format_snapshot",
+    "format_snapshot_diff",
+    "format_validate_readonly",
 ]
 
 
@@ -167,4 +181,218 @@ def format_sequence_summary(data: Mapping[str, Any]) -> tuple[str, ...]:
             f"Status: {data['status']}",
             f"Completed steps: {data['completed_steps']}",
         ]
+    )
+
+
+def format_list_resources(
+    resources: Sequence[Mapping[str, Any]],
+    *,
+    live_only: bool,
+) -> tuple[str, ...]:
+    if live_only:
+        lines = ["Live resources:"]
+        if not resources:
+            lines.append("  <none>")
+        else:
+            for resource in resources:
+                idn = resource["idn"]
+                lines.append(f"  {resource['name']}")
+                lines.append(f"    IDN: {idn['raw']}")
+        return tuple(lines)
+    if not resources:
+        return tuple(["No VISA resources found."])
+    return tuple(str(resource["name"]) for resource in resources)
+
+
+def format_verify(idn_raw: object) -> tuple[str, ...]:
+    return tuple([str(idn_raw)])
+
+
+def format_error_queue(errors: Sequence[object]) -> tuple[str, ...]:
+    if not errors:
+        return tuple(["No instrument errors."])
+    return tuple(str(error) for error in errors)
+
+
+def format_measure(
+    measurements: Mapping[str, Any],
+    *,
+    value_to_text: Callable[[object], str],
+) -> tuple[str, ...]:
+    return (
+        f"Voltage: {value_to_text(measurements['voltage'])} V",
+        f"Current: {value_to_text(measurements['current'])} A",
+    )
+
+
+def format_measure_all(
+    channels: Sequence[Mapping[str, Any]],
+    *,
+    value_to_text: Callable[[object], str],
+) -> tuple[str, ...]:
+    lines = []
+    for channel in channels:
+        measurements = channel["measurements"]
+        lines.append(
+            f"Channel {channel['channel']}: "
+            f"{value_to_text(measurements['voltage'])} V, "
+            f"{value_to_text(measurements['current'])} A"
+        )
+    return tuple(lines)
+
+
+def format_read_status(
+    errors: Sequence[object],
+    outputs: Sequence[Mapping[str, Any]],
+) -> tuple[str, ...]:
+    lines = [f"Error: {error}" for error in errors] if errors else ["Errors: none"]
+    lines.extend(
+        f"Channel {output['channel']}: Output enabled: {str(output['enabled']).lower()}"
+        for output in outputs
+    )
+    return tuple(lines)
+
+
+def format_readback(
+    resource: object,
+    channels: Sequence[Mapping[str, Any]],
+    *,
+    value_to_text: Callable[[object], str],
+) -> tuple[str, ...]:
+    lines = [f"Resource: {resource}"]
+    for channel in channels:
+        setpoints = channel["setpoints"]
+        lines.append(
+            f"Channel {channel['channel']}: "
+            f"{value_to_text(setpoints['voltage'])} V, "
+            f"{value_to_text(setpoints['current'])} A"
+        )
+    return tuple(lines)
+
+
+def format_protection_status(data: Mapping[str, Any]) -> tuple[str, ...]:
+    protection = data["protection"]
+    lines = [
+        f"Resource: {data['resource']}",
+        f"Over-voltage tripped: {str(protection['over_voltage_tripped']).lower()}",
+        f"Over-current tripped: {str(protection['over_current_tripped']).lower()}",
+    ]
+    lines.extend(
+        f"Channel {output['channel']}: "
+        f"Output enabled: {str(output['enabled']).lower()}, "
+        f"disabled with protection: {str(output['disabled_with_protection']).lower()}"
+        for output in data["outputs"]
+    )
+    return tuple(lines)
+
+
+def format_identify(resource: object, data: Mapping[str, Any]) -> tuple[str, ...]:
+    return (
+        f"Resource: {resource}",
+        f"IDN: {data['idn']['raw']}",
+        f"Options: {data['options']}",
+        f"SCPI version: {data['scpi_version']}",
+        f"Remote/local state: {data['remote_lockout_state']}",
+    )
+
+
+def format_validate_readonly(
+    data: Mapping[str, Any],
+    *,
+    channel_order: Sequence[object],
+    value_to_text: Callable[[object], str],
+) -> tuple[str, ...]:
+    idn = data["resource"]["idn"] or {}
+    lines = [
+        f"Resource: {data['resource']['name']}",
+        f"Model: {idn.get('model')}",
+        f"Driver: {data['driver']['class']} ({data['driver']['reason']})",
+        f"Validation read-only: {data['hardware_validation']['read_only']}",
+        f"Errors: {len(data['errors'])}",
+    ]
+    for channel in channel_order:
+        output = next(item for item in data["outputs"] if item["channel"] == channel)
+        setpoints = next(item for item in data["readback"] if item["channel"] == channel)["setpoints"]
+        measured = next(item for item in data["measurements"] if item["channel"] == channel)["measurements"]
+        lines.append(
+            f"Channel {channel}: output={str(output['enabled']).lower()}, "
+            f"set={value_to_text(setpoints['voltage'])} V/"
+            f"{value_to_text(setpoints['current'])} A, "
+            f"meas={value_to_text(measured['voltage'])} V/"
+            f"{value_to_text(measured['current'])} A"
+        )
+    return tuple(lines)
+
+
+def format_snapshot(
+    data: Mapping[str, Any],
+    *,
+    comparison: Mapping[str, Any] | None,
+) -> tuple[str, ...]:
+    reported = data["reported_identity"]
+    resolved = data["resolved_identity"]
+    lines = [
+        f"Resource: {data['resource']}",
+        f"Model: {resolved.get('display_name') or resolved['model_id']}",
+        f"Reported manufacturer: {reported['manufacturer']}",
+        f"Reported model: {reported['model']}",
+        f"Serial: {reported['serial']}",
+        f"Errors: {len(data['errors'])}",
+    ]
+    lines.extend(
+        f"Channel {output['channel']}: Output enabled: {str(output['enabled']).lower()}"
+        for output in data["outputs"]
+    )
+    if comparison is not None:
+        lines.append(f"Snapshot comparison passed: {str(comparison['passed']).lower()}")
+    return tuple(lines)
+
+
+def format_snapshot_diff(
+    data: Mapping[str, Any],
+    *,
+    summary: bool,
+) -> tuple[str, ...]:
+    lines = [
+        f"Changed: {str(data['changed']).lower()}",
+        f"Changes: {data['change_count']}",
+    ]
+    if summary:
+        lines.extend(f"{category}: {count}" for category, count in data["summary"].items())
+        return tuple(lines)
+    for difference in data["differences"]:
+        channel = difference.get("channel")
+        channel_text = f" channel {channel}" if channel is not None else ""
+        lines.append(
+            f"{difference['category']}{channel_text} {difference['field']}: "
+            f"{difference['before']} -> {difference['after']}"
+        )
+    return tuple(lines)
+
+
+def format_doctor(
+    data: Mapping[str, Any],
+    *,
+    pyvisa_available: object,
+) -> tuple[str, ...]:
+    return (
+        f"Python: {data['python']['version']}",
+        f"Package: {data['package']['version']}",
+        f"PyVISA: {str(pyvisa_available).lower()}",
+        f"Simulator resources: {len(data['simulator']['resources'])}",
+    )
+
+
+def format_capabilities(data: Mapping[str, Any]) -> tuple[str, ...]:
+    return (
+        f"Driver: {data['driver']['class']}",
+        f"Channels: {', '.join(str(channel) for channel in data['channels'])}",
+    )
+
+
+def format_safety_inspect(data: Mapping[str, Any]) -> tuple[str, ...]:
+    return (
+        f"Resource: {data['resource']}",
+        f"Limits: {data['limits']}",
+        f"Output allowed: {str(data['output_affecting_allowed']).lower()}",
     )

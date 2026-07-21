@@ -1164,15 +1164,9 @@ def _run_list_resources(args: argparse.Namespace) -> int:
             )
             return 0
 
-        print("Live resources:")
-        if not data["resources"]:
-            print("  <none>")
-            return 0
-
-        for resource in data["resources"]:
-            idn = resource["idn"]
-            print(f"  {resource['name']}")
-            print(f"    IDN: {idn['raw']}")
+        _emit_text_lines(
+            cli_rendering.format_list_resources(data["resources"], live_only=True)
+        )
         return 0
 
     if args.json:
@@ -1184,12 +1178,9 @@ def _run_list_resources(args: argparse.Namespace) -> int:
         )
         return 0
 
-    if not data["resources"]:
-        print("No VISA resources found.")
-        return 0
-
-    for resource in data["resources"]:
-        print(resource["name"])
+    _emit_text_lines(
+        cli_rendering.format_list_resources(data["resources"], live_only=False)
+    )
     return 0
 
 
@@ -1237,7 +1228,7 @@ def _run_verify(args: argparse.Namespace) -> int:
         )
         return 0
 
-    print(data["resource"]["idn"]["raw"])
+    _emit_text_lines(cli_rendering.format_verify(data["resource"]["idn"]["raw"]))
     return 0
 
 
@@ -1314,12 +1305,7 @@ def _run_error(args: argparse.Namespace) -> int:
         )
         return 0
 
-    if not data["errors"]:
-        print("No instrument errors.")
-        return 0
-
-    for error in data["errors"]:
-        print(error)
+    _emit_text_lines(cli_rendering.format_error_queue(data["errors"]))
     return 0
 
 
@@ -1374,8 +1360,12 @@ def _run_measure(args: argparse.Namespace) -> int:
         )
         return 0
 
-    print(f"Voltage: {_format_text_value(data['measurements']['voltage'])} V")
-    print(f"Current: {_format_text_value(data['measurements']['current'])} A")
+    _emit_text_lines(
+        cli_rendering.format_measure(
+            data["measurements"],
+            value_to_text=_format_text_value,
+        )
+    )
     return 0
 
 
@@ -1453,13 +1443,12 @@ def _run_measure_all(args: argparse.Namespace) -> int:
         )
         return 0
 
-    for channel in data["channels"]:
-        measurements = channel["measurements"]
-        print(
-            f"Channel {channel['channel']}: "
-            f"{_format_text_value(measurements['voltage'])} V, "
-            f"{_format_text_value(measurements['current'])} A"
+    _emit_text_lines(
+        cli_rendering.format_measure_all(
+            data["channels"],
+            value_to_text=_format_text_value,
         )
+    )
     return 0
 
 
@@ -2979,13 +2968,7 @@ def _run_status(args: argparse.Namespace) -> int:
         )
         return 0
 
-    if data["errors"]:
-        for error in data["errors"]:
-            print(f"Error: {error}")
-    else:
-        print("Errors: none")
-    for output in data["outputs"]:
-        print(f"Channel {output['channel']}: Output enabled: {str(output['enabled']).lower()}")
+    _emit_text_lines(cli_rendering.format_read_status(data["errors"], data["outputs"]))
     return 0
 
 
@@ -3011,14 +2994,13 @@ def _run_readback(args: argparse.Namespace) -> int:
             data=data,
         )
         return 0
-    print(f"Resource: {data['resource']}")
-    for channel in data["channels"]:
-        setpoints = channel["setpoints"]
-        print(
-            f"Channel {channel['channel']}: "
-            f"{_format_text_value(setpoints['voltage'])} V, "
-            f"{_format_text_value(setpoints['current'])} A"
+    _emit_text_lines(
+        cli_rendering.format_readback(
+            data["resource"],
+            data["channels"],
+            value_to_text=_format_text_value,
         )
+    )
     return 0
 
 
@@ -3159,23 +3141,13 @@ def _run_validate_readonly(args: argparse.Namespace) -> int:
         emit_json_success(command=args.command, execution=execution, request=request, data=data)
         return 0
 
-    idn = data["resource"]["idn"] or {}
-    print(f"Resource: {data['resource']['name']}")
-    print(f"Model: {idn.get('model')}")
-    print(f"Driver: {data['driver']['class']} ({data['driver']['reason']})")
-    print(f"Validation read-only: {data['hardware_validation']['read_only']}")
-    print(f"Errors: {len(errors)}")
-    for channel in selection.capabilities.channels:
-        output = next(item for item in outputs if item["channel"] == channel)
-        setpoints = next(item for item in readback if item["channel"] == channel)["setpoints"]
-        measured = next(item for item in measurements if item["channel"] == channel)["measurements"]
-        print(
-            f"Channel {channel}: output={str(output['enabled']).lower()}, "
-            f"set={_format_text_value(setpoints['voltage'])} V/"
-            f"{_format_text_value(setpoints['current'])} A, "
-            f"meas={_format_text_value(measured['voltage'])} V/"
-            f"{_format_text_value(measured['current'])} A"
+    _emit_text_lines(
+        cli_rendering.format_validate_readonly(
+            data,
+            channel_order=selection.capabilities.channels,
+            value_to_text=_format_text_value,
         )
+    )
     return 0
 
 
@@ -3290,16 +3262,7 @@ def _run_protection_status(args: argparse.Namespace) -> int:
             data=data,
         )
         return 0
-    protection = data["protection"]
-    print(f"Resource: {data['resource']}")
-    print(f"Over-voltage tripped: {str(protection['over_voltage_tripped']).lower()}")
-    print(f"Over-current tripped: {str(protection['over_current_tripped']).lower()}")
-    for output in data["outputs"]:
-        print(
-            f"Channel {output['channel']}: "
-            f"Output enabled: {str(output['enabled']).lower()}, "
-            f"disabled with protection: {str(output['disabled_with_protection']).lower()}"
-        )
+    _emit_text_lines(cli_rendering.format_protection_status(data))
     return 0
 
 
@@ -3454,11 +3417,7 @@ def _run_identify(args: argparse.Namespace) -> int:
     if args.json:
         emit_json_success(command=args.command, execution=execution, request=request, data=data)
         return 0
-    print(f"Resource: {args.resource}")
-    print(f"IDN: {data['idn']['raw']}")
-    print(f"Options: {data['options']}")
-    print(f"SCPI version: {data['scpi_version']}")
-    print(f"Remote/local state: {data['remote_lockout_state']}")
+    _emit_text_lines(cli_rendering.format_identify(args.resource, data))
     return 0
 
 
@@ -3520,18 +3479,7 @@ def _run_snapshot(args: argparse.Namespace) -> int:
             data=data,
         )
         return 0 if comparison is None or comparison["passed"] else 3
-    print(f"Resource: {data['resource']}")
-    reported = data["reported_identity"]
-    resolved = data["resolved_identity"]
-    print(f"Model: {resolved.get('display_name') or resolved['model_id']}")
-    print(f"Reported manufacturer: {reported['manufacturer']}")
-    print(f"Reported model: {reported['model']}")
-    print(f"Serial: {reported['serial']}")
-    print(f"Errors: {len(data['errors'])}")
-    for output in data["outputs"]:
-        print(f"Channel {output['channel']}: Output enabled: {str(output['enabled']).lower()}")
-    if comparison is not None:
-        print(f"Snapshot comparison passed: {str(comparison['passed']).lower()}")
+    _emit_text_lines(cli_rendering.format_snapshot(data, comparison=comparison))
     return 0 if comparison is None or comparison["passed"] else 3
 
 
@@ -3564,19 +3512,7 @@ def _run_snapshot_diff(args: argparse.Namespace) -> int:
     if args.json:
         emit_json_success(command=args.command, execution=execution, request=request, data=data)
         return 0
-    print(f"Changed: {str(data['changed']).lower()}")
-    print(f"Changes: {data['change_count']}")
-    if args.summary:
-        for category, count in data["summary"].items():
-            print(f"{category}: {count}")
-        return 0
-    for difference in differences:
-        channel = difference.get("channel")
-        channel_text = f" channel {channel}" if channel is not None else ""
-        print(
-            f"{difference['category']}{channel_text} {difference['field']}: "
-            f"{difference['before']} -> {difference['after']}"
-        )
+    _emit_text_lines(cli_rendering.format_snapshot_diff(data, summary=args.summary))
     return 0
 
 
@@ -4388,10 +4324,9 @@ def _run_doctor(args: argparse.Namespace) -> int:
     if args.json:
         emit_json_success(command=args.command, execution=execution, request=request, data=data)
     else:
-        print(f"Python: {data['python']['version']}")
-        print(f"Package: {data['package']['version']}")
-        print(f"PyVISA: {str(pyvisa_available).lower()}")
-        print(f"Simulator resources: {len(data['simulator']['resources'])}")
+        _emit_text_lines(
+            cli_rendering.format_doctor(data, pyvisa_available=pyvisa_available)
+        )
     return 0
 
 
@@ -4471,8 +4406,7 @@ def _run_capabilities(args: argparse.Namespace) -> int:
     if args.json:
         emit_json_success(command=args.command, execution=execution, request=request, data=data)
     else:
-        print(f"Driver: {data['driver']['class']}")
-        print(f"Channels: {', '.join(str(channel) for channel in data['channels'])}")
+        _emit_text_lines(cli_rendering.format_capabilities(data))
     return 0
 
 
@@ -4537,9 +4471,7 @@ def _run_safety_inspect(args: argparse.Namespace) -> int:
     if args.json:
         emit_json_success(command="safety inspect", execution=execution, request=request, data=data)
     else:
-        print(f"Resource: {data['resource']}")
-        print(f"Limits: {data['limits']}")
-        print(f"Output allowed: {str(data['output_affecting_allowed']).lower()}")
+        _emit_text_lines(cli_rendering.format_safety_inspect(data))
     return 0
 
 
