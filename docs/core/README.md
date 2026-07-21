@@ -41,6 +41,10 @@ registries use canonical vendor-qualified IDs such as
 `expected_model_id` is an optional live safety guard, and
 `planning_profile_id` is a nonphysical dry-run profile. `generic-scpi` is not a
 physical model or live expected model and is absent from physical registries.
+`powers_tool_core.model_metadata.planning_profile_metadata()` is the public
+Core-owned projection for nonphysical planning-profile metadata. It does not
+place planning profiles in physical model, driver, electrical-rating, or
+setpoint-range metadata.
 
 ## Live Support Policy Modes
 
@@ -126,6 +130,8 @@ are never reported as Product-open exact live commands.
   output current limit programming-range metadata from model programming
   manuals.
 - `powers_tool_core.capabilities`: command and model capability reporting.
+- `powers_tool_core.model_metadata`: public physical-model and nonphysical
+  planning-profile metadata projections.
 - `powers_tool_core.support_policy`: exact live-support enforcement metadata
   and safe public display projections.
 - `powers_tool_core.support_evidence`: immutable accepted historical evidence

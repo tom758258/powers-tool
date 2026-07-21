@@ -83,12 +83,15 @@ def test_health_check(client: TestClient):
 
 
 def test_commands_metadata(client: TestClient):
+    from powers_tool_core.model_metadata import planning_profile_metadata
+
     response = client.get("/api/commands")
     assert response.status_code == 200
     data = response.json()
     assert "commands" in data
     assert "command_support_by_model_id" in data
     assert "live_support_by_model_id" in data
+    assert data["planning_profiles"] == planning_profile_metadata(set(data["commands"]))
     channel_capabilities = data["channel_capabilities_by_model_id"]
     assert channel_capabilities["keysight-e36312a"]["channels"] == [1, 2, 3]
     assert channel_capabilities["keysight-e36312a"]["output_control_scope"] == "per_channel"

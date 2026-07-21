@@ -152,28 +152,6 @@ def live_support_by_model_id(
     }
 
 
-def planning_profile_metadata(command_names: set[str]) -> dict[str, dict[str, Any]]:
-    """Return separate nonphysical planning-profile metadata."""
-
-    profile_id = "generic-scpi"
-    return {
-        profile_id: {
-            "profile_id": profile_id,
-            "channels": [1],
-            "output_control_scope": "unknown",
-            "command_support": _filtered_command_support(
-                None,
-                command_names,
-                planning_profile_id=profile_id,
-            ),
-            "live_support": unevaluated_live_support_policy_metadata(
-                commands=command_names,
-                reason="generic-scpi is a no-hardware planning profile.",
-            ),
-        }
-    }
-
-
 def build_runtime_options(runtime_dict: dict[str, Any]) -> RuntimeOptions:
     return RuntimeOptions(
         resource=_optional_runtime_string(runtime_dict, "resource"),
@@ -602,38 +580,6 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
             for model_id, entry in product_active_model_metadata(()).items()
         }
     }
-
-
-def _filtered_command_support(
-    model_id: str | None,
-    command_names: set[str],
-    *,
-    planning_profile_id: str | None = None,
-) -> dict[str, dict[str, Any]]:
-    support = core_capabilities.planning_identity_command_support(
-        model_id,
-        planning_profile_id,
-    )
-    filtered = {
-        command: dict(support[command])
-        for command in sorted(command_names)
-        if command in support
-    }
-    for command, entry in filtered.items():
-        if entry.get("real") is False:
-            entry["disabled_reason"] = core_capabilities.unsupported_command_reason(
-                command,
-                planning_profile_id or model_id,
-            )
-    for command in sorted(command_names & EXEMPT_LIVE_DIAGNOSTIC_COMMANDS):
-        filtered[command] = {
-            "real": True,
-            "simulate": True,
-            "dry_run": False,
-            "requires_confirm": False,
-            "hardware_validation": "model_independent",
-        }
-    return filtered
 
 
 def _safety_inspect(runtime: RuntimeOptions) -> dict[str, Any]:

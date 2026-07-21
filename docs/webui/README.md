@@ -52,6 +52,7 @@ Core owns:
 - Runtime request validation and dry-run planning.
 - Output, protection, trigger, sequence, ramp, snapshot, and restore behavior.
 - Safety limits and model capability decisions.
+- Physical-model and nonphysical planning-profile metadata projections.
 - Stop, cancellation, release/local, close, and cleanup behavior.
 
 The WebUI must use Core public APIs instead of importing CLI adapter code or
@@ -119,7 +120,9 @@ under `command_support_by_model_id`, `live_support_by_model_id`,
 `channel_capabilities_by_model_id`, `electrical_ratings_by_model_id`, and
 `setpoint_ranges_by_model_id`. The separate `planning_profiles` object carries
 nonphysical profiles such as `generic-scpi`; it is never mixed into a physical
-model map. Evidence and private support metadata are not exposed.
+model map. Its metadata is projected directly from Core; WebUI only serializes
+it with the command response. Evidence and private support metadata are not
+exposed.
 
 `/api/health` reports the adapter identifier `powers-tool-webui` for the
 `package` field, while `version` is sourced from the single installed

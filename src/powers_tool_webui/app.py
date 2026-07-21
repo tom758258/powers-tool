@@ -16,7 +16,10 @@ from powers_tool_core.core import CommandCancelled, CoreExecutionError, CoreVali
 from powers_tool_core.identity import IdentityResolutionError, resolve_physical_model_identity
 from powers_tool_core.parameter_constraints import parameter_constraints_metadata
 from powers_tool_core.command_runner import validate_request_admission
-from powers_tool_core.model_metadata import product_active_model_metadata
+from powers_tool_core.model_metadata import (
+    planning_profile_metadata,
+    product_active_model_metadata,
+)
 
 from . import __version__ as WEBUI_VERSION
 from .jobs import job_manager, JobStatus
@@ -28,7 +31,6 @@ from .commands import (
     channel_capabilities_by_model_id,
     execute_job_command,
     live_support_by_model_id,
-    planning_profile_metadata,
     selectable_physical_models,
     webui_command_support_by_model_id,
 )

@@ -1,4 +1,4 @@
-"""Frontend-safe metadata for Product-active physical models."""
+"""Frontend-safe metadata for physical models and planning profiles."""
 
 from __future__ import annotations
 
@@ -7,10 +7,15 @@ from typing import Any, Iterable
 from powers_tool_core import capabilities
 from powers_tool_core.electrical_ratings import ratings_for_model_id
 from powers_tool_core.factory import MODEL_DRIVERS
-from powers_tool_core.identity import IDENTITY_INDEXES
+from powers_tool_core.identity import GENERIC_SCPI_PLANNING_PROFILE_ID, IDENTITY_INDEXES
+from powers_tool_core.model_resolution import no_hardware_channels
 from powers_tool_core.models import PRODUCT_ACTIVE_MODEL_IDS, REGISTERED_MODELS
 from powers_tool_core.setpoint_ranges import setpoint_ranges_for_model_id
-from powers_tool_core.support_policy import live_support_policy_metadata
+from powers_tool_core.support_policy import (
+    EXEMPT_LIVE_DIAGNOSTIC_COMMANDS,
+    live_support_policy_metadata,
+    unevaluated_live_support_policy_metadata,
+)
 
 
 OUTPUT_CONTROL_SCOPE_BY_MODEL_ID = {
@@ -18,6 +23,9 @@ OUTPUT_CONTROL_SCOPE_BY_MODEL_ID = {
     "keysight-edu36311a": "per_channel",
     "keysight-e3646a": "global",
 }
+
+_GENERIC_SCPI_OUTPUT_CONTROL_SCOPE = "unknown"
+_GENERIC_SCPI_LIVE_SUPPORT_REASON = "generic-scpi is a no-hardware planning profile."
 
 
 def product_active_model_metadata(
@@ -61,6 +69,50 @@ def product_active_model_metadata(
             "setpoint_ranges": setpoint_ranges.to_dict(),
         }
     return metadata
+
+
+def planning_profile_metadata(
+    commands: Iterable[str],
+) -> dict[str, dict[str, Any]]:
+    """Return complete public metadata for nonphysical planning profiles."""
+
+    command_names = set(commands)
+    profile_id = GENERIC_SCPI_PLANNING_PROFILE_ID
+    support = capabilities.planning_identity_command_support(
+        None,
+        planning_profile_id=profile_id,
+    )
+    filtered_support = {
+        command: dict(support[command])
+        for command in sorted(command_names)
+        if command in support
+    }
+    for command, entry in filtered_support.items():
+        if entry.get("real") is False:
+            entry["disabled_reason"] = capabilities.unsupported_command_reason(
+                command,
+                profile_id,
+            )
+    for command in sorted(command_names & EXEMPT_LIVE_DIAGNOSTIC_COMMANDS):
+        filtered_support[command] = {
+            "real": True,
+            "simulate": True,
+            "dry_run": False,
+            "requires_confirm": False,
+            "hardware_validation": "model_independent",
+        }
+    return {
+        profile_id: {
+            "profile_id": profile_id,
+            "channels": list(no_hardware_channels(None, profile_id)),
+            "output_control_scope": _GENERIC_SCPI_OUTPUT_CONTROL_SCOPE,
+            "command_support": filtered_support,
+            "live_support": unevaluated_live_support_policy_metadata(
+                commands=command_names,
+                reason=_GENERIC_SCPI_LIVE_SUPPORT_REASON,
+            ),
+        }
+    }
 
 
 def validate_product_active_model_metadata() -> None:
