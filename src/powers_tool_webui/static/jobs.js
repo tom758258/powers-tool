@@ -1,0 +1,105 @@
+const JOB_EVENT_TYPES = [
+  "accepted", "started", "progress", "cancel_requested",
+  "finished", "failed", "cancelled", "error"
+];
+
+export function submitJob(fetchJson, payload) {
+  return fetchJson("/api/jobs", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function openJobEvents({ jobId, baseUrl, closeEvents, onEvent, onError, eventSourceFactory = (url) => new EventSource(url) }) {
+  closeEvents();
+  const events = eventSourceFactory(`${baseUrl}?job_id=${encodeURIComponent(jobId)}`);
+  JOB_EVENT_TYPES.forEach((type) => {
+    events.addEventListener(type, (event) => onEvent(jobId, JSON.parse(event.data)));
+  });
+  events.onerror = () => onError(jobId);
+  return events;
+}
+
+export function createJobEventController({ state, fetchJson, closeEventSource, updateHistory, setWorkflowControl, updateJobResult, jobCommand, refreshSnapshotFormIfVisible, renderJobDetail, populateResourceSelect, refreshHealth, startLivePreviewSnapshot, shouldRefreshLiveAfterCommand, captureLatestSnapshotDocument, captureWorkspaceResult, updateBasicActionFromJob, updateResourceModelFromJob, jobLabel, captureRestorePlanPreview, renderForm, updateSelectedCommandState, reconcileWorkflowJob }) {
+  function subscribeToJob(jobId, baseUrl) {
+    state.events = openJobEvents({
+      jobId, baseUrl, closeEvents: () => closeEventSource("events"), onEvent: handleJobEvent,
+      onError: (activeJobId) => { if (state.workflowControl.jobId === activeJobId && state.workflowControl.phase !== "idle") reconcileWorkflowJob(activeJobId); }
+    });
+  }
+  async function handleJobEvent(jobId, event) {
+    updateHistory(jobId, event.type);
+    if (state.workflowControl.jobId === jobId) {
+      if (event.type === "cancel_requested") { setWorkflowControl("stopping", { jobId, command: state.workflowControl.command }); updateJobResult(jobId, "cancel_requested", "Waiting for safe-off and cleanup"); }
+      else if (["started", "progress"].includes(event.type) && state.workflowControl.phase !== "stopping") setWorkflowControl("active", { jobId, command: state.workflowControl.command });
+    }
+    if (jobCommand(jobId) === "snapshot" && ["accepted", "started", "progress"].includes(event.type)) refreshSnapshotFormIfVisible(jobId);
+    if (!["finished", "failed", "cancelled"].includes(event.type)) return;
+    const job = await renderJobDetail(jobId, event);
+    if (state.workflowControl.jobId === jobId && job && ["finished", "failed", "cancelled"].includes(job.status)) {
+      if (job.status === "failed" && job.error_code === "cleanup_failed") updateJobResult(jobId, "failed", "Failed  cleanup_failed");
+      else if (job.status === "cancelled") updateJobResult(jobId, "cancelled", "Cancelled");
+      setWorkflowControl("idle");
+    }
+    let healthState = null;
+    if (event.type === "finished" && jobCommand(jobId) === "list-resources") { populateResourceSelect(event.data?.result?.resources || []); healthState = await refreshHealth(); startLivePreviewSnapshot(healthState); }
+    else if (shouldRefreshLiveAfterCommand(event, job)) { healthState = await refreshHealth(); startLivePreviewSnapshot(healthState, job.runtime.resource); }
+    if (event.type === "finished" && job) { captureLatestSnapshotDocument(job); captureWorkspaceResult(job); }
+    if (jobCommand(jobId) === "snapshot") refreshSnapshotFormIfVisible(jobId);
+    if (state.basicJobActions[jobId]) updateBasicActionFromJob(jobId, event, job);
+    if (event.type === "finished") updateResourceModelFromJob(job);
+    if (jobLabel(jobId) === "Restore plan preview") { captureRestorePlanPreview(job); if (state.selected === "restore-from-snapshot") { renderForm("restore-from-snapshot"); updateSelectedCommandState(); } }
+    closeEventSource("events");
+    if (!healthState) refreshHealth();
+  }
+  return { subscribeToJob, handleJobEvent };
+}
+
+export function addHistory(state, jobId, command, status, label, helpers) {
+  const displayLabel = helpers.commandDisplayName(label);
+  state.jobs.unshift({
+    jobId,
+    command,
+    label: displayLabel,
+    status,
+    summary: helpers.statusSummary(status)
+  });
+  state.jobs = state.jobs.slice(0, 20);
+  renderHistory(state, helpers);
+  helpers.updateExecutionModeUi();
+}
+
+export function updateHistory(state, jobId, status, helpers) {
+  const job = state.jobs.find((item) => item.jobId === jobId);
+  if (job) {
+    job.status = status;
+    job.summary = helpers.statusSummary(status);
+  }
+  renderHistory(state, helpers);
+  helpers.updateExecutionModeUi();
+}
+
+export function updateJobResult(state, jobId, status, summary, helpers) {
+  const job = state.jobs.find((item) => item.jobId === jobId);
+  if (!job) return;
+  job.status = status;
+  job.summary = summary || helpers.statusSummary(status);
+  renderHistory(state, helpers);
+  helpers.updateExecutionModeUi();
+}
+
+export function renderHistory(state, helpers) {
+  const history = document.getElementById("job-history");
+  history.innerHTML = "";
+  state.jobs.forEach((job) => {
+    const item = document.createElement("div");
+    item.className = "history-item";
+    const label = document.createElement("strong");
+    label.textContent = job.label;
+    const badge = document.createElement("span");
+    badge.className = `result-status ${helpers.statusClass(job.status)}`;
+    badge.textContent = helpers.statusLabel(job.status);
+    const summary = document.createElement("span");
+    summary.className = "result-summary";
+    summary.textContent = job.summary || helpers.statusSummary(job.status);
+    item.append(label, " - ", badge, " - ", summary);
+    history.appendChild(item);
+  });
+}

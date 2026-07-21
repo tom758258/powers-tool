@@ -10,6 +10,7 @@ from _webui_shared import (
     assert_static_attr,
     assert_static_id,
     extract_js_function,
+    read_static_javascript,
     read_static_texts,
     run_frontend_javascript_assertions,
     static_tag_with_id,
@@ -147,7 +148,7 @@ def test_static_command_forms_do_not_repeat_real_write_authorization_warning() -
     assert "confirm-banner" not in app_js
     assert "confirm-banner" not in styles_css
     assert "Enable real hardware writes in Device options before running this command." not in app_js
-    assert "renderCommandGuidance(state.selected, parameters);" in update_selected
+    assert "webuiCommandForm.renderCommandGuidance(state.selected, parameters, triggerControlGuardReason, triggerFireWaitGuardReason);" in update_selected
     assert "meta.live_support_status" in update_selected
     assert "confirm: hasRealWriteAuthorization()" in runtime_block
     assert 'meta.requires_confirm && state.executionMode === "real" && !payload.runtime.confirm' in submit_selected
@@ -178,6 +179,7 @@ def test_static_normal_model_dropdown_policy() -> None:
 
 def test_static_device_resource_summary_uses_model_wording():
     _html, app_js, _styles_css = read_static_texts()
+    state_js = read_static_javascript("state.js")
     summary = extract_js_function(app_js, "updateDeviceResourceSummary")
     builder = extract_js_function(app_js, "buildDeviceResourceSummary")
 
@@ -190,7 +192,7 @@ def test_static_device_resource_summary_uses_model_wording():
     assert "preserved, not used" in builder
     assert "actualCurrentResourceModel()" in builder
     assert "exactSupportContextSummary(resource)" in builder
-    assert "resourceDisplayModels: {}" in app_js
+    assert "resourceDisplayModels: {}" in state_js
     assert "state.resourceDisplayModels[resource] = detectedModel;" in app_js
 
 
@@ -279,7 +281,8 @@ def test_frontend_planning_identity_state_is_page_local_and_mode_isolated() -> N
     run_frontend_javascript_assertions(assertions)
 
     _html, app_js, _styles_css = read_static_texts()
-    assert 'planningIdentityCache: { simulate: "", "dry-run": "" }' in app_js
+    state_js = read_static_javascript("state.js")
+    assert 'planningIdentityCache: { simulate: "", "dry-run": "" }' in state_js
     assert "localStorage" not in app_js
     assert "sessionStorage" not in app_js
     assert "rememberCurrentExecutionIdentity();" in extract_js_function(app_js, "handleExecutionModeChange")
@@ -442,7 +445,7 @@ def test_static_model_profile_change_refreshes_effective_ui_model():
     assert "return detectedCommandModelForResource(valueOrNull(\"resource\"));" in selected_command
     assert "state.channelCapabilitiesByModel?.[expected]" in selected_channel
     assert "return detectedChannelModelForResource(valueOrNull(\"resource\"));" in selected_channel
-    assert "updateDeviceResourceSummary();" in handler
+    assert "refreshDeviceResourceSummary();" in handler
     assert "refreshBasicInputConstraints();" in handler
     assert "syncBasicFromLivePanel(state.livePanel);" in handler
     assert "refreshElectricalRatingConstraints();" in handler
@@ -458,9 +461,10 @@ def test_static_model_profile_change_refreshes_effective_ui_model():
 
 def test_static_commands_payload_stores_setpoint_range_metadata():
     _html, app_js, _styles_css = read_static_texts()
+    state_js = read_static_javascript("state.js")
     load_commands = extract_js_function(app_js, "loadCommands")
 
-    assert "setpointRangesByModel: {}" in app_js
+    assert "setpointRangesByModel: {}" in state_js
     assert "state.setpointRangesByModel = payload.setpoint_ranges_by_model_id || {};" in load_commands
 
 
@@ -548,7 +552,7 @@ def test_static_resource_selection_refreshes_live_preview():
     assert "input.value = value;" in sync_selected
     assert "if (value !== previous) await refreshSelectedResourcePreview(value);" in sync_selected
 
-    assert "fetchJson(\"/api/live\"" not in refresh_preview
+    assert "webuiApi.fetchJson(\"/api/live\"" not in refresh_preview
     assert "stopLivePreviewSnapshot();" in refresh_preview
     assert "renderBlankLivePanel();" in refresh_preview
     assert "if (!resource)" in refresh_preview
@@ -591,9 +595,9 @@ def test_scan_resources_handles_missing_live_only_checkbox():
 
     assert 'command: "list-resources"' in app_js
     assert "parameters: { live_only: true }" in app_js
-    assert 'fetchJson("/api/jobs", { method: "POST", body: JSON.stringify(payload) })' in app_js
-    assert 'fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
-    assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
+    assert 'webuiApi.fetchJson("/api/jobs", { method: "POST", body: JSON.stringify(payload) })' in app_js
+    assert 'webuiApi.fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
+    assert 'webuiApi.fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
     assert 'selectCommand("list-resources")' not in app_js
     assert 'const liveOnly = document.getElementById("param-live_only")' not in app_js
     assert 'document.getElementById("param-live_only").checked = true' not in app_js
@@ -605,9 +609,9 @@ def test_static_finished_real_command_refreshes_live_snapshot():
     preview = extract_js_function(app_js, "startLivePreviewSnapshot")
     fresh_preview = extract_js_function(app_js, "isFreshLivePreviewSample")
 
-    assert 'fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
-    assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
-    assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
+    assert 'webuiApi.fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
+    assert 'webuiApi.fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
+    assert 'webuiApi.fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
     assert "job.runtime.resource" in app_js
     assert "runtime.simulate === false" in refresh
     assert "runtime.dry_run === false" in refresh
@@ -714,9 +718,10 @@ def test_static_basic_command_panel_contract():
 
 
 def test_static_basic_output_buttons_label_on_and_use_lit_state():
-    index_html, app_js, _styles_css = read_static_texts()
-    output_button = extract_js_function(app_js, "renderBasicOutputButton")
-    all_button = extract_js_function(app_js, "renderBasicAllOutputButton")
+    index_html, _app_js, _styles_css = read_static_texts()
+    basic_controls_js = read_static_javascript("basic-controls.js")
+    output_button = extract_js_function(basic_controls_js, "renderBasicOutputButton")
+    all_button = extract_js_function(basic_controls_js, "renderBasicAllOutputButton")
 
     assert "All OFF" not in index_html
     assert 'button.textContent = "ON";' in output_button
@@ -731,15 +736,16 @@ def test_static_basic_output_buttons_label_on_and_use_lit_state():
 
 def test_static_basic_output_buttons_lock_until_matching_readback():
     _index_html, app_js, _styles_css = read_static_texts()
-    set_action = extract_js_function(app_js, "setBasicActionState")
+    basic_controls_js = read_static_javascript("basic-controls.js")
+    set_action = extract_js_function(basic_controls_js, "setBasicActionState")
     run_output = extract_js_function(app_js, "runBasicOutput")
     run_all = extract_js_function(app_js, "runBasicOutputAll")
-    update_basic = extract_js_function(app_js, "updateBasicActionFromJob")
-    render_states = extract_js_function(app_js, "renderBasicOutputActionStates")
-    render_control = extract_js_function(app_js, "renderBasicOutputControlState")
-    lock_action = extract_js_function(app_js, "basicOutputLockAction")
-    clear_resolved = extract_js_function(app_js, "clearResolvedBasicErrors")
-    render_channel = extract_js_function(app_js, "renderBasicChannelActionState")
+    update_basic = extract_js_function(basic_controls_js, "updateBasicActionFromJob")
+    render_states = extract_js_function(basic_controls_js, "renderBasicOutputActionStates")
+    render_control = extract_js_function(basic_controls_js, "renderBasicOutputControlState")
+    lock_action = extract_js_function(basic_controls_js, "basicOutputLockAction")
+    clear_resolved = extract_js_function(basic_controls_js, "clearResolvedBasicErrors")
+    render_channel = extract_js_function(basic_controls_js, "renderBasicChannelActionState")
 
     assert 'state.basicActionStates[actionKey] = { ...context, status, message };' in set_action
     assert 'state.basicActionStates[actionKey] = { status, message, ...context };' not in set_action
@@ -749,7 +755,7 @@ def test_static_basic_output_buttons_lock_until_matching_readback():
     assert 'setBasicActionState(action.actionKey, "pending"' in update_basic
     assert 'button.disabled = Boolean(unsupported || lockAction || commandMetaForState.disabled);' in render_control
     assert 'button.classList.toggle("basic-action-pending", Boolean(lockAction));' in render_control
-    assert 'DEFAULT_CHANNELS.forEach((channel) => renderBasicOutputControlState(channel));' in render_states
+    assert 'defaultChannels.forEach((channel) => renderBasicOutputControlState(channel));' in render_states
     assert 'renderBasicOutputControlState("all");' in render_states
     assert 'const allAction = state.basicActionStates[basicActionKey("output", "all")];' in lock_action
     assert 'if (allAction?.status === "pending") return allAction;' in lock_action

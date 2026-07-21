@@ -15,7 +15,9 @@ from _webui_shared import (
     WEBUI_HIDDEN_DIAGNOSTIC_COMMANDS,
     WEBUI_HIDDEN_LIVE_DATA_COMMANDS,
     WEBUI_HIDDEN_UNSUPPORTED_COMMANDS,
+    read_static_javascript,
     read_static_texts,
+    run_webui_module_assertions,
     simulated_e36312a_runtime,
 )
 
@@ -40,15 +42,11 @@ def test_index_uses_cache_busted_assets_and_no_store(client: TestClient):
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "no-store"
     assert '/static/styles.css?v=' in response.text
-    assert '/static/app-context.js?v=' in response.text
-    assert '/static/app-electrical.js?v=' in response.text
     assert '/static/app.js?v=' in response.text
     assert f"Unofficial Tool v{__version__}" in response.text
     assert "__WEBUI_VERSION__" not in response.text
-    javascript_urls = re.findall(r'<script src="([^"]+)"', response.text)
+    javascript_urls = re.findall(r'<script type="module" src="([^"]+)"', response.text)
     assert javascript_urls == [
-        f"/static/app-context.js?v={__version__}",
-        f"/static/app-electrical.js?v={__version__}",
         re.search(r'(/static/app\.js\?v=[^"]+)', response.text).group(1),
     ]
     assert all(re.search(r"\?v=[^&\"]+", asset_url) for asset_url in javascript_urls)
@@ -60,8 +58,25 @@ def test_index_uses_cache_busted_assets_and_no_store(client: TestClient):
 
 def test_static_assets_accept_query_string_and_no_store(client: TestClient):
     for asset_path, expected_text in (
-        ("/static/app-context.js?v=test", "PowersToolWebUI.context"),
-        ("/static/app-electrical.js?v=test", "PowersToolWebUI.electrical"),
+        ("/static/execution-context.js?v=test", "export function buildWorkspaceResultKey"),
+        ("/static/electrical.js?v=test", "export function resolveInputElectricalConstraint"),
+        ("/static/api.js?v=test", "export async function fetchJson"),
+        ("/static/state.js?v=test", "export function createInitialState"),
+        ("/static/device-resource.js?v=test", "export function physicalModelDisplayName"),
+        ("/static/command-form.js?v=test", "export function setOutputParams"),
+        ("/static/results.js?v=test", "export function jobSummary"),
+        ("/static/results.js?v=test", "export function renderWorkspaceJob"),
+        ("/static/jobs.js?v=test", "export function addHistory"),
+        ("/static/live-data.js?v=test", "export function mergeLiveChannels"),
+        ("/static/ramp-list.js?v=test", "export function validateRampListDocument"),
+        ("/static/trigger-list.js?v=test", "export function validateTriggerListWorkspace"),
+        ("/static/sequence.js?v=test", "export function normalizeSequenceDocument"),
+        ("/static/snapshot-restore.js?v=test", "export function validateSnapshotDocument"),
+        ("/static/snapshot-restore.js?v=test", "export function validateRestoreSnapshot"),
+        ("/static/jobs.js?v=test", "export function openJobEvents"),
+    ("/static/basic-controls.js?v=test", "export function createBasicControls"),
+    ("/static/command-support.js?v=test", "export function createCommandSupport"),
+    ("/static/workflows.js?v=test", "export function createWorkflows"),
         ("/static/app.js?v=test", "async function scanResources()"),
     ):
         response = client.get(asset_path)
@@ -69,6 +84,38 @@ def test_static_assets_accept_query_string_and_no_store(client: TestClient):
         assert response.status_code == 200
         assert response.headers["Cache-Control"] == "no-store"
         assert expected_text in response.text
+
+
+def test_frontend_api_module_preserves_json_request_and_error_contract() -> None:
+    _index_html, app_js, _styles_css = read_static_texts()
+    api_js = read_static_javascript("api.js")
+
+    assert 'from "./api.js"' in app_js
+    assert "document" not in api_js
+    assert "EventSource" not in api_js
+
+    run_webui_module_assertions(
+        r"""
+const calls = [];
+globalThis.fetch = async (url, options) => {
+  calls.push({ url, options });
+  return { ok: true, json: async () => ({ accepted: true }) };
+};
+const payload = await globalThis.webuiApi.fetchJson("/api/jobs", { method: "POST", body: "{}" });
+strictAssert.deepEqual(payload, { accepted: true });
+strictAssert.deepEqual(calls, [{
+  url: "/api/jobs",
+  options: { headers: { "Content-Type": "application/json" }, method: "POST", body: "{}" }
+}]);
+globalThis.fetch = async () => ({ ok: false, json: async () => ({ detail: "blocked" }) });
+await strictAssert.rejects(
+  globalThis.webuiApi.fetchJson("/api/jobs"),
+  /blocked/
+);
+strictAssert.equal("PowersToolWebUI" in globalThis, false);
+""",
+        ("api.js",),
+    )
 
 
 def test_health_check(client: TestClient):
@@ -470,9 +517,10 @@ def test_commands_metadata_includes_safe_exact_live_support_projection(
 
 def test_product_model_selector_excludes_catalog_candidate_and_descoped_models() -> None:
     index_html, app_js, _styles_css = read_static_texts()
+    command_form_js = read_static_javascript("command-form.js")
     assert '<option value="">Auto-detect</option>' in index_html
-    assert "payload.physical_models" in app_js
-    assert "model.model_id" in app_js
+    assert "payload.physical_models" in command_form_js
+    assert "model.model_id" in read_static_javascript("device-resource.js")
     for model in ("E36313A", "E36233A", "E36441A", "E36155A", "E36103B", "E36232A"):
         assert f'<option value="{model}">' not in index_html
 

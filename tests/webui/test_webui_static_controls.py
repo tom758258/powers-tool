@@ -7,6 +7,7 @@ import textwrap
 from _webui_shared import (
     assert_static_id,
     extract_js_function,
+    read_static_javascript,
     read_static_texts,
     run_frontend_javascript_assertions,
 )
@@ -328,7 +329,6 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         strictAssert.equal(submissions[1][0], "output-off");
         strictAssert.deepEqual(submissions[1][1], { channel: "all" });
 
-        let readbackSuccesses = 0;
         state.basicActionStates = {
           "output:all": {
             status: "pending",
@@ -336,16 +336,13 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
             desiredOutput: true
           }
         };
-        setBasicActionState = (actionKey, status) => {
-          if (actionKey === "output:all" && status === "success") readbackSuccesses += 1;
-        };
         state.livePanel.channels[0].output_enabled = true;
         state.livePanel.channels[1].output_enabled = false;
         clearResolvedBasicErrors(1, state.livePanel.channels[0], true);
-        strictAssert.equal(readbackSuccesses, 0);
+        strictAssert.equal(state.basicActionStates["output:all"].status, "pending");
         state.livePanel.channels[1].output_enabled = true;
         clearResolvedBasicErrors(1, state.livePanel.channels[0], true);
-        strictAssert.equal(readbackSuccesses, 1);
+        strictAssert.equal(state.basicActionStates["output:all"].status, "success");
         state.basicActionStates = {};
 
         const originalListener = allButton.listeners.click[0];
@@ -413,9 +410,10 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
 
 def test_static_live_channel_status_uses_led_indicators():
     _index_html, app_js, styles_css = read_static_texts()
+    live_data_js = read_static_javascript("live-data.js")
     render_channel = extract_js_function(app_js, "renderChannelCard")
     normal_render_channel = render_channel[render_channel.index("const outputClass"):]
-    protection_badge = extract_js_function(app_js, "protectionBadge")
+    protection_badge = extract_js_function(live_data_js, "protectionBadge")
 
     assert 'class="status-badge status-indicator output-status ${outputClass}"' in normal_render_channel
     assert 'class="indicator-dot"' in normal_render_channel
@@ -438,6 +436,7 @@ def test_static_live_channel_status_uses_led_indicators():
 
 def test_static_basic_command_submission_reuses_existing_jobs():
     _index_html, app_js, _styles_css = read_static_texts()
+    command_form_js = read_static_javascript("command-form.js")
 
     submit_basic = extract_js_function(app_js, "submitBasicJob")
     run_set = extract_js_function(app_js, "runBasicSet")
@@ -448,9 +447,9 @@ def test_static_basic_command_submission_reuses_existing_jobs():
     assert 'command: "set"' not in run_set
     assert 'await submitBasicJob("set"' in run_set
     assert "{ channel, ...values.parameters }" in run_set
-    assert "parameters.voltage = voltage" in app_js
-    assert "parameters.current = current" in app_js
-    assert "requires V, A, or both" in app_js
+    assert "parameters.voltage = voltage" in command_form_js
+    assert "parameters.current = current" in command_form_js
+    assert "requires V, A, or both" in command_form_js
     assert '"output-off"' in run_output
     assert '"output-on"' in run_output
     assert 'channel: "all"' in run_all
@@ -468,14 +467,16 @@ def test_static_basic_command_submission_reuses_existing_jobs():
 
 def test_static_basic_command_error_state_contract():
     _index_html, app_js, styles_css = read_static_texts()
+    state_js = read_static_javascript("state.js")
+    basic_controls_js = read_static_javascript("basic-controls.js")
 
-    assert "basicActionStates: {}" in app_js
-    assert "basicJobActions: {}" in app_js
+    assert "basicActionStates: {}" in state_js
+    assert "basicJobActions: {}" in state_js
     assert 'setBasicActionState(actionKey, "error"' in app_js
-    assert 'button.classList.toggle("basic-action-error"' in app_js
-    assert 'card.classList.toggle("basic-action-error"' in app_js
-    assert "clearResolvedBasicErrors(channel, liveChannel, fresh);" in app_js
-    assert "liveSetpointsMatchBasicInputs(channel, liveChannel)" in app_js
+    assert 'button.classList.toggle("basic-action-error"' in basic_controls_js
+    assert 'card.classList.toggle("basic-action-error"' in basic_controls_js
+    assert "clearResolvedBasicErrors(channel, liveChannel, fresh);" in basic_controls_js
+    assert "liveSetpointsMatchBasicInputs(channel, liveChannel)" in basic_controls_js
     assert ".basic-action-error" in styles_css
     assert "background: #fdecea" in styles_css
 
@@ -492,24 +493,28 @@ def test_static_command_panel_exposes_description():
 
 def test_static_commands_use_category_navigation():
     _index_html, app_js, _styles_css = read_static_texts()
+    state_js = read_static_javascript("state.js")
+    catalog_js = read_static_javascript("command-catalog.js")
+    command_form_js = read_static_javascript("command-form.js")
 
-    assert 'activeCategory: "output"' in app_js
-    assert 'const COMMAND_CATEGORIES = ["output", "workflow", "protection", "trigger", "artifact", "discovery"];' in app_js
+    assert 'activeCategory: "output"' in state_js
+    assert 'export const COMMAND_CATEGORIES = ["output", "workflow", "protection", "trigger", "artifact", "discovery"];' in catalog_js
 
-    render_commands = app_js[app_js.index("function renderCommands()"):app_js.index("function selectCommand")]
+    render_commands = command_form_js[command_form_js.index("function renderCommands()"):command_form_js.index("function selectCommand")]
     assert 'const categories = document.getElementById("command-categories");' in render_commands
-    assert "COMMAND_CATEGORIES.forEach((category)" in render_commands
+    assert "commandCatalog.COMMAND_CATEGORIES.forEach((category)" in render_commands
     assert 'state.activeCategory = category;' in render_commands
     assert '(meta.category || "discovery") === state.activeCategory' in render_commands
 
 
 def test_result_panel_is_collapsible():
     index_html, app_js, _styles_css = read_static_texts()
+    state_js = read_static_javascript("state.js")
 
     assert 'id="result-panel" class="result-panel collapsed"' in index_html
     assert 'id="result-toggle"' in index_html
     assert 'aria-expanded="false"' in index_html
-    assert 'resultCollapsed: true' in app_js
+    assert 'resultCollapsed: true' in state_js
     assert 'document.getElementById("result-toggle").addEventListener("click"' in app_js
     assert 'classList.toggle("collapsed"' in app_js
     assert 'setAttribute("aria-expanded"' in app_js
@@ -517,12 +522,13 @@ def test_result_panel_is_collapsible():
 
 def test_job_result_is_expanded_collapsible_and_clearable():
     index_html, app_js, _styles_css = read_static_texts()
+    state_js = read_static_javascript("state.js")
 
     assert 'id="job-result-panel" class="job-result-panel"' in index_html
     assert 'id="job-result-clear"' in index_html
     assert 'id="job-result-toggle"' in index_html
     assert 'aria-expanded="true"' in index_html
-    assert "jobResultCollapsed: false" in app_js
+    assert "jobResultCollapsed: false" in state_js
     assert 'document.getElementById("job-result-toggle").addEventListener("click", toggleJobResultPanel);' in app_js
     assert 'document.getElementById("job-result-clear").addEventListener("click", clearJobResults);' in app_js
     clear_block = app_js[app_js.index("function clearJobResults()"):app_js.index("async function startLive")]
@@ -532,61 +538,68 @@ def test_job_result_is_expanded_collapsible_and_clearable():
 
 def test_static_ramp_list_editor_contract():
     _index_html, app_js, styles_css = read_static_texts()
+    json_files_js = read_static_javascript("json-files.js")
+    ramp_list_js = read_static_javascript("ramp-list.js")
+    workflows_js = read_static_javascript("workflows.js")
 
     assert '"ramp-list": []' in app_js
     for field in ("channel", "current", "start_voltage", "stop_voltage", "step_voltage", "delay_ms", "hold_ms"):
-        assert f'name: "{field}"' in app_js
-    assert "state.rampListSegments.length >= 10" in app_js
-    assert "if (state.rampListSegments.length <= 1) return;" in app_js
-    assert "start_voltage: previous.stop_voltage" in app_js
-    assert "stop_voltage: previous.stop_voltage" in app_js
-    assert 'kind: "powers-tool-ramp-list"' in app_js
-    ramp_document = extract_js_function(app_js, "rampListDocument")
+        assert f'name: "{field}"' in ramp_list_js
+    assert "state.rampListSegments.length >= 10" in workflows_js
+    assert "if (state.rampListSegments.length <= 1) return;" in workflows_js
+    assert "start_voltage: previous.stop_voltage" in workflows_js
+    assert "stop_voltage: previous.stop_voltage" in workflows_js
+    assert 'kind: "powers-tool-ramp-list"' in ramp_list_js
+    ramp_document = extract_js_function(ramp_list_js, "rampListDocument")
     assert "version: 4" in ramp_document
     assert "enable_output: state.rampListEnableOutput" in ramp_document
-    validator = extract_js_function(app_js, "validateRampListDocument")
+    validator = extract_js_function(ramp_list_js, "validateRampListDocument")
     assert 'document.kind !== "powers-tool-ramp-list"' in validator
     assert "![2, 3, 4].includes(document.version)" in validator
     assert 'typeof document.enable_output !== "boolean"' in validator
     assert "document.version !== 1" not in validator
-    assert "window.showOpenFilePicker" in app_js
-    assert "window.showSaveFilePicker" in app_js
-    assert "const normalized = validateRampListDocument(JSON.parse(text));" in app_js
-    assert "state.rampListSegments = normalized.segments;" in app_js
-    assert "state.rampListCompletionPulse = normalized.completionPulse;" in app_js
-    assert "state.rampListEnableOutput = normalized.enableOutput;" in app_js
+    assert "return webuiRampListDocument.rampListDocument(state);" in workflows_js
+    assert "return webuiRampListDocument.validateRampListDocument(document);" in workflows_js
+    assert "window.showOpenFilePicker" in json_files_js
+    assert "window.showSaveFilePicker" in json_files_js
+    assert "const normalized = validateRampListDocument(JSON.parse(text));" in workflows_js
+    assert "state.rampListSegments = normalized.segments;" in workflows_js
+    assert "state.rampListCompletionPulse = normalized.completionPulse;" in workflows_js
+    assert "state.rampListEnableOutput = normalized.enableOutput;" in workflows_js
     assert 'name: "completion_pulse_timing"' in app_js
     assert 'name: "completion_pulse_step"' not in app_js
     assert 'name: "completion_pulse_segment"' not in app_js
-    assert "state.rampListCompletionPulse = normalized.completionPulse;" in app_js
-    assert "document.completion_pulse" in app_js
-    assert '"trigger-pulse": [channel()' in app_js
+    assert "state.rampListCompletionPulse = normalized.completionPulse;" in workflows_js
+    assert "document.completion_pulse" in ramp_list_js
+    assert '"trigger-pulse": [channel()' in workflows_js
     assert 'const REAR_PIN_OPTIONS = ["1", "2", "3", "1,2", "1,3", "2,3", "1,2,3"];' in app_js
-    assert 'option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);' in app_js
+    assert 'option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);' in workflows_js
     assert 'definition.name === "timing" && value === "step" && stepPulseBlocked' not in app_js
     assert "rampListStepPulseBlocked()" not in app_js
     assert ".ramp-list-pulse-hint { grid-column: 1 / -1; }" in styles_css
-    assert 'if (state.selected === "ramp-list") return { document: rampListDocument() };' in app_js
+    assert 'if (state.selected === "ramp-list") return { document: rampListDocument() };' in read_static_javascript("command-form.js")
     assert 'command === "ramp-list"' in app_js
 
 
 def test_static_compact_output_enable_layout_and_accessibility_contracts():
     _index_html, app_js, styles_css = read_static_texts()
+    command_form_js = read_static_javascript("command-form.js")
+    workflows_js = read_static_javascript("workflows.js")
 
     assert "Output behavior" not in app_js
     assert "output-behavior" not in app_js
     assert ".output-behavior" not in styles_css
     assert ".visually-hidden {" in styles_css
-    checkbox_builder = extract_js_function(app_js, "createCheckboxField")
+    checkbox_builder = extract_js_function(command_form_js, "createCheckboxField")
     assert 'label.classList.add("checkbox-field", ...classNames);' in checkbox_builder
     assert 'visibleText.className = "checkbox-label-text";' in checkbox_builder
     assert "label.append(input, visibleText);" in checkbox_builder
     assert "cloneNode" not in checkbox_builder
-    assert "createCheckboxField(input, param.label)" in extract_js_function(app_js, "renderForm")
-    assert "createCheckboxField(input, definition.label)" in extract_js_function(app_js, "triggerListControlField")
-    assert "createCheckboxField(enableInput, \"Enable each channel\"" in extract_js_function(app_js, "renderRampListForm")
-    assert "createCheckboxField(restoreStateCheck, \"Restore previous output ON/OFF state\")" in extract_js_function(app_js, "renderRestoreForm")
-    assert "createCheckboxField(input, definition.label)" in extract_js_function(app_js, "sequenceStepFields")
+    assert "createCheckboxField(input, param.label)" in extract_js_function(command_form_js, "renderForm")
+    assert "webuiCommandForm.createCheckboxField(input, definition.label)" in extract_js_function(workflows_js, "triggerListControlField")
+    assert "webuiCommandForm.createCheckboxField(enableInput, \"Enable each channel\"" in extract_js_function(workflows_js, "renderRampListForm")
+    assert "webuiCommandForm.createCheckboxField(restoreStateCheck, \"Restore previous output ON/OFF state\")" in extract_js_function(workflows_js, "renderRestoreForm")
+    assert "webuiCommandForm.createCheckboxField(input, definition.label)" in extract_js_function(workflows_js, "sequenceStepFields")
 
     checkbox_css = styles_css[
         styles_css.index(".form-grid .checkbox-field {"):styles_css.index(".form-grid .pulse-toggle-field {")
@@ -734,7 +747,7 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         existingInput.disabled = true;
         existingInput.dataset.example = "preserved";
         existingInput.addEventListener("change", () => {});
-        const existingLabel = createCheckboxField(existingInput, "Existing checkbox");
+        const existingLabel = webuiCommandForm.createCheckboxField(existingInput, "Existing checkbox");
         strictAssert.equal(existingLabel.children[0], existingInput);
         strictAssert.equal(existingLabel.children[1].tagName, "SPAN");
         strictAssert.equal(existingLabel.children[1].classList.contains("checkbox-label-text"), true);
@@ -954,7 +967,7 @@ def test_static_workflow_run_button_state_contract():
     for label in ('"Run"', '"Starting..."', '"Stop"', '"Stopping..."'):
         assert label in workflow_button
     assert 'button.classList.toggle("workflow-stop"' in workflow_button
-    assert 'fetchJson(`/api/jobs/${encodeURIComponent(jobId)}/cancel`' in extract_js_function(
+    assert 'webuiApi.fetchJson(`/api/jobs/${encodeURIComponent(jobId)}/cancel`' in extract_js_function(
         app_js, "stopActiveWorkflow"
     )
     assert 'event.type === "cancel_requested"' in extract_js_function(app_js, "handleJobEvent")

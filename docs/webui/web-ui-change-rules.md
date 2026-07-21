@@ -30,8 +30,24 @@ Preferred editable frontend files:
 - `src/powers_tool_webui/static/index.html`
 - `src/powers_tool_webui/static/styles.css`
 - `src/powers_tool_webui/static/app.js`
-- `src/powers_tool_webui/static/app-context.js`
-- `src/powers_tool_webui/static/app-electrical.js`
+- `src/powers_tool_webui/static/execution-context.js`
+- `src/powers_tool_webui/static/electrical.js`
+- `src/powers_tool_webui/static/api.js`
+- `src/powers_tool_webui/static/state.js`
+- `src/powers_tool_webui/static/device-resource.js`
+- `src/powers_tool_webui/static/command-catalog.js`
+- `src/powers_tool_webui/static/command-form.js`
+- `src/powers_tool_webui/static/results.js`
+- `src/powers_tool_webui/static/jobs.js`
+- `src/powers_tool_webui/static/live-data.js`
+- `src/powers_tool_webui/static/json-files.js`
+- `src/powers_tool_webui/static/ramp-list.js`
+- `src/powers_tool_webui/static/trigger-list.js`
+- `src/powers_tool_webui/static/sequence.js`
+- `src/powers_tool_webui/static/snapshot-restore.js`
+- `src/powers_tool_webui/static/basic-controls.js`
+- `src/powers_tool_webui/static/command-support.js`
+- `src/powers_tool_webui/static/workflows.js`
 
 Optional, only when a stable UI contract changes or a new public behavior needs
 coverage:
@@ -287,21 +303,69 @@ Run the narrowest relevant checks first:
 If WebUI JavaScript changed, also run:
 
 ```powershell
-node --check src\powers_tool_webui\static\app-context.js
-node --check src\powers_tool_webui\static\app-electrical.js
+node --check src\powers_tool_webui\static\execution-context.js
+node --check src\powers_tool_webui\static\electrical.js
+node --check src\powers_tool_webui\static\command-form.js
+node --check src\powers_tool_webui\static\results.js
+node --check src\powers_tool_webui\static\jobs.js
+node --check src\powers_tool_webui\static\live-data.js
+node --check src\powers_tool_webui\static\json-files.js
+node --check src\powers_tool_webui\static\ramp-list.js
+node --check src\powers_tool_webui\static\trigger-list.js
+node --check src\powers_tool_webui\static\sequence.js
+node --check src\powers_tool_webui\static\snapshot-restore.js
+node --check src\powers_tool_webui\static\basic-controls.js
+node --check src\powers_tool_webui\static\command-support.js
+node --check src\powers_tool_webui\static\workflows.js
 node --check src\powers_tool_webui\static\app.js
 ```
 
-`app-context.js` owns only pure execution/workspace context and workspace-result
+`execution-context.js` owns only pure execution/workspace context and workspace-result
 entry/lookup helpers. It must not access the DOM, fetch, EventSource, or mutable
 application state. Direct behavior coverage for those helpers belongs in
 `tests/webui/test_webui_static_context.py`.
-`app-electrical.js` owns only pure electrical input-constraint calculation. It
+`electrical.js` owns only pure electrical input-constraint calculation. It
 must not access the DOM, fetch, EventSource, or mutable application state.
+`command-form.js` owns fixed Output and Trigger parameter descriptors,
+shared command-form DOM primitives, guidance, accessibility help, and
+parameter notes. It receives command metadata and guard functions explicitly
+from `app.js`.
+`results.js` owns job-result and status summary text plus Workspace Result DOM
+presentation. It receives
+the current execution context and support-label helpers explicitly from `app.js`.
+`jobs.js` owns Job HTTP submission, SSE transport, Job History state mutation,
+and Job History DOM presentation. It receives status labels and the
+execution-mode refresh callback explicitly. `live-data.js` owns Live Data
+sample normalization, channel merge helpers, state text, channel-card rendering,
+and its Start/Stop/one-shot lifecycle through explicit dependencies.
+`json-files.js` owns browser-native JSON file selection, download fallback,
+and AbortError handling shared by artifact and workflow editors.
+`ramp-list.js` owns only pure Ramp List document materialization
+and validation. It must not access the DOM, fetch, EventSource, or mutable
+application state.
+`trigger-list.js` owns only pure Trigger List workspace document
+materialization and validation. It must not access the DOM, fetch, EventSource,
+or mutable application state.
+`sequence.js` owns only pure Sequence document normalization and
+editor serialization. It receives the existing action schema and canonical
+step validator explicitly, and must not access the DOM, fetch, EventSource, or
+mutable application state.
+`snapshot-restore.js` owns pure Snapshot filename/schema validation and Restore
+payload materialization. It must not access the DOM, fetch, EventSource, or
+mutable application state.
+`basic-controls.js` owns Basic control action-state, Live-readback, and
+E3646A output presentation. It receives the current state and explicit
+application callbacks; Basic Job submission remains in `app.js`.
+`command-support.js` owns presentation of Core-derived command support,
+exact live scope, and channel capability metadata. It must not admit commands
+or introduce Product policy outside the metadata returned by the backend.
+`workflows.js` owns the Ramp List, Trigger List, Sequence, Snapshot, and
+Restore editor DOM plus their JSON Load/Save orchestration. It receives state,
+document helpers, and application callbacks explicitly; it must not create
+Core requests or change workflow admission, safety, or cleanup semantics.
 `app.js` owns the DOM/state adapters, workspace cache mutation, rendering, and
-job lifecycle, and loads after both helpers through the explicit
-`app-context.js`, `app-electrical.js`, then `app.js` script order in
-`index.html`.
+job lifecycle. `index.html` loads it as the sole native module bootstrap; it
+imports helper modules through explicit relative module dependencies.
 
 When practical, run broader no-hardware checks:
 

@@ -2,28 +2,29 @@
 
 from __future__ import annotations
 
-from _webui_shared import extract_js_function, read_static_texts
+from _webui_shared import extract_js_function, read_static_javascript, read_static_texts
 
 def test_static_json_artifact_file_helpers_have_cancel_and_accept_contracts():
     _index_html, app_js, _styles_css = read_static_texts()
+    json_files_js = read_static_javascript("json-files.js")
 
-    open_json = extract_js_function(app_js, "openJsonFile")
-    choose_json = extract_js_function(app_js, "chooseJsonFile")
-    save_json = extract_js_function(app_js, "saveJsonFile")
-    build_accept = extract_js_function(app_js, "buildJsonFileAccept")
-    build_native_accept = extract_js_function(app_js, "buildNativeJsonPickerAccept")
+    open_json = extract_js_function(json_files_js, "openJsonFile")
+    choose_json = extract_js_function(json_files_js, "chooseJsonFile")
+    save_json = extract_js_function(json_files_js, "saveJsonFile")
+    build_accept = extract_js_function(json_files_js, "buildJsonFileAccept")
+    build_native_accept = extract_js_function(json_files_js, "buildNativeJsonPickerAccept")
 
-    assert 'const JSON_MIME_TYPE = "application/json";' in app_js
+    assert '"application/json"' in json_files_js
     assert 'const SNAPSHOT_JSON_EXTENSIONS = [".snapshot.json", ".json"];' in app_js
     assert 'const SEQUENCE_JSON_EXTENSIONS = [".sequence.json", ".json"];' in app_js
     assert 'const RAMP_LIST_JSON_EXTENSIONS = [".ramp-list.json", ".json"];' in app_js
-    assert 'return { [JSON_MIME_TYPE]: [".json"] };' in build_native_accept
+    assert 'return { "application/json": [".json"] };' in build_native_accept
     assert "const acceptMap = buildNativeJsonPickerAccept();" in open_json
     assert "const acceptMap = buildNativeJsonPickerAccept();" in save_json
     assert "{ [JSON_MIME_TYPE]: extensions }" not in open_json
     assert "{ [JSON_MIME_TYPE]: extensions }" not in save_json
     assert "chooseJsonFile(buildJsonFileAccept(extensions))" in open_json
-    assert 'return [...extensions, JSON_MIME_TYPE].join(",");' in build_accept
+    assert 'return [...extensions, "application/json"].join(",");' in build_accept
     assert 'input.addEventListener("cancel", abort);' in choose_json
     assert 'window.addEventListener("focus", onWindowFocus, { once: true });' in choose_json
     assert 'abortError("File selection cancelled.")' in choose_json
@@ -32,6 +33,7 @@ def test_static_json_artifact_file_helpers_have_cancel_and_accept_contracts():
 
 def test_static_json_artifact_abort_errors_do_not_render_client_failures():
     _index_html, app_js, _styles_css = read_static_texts()
+    workflows_js = read_static_javascript("workflows.js")
 
     for function_name in (
         "loadRampList",
@@ -41,7 +43,7 @@ def test_static_json_artifact_abort_errors_do_not_render_client_failures():
         "loadSequenceFile",
         "saveSequenceFile",
     ):
-        block = extract_js_function(app_js, function_name)
+        block = extract_js_function(workflows_js, function_name)
         assert "catch (error)" in block
         catch_block = block[block.index("catch (error)"):]
         assert "if (isAbortError(error)) return;" in catch_block
@@ -66,34 +68,39 @@ def test_static_snapshot_completion_validates_finished_result_before_saving_stat
 
 def test_static_snapshot_save_validator_is_independent_from_restore_validator():
     _index_html, app_js, _styles_css = read_static_texts()
+    snapshot_document_js = read_static_javascript("snapshot-restore.js")
+    restore_document_js = read_static_javascript("snapshot-restore.js")
+    workflows_js = read_static_javascript("workflows.js")
 
-    snapshot_validator = extract_js_function(app_js, "validateSnapshotDocument")
-    restore_validator = extract_js_function(app_js, "validateRestoreSnapshot")
-    save_snapshot = extract_js_function(app_js, "saveSnapshot")
+    snapshot_validator = extract_js_function(snapshot_document_js, "validateSnapshotDocument")
+    restore_validator = extract_js_function(restore_document_js, "validateRestoreSnapshot")
+    save_snapshot = extract_js_function(workflows_js, "saveSnapshot")
 
     assert "validateRestoreSnapshot" not in snapshot_validator
-    assert "Array.isArray(doc)" in snapshot_validator
-    assert "doc.schema_version !== 2" in snapshot_validator
-    assert "doc.reported_identity" in snapshot_validator
-    assert "doc.resolved_identity" in snapshot_validator
-    assert "doc.readback" in snapshot_validator
-    assert "doc.outputs" in snapshot_validator
+    assert "Array.isArray(document)" in snapshot_validator
+    assert "return webuiSnapshotDocument.validateSnapshotDocument(doc);" in workflows_js
+    assert "document.schema_version !== 2" in snapshot_validator
+    assert "document.reported_identity" in snapshot_validator
+    assert "document.resolved_identity" in snapshot_validator
+    assert "document.readback" in snapshot_validator
+    assert "document.outputs" in snapshot_validator
     assert "setpoints" not in snapshot_validator
     assert "E36312A" not in snapshot_validator
 
-    assert "validateSnapshotDocument(doc);" in restore_validator
-    assert "setpoints" in restore_validator
+    assert "validateSnapshotDocument(document);" in restore_validator
+    assert "validateReadbackChannels(document.readback);" in restore_validator
     assert "keysight-e36312a" in restore_validator
     assert "JSON.stringify(state.latestSnapshotDocument, null, 2)" in save_snapshot
 
 
 def test_static_restore_payload_preflights_and_normalizes_channel():
     _index_html, app_js, _styles_css = read_static_texts()
+    restore_document_js = read_static_javascript("snapshot-restore.js")
 
     run_selected = extract_js_function(app_js, "runSelected")
-    parameter_payload = extract_js_function(app_js, "parameterPayload")
-    restore_parameters = extract_js_function(app_js, "restoreSnapshotParameters")
-    normalize_restore_channel = extract_js_function(app_js, "normalizeRestoreChannel")
+    parameter_payload = extract_js_function(read_static_javascript("command-form.js"), "parameterPayload")
+    restore_parameters = extract_js_function(restore_document_js, "restoreSnapshotParameters")
+    normalize_restore_channel = extract_js_function(restore_document_js, "normalizeRestoreChannel")
     update_selected = extract_js_function(app_js, "updateSelectedCommandState")
 
     assert "let validatedRestoreDocument = null;" in run_selected
@@ -102,7 +109,7 @@ def test_static_restore_payload_preflights_and_normalizes_channel():
     assert "restoreSnapshotParameters(validatedRestoreDocument)" in run_selected
     assert run_selected.index('state.selected === "restore-from-snapshot"') < run_selected.index("const response = await submitJob(payload);")
     assert "restoreSnapshotParameters(state.loadedSnapshotDocument)" in parameter_payload
-    assert "channel: normalizeRestoreChannel(state.restoreChannel)" in restore_parameters
+    assert "channel: normalizeRestoreChannel(restoreChannel, normalizeChannelValue)" in restore_parameters
     assert "file:" not in restore_parameters
     assert "snapshot:" not in restore_parameters
     assert 'return value === "all" ? "all" : normalizeChannelValue(value);' in normalize_restore_channel
@@ -111,9 +118,10 @@ def test_static_restore_payload_preflights_and_normalizes_channel():
 
 def test_static_restore_plan_preview_reuses_dry_run_job():
     _index_html, app_js, _styles_css = read_static_texts()
+    workflows_js = read_static_javascript("workflows.js")
 
-    render_restore = extract_js_function(app_js, "renderRestoreForm")
-    preview_restore = extract_js_function(app_js, "previewRestorePlan")
+    render_restore = extract_js_function(workflows_js, "renderRestoreForm")
+    preview_restore = extract_js_function(workflows_js, "previewRestorePlan")
     handle_job_event = extract_js_function(app_js, "handleJobEvent")
     update_selected = extract_js_function(app_js, "updateSelectedCommandState")
 
@@ -136,9 +144,10 @@ def test_static_restore_plan_preview_reuses_dry_run_job():
 
 def test_static_restore_plan_preview_is_safe_and_structured():
     _index_html, app_js, _styles_css = read_static_texts()
+    workflows_js = read_static_javascript("workflows.js")
 
-    render_restore = extract_js_function(app_js, "renderRestoreForm")
-    render_preview = extract_js_function(app_js, "renderRestorePlanPreview")
+    render_restore = extract_js_function(workflows_js, "renderRestoreForm")
+    render_preview = extract_js_function(workflows_js, "renderRestorePlanPreview")
     capture_preview = extract_js_function(app_js, "captureRestorePlanPreview")
 
     assert 'planPreview.id = "restore-plan-preview";' in render_restore
@@ -151,13 +160,14 @@ def test_static_restore_plan_preview_is_safe_and_structured():
 
 def test_static_snapshot_max_errors_documents_destructive_queue_reads():
     _index_html, app_js, _styles_css = read_static_texts()
+    workflows_js = read_static_javascript("workflows.js")
 
-    render_snapshot = extract_js_function(app_js, "renderSnapshotForm")
-    append_description = extract_js_function(app_js, "appendFieldDescription")
+    render_snapshot = extract_js_function(workflows_js, "renderSnapshotForm")
+    append_description = extract_js_function(read_static_javascript("command-form.js"), "appendFieldDescription")
 
     assert 'snapshot: [{' in app_js
     assert 'name: "max_errors"' in app_js
-    assert "appendFieldDescription(label, param);" in render_snapshot
+    assert "webuiCommandForm.appendFieldDescription(label, param);" in render_snapshot
     assert 'description.className = "field-description";' in append_description
     assert "description.textContent = param.description;" in append_description
 
@@ -174,8 +184,9 @@ def test_static_safe_off_channel_documents_behavior():
 
 def test_static_restore_load_rejects_legacy_envelope_contract():
     _index_html, app_js, _styles_css = read_static_texts()
+    workflows_js = read_static_javascript("workflows.js")
 
-    load_restore = extract_js_function(app_js, "loadRestoreSnapshot")
+    load_restore = extract_js_function(workflows_js, "loadRestoreSnapshot")
     assert "extensions: SNAPSHOT_JSON_EXTENSIONS" in load_restore
     assert "const rawDoc = JSON.parse(text);" in load_restore
     assert "validateRestoreSnapshot(rawDoc);" in load_restore
@@ -185,13 +196,14 @@ def test_static_restore_load_rejects_legacy_envelope_contract():
 
 def test_static_sequence_json_artifact_flow_contracts():
     _index_html, app_js, _styles_css = read_static_texts()
+    workflows_js = read_static_javascript("workflows.js")
 
-    sequence_fields = extract_js_function(app_js, "sequenceStepFields")
+    sequence_fields = extract_js_function(workflows_js, "sequenceStepFields")
 
     assert 'const SEQUENCE_JSON_EXTENSIONS = [".sequence.json", ".json"];' in app_js
-    assert "dataset.sequenceStepIndex" in app_js
-    assert "input.dataset.sequenceField" in app_js
-    assert "state.sequenceSteps" in app_js
+    assert "dataset.sequenceStepIndex" in workflows_js
+    assert "input.dataset.sequenceField" in workflows_js
+    assert "state.sequenceSteps" in workflows_js
     assert 'command: "sequence"' in app_js
     assert "{ document: validatedSequenceDocument }" in app_js
     assert "param-document" not in app_js

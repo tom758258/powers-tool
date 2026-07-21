@@ -17,11 +17,32 @@ runtime.
 The WebUI ships inside the single `powers-tool` distribution while
 preserving the `powers_tool_webui` import boundary. It depends on the
 shared `powers_tool_core` runtime and the distribution's `webui` extra.
-Its frontend is static `index.html`, `styles.css`, `app.js`, and small native
-JavaScript helpers such as `app-context.js` and `app-electrical.js`; no Node
-toolchain is required. `app-context.js` owns pure execution/workspace context
-and workspace-result entry/lookup helpers, while `app.js` retains cache
-mutation and all workspace rendering.
+Its frontend is static `index.html`, `styles.css`, and native JavaScript modules
+rooted at `app.js`; no Node toolchain is required. `app.js` is the bootstrap and
+integration layer. `api.js` owns the shared JSON HTTP request/response boundary;
+`execution-context.js` owns pure execution/workspace context; and `state.js`
+owns initial page-local state. `device-resource.js` owns Device/Resource and
+execution-mode controls. `command-form.js` owns command catalog/form rendering,
+payload construction, guidance, accessibility help, and parameter constraints.
+`results.js` owns job-result summaries and Workspace Result presentation.
+`jobs.js` owns Job HTTP submission, SSE transport, and Job History state and
+presentation. `live-data.js` owns Live Data sampling, lifecycle, and channel
+presentation.
+`json-files.js` owns shared browser JSON file picker and download helpers.
+`ramp-list.js` owns pure Ramp List document materialization and
+validation.
+`trigger-list.js` owns pure Trigger List workspace document
+materialization and validation.
+`sequence.js` owns pure Sequence document normalization and
+editor serialization through explicit action-schema dependencies.
+`snapshot-restore.js` owns Snapshot and Restore schema validation and payload
+materialization.
+`basic-controls.js` owns Basic control action and Live-readback presentation.
+`command-support.js` owns command-support and channel-capability presentation.
+`workflows.js` owns the browser-facing Ramp List, Trigger List, Sequence,
+Snapshot, and Restore editors plus their JSON Load/Save orchestration. It
+receives state and application callbacks explicitly from `app.js`; document
+schemas remain owned by their focused document modules.
 
 ## Package And Entry Point
 
@@ -484,8 +505,8 @@ Focused launcher and package validation:
 After editing WebUI JavaScript, also run:
 
 ```powershell
-node --check src\powers_tool_webui\static\app-context.js
-node --check src\powers_tool_webui\static\app-electrical.js
+node --check src\powers_tool_webui\static\execution-context.js
+node --check src\powers_tool_webui\static\electrical.js
 node --check src\powers_tool_webui\static\app.js
 ```
 

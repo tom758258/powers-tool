@@ -1,0 +1,1224 @@
+export function createWorkflows({
+  state,
+  defaultRampSegment,
+  triggerListParams,
+  optionalRearPinOptions: OPTIONAL_REAR_PIN_OPTIONS,
+  rearPinOptions: REAR_PIN_OPTIONS,
+  webuiCommandForm,
+  webuiRampListDocument,
+  webuiTriggerListDocument,
+  openJsonFile,
+  saveJsonFile,
+  isAbortError,
+  rampListJsonExtensions,
+  triggerListWorkspaceJsonExtensions,
+  renderClientResult,
+  commandDisplayName,
+  optionDisplayName,
+  params,
+  renderForm,
+  updateSelectedCommandState,
+  normalizeChannelValue,
+  rearPinDisplayName,
+  parseRearPins,
+  renderLoopControl,
+  applyWorkflowPulseControlState
+}) {
+function defaultTriggerListStep() {
+  return webuiTriggerListDocument.defaultTriggerListStep();
+}
+
+function defaultTriggerListChannels() {
+  return webuiTriggerListDocument.defaultTriggerListChannels();
+}
+
+function defaultTriggerListControls() {
+  return webuiTriggerListDocument.defaultTriggerListControls();
+}
+
+function activeTriggerListDraft() {
+  return state.triggerListChannels[String(state.triggerListActiveChannel)];
+}
+
+function renderTriggerListForm(form) {
+  const editor = document.createElement("div");
+  editor.className = "trigger-list-editor";
+  const toolbar = document.createElement("div");
+  toolbar.className = "trigger-list-toolbar";
+  [["Load Trigger List", loadTriggerListWorkspace], ["Save Trigger List", saveTriggerListWorkspace], ["Add Step", addTriggerListStep]].forEach(([text, handler]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    button.disabled = text === "Add Step" && activeTriggerListDraft().steps.length >= 100;
+    button.addEventListener("click", handler);
+    toolbar.appendChild(button);
+  });
+  editor.appendChild(toolbar);
+  const tabs = document.createElement("div");
+  tabs.className = "trigger-list-tabs";
+  [1, 2, 3].forEach((channel) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `secondary${state.triggerListActiveChannel === channel ? " active" : ""}`;
+    button.dataset.triggerListChannel = String(channel);
+    button.textContent = `Channel ${channel}`;
+    button.addEventListener("click", () => {
+      state.triggerListActiveChannel = channel;
+      renderForm("trigger-list");
+      updateSelectedCommandState();
+    });
+    tabs.appendChild(button);
+  });
+  editor.appendChild(tabs);
+  const controls = document.createElement("div");
+  controls.className = "trigger-list-controls";
+  triggerListControlDefinitions().forEach((definition) => controls.appendChild(triggerListControlField(definition)));
+  editor.appendChild(controls);
+  const table = document.createElement("table");
+  table.className = "trigger-list-table";
+  table.innerHTML = "<thead><tr><th>Step</th><th>Voltage (V)</th><th>Current (A)</th><th>Dwell (s)</th><th>BOST</th><th>EOST</th><th>Actions</th></tr></thead>";
+  const body = document.createElement("tbody");
+  activeTriggerListDraft().steps.forEach((step, index) => body.appendChild(triggerListStepRow(step, index)));
+  table.appendChild(body);
+  editor.appendChild(table);
+  form.appendChild(editor);
+}
+
+function triggerListControlDefinitions() {
+  return [
+    { name: "count", label: "Count", type: "number" }, { name: "source", label: "Source", type: "select", options: ["immediate", "bus"] },
+    { name: "fire", label: "Fire", type: "checkbox" }, { name: "wait_complete", label: "Wait complete", type: "checkbox" },
+    { name: "trigger_output_pins", label: "LIST output pins", type: "select", options: OPTIONAL_REAR_PIN_OPTIONS },
+    { name: "trigger_output_polarity", label: "Polarity", type: "select", options: ["positive", "negative"] },
+    { name: "exclusive_pins", label: "Exclusive pins", type: "checkbox" }, { name: "poll_ms", label: "Poll (ms)", type: "number" },
+    { name: "wait_timeout_ms", label: "Timeout (ms)", type: "number" }, { name: "leave_trigger_configured", label: "Leave configured", type: "checkbox" }
+  ];
+}
+
+function triggerListControlField(definition) {
+  const input = document.createElement(definition.type === "select" ? "select" : "input");
+  if (definition.type === "select") {
+    definition.options.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = definition.name === "trigger_output_pins" ? rearPinDisplayName(value) : optionDisplayName(value);
+      input.appendChild(option);
+    });
+  } else input.type = definition.type;
+  const value = definition.name === "count" ? activeTriggerListDraft().count : state.triggerListControls[definition.name];
+  if (definition.type === "checkbox") input.checked = Boolean(value);
+  else input.value = definition.name === "trigger_output_pins" ? pinsSelectValue(value) : value ?? "";
+  if (definition.name === "count") { input.min = "1"; input.max = "256"; input.step = "1"; }
+  if (definition.name === "poll_ms") { input.min = "50"; input.step = "1"; }
+  if (definition.name === "wait_timeout_ms") { input.min = "1"; input.step = "1"; }
+  input.id = `param-${definition.name}`;
+  if (definition.name === "fire" && state.triggerListControls.source === "immediate") input.disabled = true;
+  input.addEventListener("change", () => updateTriggerListControl(definition, input));
+  input.addEventListener("input", () => updateTriggerListControl(definition, input));
+  const label = definition.type === "checkbox"
+    ? webuiCommandForm.createCheckboxField(input, definition.label)
+    : document.createElement("label");
+  if (definition.type !== "checkbox") {
+    label.textContent = definition.label;
+    label.appendChild(input);
+  }
+  return label;
+}
+
+function triggerListStepRow(step, index) {
+  const row = document.createElement("tr");
+  const number = document.createElement("td");
+  number.textContent = String(index + 1);
+  row.appendChild(number);
+  ["voltage", "current", "dwell", "bost", "eost"].forEach((name) => {
+    const cell = document.createElement("td");
+    const input = document.createElement("input");
+    input.type = ["bost", "eost"].includes(name) ? "checkbox" : "number";
+    if (input.type === "checkbox") input.checked = step[name]; else input.value = String(step[name]);
+    if (input.type === "number") input.step = "any";
+    if (name === "voltage" || name === "current") input.min = "0";
+    if (name === "dwell") { input.min = "0.01"; input.max = "3600"; }
+    const update = () => { step[name] = input.type === "checkbox" ? input.checked : Number(input.value); updateSelectedCommandState(); };
+    input.addEventListener("input", update);
+    input.addEventListener("change", update);
+    cell.appendChild(input);
+    row.appendChild(cell);
+  });
+  const actions = document.createElement("td");
+  [["Up", -1, index === 0], ["Down", 1, index === activeTriggerListDraft().steps.length - 1], ["Remove", 0, activeTriggerListDraft().steps.length === 1]].forEach(([text, offset, disabled]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    button.disabled = disabled;
+    button.addEventListener("click", () => offset === 0 ? removeTriggerListStep(index) : moveTriggerListStep(index, offset));
+    actions.appendChild(button);
+  });
+  row.appendChild(actions);
+  return row;
+}
+
+function updateTriggerListControl(definition, input) {
+  const value = definition.type === "checkbox" ? input.checked : definition.type === "number" ? (input.value === "" ? null : Number(input.value)) : definition.name === "trigger_output_pins" ? parseRearPins(input.value) : input.value;
+  if (definition.name === "count") activeTriggerListDraft().count = value; else state.triggerListControls[definition.name] = value;
+  if (definition.name === "source" && value === "immediate") state.triggerListControls.fire = false;
+  if (definition.name === "source") renderForm("trigger-list");
+  updateSelectedCommandState();
+}
+
+function addTriggerListStep() {
+  const steps = activeTriggerListDraft().steps;
+  if (steps.length >= 100) return;
+  steps.push({ ...steps[steps.length - 1] });
+  renderForm("trigger-list");
+  updateSelectedCommandState();
+}
+
+function removeTriggerListStep(index) {
+  const steps = activeTriggerListDraft().steps;
+  if (steps.length <= 1) return;
+  steps.splice(index, 1);
+  renderForm("trigger-list");
+  updateSelectedCommandState();
+}
+
+function moveTriggerListStep(index, offset) {
+  const steps = activeTriggerListDraft().steps;
+  const target = index + offset;
+  if (target < 0 || target >= steps.length) return;
+  [steps[index], steps[target]] = [steps[target], steps[index]];
+  renderForm("trigger-list");
+  updateSelectedCommandState();
+}
+
+function renderRampListForm(form) {
+  const editor = document.createElement("div");
+  editor.className = "ramp-list-editor";
+  const toolbar = document.createElement("div");
+  toolbar.className = "ramp-list-toolbar";
+  [
+    ["Load Ramp List", loadRampList],
+    ["Save Ramp List", saveRampList],
+    ["Add Ramp Segment", addRampSegment]
+  ].forEach(([text, handler]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    if (text === "Save Ramp List") button.id = "save-ramp-list";
+    button.disabled = text === "Add Ramp Segment" && state.rampListSegments.length >= 10;
+    button.addEventListener("click", handler);
+    toolbar.appendChild(button);
+  });
+  editor.appendChild(toolbar);
+  const enableInput = document.createElement("input");
+  enableInput.type = "checkbox";
+  enableInput.id = "ramp-list-enable-output";
+  enableInput.checked = state.rampListEnableOutput;
+  enableInput.addEventListener("change", () => {
+    state.rampListEnableOutput = enableInput.checked;
+    updateSelectedCommandState();
+  });
+  const enableLabel = webuiCommandForm.createCheckboxField(enableInput, "Enable each channel", ["ramp-list-enable-output-field"]);
+  webuiCommandForm.configureCompactCheckboxHelp(enableLabel, enableInput, {
+    ariaLabel: "Enable each channel at its first segment",
+    helpId: "ramp-list-enable-output-help",
+    description: "Each channel is enabled only after its first safe segment setpoint is written and verified. Outputs remain ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation."
+  });
+  editor.appendChild(enableLabel);
+  editor.appendChild(renderLoopControl({
+    prefix: "ramp-list",
+    loopEnabled: state.rampListLoopEnabled,
+    countDraft: state.rampListLoopCountDraft,
+    onEnabled: (value) => { state.rampListLoopEnabled = value; },
+    onDraft: (value) => { state.rampListLoopCountDraft = value; },
+    onDisable: () => {
+      if (state.rampListCompletionPulse?.timing === "loop") {
+        state.rampListCompletionPulse = null;
+        renderForm("ramp-list");
+      }
+    }
+  }));
+  const pulseFields = document.createElement("div");
+  pulseFields.className = "ramp-segment-fields";
+  [
+    { name: "timing", label: "Pulse timing", type: "select", options: ["", "step", "segment", "loop"] },
+    { name: "pins", label: "Rear pins", type: "select", options: REAR_PIN_OPTIONS },
+    { name: "polarity", label: "Polarity", type: "select", options: ["positive", "negative"] }
+  ].forEach((definition) => {
+    const label = document.createElement("label");
+    label.textContent = definition.label;
+    const input = document.createElement(definition.type === "select" ? "select" : "input");
+    if (definition.type === "select") {
+      definition.options.forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = definition.name === "pins"
+          ? rearPinDisplayName(value)
+          : pulseTimingDisplayName("ramp-list", value);
+        if (definition.name === "timing" && value === "loop" && !(effectiveRampListLoopCount() >= 2)) {
+          option.disabled = true;
+        }
+        input.appendChild(option);
+      });
+    } else {
+      input.type = "text";
+    }
+    input.value = definition.name === "pins"
+      ? pinsSelectValue(state.rampListCompletionPulse?.pins || [1])
+      : String(state.rampListCompletionPulse?.[definition.name] || (definition.name === "polarity" ? "positive" : ""));
+    input.id = `ramp-list-pulse-${definition.name}`;
+    input.addEventListener("change", () => updateRampListPulse(definition.name, input.value));
+    const prerequisiteReason = definition.name !== "timing" && !state.rampListCompletionPulse
+      ? "Select a pulse timing to configure this field."
+      : "";
+    applyWorkflowPulseControlState(input, prerequisiteReason);
+    label.appendChild(input);
+    if (definition.name !== "timing") label.hidden = !state.rampListCompletionPulse;
+    pulseFields.appendChild(label);
+  });
+  editor.appendChild(pulseFields);
+  state.rampListSegments.forEach((segment, index) => editor.appendChild(rampSegmentCard(segment, index)));
+  form.appendChild(editor);
+  updateWorkflowDocumentValidity("ramp-list");
+}
+
+function rampSegmentCard(segment, index) {
+  const card = document.createElement("div");
+  card.className = "ramp-segment-card";
+  card.dataset.rampSegmentIndex = String(index);
+  const head = document.createElement("div");
+  head.className = "ramp-segment-head";
+  const title = document.createElement("strong");
+  title.textContent = `Ramp Segment ${index + 1}`;
+  const actions = document.createElement("div");
+  actions.className = "ramp-segment-actions";
+  [
+    ["Up", () => moveRampSegment(index, -1), index === 0],
+    ["Down", () => moveRampSegment(index, 1), index === state.rampListSegments.length - 1],
+    ["Remove", () => removeRampSegment(index), state.rampListSegments.length === 1]
+  ].forEach(([text, handler, disabled]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    button.disabled = disabled;
+    button.addEventListener("click", handler);
+    actions.appendChild(button);
+  });
+  head.append(title, actions);
+  card.appendChild(head);
+  const fields = document.createElement("div");
+  fields.className = "ramp-segment-fields";
+  rampSegmentDefinitions().forEach((definition) => {
+    const label = document.createElement("label");
+    label.textContent = definition.label;
+    const input = document.createElement(definition.name === "channel" ? "select" : "input");
+    if (definition.name === "channel") {
+      ["1", "2", "3"].forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        input.appendChild(option);
+      });
+    } else {
+      input.type = "number";
+    }
+    input.value = String(segment[definition.name]);
+    input.dataset.rampField = definition.name;
+    applyParameterConstraint(input, definition.name);
+    input.addEventListener("input", () => {
+      state.rampListSegments[index][definition.name] = Number(input.value);
+      updateSelectedCommandState();
+    });
+    label.appendChild(input);
+    fields.appendChild(label);
+  });
+  card.appendChild(fields);
+  return card;
+}
+
+function rampSegmentDefinitions() {
+  return webuiRampListDocument.rampSegmentDefinitions();
+}
+
+function addRampSegment() {
+  if (state.rampListSegments.length >= 10) return;
+  const previous = state.rampListSegments[state.rampListSegments.length - 1];
+  state.rampListSegments.push({
+    channel: previous.channel,
+    current: previous.current,
+    start_voltage: previous.stop_voltage,
+    stop_voltage: previous.stop_voltage,
+    step_voltage: previous.step_voltage,
+    delay_ms: previous.delay_ms,
+    hold_ms: previous.hold_ms
+  });
+  renderForm("ramp-list");
+  updateSelectedCommandState();
+}
+
+function removeRampSegment(index) {
+  if (state.rampListSegments.length <= 1) return;
+  state.rampListSegments.splice(index, 1);
+  renderForm("ramp-list");
+  updateSelectedCommandState();
+}
+
+function moveRampSegment(index, offset) {
+  const target = index + offset;
+  if (target < 0 || target >= state.rampListSegments.length) return;
+  [state.rampListSegments[index], state.rampListSegments[target]] = [state.rampListSegments[target], state.rampListSegments[index]];
+  renderForm("ramp-list");
+  updateSelectedCommandState();
+}
+
+function effectiveEnabledLoopCount(enabled, draft) {
+  return webuiRampListDocument.effectiveEnabledLoopCount(enabled, draft);
+}
+
+function effectiveRampListLoopCount() {
+  return effectiveEnabledLoopCount(state.rampListLoopEnabled, state.rampListLoopCountDraft);
+}
+
+function effectiveSequenceLoopCount() {
+  return effectiveEnabledLoopCount(state.sequenceLoopEnabled, state.sequenceLoopCountDraft);
+}
+
+function rampListDocument() {
+  return webuiRampListDocument.rampListDocument(state);
+}
+
+function validateRampListDocument(document) {
+  return webuiRampListDocument.validateRampListDocument(document);
+}
+
+async function loadRampList() {
+  try {
+    const { text } = await openJsonFile({
+      description: "Ramp List JSON",
+      extensions: rampListJsonExtensions
+    });
+    const normalized = validateRampListDocument(JSON.parse(text));
+    state.rampListSegments = normalized.segments;
+    state.rampListCompletionPulse = normalized.completionPulse;
+    state.rampListEnableOutput = normalized.enableOutput;
+    state.rampListLoopEnabled = normalized.loopCount >= 2;
+    state.rampListLoopCountDraft = String(normalized.loopCount >= 2 ? normalized.loopCount : 2);
+    renderForm("ramp-list");
+    updateSelectedCommandState();
+  } catch (error) {
+    if (isAbortError(error)) return;
+    renderClientResult("ramp-list", "failed", error.message || String(error), { error: "Ramp List load failed", detail: error.message || String(error) });
+  }
+}
+
+async function saveRampList() {
+  try {
+    const document = rampListDocument();
+    validateRampListDocument(document);
+    const documentText = `${JSON.stringify(document, null, 2)}\n`;
+    await saveJsonFile(documentText, {
+      description: "Ramp List JSON",
+      extensions: rampListJsonExtensions,
+      suggestedName: "ramp-list.ramp-list.json"
+    });
+  } catch (error) {
+    if (isAbortError(error)) return;
+    renderClientResult("ramp-list", "failed", error.message || String(error), { error: "Ramp List save failed", detail: error.message || String(error) });
+  }
+}
+
+function triggerListWorkspaceDocument() {
+  return webuiTriggerListDocument.triggerListWorkspaceDocument(state);
+}
+
+function validateTriggerListWorkspace(document) {
+  return webuiTriggerListDocument.validateTriggerListWorkspace(document);
+}
+
+async function loadTriggerListWorkspace() {
+  try {
+    const { text } = await openJsonFile({ description: "Trigger List Workspace JSON", extensions: triggerListWorkspaceJsonExtensions });
+    const normalized = validateTriggerListWorkspace(JSON.parse(text));
+    state.triggerListActiveChannel = normalized.activeChannel;
+    state.triggerListControls = normalized.controls;
+    state.triggerListChannels = normalized.channels;
+    renderForm("trigger-list");
+    updateSelectedCommandState();
+  } catch (error) {
+    if (!isAbortError(error)) renderClientResult("trigger-list", "failed", error.message || String(error), { error: "Trigger List load failed", detail: error.message || String(error) });
+  }
+}
+
+async function saveTriggerListWorkspace() {
+  try {
+    await saveJsonFile(`${JSON.stringify(triggerListWorkspaceDocument(), null, 2)}\n`, { description: "Trigger List Workspace JSON", extensions: triggerListWorkspaceJsonExtensions, suggestedName: "trigger-list.trigger-list-workspace.json" });
+  } catch (error) {
+    if (!isAbortError(error)) renderClientResult("trigger-list", "failed", error.message || String(error), { error: "Trigger List save failed", detail: error.message || String(error) });
+  }
+}
+
+  return {
+    defaultTriggerListStep,
+    defaultTriggerListChannels,
+    defaultTriggerListControls,
+    activeTriggerListDraft,
+    renderTriggerListForm,
+    triggerListControlDefinitions,
+    triggerListControlField,
+    triggerListStepRow,
+    updateTriggerListControl,
+    addTriggerListStep,
+    removeTriggerListStep,
+    moveTriggerListStep,
+    renderRampListForm,
+    rampSegmentCard,
+    rampSegmentDefinitions,
+    addRampSegment,
+    removeRampSegment,
+    moveRampSegment,
+    effectiveEnabledLoopCount,
+    effectiveRampListLoopCount,
+    effectiveSequenceLoopCount,
+    rampListDocument,
+    validateRampListDocument,
+    loadRampList,
+    saveRampList,
+    triggerListWorkspaceDocument,
+    validateTriggerListWorkspace,
+    loadTriggerListWorkspace,
+    saveTriggerListWorkspace
+  };
+}
+
+
+export function createArtifactAndSequenceWorkflows({
+  state,
+  params: PARAMS,
+  webuiCommandForm,
+  webuiSnapshotDocument,
+  webuiRestoreDocument,
+  webuiSequenceDocument,
+  openJsonFile,
+  saveJsonFile,
+  isAbortError,
+  renderClientResult,
+  renderForm,
+  updateSelectedCommandState,
+  jobCommand,
+  snapshotJsonExtensions: SNAPSHOT_JSON_EXTENSIONS,
+  sequenceJsonExtensions: SEQUENCE_JSON_EXTENSIONS,
+  optionDisplayName,
+  normalizeChannelValue,
+  rearPinDisplayName,
+  parseRearPins,
+  renderLoopControl,
+  applyWorkflowPulseControlState,
+  runtimePayload,
+  restoreSnapshotParameters,
+  submitJob,
+  addHistory,
+  subscribeToJob
+}) {
+function renderSnapshotForm(form) {
+  const editor = document.createElement("div");
+  editor.className = "artifact-editor";
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "artifact-toolbar";
+
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "secondary";
+  saveBtn.id = "btn-save-snapshot";
+  saveBtn.textContent = "Save Snapshot";
+  saveBtn.disabled = !state.latestSnapshotDocument;
+  saveBtn.addEventListener("click", saveSnapshot);
+  toolbar.appendChild(saveBtn);
+
+  const statusNote = document.createElement("span");
+  statusNote.id = "snapshot-status-note";
+  statusNote.className = "artifact-file-status";
+
+  const snapshotJob = state.jobs.find(j => j.command === "snapshot" && (j.status === "accepted" || j.status === "started" || j.status === "progress"));
+  const inProgress = Boolean(snapshotJob);
+
+  if (state.latestSnapshotDocument) {
+    const meta = state.latestSnapshotMetadata;
+    const timeStr = meta && meta.savedAt ? new Date(meta.savedAt).toLocaleTimeString() : "";
+    if (inProgress) {
+      statusNote.textContent = `Previous successful snapshot available while a new snapshot is running. (${meta?.model || "unknown"}, ${timeStr})`;
+    } else {
+      statusNote.textContent = `Latest successful snapshot available (${meta?.model || "unknown"}, ${timeStr})`;
+    }
+  } else {
+    statusNote.textContent = inProgress ? "Snapshot in progress..." : "No successful snapshot captured in this session.";
+  }
+  toolbar.appendChild(statusNote);
+  editor.appendChild(toolbar);
+
+  (PARAMS["snapshot"] || []).forEach((param) => {
+    const label = document.createElement("label");
+    label.textContent = param.label;
+    const input = document.createElement("input");
+    input.type = param.type;
+    input.id = `param-${param.name}`;
+    if (param.value !== undefined) input.value = param.value;
+    input.addEventListener("change", updateSelectedCommandState);
+    label.appendChild(input);
+    webuiCommandForm.appendFieldDescription(label, param);
+    editor.appendChild(label);
+  });
+
+  form.appendChild(editor);
+}
+
+function refreshSnapshotFormIfVisible(jobId = null) {
+  if (state.selected !== "snapshot") return;
+
+  if (jobId !== null && jobCommand(jobId) !== "snapshot") {
+    return;
+  }
+
+  renderForm("snapshot");
+  updateSelectedCommandState();
+}
+
+async function saveSnapshot() {
+  if (!state.latestSnapshotDocument) {
+    renderClientResult("snapshot", "failed", "No snapshot available to save.", { error: "Snapshot save failed", detail: "No snapshot available to save." });
+    return;
+  }
+  try {
+    validateSnapshotDocument(state.latestSnapshotDocument);
+    const documentText = `${JSON.stringify(state.latestSnapshotDocument, null, 2)}\n`;
+    const suggestedName = getSnapshotSuggestedName();
+    await saveJsonFile(documentText, {
+      description: "Powers Tool Snapshot JSON",
+      extensions: SNAPSHOT_JSON_EXTENSIONS,
+      suggestedName
+    });
+  } catch (error) {
+    if (isAbortError(error)) return;
+    renderClientResult(
+      "snapshot",
+      "failed",
+      error.message || String(error),
+      {
+        error: "Snapshot save failed",
+        detail: error.message || String(error),
+        command: "snapshot"
+      }
+    );
+  }
+}
+
+function getSnapshotSuggestedName() {
+  return webuiSnapshotDocument.snapshotSuggestedName(
+    state.latestSnapshotDocument,
+    state.latestSnapshotMetadata,
+    new Date()
+  );
+}
+
+function validateSnapshotDocument(doc) {
+  return webuiSnapshotDocument.validateSnapshotDocument(doc);
+}
+
+/* ==========================================
+   Restore from Snapshot Feature
+   ========================================== */
+
+function renderRestoreForm(form) {
+  const editor = document.createElement("div");
+  editor.className = "artifact-editor";
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "artifact-toolbar";
+
+  const loadBtn = document.createElement("button");
+  loadBtn.type = "button";
+  loadBtn.className = "secondary";
+  loadBtn.id = "btn-load-snapshot";
+  loadBtn.textContent = "Load Snapshot";
+  loadBtn.addEventListener("click", loadRestoreSnapshot);
+  toolbar.appendChild(loadBtn);
+
+  const fileStatus = document.createElement("span");
+  fileStatus.id = "restore-file-status";
+  fileStatus.className = "artifact-file-status";
+  fileStatus.textContent = state.loadedSnapshotFilename
+    ? `Loaded file: ${state.loadedSnapshotFilename}`
+    : "No snapshot loaded";
+  toolbar.appendChild(fileStatus);
+  editor.appendChild(toolbar);
+
+  // Channel Select
+  const channelLabel = document.createElement("label");
+  channelLabel.textContent = "Channel";
+  const channelSelect = document.createElement("select");
+  channelSelect.id = "param-channel";
+  ["all", "1", "2", "3"].forEach((ch) => {
+    const opt = document.createElement("option");
+    opt.value = ch;
+    opt.textContent = optionDisplayName(ch);
+    channelSelect.appendChild(opt);
+  });
+  channelSelect.value = state.restoreChannel;
+  channelSelect.addEventListener("change", (e) => {
+    state.restoreChannel = e.target.value;
+    clearRestorePlanPreview();
+    renderForm("restore-from-snapshot");
+    updateSelectedCommandState();
+  });
+  channelLabel.appendChild(channelSelect);
+  editor.appendChild(channelLabel);
+
+  // Restore previous output state Checkbox
+  const restoreStateCheck = document.createElement("input");
+  restoreStateCheck.type = "checkbox";
+  restoreStateCheck.id = "param-restore_output_state";
+  restoreStateCheck.checked = state.restoreOutputState;
+  restoreStateCheck.addEventListener("change", (e) => {
+    state.restoreOutputState = e.target.checked;
+    clearRestorePlanPreview();
+    renderForm("restore-from-snapshot");
+    updateSelectedCommandState();
+  });
+  const restoreStateLabel = webuiCommandForm.createCheckboxField(restoreStateCheck, "Restore previous output ON/OFF state");
+  editor.appendChild(restoreStateLabel);
+
+  const warningNote = document.createElement("div");
+  warningNote.style.color = "var(--muted)";
+  warningNote.style.fontSize = "0.9em";
+  warningNote.style.marginBottom = "8px";
+  warningNote.textContent = "When enabled, channels that were ON in the snapshot may be turned ON after restoring settings.";
+  editor.appendChild(warningNote);
+
+  const previewPlanBtn = document.createElement("button");
+  previewPlanBtn.type = "button";
+  previewPlanBtn.className = "secondary";
+  previewPlanBtn.id = "btn-preview-restore-plan";
+  previewPlanBtn.textContent = "Preview restore plan";
+  previewPlanBtn.disabled = !isLoadedRestoreSnapshotValid() || state.restorePlanPreviewStatus === "running";
+  previewPlanBtn.addEventListener("click", previewRestorePlan);
+  editor.appendChild(previewPlanBtn);
+
+  const planExplanation = document.createElement("p");
+  planExplanation.className = "restore-plan-explanation";
+  planExplanation.textContent = "Shows the exact restore steps without opening VISA, locking hardware, or changing the instrument.";
+  editor.appendChild(planExplanation);
+
+  const planPreview = document.createElement("div");
+  planPreview.id = "restore-plan-preview";
+  planPreview.className = `restore-plan-preview ${state.restorePlanPreviewStatus}`;
+  renderRestorePlanPreview(planPreview);
+  editor.appendChild(planPreview);
+
+  form.appendChild(editor);
+}
+
+async function loadRestoreSnapshot() {
+  try {
+    const { text, filename } = await openJsonFile({
+      description: "Powers Tool Snapshot JSON",
+      extensions: SNAPSHOT_JSON_EXTENSIONS
+    });
+    const rawDoc = JSON.parse(text);
+    validateRestoreSnapshot(rawDoc);
+
+    state.loadedSnapshotDocument = rawDoc;
+    state.loadedSnapshotFilename = filename;
+    clearRestorePlanPreview();
+
+    renderForm("restore-from-snapshot");
+    updateSelectedCommandState();
+  } catch (error) {
+    if (isAbortError(error)) return;
+    renderClientResult(
+      "restore-from-snapshot",
+      "failed",
+      error.message || String(error),
+      {
+        error: "Snapshot load failed",
+        detail: error.message || String(error),
+        command: "restore-from-snapshot"
+      }
+    );
+  }
+}
+
+async function previewRestorePlan() {
+  try {
+    validateRestoreSnapshot(state.loadedSnapshotDocument);
+    state.restorePlanPreviewStatus = "running";
+    state.restorePlanPreview = null;
+    renderForm("restore-from-snapshot");
+    updateSelectedCommandState();
+    const payload = {
+      command: "restore-from-snapshot",
+      runtime: {
+        ...runtimePayload(),
+        dry_run: true,
+        confirm: true
+      },
+      parameters: restoreSnapshotParameters(state.loadedSnapshotDocument)
+    };
+    const response = await submitJob(payload);
+    addHistory(response.job_id, "restore-from-snapshot", "accepted", "Restore plan preview");
+    subscribeToJob(response.job_id, "/api/events");
+  } catch (error) {
+    state.restorePlanPreviewStatus = "failed";
+    state.restorePlanPreview = { error: error.message || String(error) };
+    if (state.selected === "restore-from-snapshot") renderForm("restore-from-snapshot");
+    renderClientResult(
+      "Restore plan preview",
+      "failed",
+      error.message || String(error),
+      {
+        error: "Restore plan preview failed",
+        detail: error.message || String(error),
+        command: "restore-from-snapshot"
+      }
+    );
+  }
+}
+
+function renderRestorePlanPreview(container) {
+  if (state.restorePlanPreviewStatus === "running") {
+    container.textContent = "Generating restore plan...";
+    return;
+  }
+  if (state.restorePlanPreviewStatus === "failed") {
+    container.textContent = `Could not generate restore plan: ${state.restorePlanPreview?.error || "Unknown error"}`;
+    return;
+  }
+  const plan = state.restorePlanPreview?.plan;
+  if (!plan || !Array.isArray(plan.steps)) {
+    container.textContent = "No restore plan generated yet.";
+    return;
+  }
+  const heading = document.createElement("strong");
+  heading.textContent = `Restore plan: ${plan.steps.length} steps (preview only)`;
+  const safety = document.createElement("p");
+  safety.textContent = "No VISA connection was opened and no instrument settings were changed.";
+  const list = document.createElement("ol");
+  plan.steps.forEach((step) => {
+    const item = document.createElement("li");
+    const action = String(step.action || "action").replace(/_/g, " ");
+    const actionLabel = document.createElement("span");
+    actionLabel.textContent = action;
+    const command = document.createElement("code");
+    command.textContent = step.command || "";
+    item.append(actionLabel, command);
+    list.appendChild(item);
+  });
+  container.append(heading, safety, list);
+}
+
+function clearRestorePlanPreview() {
+  state.restorePlanPreviewStatus = "idle";
+  state.restorePlanPreview = null;
+}
+
+function isLoadedRestoreSnapshotValid() {
+  try {
+    validateRestoreSnapshot(state.loadedSnapshotDocument);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function validateRestoreSnapshot(doc) {
+  return webuiRestoreDocument.validateRestoreSnapshot(doc);
+}
+
+/* ==========================================
+   Sequence Feature
+   ========================================== */
+
+function renderSequenceForm(form) {
+  const editor = document.createElement("div");
+  editor.className = "sequence-editor";
+  const toolbar = document.createElement("div");
+  toolbar.className = "sequence-toolbar";
+  [
+    ["Load Sequence", loadSequenceFile],
+    ["Save Sequence", saveSequenceFile],
+    ["Add Step", addSequenceStep]
+  ].forEach(([text, handler]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    if (text === "Save Sequence") button.id = "save-sequence";
+    button.disabled = text === "Add Step" && state.sequenceSteps.length >= sequenceMaxSteps();
+    button.addEventListener("click", handler);
+    toolbar.appendChild(button);
+  });
+  const count = document.createElement("span");
+  count.className = "sequence-step-count";
+  count.textContent = `${state.sequenceSteps.length} / ${sequenceMaxSteps()}`;
+  toolbar.appendChild(count);
+  if (state.sequenceFilename) {
+    const fileStatus = document.createElement("span");
+    fileStatus.className = "artifact-file-status";
+    fileStatus.textContent = state.sequenceFilename;
+    toolbar.appendChild(fileStatus);
+  }
+  editor.appendChild(toolbar);
+  editor.appendChild(renderLoopControl({
+    prefix: "sequence",
+    loopEnabled: state.sequenceLoopEnabled,
+    countDraft: state.sequenceLoopCountDraft,
+    onEnabled: (value) => { state.sequenceLoopEnabled = value; },
+    onDraft: (value) => { state.sequenceLoopCountDraft = value; }
+  }));
+  state.sequenceSteps.forEach((step, index) => editor.appendChild(sequenceStepCard(step, index)));
+  form.appendChild(editor);
+  updateWorkflowDocumentValidity("sequence");
+}
+
+const SEQUENCE_ACTIONS = [
+  "measure", "readback", "output-state", "log", "wait", "safe-off",
+  "set", "output-on", "output-off", "cycle-output", "apply", "trigger-pulse"
+];
+
+function sequenceMaxSteps() {
+  return Number(state.commands.sequence?.max_steps) || 250;
+}
+
+function sequenceActionDefinitions(action) {
+  const channel = (all = false) => ({
+    name: "channel", label: "Channel", type: "select",
+    options: all ? ["all", "1", "2", "3"] : ["1", "2", "3"],
+    value: "1"
+  });
+  return {
+    measure: [channel()],
+    readback: [channel()],
+    "output-state": [channel(true)],
+    log: [{ name: "message", label: "Message", type: "text", value: "" }],
+    wait: [{ name: "seconds", label: "Seconds", type: "number", value: 0 }],
+    "safe-off": [channel(true)],
+    set: [channel(), { name: "voltage", label: "Voltage(V)", type: "number", value: 0 }, { name: "current", label: "Current(A)", type: "number", value: 0 }],
+    "output-on": [channel(true)],
+    "output-off": [channel(true)],
+    "cycle-output": [channel(true), { name: "duration_ms", label: "Duration(ms)", type: "number", value: 500 }],
+    apply: [channel(true), { name: "voltage", label: "Voltage(V)", type: "number", value: 0 }, { name: "current", label: "Current(A)", type: "number", value: 0 }, { name: "no_output", label: "Do not enable output", type: "checkbox", value: false }],
+    "trigger-pulse": [channel(), { name: "pins", label: "Rear pins", type: "select", options: REAR_PIN_OPTIONS, value: [1] }, { name: "polarity", label: "Polarity", type: "select", options: ["positive", "negative"], value: "positive" }, { name: "leave_trigger_configured", label: "Leave configured", type: "checkbox", value: false, description: "Controls whether Trigger and rear-pin settings are restored after the pulse completes. It does not keep a trigger armed. Enabling it may affect later Sequence steps or other BUS triggers." }]
+  }[action] || [];
+}
+
+function defaultSequenceStep(action = "wait", previous = {}) {
+  const step = { action };
+  sequenceActionDefinitions(action).forEach((field) => {
+    step[field.name] = field.name === "channel" && previous.channel !== undefined
+      && field.options.includes(String(previous.channel))
+      ? previous.channel
+      : field.value;
+  });
+  return step;
+}
+
+function sequenceStepCard(step, index) {
+  const card = document.createElement("div");
+  card.className = "sequence-step-card";
+  card.dataset.sequenceStepIndex = String(index);
+  const head = document.createElement("div");
+  head.className = "sequence-step-head";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "secondary";
+  toggle.textContent = state.sequenceExpanded.has(index) ? "Collapse" : "Expand";
+  toggle.addEventListener("click", () => {
+    if (state.sequenceExpanded.has(index)) state.sequenceExpanded.delete(index);
+    else state.sequenceExpanded.add(index);
+    renderForm("sequence");
+  });
+  const title = document.createElement("strong");
+  title.textContent = `Step ${index + 1}: ${step.action}`;
+  const summary = document.createElement("span");
+  summary.className = "sequence-step-summary";
+  summary.textContent = sequenceStepSummary(step);
+  const actions = document.createElement("div");
+  actions.className = "sequence-step-actions";
+  [
+    ["Up", () => moveSequenceStep(index, -1), index === 0],
+    ["Down", () => moveSequenceStep(index, 1), index === state.sequenceSteps.length - 1],
+    ["Remove", () => removeSequenceStep(index), state.sequenceSteps.length === 1]
+  ].forEach(([text, handler, disabled]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = text;
+    button.disabled = disabled;
+    button.addEventListener("click", handler);
+    actions.appendChild(button);
+  });
+  head.append(toggle, title, summary, actions);
+  card.appendChild(head);
+  if (state.sequenceExpanded.has(index)) {
+    card.appendChild(sequenceStepFields(step, index, card, title, summary));
+    renderSequenceStepError(card, step, index);
+  }
+  return card;
+}
+
+function sequenceStepFields(step, index, card, title, summary) {
+  const fields = document.createElement("div");
+  fields.className = "sequence-step-fields";
+  const actionLabel = document.createElement("label");
+  actionLabel.textContent = "Action";
+  const actionSelect = document.createElement("select");
+  SEQUENCE_ACTIONS.forEach((action) => {
+    const option = document.createElement("option");
+    option.value = action;
+    option.textContent = optionDisplayName(action);
+    actionSelect.appendChild(option);
+  });
+  actionSelect.value = step.action;
+  actionSelect.addEventListener("change", () => {
+    state.sequenceSteps[index] = defaultSequenceStep(actionSelect.value, step);
+    const replacement = sequenceStepCard(state.sequenceSteps[index], index);
+    card.replaceWith(replacement);
+    updateSelectedCommandState();
+  });
+  actionLabel.appendChild(actionSelect);
+  fields.appendChild(actionLabel);
+  sequenceActionDefinitions(step.action).forEach((definition) => {
+    const input = document.createElement(definition.type === "select" ? "select" : "input");
+    if (definition.type === "select") {
+      definition.options.forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);
+        input.appendChild(option);
+      });
+    } else {
+      input.type = definition.type;
+    }
+    if (definition.type === "checkbox") input.checked = Boolean(step[definition.name]);
+    else input.value = definition.name === "pins"
+      ? pinsSelectValue(step[definition.name] ?? definition.value)
+      : String(step[definition.name] ?? definition.value);
+    input.dataset.sequenceField = definition.name;
+    applyParameterConstraint(input, definition.name);
+    if (step.action === "trigger-pulse") applyWorkflowPulseControlState(input);
+    input.addEventListener("input", () => {
+      step[definition.name] = sequenceFieldValue(definition, input);
+      summary.textContent = sequenceStepSummary(step);
+      title.textContent = `Step ${index + 1}: ${step.action}`;
+      renderSequenceStepError(card, step, index);
+      updateSelectedCommandState();
+    });
+    input.addEventListener("change", () => {
+      step[definition.name] = sequenceFieldValue(definition, input);
+      summary.textContent = sequenceStepSummary(step);
+      renderSequenceStepError(card, step, index);
+      updateSelectedCommandState();
+    });
+    const label = definition.type === "checkbox"
+      ? webuiCommandForm.createCheckboxField(input, definition.label)
+      : document.createElement("label");
+    if (definition.type !== "checkbox") {
+      label.textContent = definition.label;
+      label.appendChild(input);
+    }
+    webuiCommandForm.appendFieldDescription(label, definition);
+    fields.appendChild(label);
+  });
+  return fields;
+}
+
+function sequenceFieldValue(definition, input) {
+  if (definition.type === "checkbox") return input.checked;
+  if (definition.type === "number") return Number(input.value);
+  if (definition.name === "channel" && input.value !== "all") return Number(input.value);
+  if (definition.name === "pins") return parseRearPins(input.value);
+  return input.value;
+}
+
+function sequenceStepSummary(step) {
+  return Object.entries(step)
+    .filter(([key]) => key !== "action")
+    .map(([key, value]) => `${key}=${value}`)
+    .join(", ");
+}
+
+function renderSequenceStepError(card, step, index) {
+  const previous = card.querySelector?.(".sequence-step-error");
+  if (previous) previous.remove();
+  try {
+    validateCanonicalSequenceStep(step, index);
+    card.classList?.remove("invalid");
+  } catch (error) {
+    card.classList?.add("invalid");
+    const message = document.createElement("div");
+    message.className = "sequence-step-error";
+    message.textContent = error.message || String(error);
+    card.appendChild(message);
+  }
+}
+
+function addSequenceStep() {
+  if (state.sequenceSteps.length >= sequenceMaxSteps()) return;
+  state.sequenceSteps.push(defaultSequenceStep());
+  renderForm("sequence");
+  updateSelectedCommandState();
+}
+
+function removeSequenceStep(index) {
+  if (state.sequenceSteps.length <= 1) return;
+  state.sequenceSteps.splice(index, 1);
+  state.sequenceExpanded = new Set();
+  renderForm("sequence");
+  updateSelectedCommandState();
+}
+
+function moveSequenceStep(index, offset) {
+  const target = index + offset;
+  if (target < 0 || target >= state.sequenceSteps.length) return;
+  [state.sequenceSteps[index], state.sequenceSteps[target]] = [state.sequenceSteps[target], state.sequenceSteps[index]];
+  state.sequenceExpanded = new Set();
+  renderForm("sequence");
+  updateSelectedCommandState();
+}
+
+async function loadSequenceFile() {
+  try {
+    const { text, filename } = await openJsonFile({
+      description: "Powers Tool Sequence JSON",
+      extensions: SEQUENCE_JSON_EXTENSIONS
+    });
+    const rawDoc = JSON.parse(text);
+    const normalized = normalizeSequenceDocument(rawDoc);
+    state.sequenceSteps = normalized.steps;
+    state.sequenceLoopEnabled = normalized.loopCount >= 2;
+    state.sequenceLoopCountDraft = String(normalized.loopCount >= 2 ? normalized.loopCount : 2);
+    state.sequenceExpanded = new Set();
+    state.sequenceFilename = filename;
+    renderForm("sequence");
+    updateSelectedCommandState();
+  } catch (error) {
+    if (isAbortError(error)) return;
+    renderClientResult(
+      "sequence",
+      "failed",
+      error.message || String(error),
+      {
+        error: "Sequence load failed",
+        detail: error.message || String(error),
+        command: "sequence"
+      }
+    );
+  }
+}
+
+async function saveSequenceFile() {
+  try {
+    const documentText = `${JSON.stringify(sequenceDocumentFromEditor(), null, 2)}\n`;
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const suggestedName = `powers-tool-sequence-${timestamp}.sequence.json`;
+
+    await saveJsonFile(documentText, {
+      description: "Powers Tool Sequence JSON",
+      extensions: SEQUENCE_JSON_EXTENSIONS,
+      suggestedName
+    });
+  } catch (error) {
+    if (isAbortError(error)) return;
+    renderClientResult(
+      "sequence",
+      "failed",
+      error.message || String(error),
+      {
+        error: "Sequence save failed",
+        detail: error.message || String(error),
+        command: "sequence"
+      }
+    );
+  }
+}
+
+function normalizeSequenceDocument(doc) {
+  return webuiSequenceDocument.normalizeSequenceDocument(doc, {
+    maxSteps: sequenceMaxSteps(),
+    normalizeStep: normalizeSequenceStep
+  });
+}
+
+function normalizeSequenceStep(step, index) {
+  return webuiSequenceDocument.normalizeSequenceStep(step, index, {
+    sequenceActions: SEQUENCE_ACTIONS,
+    actionDefinitions: sequenceActionDefinitions,
+    defaultStep: defaultSequenceStep,
+    parseRearPins,
+    validateCanonicalStep: validateCanonicalSequenceStep
+  });
+}
+
+function validateCanonicalSequenceStep(step, index) {
+  const fields = sequenceActionDefinitions(step.action);
+  const allowed = new Set(["action", ...fields.map((field) => field.name)]);
+  if (Object.keys(step).some((field) => !allowed.has(field))) throw new Error(`Sequence step ${index + 1} contains unsupported fields.`);
+  fields.forEach((field) => {
+    const value = step[field.name];
+    if (field.type === "number" && (typeof value !== "number" || !Number.isFinite(value))) throw new Error(`Sequence step ${index + 1} requires a finite ${field.name}.`);
+    if (field.type === "select" && !field.options.includes(String(value))) throw new Error(`Sequence step ${index + 1} has an invalid ${field.name}.`);
+    if (field.type === "checkbox" && typeof value !== "boolean") throw new Error(`Sequence step ${index + 1} requires a boolean ${field.name}.`);
+    if (field.type === "text" && typeof value !== "string") throw new Error(`Sequence step ${index + 1} requires a string ${field.name}.`);
+  });
+  if (step.action === "wait" && step.seconds < 0) throw new Error(`Sequence step ${index + 1} wait seconds must be non-negative.`);
+  if (step.action === "cycle-output" && step.duration_ms < 0) throw new Error(`Sequence step ${index + 1} duration_ms must be non-negative.`);
+  if (step.action === "trigger-pulse" && (!Array.isArray(step.pins) || !step.pins.length || step.pins.some((pin) => ![1, 2, 3].includes(pin)))) {
+    throw new Error(`Sequence step ${index + 1} rear pins must contain 1, 2, or 3.`);
+  }
+}
+
+function sequenceDocumentFromEditor() {
+  return webuiSequenceDocument.sequenceDocumentFromEditor(state, {
+    loopCount: effectiveSequenceLoopCount(),
+    maxSteps: sequenceMaxSteps(),
+    normalizeStep: normalizeSequenceStep
+  });
+}
+
+  return {
+    renderSnapshotForm,
+    refreshSnapshotFormIfVisible,
+    saveSnapshot,
+    getSnapshotSuggestedName,
+    validateSnapshotDocument,
+    renderRestoreForm,
+    loadRestoreSnapshot,
+    previewRestorePlan,
+    renderRestorePlanPreview,
+    clearRestorePlanPreview,
+    isLoadedRestoreSnapshotValid,
+    validateRestoreSnapshot,
+    renderSequenceForm,
+    sequenceMaxSteps,
+    sequenceActionDefinitions,
+    defaultSequenceStep,
+    sequenceStepCard,
+    sequenceStepFields,
+    sequenceFieldValue,
+    sequenceStepSummary,
+    renderSequenceStepError,
+    addSequenceStep,
+    removeSequenceStep,
+    moveSequenceStep,
+    loadSequenceFile,
+    saveSequenceFile,
+    normalizeSequenceDocument,
+    normalizeSequenceStep,
+    validateCanonicalSequenceStep,
+    sequenceDocumentFromEditor
+  };
+}
