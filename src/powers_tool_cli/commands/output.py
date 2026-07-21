@@ -6,6 +6,25 @@ import argparse
 from collections.abc import Sequence
 from typing import Any
 
+from powers_tool_cli import cli_parser as parser_helpers
+from powers_tool_cli.request_primitives import (
+    channel_from_argv,
+    completion_request_fields,
+    completion_request_fields_from_argv,
+    drop_none_setpoints,
+    duration_from_argv,
+    int_option_from_argv,
+    json_safe_number,
+    number_from_argv,
+    option_value,
+    status_channel_from_argv,
+    timeout_from_argv,
+    with_serial_request_fields_from_argv,
+    write_verification_request_fields,
+    write_verification_request_fields_from_argv,
+)
+from powers_tool_cli.runtime_mapping import with_serial_request_fields
+from powers_tool_core.connection import DEFAULT_TIMEOUT_MS
 
 OUTPUT_COMMANDS = frozenset(
     {
@@ -37,7 +56,8 @@ OUTPUT_REQUEST_COMMANDS = frozenset(
 )
 
 
-def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any) -> None:
+def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
+    runtime = parser_helpers
     set_parser = subparsers.add_parser(
         "set",
         help="Preview safe voltage/current setpoint changes.",
@@ -67,7 +87,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    set_parser.set_defaults(func=run_output, _runtime=runtime)
+    set_parser.set_defaults(func=run_output)
 
     output_on_parser = subparsers.add_parser(
         "output-on",
@@ -101,7 +121,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Confirm real output enable when configured thresholds require it.",
     )
-    output_on_parser.set_defaults(func=run_output, _runtime=runtime)
+    output_on_parser.set_defaults(func=run_output)
 
     output_off_parser = subparsers.add_parser(
         "output-off",
@@ -130,7 +150,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    output_off_parser.set_defaults(func=run_output, _runtime=runtime)
+    output_off_parser.set_defaults(func=run_output)
 
     safe_off_parser = subparsers.add_parser(
         "safe-off",
@@ -158,7 +178,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    safe_off_parser.set_defaults(func=run_output, _runtime=runtime)
+    safe_off_parser.set_defaults(func=run_output)
 
     output_state_parser = subparsers.add_parser(
         "output-state",
@@ -183,7 +203,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    output_state_parser.set_defaults(func=run_output, _runtime=runtime)
+    output_state_parser.set_defaults(func=run_output)
 
     cycle_output_parser = subparsers.add_parser(
         "cycle-output",
@@ -222,7 +242,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Confirm real output enable when configured thresholds require it.",
     )
-    cycle_output_parser.set_defaults(func=run_output, _runtime=runtime)
+    cycle_output_parser.set_defaults(func=run_output)
 
     apply_parser = subparsers.add_parser(
         "apply",
@@ -263,7 +283,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Confirm real output enable when configured thresholds require it.",
     )
-    apply_parser.set_defaults(func=run_output, _runtime=runtime)
+    apply_parser.set_defaults(func=run_output)
 
     ramp_parser = subparsers.add_parser(
         "ramp",
@@ -308,7 +328,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    ramp_parser.set_defaults(func=run_output, _runtime=runtime)
+    ramp_parser.set_defaults(func=run_output)
 
     smoke_output_parser = subparsers.add_parser(
         "smoke-output",
@@ -344,116 +364,116 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Confirm real output enable when configured thresholds require it.",
     )
-    smoke_output_parser.set_defaults(func=run_output, _runtime=runtime)
+    smoke_output_parser.set_defaults(func=run_output)
 
 
-def request_for_args(args: argparse.Namespace, runtime: Any) -> dict[str, Any]:
+def request_for_args(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "set":
-        return runtime._with_serial_request_fields(args, runtime._drop_none_setpoints({
+        return with_serial_request_fields(args, drop_none_setpoints({
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
-            "voltage": runtime._json_safe_number(args.voltage) if args.voltage is not None else None,
-            "current": runtime._json_safe_number(args.current) if args.current is not None else None,
+            "voltage": json_safe_number(args.voltage) if args.voltage is not None else None,
+            "current": json_safe_number(args.current) if args.current is not None else None,
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
-            **runtime._write_verification_request_fields(args),
-            **runtime._completion_request_fields(args),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **write_verification_request_fields(args),
+            **completion_request_fields(args),
         }))
     if args.command == "output-off":
-        return runtime._with_serial_request_fields(args, {
+        return with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
-            **runtime._write_verification_request_fields(args),
-            **runtime._completion_request_fields(args),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **write_verification_request_fields(args),
+            **completion_request_fields(args),
         })
     if args.command == "output-on":
-        return runtime._with_serial_request_fields(args, {
+        return with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
-            **runtime._write_verification_request_fields(args),
-            **runtime._completion_request_fields(args),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **write_verification_request_fields(args),
+            **completion_request_fields(args),
         })
     if args.command == "safe-off":
-        return runtime._with_serial_request_fields(args, {
+        return with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
             "safety_config": getattr(args, "safety_config", None),
-            **runtime._completion_request_fields(args),
+            **completion_request_fields(args),
         })
     if args.command == "output-state":
-        return runtime._with_serial_request_fields(args, {
+        return with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         })
     if args.command == "cycle-output":
-        return runtime._with_serial_request_fields(args, {
+        return with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
             "duration_ms": args.duration_ms,
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
-            **runtime._completion_request_fields(args),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **completion_request_fields(args),
         })
     if args.command == "apply":
-        return runtime._with_serial_request_fields(args, {
+        return with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
-            "voltage": runtime._json_safe_number(args.voltage),
-            "current": runtime._json_safe_number(args.current),
+            "voltage": json_safe_number(args.voltage),
+            "current": json_safe_number(args.current),
             "no_output": getattr(args, "no_output", False),
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
-            **runtime._write_verification_request_fields(args),
-            **runtime._completion_request_fields(args),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **write_verification_request_fields(args),
+            **completion_request_fields(args),
         })
     if args.command == "smoke-output":
-        return runtime._with_serial_request_fields(args, {
+        return with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
-            "voltage": runtime._json_safe_number(args.voltage),
-            "current": runtime._json_safe_number(args.current),
+            "voltage": json_safe_number(args.voltage),
+            "current": json_safe_number(args.current),
             "duration_ms": args.duration_ms,
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
-            **runtime._completion_request_fields(args),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **completion_request_fields(args),
         })
     if args.command == "ramp":
-        return runtime._with_serial_request_fields(args, {
+        return with_serial_request_fields(args, {
             "resource": args.resource,
             "resource_alias": getattr(args, "resource_alias", None),
             "channel": args.channel,
-            "start_voltage": runtime._json_safe_number(args.start_voltage),
-            "stop_voltage": runtime._json_safe_number(args.stop_voltage),
-            "step_voltage": runtime._json_safe_number(args.step_voltage),
-            "current": runtime._json_safe_number(args.current),
+            "start_voltage": json_safe_number(args.start_voltage),
+            "stop_voltage": json_safe_number(args.stop_voltage),
+            "step_voltage": json_safe_number(args.step_voltage),
+            "current": json_safe_number(args.current),
             "delay_ms": args.delay_ms,
             "enable_output": getattr(args, "enable_output", False),
             "safety_config": getattr(args, "safety_config", None),
             "backend": getattr(args, "backend", None),
-            "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
-            **runtime._write_verification_request_fields(args),
-            **runtime._completion_request_fields(args),
+            "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
+            **write_verification_request_fields(args),
+            **completion_request_fields(args),
         })
     return {}
 
@@ -461,114 +481,113 @@ def request_for_args(args: argparse.Namespace, runtime: Any) -> dict[str, Any]:
 def request_from_argv(
     command: str,
     argv: Sequence[str],
-    runtime: Any,
 ) -> dict[str, Any]:
     if command == "set":
-        return runtime._with_serial_request_fields_from_argv(argv, runtime._drop_none_setpoints({
-            "resource": runtime._option_value(argv, "--resource"),
-            "resource_alias": runtime._option_value(argv, "--resource-alias"),
-            "channel": runtime._channel_from_argv(argv),
-            "voltage": runtime._number_from_argv(argv, "--voltage"),
-            "current": runtime._number_from_argv(argv, "--current"),
-            "safety_config": runtime._option_value(argv, "--safety-config"),
-            "backend": runtime._option_value(argv, "--backend"),
-            "timeout_ms": runtime._timeout_from_argv(argv),
-            **runtime._write_verification_request_fields_from_argv(argv),
-            **runtime._completion_request_fields_from_argv(argv),
+        return with_serial_request_fields_from_argv(argv, drop_none_setpoints({
+            "resource": option_value(argv, "--resource"),
+            "resource_alias": option_value(argv, "--resource-alias"),
+            "channel": channel_from_argv(argv),
+            "voltage": number_from_argv(argv, "--voltage"),
+            "current": number_from_argv(argv, "--current"),
+            "safety_config": option_value(argv, "--safety-config"),
+            "backend": option_value(argv, "--backend"),
+            "timeout_ms": timeout_from_argv(argv),
+            **write_verification_request_fields_from_argv(argv),
+            **completion_request_fields_from_argv(argv),
         }))
     if command == "output-off":
-        return runtime._with_serial_request_fields_from_argv(argv, {
-            "resource": runtime._option_value(argv, "--resource"),
-            "resource_alias": runtime._option_value(argv, "--resource-alias"),
-            "channel": runtime._channel_from_argv(argv),
-            "safety_config": runtime._option_value(argv, "--safety-config"),
-            "backend": runtime._option_value(argv, "--backend"),
-            "timeout_ms": runtime._timeout_from_argv(argv),
-            **runtime._write_verification_request_fields_from_argv(argv),
-            **runtime._completion_request_fields_from_argv(argv),
+        return with_serial_request_fields_from_argv(argv, {
+            "resource": option_value(argv, "--resource"),
+            "resource_alias": option_value(argv, "--resource-alias"),
+            "channel": channel_from_argv(argv),
+            "safety_config": option_value(argv, "--safety-config"),
+            "backend": option_value(argv, "--backend"),
+            "timeout_ms": timeout_from_argv(argv),
+            **write_verification_request_fields_from_argv(argv),
+            **completion_request_fields_from_argv(argv),
         })
     if command == "output-on":
-        return runtime._with_serial_request_fields_from_argv(argv, {
-            "resource": runtime._option_value(argv, "--resource"),
-            "resource_alias": runtime._option_value(argv, "--resource-alias"),
-            "channel": runtime._channel_from_argv(argv),
-            "safety_config": runtime._option_value(argv, "--safety-config"),
-            "backend": runtime._option_value(argv, "--backend"),
-            "timeout_ms": runtime._timeout_from_argv(argv),
-            **runtime._write_verification_request_fields_from_argv(argv),
-            **runtime._completion_request_fields_from_argv(argv),
+        return with_serial_request_fields_from_argv(argv, {
+            "resource": option_value(argv, "--resource"),
+            "resource_alias": option_value(argv, "--resource-alias"),
+            "channel": channel_from_argv(argv),
+            "safety_config": option_value(argv, "--safety-config"),
+            "backend": option_value(argv, "--backend"),
+            "timeout_ms": timeout_from_argv(argv),
+            **write_verification_request_fields_from_argv(argv),
+            **completion_request_fields_from_argv(argv),
         })
     if command == "safe-off":
-        return runtime._with_serial_request_fields_from_argv(argv, {
-            "resource": runtime._option_value(argv, "--resource"),
-            "resource_alias": runtime._option_value(argv, "--resource-alias"),
-            "channel": runtime._channel_from_argv(argv),
-            "safety_config": runtime._option_value(argv, "--safety-config"),
-            **runtime._completion_request_fields_from_argv(argv),
+        return with_serial_request_fields_from_argv(argv, {
+            "resource": option_value(argv, "--resource"),
+            "resource_alias": option_value(argv, "--resource-alias"),
+            "channel": channel_from_argv(argv),
+            "safety_config": option_value(argv, "--safety-config"),
+            **completion_request_fields_from_argv(argv),
         })
     if command == "output-state":
-        return runtime._with_serial_request_fields_from_argv(argv, {
-            "resource": runtime._option_value(argv, "--resource"),
-            "resource_alias": runtime._option_value(argv, "--resource-alias"),
-            "channel": runtime._channel_from_argv(argv),
-            "safety_config": runtime._option_value(argv, "--safety-config"),
-            "backend": runtime._option_value(argv, "--backend"),
-            "timeout_ms": runtime._timeout_from_argv(argv),
-            **runtime._completion_request_fields_from_argv(argv),
+        return with_serial_request_fields_from_argv(argv, {
+            "resource": option_value(argv, "--resource"),
+            "resource_alias": option_value(argv, "--resource-alias"),
+            "channel": channel_from_argv(argv),
+            "safety_config": option_value(argv, "--safety-config"),
+            "backend": option_value(argv, "--backend"),
+            "timeout_ms": timeout_from_argv(argv),
+            **completion_request_fields_from_argv(argv),
         })
     if command == "cycle-output":
-        return runtime._with_serial_request_fields_from_argv(argv, {
-            "resource": runtime._option_value(argv, "--resource"),
-            "resource_alias": runtime._option_value(argv, "--resource-alias"),
-            "channel": runtime._channel_from_argv(argv),
-            "duration_ms": runtime._duration_from_argv(argv),
-            "safety_config": runtime._option_value(argv, "--safety-config"),
-            "backend": runtime._option_value(argv, "--backend"),
-            "timeout_ms": runtime._timeout_from_argv(argv),
+        return with_serial_request_fields_from_argv(argv, {
+            "resource": option_value(argv, "--resource"),
+            "resource_alias": option_value(argv, "--resource-alias"),
+            "channel": channel_from_argv(argv),
+            "duration_ms": duration_from_argv(argv),
+            "safety_config": option_value(argv, "--safety-config"),
+            "backend": option_value(argv, "--backend"),
+            "timeout_ms": timeout_from_argv(argv),
         })
     if command == "apply":
-        return runtime._with_serial_request_fields_from_argv(argv, {
-            "resource": runtime._option_value(argv, "--resource"),
-            "resource_alias": runtime._option_value(argv, "--resource-alias"),
-            "channel": runtime._status_channel_from_argv(argv),
-            "voltage": runtime._number_from_argv(argv, "--voltage"),
-            "current": runtime._number_from_argv(argv, "--current"),
+        return with_serial_request_fields_from_argv(argv, {
+            "resource": option_value(argv, "--resource"),
+            "resource_alias": option_value(argv, "--resource-alias"),
+            "channel": status_channel_from_argv(argv),
+            "voltage": number_from_argv(argv, "--voltage"),
+            "current": number_from_argv(argv, "--current"),
             "no_output": "--no-output" in argv,
-            "safety_config": runtime._option_value(argv, "--safety-config"),
-            "backend": runtime._option_value(argv, "--backend"),
-            "timeout_ms": runtime._timeout_from_argv(argv),
-            **runtime._write_verification_request_fields_from_argv(argv),
-            **runtime._completion_request_fields_from_argv(argv),
+            "safety_config": option_value(argv, "--safety-config"),
+            "backend": option_value(argv, "--backend"),
+            "timeout_ms": timeout_from_argv(argv),
+            **write_verification_request_fields_from_argv(argv),
+            **completion_request_fields_from_argv(argv),
         })
     if command == "smoke-output":
-        return runtime._with_serial_request_fields_from_argv(argv, {
-            "resource": runtime._option_value(argv, "--resource"),
-            "resource_alias": runtime._option_value(argv, "--resource-alias"),
-            "channel": runtime._channel_from_argv(argv),
-            "voltage": runtime._number_from_argv(argv, "--voltage"),
-            "current": runtime._number_from_argv(argv, "--current"),
-            "duration_ms": runtime._duration_from_argv(argv),
-            "safety_config": runtime._option_value(argv, "--safety-config"),
-            "backend": runtime._option_value(argv, "--backend"),
-            "timeout_ms": runtime._timeout_from_argv(argv),
-            **runtime._completion_request_fields_from_argv(argv),
+        return with_serial_request_fields_from_argv(argv, {
+            "resource": option_value(argv, "--resource"),
+            "resource_alias": option_value(argv, "--resource-alias"),
+            "channel": channel_from_argv(argv),
+            "voltage": number_from_argv(argv, "--voltage"),
+            "current": number_from_argv(argv, "--current"),
+            "duration_ms": duration_from_argv(argv),
+            "safety_config": option_value(argv, "--safety-config"),
+            "backend": option_value(argv, "--backend"),
+            "timeout_ms": timeout_from_argv(argv),
+            **completion_request_fields_from_argv(argv),
         })
     if command == "ramp":
-        return runtime._with_serial_request_fields_from_argv(argv, {
-            "resource": runtime._option_value(argv, "--resource"),
-            "resource_alias": runtime._option_value(argv, "--resource-alias"),
-            "channel": runtime._channel_from_argv(argv),
-            "start_voltage": runtime._number_from_argv(argv, "--start-voltage"),
-            "stop_voltage": runtime._number_from_argv(argv, "--stop-voltage"),
-            "step_voltage": runtime._number_from_argv(argv, "--step-voltage"),
-            "current": runtime._number_from_argv(argv, "--current"),
-            "delay_ms": runtime._int_option_from_argv(argv, "--delay-ms", 0),
+        return with_serial_request_fields_from_argv(argv, {
+            "resource": option_value(argv, "--resource"),
+            "resource_alias": option_value(argv, "--resource-alias"),
+            "channel": channel_from_argv(argv),
+            "start_voltage": number_from_argv(argv, "--start-voltage"),
+            "stop_voltage": number_from_argv(argv, "--stop-voltage"),
+            "step_voltage": number_from_argv(argv, "--step-voltage"),
+            "current": number_from_argv(argv, "--current"),
+            "delay_ms": int_option_from_argv(argv, "--delay-ms", 0),
             "enable_output": "--enable-output" in argv,
-            "safety_config": runtime._option_value(argv, "--safety-config"),
-            "backend": runtime._option_value(argv, "--backend"),
-            "timeout_ms": runtime._timeout_from_argv(argv),
-            **runtime._write_verification_request_fields_from_argv(argv),
-            **runtime._completion_request_fields_from_argv(argv),
+            "safety_config": option_value(argv, "--safety-config"),
+            "backend": option_value(argv, "--backend"),
+            "timeout_ms": timeout_from_argv(argv),
+            **write_verification_request_fields_from_argv(argv),
+            **completion_request_fields_from_argv(argv),
         })
     return {}
 

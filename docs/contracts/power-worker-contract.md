@@ -24,6 +24,10 @@ It performs no VISA I/O, cleanup, or HTTP-server shutdown in the handler.
 The runner must finish command safety cleanup before the Worker stops the HTTP
 server or emits the final `summary`.
 
+A successful `POST /stop` returns HTTP `200` with a JSON object containing
+`ok: true` and a non-empty string `message`. It acknowledges the cooperative
+stop request only; it does not indicate that cleanup or shutdown has finished.
+
 Stop-only cleanup results use Power status values `succeeded`, `unsupported`,
 `not_applicable`, and `failed`. Cleanup runs `release_to_local`, closes the
 VISA session, then records `cleanup_release_to_local`; HTTP server shutdown
@@ -78,7 +82,8 @@ Every `/command` response is a JSON object with integer `schema_version: 2`,
 `status`, `command`, and `job_id`. In the HTTP response, `command` is the
 submitted command string, for example `"read-status"`.
 
-- Accepted commands return `202` with `status: "accepted"`, `worker_job_id`, and `artifact_path`.
+- Accepted commands return `202` with `status: "accepted"`, a non-empty string
+  `worker_job_id`, and a non-empty string `artifact_path`.
 - Validation failures return `400` with `status: "error"`.
 - Admission/safety rejections return `409` with `status: "rejected"` and one of the Power rejection reasons.
 
@@ -110,10 +115,11 @@ Power Worker job states are:
 `GET /status` is non-mutating. It must not open VISA, execute a domain
 command, mutate the queue, request stop, or create artifacts.
 
-The response includes `schema_version`, `service`, `run_id`, Worker
-`status`, `command_url`, `status_url`, `stop_url`, `queue_size`,
-`active_job`, `last_job`, `fatal_error`, and `timestamp_utc`.
-Its `schema_version` is the integer `2`.
+The response includes integer `schema_version: 2`, exact string
+`service: "powers-tool"`, non-empty strings `run_id`, `command_url`,
+`status_url`, `stop_url`, and `timestamp_utc`, Worker `status`, non-negative
+integer `queue_size`, plus `active_job`, `last_job`, and `fatal_error` objects
+or `null`. Worker status is one of `ready`, `busy`, `stopping`, or `error`.
 
 `active_job` and `last_job`, when present, include at least `worker_job_id`,
 `job_id`, `command`, `status`, and `artifact_path`. Top-level `job_id` is not

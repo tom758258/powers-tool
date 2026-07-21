@@ -115,6 +115,21 @@ Exit mapping:
 - Local validation or Worker HTTP `400`: `2`.
 - Worker `409`/`429`, connection errors, invalid response bodies, and wait timeouts: `3`.
 
+Successful non-dry lifecycle client responses are endpoint-specific. The client
+accepts only a non-empty JSON object with the documented fields and types:
+
+- `send-command`: HTTP `202`, `schema_version: 2`, `status: "accepted"`, the
+  submitted `command` and `job_id`, and non-empty string `worker_job_id` and
+  `artifact_path`.
+- `stop`: HTTP `200`, `ok: true`, and a non-empty string `message`.
+- `status`: HTTP `200` and the documented `GET /status` response.
+- `wait-ready`: each successful `GET /status` poll is HTTP `200` and the
+  documented status response; readiness remains `status: "ready"`.
+
+An empty body, malformed JSON, JSON value other than an object, unexpected
+success HTTP status, or object that does not meet its endpoint response
+contract is `invalid_response` and exits `3`.
+
 `send-command --dry-run` validates and prints the request without sending
 HTTP. `status --dry-run` also does not send HTTP. `wait-ready` polls
 `GET /status`; readiness means only that the Worker endpoint is reachable and

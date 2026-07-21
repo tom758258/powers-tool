@@ -15,9 +15,6 @@ import sys
 import tempfile
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -44,7 +41,92 @@ from powers_tool_cli.cli_io import (
     set_json_save_path,
     set_json_start_time,
 )
+from powers_tool_cli.cli_parser import (
+    JsonCliArgumentParser,
+    _add_backend_argument,
+    _add_channel_or_all_argument,
+    _add_completion_pulse_arguments,
+    _add_dry_run_argument,
+    _add_duration_argument,
+    _add_json_argument,
+    _add_lifecycle_format_arguments,
+    _add_lifecycle_timeout_argument,
+    _add_lifecycle_url_argument,
+    _add_model_argument,
+    _add_output_resource_arguments,
+    _add_ramp_completion_pulse_arguments,
+    _add_resource_argument,
+    _add_safety_config_argument,
+    _add_serial_arguments,
+    _add_simulate_argument,
+    _add_timeout_argument,
+    _add_trigger_restore_argument,
+    _add_trigger_wait_arguments,
+    _add_validation_support_policy_argument,
+    _add_write_verification_arguments,
+    _apply_channel,
+    _bool_list,
+    _channels_list,
+    _e36312a_channel,
+    _e36312a_channel_or_all,
+    _float_list,
+    _lifecycle_timeout_ms,
+    _log_channel,
+    _loop_count,
+    _nonnegative_int,
+    _output_channel,
+    _positive_channel,
+    _positive_duration_ms,
+    _positive_float,
+    _positive_int,
+    _positive_max_errors,
+    _positive_max_reads,
+    _safe_off_channel,
+    _status_channel,
+    _trigger_pin,
+    _trigger_pins_list,
+    _trigger_poll_ms,
+    build_parser as _build_parser,
+    configure_parser_error_context,
+)
 from powers_tool_cli import cli_rendering
+from powers_tool_cli.lifecycle_client import (
+    run_send_command as _run_send_command,
+    run_wait_ready_client as _run_wait_ready_client,
+    run_worker_status_client as _run_worker_status_client,
+    run_worker_stop_client as _run_worker_stop_client,
+)
+from powers_tool_cli.runtime_mapping import (
+    execution_for_args as _execution_for_args,
+    mode_for_args as _mode_for_args,
+    runtime_identity_for_args as _runtime_identity_for_args,
+    serial_options_for_args as _serial_options_for_args,
+    support_policy_mode_for_args as _support_policy_mode_for_args,
+    validation_execution_from_argv as _validation_execution_from_argv,
+    with_serial_request_fields as _with_serial_request_fields,
+)
+from powers_tool_cli.request_primitives import (
+    channel_from_argv as _channel_from_argv,
+    completion_pins_from_argv as _completion_pins_from_argv,
+    completion_request_fields_from_argv as _completion_request_fields_from_argv,
+    drop_none_setpoints as _drop_none_setpoints,
+    duration_from_argv as _duration_from_argv,
+    float_list_from_argv as _float_list_from_argv,
+    int_from_argv as _int_from_argv,
+    int_option_from_argv as _int_option_from_argv,
+    json_safe_number as _json_safe_number,
+    max_errors_from_argv as _max_errors_from_argv,
+    number_from_argv as _number_from_argv,
+    option_value as _option_value,
+    pin_from_argv as _pin_from_argv,
+    pins_from_argv as _pins_from_argv,
+    status_channel_from_argv as _status_channel_from_argv,
+    timeout_from_argv as _timeout_from_argv,
+    trigger_pins_for_args as _trigger_pins_for_args,
+    with_serial_request_fields_from_argv as _with_serial_request_fields_from_argv,
+    write_verification_request_fields as _write_verification_request_fields,
+    write_verification_request_fields_from_argv as _write_verification_request_fields_from_argv,
+)
 from powers_tool_core.connection import DEFAULT_TIMEOUT_MS, SerialOptions, list_resources, normalize_serial_termination, open_resource
 from powers_tool_core.command_runner import run_core_command
 from powers_tool_core.command_contract import command_parameter_names
@@ -174,28 +256,6 @@ OUTPUT_WRITE_POWER_SUPPLY_TYPES = (E36312APowerSupply, EDU36311APowerSupply)
 STEP_TRIGGER_POWER_SUPPLY_TYPES = (E36312APowerSupply,)
 
 
-class JsonCliArgumentParser(argparse.ArgumentParser):
-    """ArgumentParser that keeps JSON validation errors machine-readable."""
-
-    active_argv: tuple[str, ...] = ()
-
-    def error(self, message: str) -> None:
-        if "--json" in self.active_argv:
-            command = _command_from_argv(self.active_argv)
-            emit_json_error(
-                command=command,
-                execution=_validation_execution_from_argv(self.active_argv),
-                request=_request_from_argv(command, self.active_argv),
-                error_type="validation",
-                code="argument_error",
-                message=message,
-                retryable=False,
-            )
-            raise SystemExit(2)
-
-        super().error(message)
-
-
 class _MeasureChannelUnsupported(ValueError):
     """Raised when a measure channel is outside conservative driver capability."""
 
@@ -226,563 +286,12 @@ class _ScpiLoggingSession:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = JsonCliArgumentParser(
-        prog="powers-tool",
-        description="Safe Powers Tool CLI for supported DC power supplies.",
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"powers-tool {_package_version()}",
-    )
-    subparsers = parser.add_subparsers(
-        dest="command",
-        required=True,
-        parser_class=JsonCliArgumentParser,
-    )
-
-    list_parser = subparsers.add_parser(
-        "list-resources",
-        help="List VISA resource strings reported by the selected backend.",
-    )
-    _add_json_argument(list_parser)
-    _add_simulate_argument(list_parser)
-    _add_backend_argument(list_parser)
-    _add_timeout_argument(list_parser)
-    _add_serial_arguments(list_parser)
-    list_parser.add_argument(
-        "--live-only",
-        action="store_true",
-        help="Only print resources that can be opened and queried with *IDN?.",
-    )
-    list_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses used for live checks.",
-    )
-    list_parser.set_defaults(func=_run_list_resources)
-
-    verify_parser = subparsers.add_parser(
-        "verify",
-        help="Verify that one VISA resource can be opened and queried with *IDN?.",
-    )
-    verify_parser.add_argument("--resource", required=True, help="VISA resource string.")
-    _add_json_argument(verify_parser)
-    _add_simulate_argument(verify_parser)
-    _add_model_argument(verify_parser)
-    _add_backend_argument(verify_parser)
-    _add_timeout_argument(verify_parser)
-    _add_serial_arguments(verify_parser)
-    verify_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print the SCPI command and response for the verification query.",
-    )
-    verify_parser.set_defaults(func=_run_verify)
-
-    clear_parser = subparsers.add_parser(
-        "clear",
-        help="Clear instrument status and error queue with *CLS.",
-    )
-    _add_resource_argument(clear_parser)
-    _add_json_argument(clear_parser)
-    _add_simulate_argument(clear_parser)
-    _add_dry_run_argument(clear_parser)
-    _add_backend_argument(clear_parser)
-    _add_timeout_argument(clear_parser)
-    _add_serial_arguments(clear_parser)
-    clear_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print the SCPI clear command.",
-    )
-    clear_parser.set_defaults(func=_run_clear)
-
-    error_parser = subparsers.add_parser(
-        "error",
-        help="Read the instrument error queue with SYST:ERR?.",
-    )
-    _add_resource_argument(error_parser)
-    _add_json_argument(error_parser)
-    _add_simulate_argument(error_parser)
-    _add_backend_argument(error_parser)
-    _add_timeout_argument(error_parser)
-    _add_serial_arguments(error_parser)
-    error_parser.add_argument(
-        "--max-reads",
-        type=_positive_max_reads,
-        default=20,
-        help="Maximum error queue reads before stopping.",
-    )
-    error_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses used for the error query.",
-    )
-    error_parser.set_defaults(func=_run_error)
-
-    measure_parser = subparsers.add_parser(
-        "measure",
-        help="Query measured voltage and current for the selected channel.",
-    )
-    _add_resource_argument(measure_parser)
-    measure_parser.add_argument(
-        "--channel",
-        required=True,
-        type=_positive_channel,
-        help=(
-            "Positive integer output channel. Real mode allows channel 1 for "
-            "the generic path and model-specific measured channels after *IDN?."
-        ),
-    )
-    _add_json_argument(measure_parser)
-    _add_simulate_argument(measure_parser)
-    _add_validation_support_policy_argument(measure_parser)
-    _add_backend_argument(measure_parser)
-    _add_timeout_argument(measure_parser)
-    _add_serial_arguments(measure_parser)
-    measure_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses used for measurements.",
-    )
-    measure_parser.set_defaults(func=_run_measure)
-
-    measure_all_parser = subparsers.add_parser(
-        "measure-all",
-        help="Query measured voltage and current for all E36312A channels.",
-    )
-    _add_output_resource_arguments(measure_all_parser)
-    _add_json_argument(measure_all_parser)
-    _add_simulate_argument(measure_all_parser)
-    _add_dry_run_argument(measure_all_parser)
-    _add_model_argument(measure_all_parser)
-    _add_safety_config_argument(measure_all_parser)
-    _add_backend_argument(measure_all_parser)
-    _add_timeout_argument(measure_all_parser)
-    measure_all_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses used for measurements.",
-    )
-    measure_all_parser.set_defaults(func=_run_measure_all)
-
-    from powers_tool_cli.commands import output as output_commands
-    from powers_tool_cli.commands import trigger as trigger_commands
-
-    runtime = sys.modules[__name__]
-    output_commands.register_commands(subparsers, runtime)
-    trigger_commands.register_commands(subparsers, runtime)
-
-    status_parser = subparsers.add_parser(
-        "read-status",
-        help="Read error queue and selected channel output state(s).",
-    )
-    _add_output_resource_arguments(status_parser)
-    status_parser.add_argument(
-        "--channel",
-        default="all",
-        type=_status_channel,
-        help="Positive integer output channel or 'all'.",
-    )
-    status_parser.add_argument(
-        "--all",
-        action="store_true",
-        help="Read all E36312A output channels.",
-    )
-    status_parser.add_argument(
-        "--max-errors",
-        type=_positive_max_errors,
-        default=20,
-        help="Maximum error queue reads before stopping.",
-    )
-    _add_json_argument(status_parser)
-    _add_simulate_argument(status_parser)
-    _add_safety_config_argument(status_parser)
-    _add_backend_argument(status_parser)
-    _add_timeout_argument(status_parser)
-    _add_serial_arguments(status_parser)
-    status_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    status_parser.set_defaults(func=_run_status)
-
-    validate_readonly_parser = subparsers.add_parser(
-        "validate-readonly",
-        help="Run one read-only validation pass for E36312A or EDU36311A resources.",
-    )
-    _add_output_resource_arguments(validate_readonly_parser)
-    validate_readonly_parser.add_argument(
-        "--max-errors",
-        type=_positive_max_errors,
-        default=20,
-        help="Maximum error queue reads before stopping.",
-    )
-    _add_json_argument(validate_readonly_parser)
-    _add_simulate_argument(validate_readonly_parser)
-    _add_safety_config_argument(validate_readonly_parser)
-    _add_backend_argument(validate_readonly_parser)
-    _add_timeout_argument(validate_readonly_parser)
-    validate_readonly_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    validate_readonly_parser.set_defaults(func=_run_validate_readonly)
-
-    readback_parser = subparsers.add_parser(
-        "readback",
-        help="Read programmed voltage and current setpoints for E36312A channels.",
-    )
-    _add_output_resource_arguments(readback_parser)
-    _add_channel_or_all_argument(readback_parser)
-    _add_json_argument(readback_parser)
-    _add_simulate_argument(readback_parser)
-    _add_safety_config_argument(readback_parser)
-    _add_backend_argument(readback_parser)
-    _add_timeout_argument(readback_parser)
-    _add_serial_arguments(readback_parser)
-    readback_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    readback_parser.set_defaults(func=_run_readback)
-
-    protection_parser = subparsers.add_parser(
-        "protection-status",
-        help="Read E36312A protection trip flags and output states.",
-    )
-    _add_output_resource_arguments(protection_parser)
-    _add_channel_or_all_argument(protection_parser)
-    _add_json_argument(protection_parser)
-    _add_simulate_argument(protection_parser)
-    _add_safety_config_argument(protection_parser)
-    _add_backend_argument(protection_parser)
-    _add_timeout_argument(protection_parser)
-    protection_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    protection_parser.set_defaults(func=_run_protection_status)
-
-    protection_set_parser = subparsers.add_parser(
-        "protection-set",
-        help="Set E36312A over-voltage and over-current protection parameters.",
-    )
-    _add_output_resource_arguments(protection_set_parser)
-    _add_channel_or_all_argument(protection_set_parser)
-    protection_set_parser.add_argument(
-        "--ovp-voltage",
-        type=float,
-        help="Over-voltage protection level.",
-    )
-    protection_set_parser.add_argument(
-        "--ocp",
-        choices=("on", "off"),
-        help="Enable or disable over-current protection.",
-    )
-    protection_set_parser.add_argument(
-        "--ocp-delay",
-        type=float,
-        help="Over-current protection delay in seconds.",
-    )
-    protection_set_parser.add_argument(
-        "--ocp-delay-trigger",
-        choices=("setting-change", "cc-transition"),
-        help="Event that starts the over-current protection delay timer.",
-    )
-    protection_set_parser.add_argument(
-        "--confirm",
-        action="store_true",
-        help="Confirm real hardware protection setup.",
-    )
-    _add_json_argument(protection_set_parser)
-    _add_simulate_argument(protection_set_parser)
-    _add_dry_run_argument(protection_set_parser)
-    _add_model_argument(protection_set_parser)
-    _add_safety_config_argument(protection_set_parser)
-    _add_backend_argument(protection_set_parser)
-    _add_timeout_argument(protection_set_parser)
-    protection_set_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    protection_set_parser.set_defaults(func=_run_protection_set)
-
-    clear_protection_parser = subparsers.add_parser(
-        "clear-protection",
-        help="Clear E36312A output protection for one channel or all channels.",
-    )
-    _add_output_resource_arguments(clear_protection_parser)
-    clear_protection_parser.add_argument(
-        "--channel",
-        default=None,
-        type=_status_channel,
-        help="Positive integer output channel or 'all'.",
-    )
-    clear_protection_parser.add_argument(
-        "--all",
-        action="store_true",
-        help="Clear protection on all E36312A output channels.",
-    )
-    clear_protection_parser.add_argument(
-        "--confirm",
-        action="store_true",
-        help="Confirm real hardware protection clearing.",
-    )
-    _add_json_argument(clear_protection_parser)
-    _add_simulate_argument(clear_protection_parser)
-    _add_dry_run_argument(clear_protection_parser)
-    _add_model_argument(clear_protection_parser)
-    _add_safety_config_argument(clear_protection_parser)
-    _add_backend_argument(clear_protection_parser)
-    _add_timeout_argument(clear_protection_parser)
-    clear_protection_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    clear_protection_parser.set_defaults(func=_run_clear_protection)
-
-    identify_parser = subparsers.add_parser(
-        "identify",
-        help="Read instrument identity and supported model-specific identity details.",
-    )
-    _add_output_resource_arguments(identify_parser)
-    _add_json_argument(identify_parser)
-    _add_simulate_argument(identify_parser)
-    _add_model_argument(identify_parser)
-    _add_safety_config_argument(identify_parser)
-    _add_backend_argument(identify_parser)
-    _add_timeout_argument(identify_parser)
-    _add_serial_arguments(identify_parser)
-    identify_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    identify_parser.set_defaults(func=_run_identify)
-
-    snapshot_parser = subparsers.add_parser(
-        "snapshot",
-        help="Read E36312A errors, outputs, readback, measurements, and protection flags.",
-    )
-    _add_output_resource_arguments(snapshot_parser)
-    snapshot_parser.add_argument(
-        "--max-errors",
-        type=_positive_max_errors,
-        default=20,
-        help="Maximum error queue reads before stopping.",
-    )
-    snapshot_parser.add_argument("--compare", help="Compare snapshot against a saved JSON envelope or raw data snapshot.")
-    snapshot_parser.add_argument("--setpoint-voltage-tolerance", type=float, default=0.001, help="Snapshot compare setpoint voltage tolerance in volts.")
-    snapshot_parser.add_argument("--setpoint-current-tolerance", type=float, default=0.001, help="Snapshot compare setpoint current tolerance in amps.")
-    snapshot_parser.add_argument("--measured-voltage-tolerance", type=float, default=0.05, help="Snapshot compare measured voltage tolerance in volts.")
-    snapshot_parser.add_argument("--measured-current-tolerance", type=float, default=0.01, help="Snapshot compare measured current tolerance in amps.")
-    snapshot_parser.add_argument("--redact-resource", action="store_true", help="Redact the VISA resource string in JSON snapshot data.")
-    snapshot_parser.add_argument(
-        "--snapshot-json",
-        help="Write the raw schema-2 powers-tool-snapshot document to a UTF-8 JSON file.",
-    )
-    _add_json_argument(snapshot_parser)
-    _add_simulate_argument(snapshot_parser)
-    _add_model_argument(snapshot_parser)
-    _add_safety_config_argument(snapshot_parser)
-    _add_backend_argument(snapshot_parser)
-    _add_timeout_argument(snapshot_parser)
-    snapshot_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    snapshot_parser.set_defaults(func=_run_snapshot)
-
-    snapshot_diff_parser = subparsers.add_parser(
-        "snapshot-diff",
-        help="Compare two saved snapshot JSON files without opening VISA.",
-    )
-    snapshot_diff_parser.add_argument("--before", required=True, help="Before snapshot JSON path.")
-    snapshot_diff_parser.add_argument("--after", required=True, help="After snapshot JSON path.")
-    snapshot_diff_parser.add_argument("--summary", action="store_true", help="Include category change counts and shorten human output.")
-    _add_json_argument(snapshot_diff_parser)
-    snapshot_diff_parser.set_defaults(func=_run_snapshot_diff)
-
-    hardware_report_parser = subparsers.add_parser(
-        "hardware-report",
-        help="Build an offline hardware validation report from saved JSON artifacts.",
-    )
-    hardware_report_parser.add_argument("--input-dir", required=True, help="Directory containing command JSON artifacts.")
-    hardware_report_parser.add_argument("--target", required=True, help="Target model name.")
-    hardware_report_parser.add_argument("--connection", required=True, help="Connection type, such as USB.")
-    hardware_report_parser.add_argument("--resource", required=True, help="VISA resource string that was tested.")
-    hardware_report_parser.add_argument("--report-json", required=True, help="Report JSON output path.")
-    hardware_report_parser.add_argument("--summary-md", required=True, help="Markdown summary output path.")
-    hardware_report_parser.add_argument("--before-json", help="Optional before snapshot JSON path.")
-    hardware_report_parser.add_argument("--after-json", help="Optional after snapshot JSON path.")
-    _add_json_argument(hardware_report_parser)
-    hardware_report_parser.set_defaults(func=_run_hardware_report)
-
-    restore_parser = subparsers.add_parser(
-        "restore-from-snapshot",
-        help="Restore selected E36312A channel settings from a saved snapshot.",
-    )
-    restore_parser.add_argument("--snapshot", required=True, help="Snapshot JSON path.")
-    _add_resource_argument(restore_parser)
-    restore_parser.add_argument(
-        "--channel",
-        required=True,
-        type=_status_channel,
-        help="Positive integer output channel or 'all'.",
-    )
-    restore_parser.add_argument(
-        "--restore-output-state",
-        action="store_true",
-        help="Restore channels that were ON in the snapshot; requires --confirm in real mode.",
-    )
-    restore_parser.add_argument(
-        "--confirm",
-        action="store_true",
-        help="Confirm real restore execution.",
-    )
-    _add_json_argument(restore_parser)
-    _add_simulate_argument(restore_parser)
-    _add_dry_run_argument(restore_parser)
-    _add_validation_support_policy_argument(restore_parser)
-    _add_model_argument(restore_parser)
-    restore_parser.add_argument("--plan-json", help="Write the dry-run restore plan data to a JSON file. Requires --dry-run.")
-    _add_backend_argument(restore_parser)
-    _add_timeout_argument(restore_parser)
-    restore_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    restore_parser.set_defaults(func=_run_restore_from_snapshot)
-
-    log_parser = subparsers.add_parser(
-        "log",
-        help="Log read-only channel telemetry to CSV.",
-    )
-    _add_output_resource_arguments(log_parser)
-    log_channel_group = log_parser.add_mutually_exclusive_group(required=True)
-    log_channel_group.add_argument(
-        "--channel",
-        type=_log_channel,
-        help="Positive integer output channel, or 'all'.",
-    )
-    log_channel_group.add_argument(
-        "--channels",
-        type=_channels_list,
-        help="Comma-separated positive output channels.",
-    )
-    log_parser.add_argument(
-        "--interval-sec",
-        required=True,
-        type=_positive_float,
-        help="Seconds between samples.",
-    )
-    log_parser.add_argument("--csv", required=True, help="CSV output path.")
-    log_parser.add_argument("--jsonl", help="Optional JSONL output path.")
-    log_parser.add_argument(
-        "--append",
-        action="store_true",
-        help="Append to an existing CSV/JSONL file.",
-    )
-    log_parser.add_argument(
-        "--samples",
-        type=_positive_int,
-        help="Number of samples to collect.",
-    )
-    log_parser.add_argument(
-        "--duration-sec",
-        type=_positive_float,
-        help="Collection duration in seconds.",
-    )
-    _add_json_argument(log_parser)
-    _add_simulate_argument(log_parser)
-    _add_model_argument(log_parser)
-    _add_safety_config_argument(log_parser)
-    _add_backend_argument(log_parser)
-    _add_timeout_argument(log_parser)
-    log_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    log_parser.set_defaults(func=_run_log)
-
-    from powers_tool_cli.commands import sequence as sequence_command
-    from powers_tool_cli.commands import ramp_list as ramp_list_command
-
-    sequence_command.register_commands(subparsers, sys.modules[__name__])
-    ramp_list_command.register_commands(subparsers, sys.modules[__name__])
-
-    doctor_parser = subparsers.add_parser(
-        "doctor",
-        help="Report Python, package, PyVISA, simulator, and backend diagnostics.",
-    )
-    _add_json_argument(doctor_parser)
-    _add_simulate_argument(doctor_parser)
-    _add_backend_argument(doctor_parser)
-    _add_timeout_argument(doctor_parser)
-    _add_validation_support_policy_argument(doctor_parser)
-    _add_model_argument(doctor_parser)
-    doctor_parser.add_argument("--resource", help="Optional resource to identify.")
-    doctor_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    doctor_parser.set_defaults(func=_run_doctor)
-
-    capabilities_parser = subparsers.add_parser(
-        "capabilities",
-        help="Report selected driver capabilities for a resource.",
-    )
-    _add_output_resource_arguments(capabilities_parser)
-    _add_json_argument(capabilities_parser)
-    _add_simulate_argument(capabilities_parser)
-    _add_backend_argument(capabilities_parser)
-    _add_timeout_argument(capabilities_parser)
-    capabilities_parser.add_argument(
-        "--log-scpi",
-        action="store_true",
-        help="Print SCPI commands and responses to stderr.",
-    )
-    capabilities_parser.add_argument("--command", dest="selected_command", help="Select one command support entry.")
-    capabilities_parser.set_defaults(func=_run_capabilities)
-
-    safety_parser = subparsers.add_parser(
-        "safety",
-        help="Inspect safety configuration.",
-    )
-    safety_subparsers = safety_parser.add_subparsers(
-        dest="safety_command",
-        required=True,
-        parser_class=JsonCliArgumentParser,
-    )
-    safety_inspect_parser = safety_subparsers.add_parser(
-        "inspect",
-        help="Inspect effective safety limits for a resource or alias.",
-    )
-    _add_output_resource_arguments(safety_inspect_parser)
-    safety_inspect_parser.add_argument("--channel", type=_positive_channel)
-    safety_inspect_parser.add_argument("--model")
-    _add_json_argument(safety_inspect_parser)
-    _add_safety_config_argument(safety_inspect_parser)
-    safety_inspect_parser.add_argument("--explain", action="store_true", help="Include per-field effective value and source details.")
-    safety_inspect_parser.set_defaults(func=_run_safety_inspect)
-
-    from powers_tool_cli.commands import lifecycle as lifecycle_commands
-
-    lifecycle_commands.register_commands(subparsers, sys.modules[__name__])
-
-    return parser
+    configure_parser_error_context(
+        command_from_argv=_command_from_argv,
+        validation_execution_from_argv=_validation_execution_from_argv,
+        request_from_argv=_request_from_argv,
+    )
+    return _build_parser(sys.modules[__name__], _package_version)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -882,250 +391,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         set_json_save_path(None)
         set_json_start_time(None)
         sys.modules.pop("powers_tool_cli", None)
-
-
-def _add_backend_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--backend", help="Optional PyVISA backend.")
-
-
-def _add_timeout_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--timeout-ms",
-        type=int,
-        default=DEFAULT_TIMEOUT_MS,
-        help="VISA timeout in milliseconds.",
-    )
-
-
-def _add_serial_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--serial-baud-rate", type=int, help="Optional ASRL baud rate.")
-    parser.add_argument("--serial-data-bits", type=int, help="Optional ASRL data bits.")
-    parser.add_argument(
-        "--serial-parity",
-        choices=("none", "odd", "even", "mark", "space"),
-        help="Optional ASRL parity.",
-    )
-    parser.add_argument(
-        "--serial-stop-bits",
-        choices=("1", "1.5", "2"),
-        help="Optional ASRL stop bits.",
-    )
-    parser.add_argument(
-        "--serial-flow-control",
-        choices=("none", "xon_xoff", "rts_cts", "dtr_dsr"),
-        help="Optional ASRL flow control.",
-    )
-    parser.add_argument(
-        "--serial-read-termination",
-        type=normalize_serial_termination,
-        help="Optional ASRL read termination. Aliases: CR, LF, CRLF, NONE.",
-    )
-    parser.add_argument(
-        "--serial-write-termination",
-        type=normalize_serial_termination,
-        help="Optional ASRL write termination. Aliases: CR, LF, CRLF, NONE.",
-    )
-    parser.add_argument(
-        "--serial-remote",
-        action="store_true",
-        help="Send SYST:REM after opening an ASRL resource.",
-    )
-    parser.add_argument(
-        "--serial-local-on-close",
-        action="store_true",
-        help="Best-effort send SYST:LOC before closing an ASRL resource.",
-    )
-
-
-def _add_lifecycle_url_argument(parser: argparse.ArgumentParser, *, default_path: str) -> None:
-    parser.add_argument("--url", help=f"Full Worker URL. Defaults to http://127.0.0.1:{{port}}{default_path}.")
-    parser.add_argument("--host", default="127.0.0.1", help="Worker host.")
-    parser.add_argument("--port", type=int, default=0, help="Worker port.")
-
-
-def _add_lifecycle_timeout_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--timeout-ms", type=_lifecycle_timeout_ms, default=3000, help="HTTP timeout in milliseconds.")
-
-
-def _add_lifecycle_format_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format.")
-    parser.add_argument("--json", action="store_true", help="Alias for --format json.")
-
-
-def _add_json_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        help="Print machine-readable JSON to stdout.",
-    )
-    parser.add_argument(
-        "--save-json",
-        help="Write the same JSON envelope to a UTF-8 file. Requires --json.",
-    )
-
-
-def _add_simulate_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--simulate",
-        action="store_true",
-        help="Use deterministic simulated resources instead of real VISA resources.",
-    )
-
-
-def _add_dry_run_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview the logical operation without opening or writing to hardware.",
-    )
-
-
-def _add_validation_support_policy_argument(parser: argparse.ArgumentParser) -> None:
-    """Add the contributor-only pending-scope validation switch."""
-
-    parser.add_argument(
-        "--validation-allow-pending-live-support",
-        dest="validation_allow_pending_live_support",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-
-
-def _add_model_argument(
-    parser: argparse.ArgumentParser,
-    *,
-    allow_profile: bool = False,
-) -> None:
-    parser.add_argument(
-        "--model",
-        help=(
-            "Canonical vendor-qualified physical model ID. Used as planning_model_id "
-            "for dry-run/simulator execution and expected_model_id for live execution."
-        ),
-    )
-    if allow_profile:
-        parser.add_argument(
-            "--profile",
-            help="Nonphysical dry-run planning profile; currently generic-scpi.",
-        )
-
-
-def _runtime_identity_for_args(args: argparse.Namespace) -> dict[str, str | None]:
-    model_id = getattr(args, "model", None)
-    profile_id = getattr(args, "profile", None)
-    if getattr(args, "simulate", False) or getattr(args, "dry_run", False):
-        return {
-            "planning_model_id": model_id,
-            "expected_model_id": None,
-            "planning_profile_id": profile_id,
-        }
-    return {
-        "planning_model_id": None,
-        "expected_model_id": model_id,
-        "planning_profile_id": profile_id,
-    }
-
-
-def _add_write_verification_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--settle-ms", type=_nonnegative_int, default=0, help="Milliseconds to wait after writes before optional readback verification.")
-    parser.add_argument("--verify-after-write", action="store_true", help="Read back state after writes and fail if verification differs.")
-    parser.add_argument("--setpoint-voltage-tolerance", type=float, default=0.001, help="Programmed voltage verification tolerance in volts.")
-    parser.add_argument("--setpoint-current-tolerance", type=float, default=0.001, help="Programmed current verification tolerance in amps.")
-
-
-def _add_completion_pulse_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--completion-pulse-pins",
-        type=_trigger_pins_list,
-        help="Comma-separated E36312A rear digital trigger output pins.",
-    )
-    parser.add_argument(
-        "--completion-pulse-polarity",
-        choices=("positive", "negative"),
-        default="positive",
-        help="Completion trigger output polarity.",
-    )
-    parser.add_argument(
-        "--completion-pulse-channel",
-        type=_e36312a_channel,
-        help="E36312A output trigger channel for completion pulses.",
-    )
-
-
-def _add_ramp_completion_pulse_arguments(parser: argparse.ArgumentParser) -> None:
-    _add_completion_pulse_arguments(parser)
-    parser.add_argument(
-        "--completion-pulse-timing",
-        choices=("segment", "step", "loop"),
-        default="segment",
-        help="Pulse after each Ramp, after every voltage step, or once after all loops.",
-    )
-
-
-def _add_trigger_restore_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--leave-trigger-configured",
-        action="store_true",
-        help="Leave trigger/list/digital pin settings in place instead of restoring the pre-run state.",
-    )
-
-
-def _add_trigger_wait_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--poll-ms",
-        type=_trigger_poll_ms,
-        default=200,
-        help="Operation-complete poll interval in milliseconds, minimum 50.",
-    )
-    parser.add_argument(
-        "--wait-timeout-ms",
-        type=_positive_int,
-        help="Operation-complete wait timeout in milliseconds.",
-    )
-
-
-def _add_duration_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--duration-ms",
-        type=_positive_duration_ms,
-        default=500,
-        help="Enable duration in milliseconds.",
-    )
-
-
-def _add_resource_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--resource", required=True, help="VISA resource string.")
-
-
-def _add_output_resource_arguments(parser: argparse.ArgumentParser) -> None:
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("--resource", help="VISA resource string.")
-    group.add_argument(
-        "--resource-alias",
-        help="Alias from an explicit --safety-config [[resources]] entry.",
-    )
-    _add_validation_support_policy_argument(parser)
-
-
-def _add_channel_or_all_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--channel",
-        default="all",
-        type=_status_channel,
-        help="Positive integer output channel or 'all'.",
-    )
-    parser.add_argument(
-        "--all",
-        action="store_true",
-        help="Read all E36312A output channels.",
-    )
-
-
-def _add_safety_config_argument(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--safety-config",
-        help="Explicit TOML safety config path with global or resource limits.",
-    )
 
 
 def _run_list_resources(args: argparse.Namespace) -> int:
@@ -1747,29 +1012,6 @@ def _completion_pulse_channel(args: argparse.Namespace, default_channel: int | s
     if isinstance(default_channel, int):
         return default_channel
     return 1
-
-
-def _completion_request_fields(args: argparse.Namespace) -> dict[str, Any]:
-    if (
-        not _completion_pulse_requested(args)
-        and getattr(args, "completion_pulse_channel", None) is None
-        and getattr(args, "completion_pulse_polarity", "positive") == "positive"
-        and not getattr(args, "leave_trigger_configured", False)
-    ):
-        return {}
-    return {
-        "completion_pulse": {
-            "pins": list(_completion_pulse_pins(args)),
-            "polarity": getattr(args, "completion_pulse_polarity", "positive"),
-            "channel": getattr(args, "completion_pulse_channel", None),
-            "leave_trigger_configured": getattr(args, "leave_trigger_configured", False),
-            **(
-                {"timing": getattr(args, "completion_pulse_timing", "segment")}
-                if args.command == "ramp"
-                else {}
-            ),
-        }
-    }
 
 
 def _trigger_result_payload(
@@ -4025,226 +3267,6 @@ def _run_ramp_list(args: argparse.Namespace) -> int:
 def _run_worker(args: argparse.Namespace) -> int:
     from powers_tool_cli.worker import run_worker
     return run_worker(args)
-
-
-def _run_send_command(args: argparse.Namespace) -> int:
-    try:
-        arguments = json.loads(args.arguments_json)
-    except json.JSONDecodeError as exc:
-        return _lifecycle_error(args, 2, "argument_error", f"--arguments-json must be a JSON object: {exc}")
-    if not isinstance(arguments, dict):
-        return _lifecycle_error(args, 2, "argument_error", "--arguments-json must be a JSON object")
-    from powers_tool_cli.worker import WORKER_SCHEMA_VERSION
-
-    payload: dict[str, Any] = {
-        "schema_version": WORKER_SCHEMA_VERSION,
-        "command": args.worker_command,
-        "arguments": arguments,
-    }
-    if args.job_id is not None:
-        payload["job_id"] = args.job_id
-    if args.dry_run:
-        url = _lifecycle_url(args, "/command")
-        diagnostics = _lifecycle_diagnostics(args, "POST", url, "/command")
-        diagnostics.update({"request_sent": False, "reachable": None, "http_status": None, "error_phase": None})
-        return _lifecycle_output(args, {"ok": True, "request": payload, **diagnostics})
-    url = _lifecycle_url(args, "/command")
-    if url is None:
-        return _lifecycle_error(args, 2, "argument_error", "--port is required when --url is omitted")
-    response = _worker_http_json(args, "POST", url, payload)
-    return _lifecycle_response_exit(args, response)
-
-
-def _run_worker_status_client(args: argparse.Namespace) -> int:
-    url = _lifecycle_url(args, "/status")
-    if args.dry_run:
-        diagnostics = _lifecycle_diagnostics(args, "GET", url, "/status")
-        diagnostics.update({"request_sent": False, "reachable": None, "http_status": None, "error_phase": None})
-        return _lifecycle_output(args, {"ok": True, **diagnostics})
-    if url is None:
-        return _lifecycle_error(args, 2, "argument_error", "--port is required when --url is omitted")
-    response = _worker_http_json(args, "GET", url, None)
-    return _lifecycle_response_exit(args, response)
-
-
-def _run_worker_stop_client(args: argparse.Namespace) -> int:
-    url = _lifecycle_url(args, "/stop")
-    if url is None:
-        return _lifecycle_error(args, 2, "argument_error", "--port is required when --url is omitted")
-    response = _worker_http_json(args, "POST", url, {"reason": args.reason})
-    return _lifecycle_response_exit(args, response)
-
-
-def _run_wait_ready_client(args: argparse.Namespace) -> int:
-    deadline = time.monotonic() + (args.wait_timeout_ms / 1000.0)
-    last: dict[str, Any] | None = None
-    url = _lifecycle_url(args, "/status")
-    if url is None:
-        return _lifecycle_error(args, 2, "argument_error", "--port is required when --url is omitted")
-    while time.monotonic() <= deadline:
-        response = _worker_http_json(args, "GET", url, None, quiet_errors=True)
-        if response.get("_http_ok"):
-            last = response["data"]
-            if isinstance(last, dict) and last.get("status") == "ready":
-                return _lifecycle_output(args, last)
-        time.sleep(args.poll_ms / 1000.0)
-    return _lifecycle_error(args, 3, "wait_timeout", "worker did not become ready before timeout", data=last)
-
-
-def _lifecycle_url(args: argparse.Namespace, default_path: str) -> str | None:
-    if getattr(args, "url", None):
-        return args.url
-    if not getattr(args, "port", 0):
-        return None
-    return f"http://{args.host}:{args.port}{default_path}"
-
-
-def _worker_http_json(
-    args: argparse.Namespace,
-    method: str,
-    url: str,
-    payload: dict[str, Any] | None,
-    *,
-    quiet_errors: bool = False,
-) -> dict[str, Any]:
-    endpoint = urllib.parse.urlparse(url).path or None
-    diagnostics = _lifecycle_diagnostics(args, method, url, endpoint)
-    data = None if payload is None else json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(url, data=data, method=method, headers={"Content-Type": "application/json"})
-    start = time.perf_counter()
-    try:
-        with urllib.request.urlopen(request, timeout=args.timeout_ms / 1000.0) as res:
-            body = res.read().decode("utf-8")
-            try:
-                parsed = json.loads(body) if body else {}
-            except json.JSONDecodeError as exc:
-                elapsed_ms = round((time.perf_counter() - start) * 1000, 3)
-                return {
-                    "_http_ok": False,
-                    "status_code": res.status,
-                    "data": {"error": {"code": "invalid_response", "message": f"worker response was not valid JSON: {exc}"}},
-                    "_diagnostics": {
-                        **diagnostics,
-                        "elapsed_ms": elapsed_ms,
-                        "request_sent": True,
-                        "reachable": True,
-                        "http_status": res.status,
-                        "error_phase": "invalid_response",
-                    },
-                }
-            if not isinstance(parsed, dict):
-                elapsed_ms = round((time.perf_counter() - start) * 1000, 3)
-                return {
-                    "_http_ok": False,
-                    "status_code": res.status,
-                    "data": {"error": {"code": "invalid_response", "message": "worker response JSON must be an object"}},
-                    "_diagnostics": {
-                        **diagnostics,
-                        "elapsed_ms": elapsed_ms,
-                        "request_sent": True,
-                        "reachable": True,
-                        "http_status": res.status,
-                        "error_phase": "invalid_response",
-                    },
-                }
-            elapsed_ms = round((time.perf_counter() - start) * 1000, 3)
-            return {
-                "_http_ok": True,
-                "status_code": res.status,
-                "data": parsed,
-                "_diagnostics": {
-                    **diagnostics,
-                    "elapsed_ms": elapsed_ms,
-                    "request_sent": True,
-                    "reachable": True,
-                    "http_status": res.status,
-                    "error_phase": None,
-                },
-            }
-    except urllib.error.HTTPError as exc:
-        elapsed_ms = round((time.perf_counter() - start) * 1000, 3)
-        try:
-            parsed = json.loads(exc.read().decode("utf-8"))
-        except Exception:
-            parsed = {"error": {"code": "invalid_response", "message": "worker error body was not valid JSON"}}
-        if not isinstance(parsed, dict):
-            parsed = {"error": {"code": "invalid_response", "message": "worker error body JSON was not an object"}}
-        return {
-            "_http_ok": False,
-            "status_code": exc.code,
-            "data": parsed,
-            "_diagnostics": {
-                **diagnostics,
-                "elapsed_ms": elapsed_ms,
-                "request_sent": True,
-                "reachable": True,
-                "http_status": exc.code,
-                "error_phase": "http_status",
-            },
-        }
-    except Exception as exc:
-        elapsed_ms = round((time.perf_counter() - start) * 1000, 3)
-        error_data = {"error": {"code": "connection_failed", "message": str(exc)}}
-        response = {
-            "_http_ok": False,
-            "status_code": None,
-            "data": error_data,
-            "_diagnostics": {
-                **diagnostics,
-                "elapsed_ms": elapsed_ms,
-                "request_sent": True,
-                "reachable": False,
-                "http_status": None,
-                "error_phase": "connection",
-            },
-        }
-        if quiet_errors:
-            return response
-        return response
-
-
-def _lifecycle_diagnostics(args: argparse.Namespace, method: str, url: str | None, endpoint: str | None) -> dict[str, Any]:
-    return {
-        "client_command": args.command,
-        "method": method,
-        "url": url,
-        "endpoint": endpoint,
-        "timeout_ms": getattr(args, "timeout_ms", None),
-    }
-
-
-def _lifecycle_response_exit(args: argparse.Namespace, response: dict[str, Any]) -> int:
-    status_code = response.get("status_code")
-    data = dict(response.get("data")) if isinstance(response.get("data"), dict) else {}
-    diagnostics = response.get("_diagnostics") if isinstance(response.get("_diagnostics"), dict) else {}
-    data.update(diagnostics)
-    if response.get("_http_ok"):
-        data.setdefault("ok", True)
-        return _lifecycle_output(args, data)
-    exit_code = 2 if status_code == 400 else 3
-    data.setdefault("ok", False)
-    data["exit_code"] = exit_code
-    return _lifecycle_output(args, data, exit_code=exit_code)
-
-
-def _lifecycle_output(args: argparse.Namespace, data: dict[str, Any], *, exit_code: int = 0) -> int:
-    if getattr(args, "format", "text") == "json":
-        print(json.dumps(data, sort_keys=True))
-    else:
-        if "status" in data:
-            print(f"Status: {data['status']}")
-        elif data.get("ok") is True:
-            print("OK")
-        else:
-            print(json.dumps(data, sort_keys=True))
-    return exit_code
-
-
-def _lifecycle_error(args: argparse.Namespace, exit_code: int, code: str, message: str, *, data: Any = None) -> int:
-    payload = {"status": "error", "error": {"code": code, "message": message}}
-    if data is not None:
-        payload["data"] = data
-    return _lifecycle_output(args, payload, exit_code=exit_code)
 
 
 def _run_doctor(args: argparse.Namespace) -> int:
@@ -6910,96 +5932,11 @@ def _serial_open_kwargs(
     return kwargs
 
 
-def _mode_for_args(args: argparse.Namespace) -> str:
-    if getattr(args, "simulate", False):
-        return "simulate"
-    return "real"
-
-
-def _execution_for_args(
-    args: argparse.Namespace,
-    *,
-    hardware_intent: bool,
-) -> dict[str, Any]:
-    existing = getattr(args, "_execution_state", None)
-    if isinstance(existing, dict):
-        mode = _mode_for_args(args)
-        existing.update(
-            {
-                "mode": mode,
-                "dry_run": bool(getattr(args, "dry_run", False)),
-                "hardware_touched": bool(hardware_intent and mode == "real" and not getattr(args, "dry_run", False)),
-            }
-        )
-        return existing
-    existing = getattr(args, "_candidate_admission_state", None)
-    dry_run = bool(getattr(args, "dry_run", False))
-    mode = _mode_for_args(args)
-    execution = existing if isinstance(existing, dict) else {}
-    execution.update(
-        {
-            "mode": mode,
-            "dry_run": dry_run,
-            "hardware_touched": bool(hardware_intent and mode == "real" and not dry_run),
-        }
-    )
-    setattr(args, "_execution_state", execution)
-    return execution
-
-
-def _validation_execution_from_argv(argv: Sequence[str]) -> dict[str, Any]:
-    return {
-        "mode": "simulate" if "--simulate" in argv else "real",
-        "dry_run": "--dry-run" in argv,
-        "hardware_touched": False,
-    }
-
-
-def _with_serial_request_fields(args: argparse.Namespace, payload: dict[str, Any]) -> dict[str, Any]:
-    serial_options = {
-        "baud_rate": getattr(args, "serial_baud_rate", None),
-        "data_bits": getattr(args, "serial_data_bits", None),
-        "parity": getattr(args, "serial_parity", None),
-        "stop_bits": getattr(args, "serial_stop_bits", None),
-        "flow_control": getattr(args, "serial_flow_control", None),
-        "read_termination": getattr(args, "serial_read_termination", None),
-        "write_termination": getattr(args, "serial_write_termination", None),
-    }
-    serial_options = {key: value for key, value in serial_options.items() if value is not None}
-    if serial_options:
-        payload["serial_options"] = serial_options
-    if getattr(args, "serial_remote", False):
-        payload["serial_remote"] = True
-    if getattr(args, "serial_local_on_close", False):
-        payload["serial_local_on_close"] = True
-    return payload
-
-
-def _with_serial_request_fields_from_argv(argv: Sequence[str], payload: dict[str, Any]) -> dict[str, Any]:
-    serial_options = {
-        "baud_rate": _int_option_from_argv(argv, "--serial-baud-rate", None),
-        "data_bits": _int_option_from_argv(argv, "--serial-data-bits", None),
-        "parity": _option_value(argv, "--serial-parity"),
-        "stop_bits": _option_value(argv, "--serial-stop-bits"),
-        "flow_control": _option_value(argv, "--serial-flow-control"),
-        "read_termination": normalize_serial_termination(_option_value(argv, "--serial-read-termination")),
-        "write_termination": normalize_serial_termination(_option_value(argv, "--serial-write-termination")),
-    }
-    serial_options = {key: value for key, value in serial_options.items() if value is not None}
-    if serial_options:
-        payload["serial_options"] = serial_options
-    if "--serial-remote" in argv:
-        payload["serial_remote"] = True
-    if "--serial-local-on-close" in argv:
-        payload["serial_local_on_close"] = True
-    return payload
-
-
 def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
     from powers_tool_cli.commands import output as output_commands
 
     if args.command in output_commands.OUTPUT_REQUEST_COMMANDS:
-        return output_commands.request_for_args(args, sys.modules[__name__])
+        return output_commands.request_for_args(args)
     if args.command == "safety":
         return {
             "subcommand": getattr(args, "safety_command", None),
@@ -7061,7 +5998,7 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
     from powers_tool_cli.commands import trigger as trigger_commands
 
     if args.command in trigger_commands.TRIGGER_COMMANDS:
-        return trigger_commands.request_for_args(args, sys.modules[__name__])
+        return trigger_commands.request_for_args(args)
     if args.command == "read-status":
         channel = "all" if getattr(args, "all", False) else args.channel
         return _with_serial_request_fields(args, {
@@ -7200,11 +6137,11 @@ def _request_for_args(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "sequence":
         from powers_tool_cli.commands import sequence as sequence_command
 
-        return sequence_command.request_for_args(args, sys.modules[__name__])
+        return sequence_command.request_for_args(args)
     if args.command == "ramp-list":
         from powers_tool_cli.commands import ramp_list as ramp_list_command
 
-        return ramp_list_command.request_for_args(args, sys.modules[__name__])
+        return ramp_list_command.request_for_args(args)
     if args.command == "doctor":
         return {
             "resource": getattr(args, "resource", None),
@@ -7226,7 +6163,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
     from powers_tool_cli.commands import output as output_commands
 
     if command in output_commands.OUTPUT_REQUEST_COMMANDS:
-        return output_commands.request_from_argv(command, argv, sys.modules[__name__])
+        return output_commands.request_from_argv(command, argv)
     if command == "safety":
         return {
             "subcommand": "inspect" if "inspect" in argv else None,
@@ -7280,7 +6217,7 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
     from powers_tool_cli.commands import trigger as trigger_commands
 
     if command in trigger_commands.TRIGGER_COMMANDS:
-        return trigger_commands.request_from_argv(command, argv, sys.modules[__name__])
+        return trigger_commands.request_from_argv(command, argv)
     if command == "read-status":
         channel = "all" if "--all" in argv else (_status_channel_from_argv(argv) or "all")
         return _with_serial_request_fields_from_argv(argv, {
@@ -7405,11 +6342,11 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
     if command == "sequence":
         from powers_tool_cli.commands import sequence as sequence_command
 
-        return sequence_command.request_from_argv(argv, sys.modules[__name__])
+        return sequence_command.request_from_argv(argv)
     if command == "ramp-list":
         from powers_tool_cli.commands import ramp_list as ramp_list_command
 
-        return ramp_list_command.request_from_argv(argv, sys.modules[__name__])
+        return ramp_list_command.request_from_argv(argv)
     if command == "doctor":
         return {
             "resource": _option_value(argv, "--resource"),
@@ -7427,56 +6364,6 @@ def _request_from_argv(command: str, argv: Sequence[str]) -> dict[str, Any]:
     return {}
 
 
-def _write_verification_request_fields(args: argparse.Namespace) -> dict[str, Any]:
-    return {
-        "settle_ms": getattr(args, "settle_ms", 0),
-        "verify_after_write": getattr(args, "verify_after_write", False),
-        "setpoint_voltage_tolerance": getattr(args, "setpoint_voltage_tolerance", 0.001),
-        "setpoint_current_tolerance": getattr(args, "setpoint_current_tolerance", 0.001),
-    }
-
-
-def _write_verification_request_fields_from_argv(argv: Sequence[str]) -> dict[str, Any]:
-    return {
-        "settle_ms": _int_option_from_argv(argv, "--settle-ms", 0),
-        "verify_after_write": "--verify-after-write" in argv,
-        "setpoint_voltage_tolerance": _number_from_argv(argv, "--setpoint-voltage-tolerance") or 0.001,
-        "setpoint_current_tolerance": _number_from_argv(argv, "--setpoint-current-tolerance") or 0.001,
-    }
-
-
-def _completion_request_fields_from_argv(argv: Sequence[str]) -> dict[str, Any]:
-    pins = _completion_pins_from_argv(argv)
-    channel = _int_from_argv(argv, "--completion-pulse-channel")
-    polarity = _option_value(argv, "--completion-pulse-polarity") or "positive"
-    leave_configured = "--leave-trigger-configured" in argv
-    if (
-        pins is None
-        and channel is None
-        and polarity == "positive"
-        and not leave_configured
-    ):
-        return {}
-    return {
-        "completion_pulse": {
-            "pins": pins or [],
-            "polarity": polarity,
-            "channel": channel,
-            "leave_trigger_configured": leave_configured,
-        }
-    }
-
-
-def _timeout_from_argv(argv: Sequence[str]) -> int | str:
-    value = _option_value(argv, "--timeout-ms")
-    if value is None:
-        return DEFAULT_TIMEOUT_MS
-    try:
-        return int(value)
-    except ValueError:
-        return value
-
-
 def _max_reads_from_argv(argv: Sequence[str]) -> int | str:
     value = _option_value(argv, "--max-reads")
     if value is None:
@@ -7487,152 +6374,10 @@ def _max_reads_from_argv(argv: Sequence[str]) -> int | str:
         return value
 
 
-def _duration_from_argv(argv: Sequence[str]) -> int | str:
-    value = _option_value(argv, "--duration-ms")
-    if value is None:
-        return 500
-    try:
-        return int(value)
-    except ValueError:
-        return value
-
-
-def _max_errors_from_argv(argv: Sequence[str]) -> int | str:
-    value = _option_value(argv, "--max-errors")
-    if value is None:
-        return 20
-    try:
-        return int(value)
-    except ValueError:
-        return value
-
-
-def _option_value(argv: Sequence[str], option: str) -> str | None:
-    prefix = f"{option}="
-    for index, item in enumerate(argv):
-        if item.startswith(prefix):
-            return item[len(prefix) :]
-        if item == option:
-            value_index = index + 1
-            if value_index >= len(argv) or argv[value_index].startswith("--"):
-                return None
-            return argv[value_index]
-    return None
-
-
 def _json_save_path_from_argv(argv: Sequence[str]) -> str | None:
     if "--json" not in argv:
         return None
     return _option_value(argv, "--save-json")
-
-
-def _number_from_argv(argv: Sequence[str], option: str) -> float | str | None:
-    value = _option_value(argv, option)
-    if value is None:
-        return None
-    try:
-        return _json_safe_number(float(value))
-    except ValueError:
-        return value
-
-
-def _drop_none_setpoints(request: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in request.items() if key not in {"voltage", "current"} or value is not None}
-
-
-def _int_from_argv(argv: Sequence[str], option: str) -> int | str | None:
-    value = _option_value(argv, option)
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return value
-
-
-def _int_option_from_argv(argv: Sequence[str], option: str, default: int) -> int | str:
-    value = _int_from_argv(argv, option)
-    return default if value is None else value
-
-
-def _float_list_from_argv(argv: Sequence[str], option: str) -> list[float | str] | None:
-    value = _option_value(argv, option)
-    if value is None:
-        return None
-    values: list[float | str] = []
-    for item in value.split(","):
-        item = item.strip()
-        try:
-            values.append(float(item))
-        except ValueError:
-            values.append(item)
-    return values
-
-
-def _channel_from_argv(argv: Sequence[str]) -> int | str | None:
-    value = _option_value(argv, "--channel")
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return value
-
-
-def _status_channel_from_argv(argv: Sequence[str]) -> int | str | None:
-    value = _option_value(argv, "--channel")
-    if value is None:
-        return None
-    if value.lower() == "all":
-        return "all"
-    try:
-        return int(value)
-    except ValueError:
-        return value
-
-
-def _pin_from_argv(argv: Sequence[str]) -> int | str | None:
-    value = _option_value(argv, "--pin")
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return value
-
-
-def _pins_from_argv(argv: Sequence[str]) -> list[int | str] | None:
-    value = _option_value(argv, "--pins")
-    if value is None:
-        return None
-    pins: list[int | str] = []
-    for item in value.split(","):
-        item = item.strip()
-        if not item:
-            pins.append(item)
-            continue
-        try:
-            pins.append(int(item))
-        except ValueError:
-            pins.append(item)
-    return pins
-
-
-def _completion_pins_from_argv(argv: Sequence[str]) -> list[int | str] | None:
-    value = _option_value(argv, "--completion-pulse-pins")
-    if value is None:
-        return None
-    pins: list[int | str] = []
-    for item in value.split(","):
-        item = item.strip()
-        if not item:
-            pins.append(item)
-            continue
-        try:
-            pins.append(int(item))
-        except ValueError:
-            pins.append(item)
-    return pins
 
 
 def _command_from_argv(argv: Sequence[str]) -> str:
@@ -7652,179 +6397,6 @@ def _exit_code(exc: SystemExit) -> int:
 
 def _log_scpi(resource: str, direction: str, message: str) -> None:
     print(f"{resource} SCPI {direction} {message}", file=sys.stderr)
-
-
-def _positive_channel(value: str) -> int:
-    try:
-        return validation.parse_positive_int(value, name="channel")
-    except validation.ValidationError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def _positive_max_reads(value: str) -> int:
-    try:
-        return validation.parse_positive_int(value, name="max-reads")
-    except validation.ValidationError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def _positive_max_errors(value: str) -> int:
-    try:
-        return validation.parse_positive_int(value, name="max-errors")
-    except validation.ValidationError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def _positive_duration_ms(value: str) -> int:
-    try:
-        return validation.parse_positive_int(value, name="duration-ms")
-    except validation.ValidationError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def _positive_int(value: str) -> int:
-    try:
-        return validation.parse_positive_int(value)
-    except validation.ValidationError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def _loop_count(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("loop-count must be an integer from 1 to 255") from exc
-    if parsed < 1 or parsed > 255:
-        raise argparse.ArgumentTypeError("loop-count must be an integer from 1 to 255")
-    return parsed
-
-
-def _lifecycle_timeout_ms(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("timeout-ms must be an integer") from exc
-    if parsed < 100 or parsed > 600000:
-        raise argparse.ArgumentTypeError("timeout-ms must be between 100 and 600000")
-    return parsed
-
-
-def _trigger_poll_ms(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("poll-ms must be an integer of at least 50") from exc
-    if parsed < 50:
-        raise argparse.ArgumentTypeError("poll-ms must be an integer of at least 50")
-    return parsed
-
-
-def _positive_float(value: str) -> float:
-    try:
-        return validation.parse_positive_float(value)
-    except validation.ValidationError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def _nonnegative_int(value: str) -> int:
-    try:
-        return validation.parse_nonnegative_int(value)
-    except validation.ValidationError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def _log_channel(value: str) -> int | str:
-    if value.lower() == "all":
-        return "all"
-    return _positive_channel(value)
-
-
-def _channels_list(value: str) -> tuple[int, ...]:
-    try:
-        return validation.parse_channel_list(value)
-    except validation.ValidationError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def _float_list(value: str) -> tuple[float, ...]:
-    try:
-        return validation.parse_float_list(value)
-    except validation.ValidationError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def _bool_list(value: str) -> tuple[bool, ...]:
-    parsed = []
-    for item in value.split(","):
-        normalized = item.strip().lower()
-        if normalized in {"true", "on", "1"}:
-            parsed.append(True)
-        elif normalized in {"false", "off", "0"}:
-            parsed.append(False)
-        else:
-            raise argparse.ArgumentTypeError("boolean lists accept true/false, on/off, or 1/0")
-    return tuple(parsed)
-
-
-def _safe_off_channel(value: str) -> int | str:
-    if value.lower() == "all":
-        return "all"
-    return _positive_channel(value)
-
-
-def _output_channel(value: str) -> int | str:
-    if value.lower() == "all":
-        return "all"
-    return _positive_channel(value)
-
-
-def _status_channel(value: str) -> int | str:
-    if value.lower() == "all":
-        return "all"
-    return _positive_channel(value)
-
-
-def _apply_channel(value: str) -> int | str:
-    if value.lower() == "all":
-        return "all"
-    return _positive_channel(value)
-
-
-def _e36312a_channel(value: str) -> int:
-    channel = _positive_channel(value)
-    if channel not in (1, 2, 3):
-        raise argparse.ArgumentTypeError("channel must be 1, 2, or 3")
-    return channel
-
-
-def _e36312a_channel_or_all(value: str) -> int | str:
-    if value.lower() == "all":
-        return "all"
-    return _e36312a_channel(value)
-
-
-def _trigger_pin(value: str) -> int:
-    pin = _positive_channel(value)
-    if pin not in (1, 2, 3):
-        raise argparse.ArgumentTypeError("pin must be 1, 2, or 3")
-    return pin
-
-
-def _trigger_pins_list(value: str) -> tuple[int, ...]:
-    try:
-        return validation.parse_trigger_pins(value)
-    except validation.ValidationError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
-def _trigger_pins_for_args(args: argparse.Namespace) -> tuple[int, ...]:
-    pins = getattr(args, "pins", None)
-    if pins is not None:
-        return tuple(pins)
-    pin = getattr(args, "pin", None)
-    if pin is not None:
-        return (pin,)
-    raise ValueError("trigger-pulse requires --pin or --pins")
 
 
 _CHANNEL_NOT_PROVIDED = object()
@@ -8055,29 +6627,8 @@ def _enforce_live_cli_scope(args: argparse.Namespace, idn_raw: str, *, command: 
     enforce_live_support_for_idn(request, idn_raw, command=effective_command)
 
 
-def _support_policy_mode_for_args(args: argparse.Namespace) -> str:
-    return (
-        SUPPORT_POLICY_MODE_VALIDATION
-        if getattr(args, "validation_allow_pending_live_support", False)
-        else SUPPORT_POLICY_MODE_PRODUCT
-    )
-
-
 def _core_validation_code(exc: CoreValidationError, fallback: str = "argument_error") -> str:
     return "unsupported_live_scope" if isinstance(exc, LiveSupportPolicyError) else fallback
-
-
-def _serial_options_for_args(args: argparse.Namespace) -> SerialOptions | None:
-    options = SerialOptions(
-        baud_rate=getattr(args, "serial_baud_rate", None),
-        data_bits=getattr(args, "serial_data_bits", None),
-        parity=getattr(args, "serial_parity", None),
-        stop_bits=getattr(args, "serial_stop_bits", None),
-        flow_control=getattr(args, "serial_flow_control", None),
-        read_termination=normalize_serial_termination(getattr(args, "serial_read_termination", None)),
-        write_termination=normalize_serial_termination(getattr(args, "serial_write_termination", None)),
-    )
-    return options if options.has_explicit_values() else None
 
 
 def _connection_scpi_logger_for_args(args: argparse.Namespace):
@@ -8127,13 +6678,13 @@ def _core_lister_for_args(args: argparse.Namespace):
 def _sequence_request_for_args(args: argparse.Namespace) -> SequenceRequest:
     from powers_tool_cli.commands import sequence as sequence_command
 
-    return sequence_command.core_request_for_args(args, sys.modules[__name__])
+    return sequence_command.core_request_for_args(args)
 
 
 def _ramp_list_request_for_args(args: argparse.Namespace) -> OperationRequest:
     from powers_tool_cli.commands import ramp_list as ramp_list_command
 
-    return ramp_list_command.core_request_for_args(args, sys.modules[__name__])
+    return ramp_list_command.core_request_for_args(args)
 
 
 def _trigger_request_for_args(args: argparse.Namespace) -> TriggerRequest:
@@ -8347,13 +6898,6 @@ def _print_scpi_plan(plan: dict[str, object], *, mode: str, dry_run: bool) -> No
 def _emit_text_lines(lines: Sequence[str]) -> None:
     for line in lines:
         print(line)
-
-
-def _json_safe_number(value: float) -> float | str:
-    numeric = float(value)
-    if math.isfinite(numeric):
-        return numeric
-    return str(value)
 
 
 def _ramp_voltages(start: float, stop: float, step: float) -> list[float]:

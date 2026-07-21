@@ -6,11 +6,25 @@ import argparse
 from collections.abc import Sequence
 from typing import Any
 
+from powers_tool_cli import cli_parser as parser_helpers
+from powers_tool_cli.request_primitives import (
+    option_value,
+    timeout_from_argv,
+    with_serial_request_fields_from_argv,
+)
+from powers_tool_cli.runtime_mapping import (
+    runtime_identity_for_args,
+    serial_options_for_args,
+    support_policy_mode_for_args,
+    with_serial_request_fields,
+)
+from powers_tool_core.connection import DEFAULT_TIMEOUT_MS
 from powers_tool_core.core import OperationRequest, RuntimeOptions
 from powers_tool_core.ramp_list import RAMP_LIST_KIND, RAMP_LIST_VERSION
 
 
-def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any) -> None:
+def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
+    runtime = parser_helpers
     parser = subparsers.add_parser(
         "ramp-list",
         help="Run a versioned list of software setpoint ramp segments.",
@@ -52,39 +66,39 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
     runtime._add_timeout_argument(parser)
     runtime._add_serial_arguments(parser)
     parser.add_argument("--log-scpi", action="store_true", help="Print SCPI commands and responses to stderr.")
-    parser.set_defaults(func=run_ramp_list, _runtime=runtime)
+    parser.set_defaults(func=run_ramp_list)
 
 
-def request_for_args(args: argparse.Namespace, runtime: Any) -> dict[str, Any]:
-    return runtime._with_serial_request_fields(args, {
+def request_for_args(args: argparse.Namespace) -> dict[str, Any]:
+    return with_serial_request_fields(args, {
         "resource": getattr(args, "resource", None),
         "resource_alias": getattr(args, "resource_alias", None),
         "file": getattr(args, "file", None),
         "segments": getattr(args, "segment", None),
         "safety_config": getattr(args, "safety_config", None),
         "backend": getattr(args, "backend", None),
-        "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+        "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         "lint": getattr(args, "lint", False),
         "enable_output": getattr(args, "enable_output", False),
         "loop_count": getattr(args, "loop_count", None),
     })
 
 
-def request_from_argv(argv: Sequence[str], runtime: Any) -> dict[str, Any]:
-    return runtime._with_serial_request_fields_from_argv(argv, {
-        "resource": runtime._option_value(argv, "--resource"),
-        "resource_alias": runtime._option_value(argv, "--resource-alias"),
-        "file": runtime._option_value(argv, "--file"),
-        "safety_config": runtime._option_value(argv, "--safety-config"),
-        "backend": runtime._option_value(argv, "--backend"),
-        "timeout_ms": runtime._timeout_from_argv(argv),
+def request_from_argv(argv: Sequence[str]) -> dict[str, Any]:
+    return with_serial_request_fields_from_argv(argv, {
+        "resource": option_value(argv, "--resource"),
+        "resource_alias": option_value(argv, "--resource-alias"),
+        "file": option_value(argv, "--file"),
+        "safety_config": option_value(argv, "--safety-config"),
+        "backend": option_value(argv, "--backend"),
+        "timeout_ms": timeout_from_argv(argv),
         "lint": "--lint" in argv,
         "enable_output": "--enable-output" in argv,
-        "loop_count": runtime._option_value(argv, "--loop-count"),
+        "loop_count": option_value(argv, "--loop-count"),
     })
 
 
-def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRequest:
+def core_request_for_args(args: argparse.Namespace) -> OperationRequest:
     parameters: dict[str, Any] = {"file": getattr(args, "file", None), "lint": getattr(args, "lint", False)}
     pulse_requested = getattr(args, "completion_pulse_timing", None) is not None or getattr(args, "completion_pulse_pins", None) is not None
     if getattr(args, "file", None) is not None and pulse_requested:
@@ -120,15 +134,15 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> OperationRe
             safety_config=getattr(args, "safety_config", None),
             simulate=getattr(args, "simulate", False),
             dry_run=getattr(args, "dry_run", False),
-            **runtime._runtime_identity_for_args(args),
+            **runtime_identity_for_args(args),
             backend=getattr(args, "backend", None),
-            timeout_ms=getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+            timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
             confirm=getattr(args, "confirm", False),
-            serial_options=runtime._serial_options_for_args(args),
+            serial_options=serial_options_for_args(args),
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
-            support_policy_mode=runtime._support_policy_mode_for_args(args),
+            support_policy_mode=support_policy_mode_for_args(args),
         ),
         parameters=parameters,
     )

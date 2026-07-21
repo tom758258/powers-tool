@@ -6,6 +6,19 @@ import argparse
 from collections.abc import Sequence
 from typing import Any
 
+from powers_tool_cli import cli_parser as parser_helpers
+from powers_tool_cli.request_primitives import (
+    option_value,
+    timeout_from_argv,
+    with_serial_request_fields_from_argv,
+)
+from powers_tool_cli.runtime_mapping import (
+    runtime_identity_for_args,
+    serial_options_for_args,
+    support_policy_mode_for_args,
+    with_serial_request_fields,
+)
+from powers_tool_core.connection import DEFAULT_TIMEOUT_MS
 from powers_tool_core.core import RuntimeOptions, SequenceRequest
 
 
@@ -22,7 +35,8 @@ REQUEST_FIELDS = (
 )
 
 
-def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any) -> None:
+def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
+    runtime = parser_helpers
     sequence_parser = subparsers.add_parser(
         "sequence",
         help="Run a conservative software sequence from a YAML or JSON file.",
@@ -44,34 +58,34 @@ def register_commands(subparsers: argparse._SubParsersAction[Any], runtime: Any)
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    sequence_parser.set_defaults(func=run_sequence, _runtime=runtime)
+    sequence_parser.set_defaults(func=run_sequence)
 
 
-def request_for_args(args: argparse.Namespace, runtime: Any) -> dict[str, Any]:
-    return runtime._with_serial_request_fields(args, {
+def request_for_args(args: argparse.Namespace) -> dict[str, Any]:
+    return with_serial_request_fields(args, {
         "resource": getattr(args, "resource", None),
         "resource_alias": getattr(args, "resource_alias", None),
         "file": getattr(args, "file", None),
         "safety_config": getattr(args, "safety_config", None),
         "backend": getattr(args, "backend", None),
-        "timeout_ms": getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+        "timeout_ms": getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
         "loop_count": getattr(args, "loop_count", None),
     })
 
 
-def request_from_argv(argv: Sequence[str], runtime: Any) -> dict[str, Any]:
-    return runtime._with_serial_request_fields_from_argv(argv, {
-        "resource": runtime._option_value(argv, "--resource"),
-        "resource_alias": runtime._option_value(argv, "--resource-alias"),
-        "file": runtime._option_value(argv, "--file"),
-        "safety_config": runtime._option_value(argv, "--safety-config"),
-        "backend": runtime._option_value(argv, "--backend"),
-        "timeout_ms": runtime._timeout_from_argv(argv),
-        "loop_count": runtime._option_value(argv, "--loop-count"),
+def request_from_argv(argv: Sequence[str]) -> dict[str, Any]:
+    return with_serial_request_fields_from_argv(argv, {
+        "resource": option_value(argv, "--resource"),
+        "resource_alias": option_value(argv, "--resource-alias"),
+        "file": option_value(argv, "--file"),
+        "safety_config": option_value(argv, "--safety-config"),
+        "backend": option_value(argv, "--backend"),
+        "timeout_ms": timeout_from_argv(argv),
+        "loop_count": option_value(argv, "--loop-count"),
     })
 
 
-def core_request_for_args(args: argparse.Namespace, runtime: Any) -> SequenceRequest:
+def core_request_for_args(args: argparse.Namespace) -> SequenceRequest:
     return SequenceRequest(
         runtime=RuntimeOptions(
             resource=getattr(args, "resource", None),
@@ -79,14 +93,14 @@ def core_request_for_args(args: argparse.Namespace, runtime: Any) -> SequenceReq
             safety_config=getattr(args, "safety_config", None),
             simulate=getattr(args, "simulate", False),
             dry_run=getattr(args, "dry_run", False),
-            **runtime._runtime_identity_for_args(args),
+            **runtime_identity_for_args(args),
             backend=getattr(args, "backend", None),
-            timeout_ms=getattr(args, "timeout_ms", runtime.DEFAULT_TIMEOUT_MS),
+            timeout_ms=getattr(args, "timeout_ms", DEFAULT_TIMEOUT_MS),
             log_scpi=getattr(args, "log_scpi", False),
-            serial_options=runtime._serial_options_for_args(args),
+            serial_options=serial_options_for_args(args),
             serial_remote=getattr(args, "serial_remote", False),
             serial_local_on_close=getattr(args, "serial_local_on_close", False),
-            support_policy_mode=runtime._support_policy_mode_for_args(args),
+            support_policy_mode=support_policy_mode_for_args(args),
         ),
         parameters={
             "file": getattr(args, "file", None),

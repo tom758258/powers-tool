@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 import powers_tool_cli.cli as cli
+import powers_tool_cli.lifecycle_client as lifecycle_client
 
 
 LIFECYCLE_COMMANDS = (
@@ -453,7 +454,7 @@ def test_lifecycle_parser_errors_preserve_json_envelope_and_do_not_dispatch(monk
         "_run_wait_ready_client",
     ):
         monkeypatch.setattr(cli, name, fail_dispatch)
-    monkeypatch.setattr(cli.urllib.request, "urlopen", fail_dispatch)
+    monkeypatch.setattr(lifecycle_client.urllib.request, "urlopen", fail_dispatch)
 
     assert cli.main(["send-command", "--json"]) == 2
     payload = json.loads(capsys.readouterr().out)

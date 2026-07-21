@@ -49,30 +49,38 @@ place.
 
 ## Package Contents
 
-- `powers_tool_cli.cli`: top-level argument parser, command dispatch, request
-  mapping, lifecycle HTTP runners, stream emission, error/exit mapping, SCPI
-  logging, and runtime adapters into core.
+- `powers_tool_cli.cli`: top-level argument parser, command dispatch, stream
+  emission, error/exit mapping, SCPI logging, and runtime adapters into Core.
 - `powers_tool_cli.cli_io`: stable JSON success/error envelope helpers and
   optional `--save-json` output.
 - `powers_tool_cli.cli_rendering`: pure human-readable success-line formatters
   for shared Output, Trigger, plan, Sequence, discovery, read-only, inspection,
   write, workflow, and artifact-success summaries. `cli.py` retains stream
-  emission, JSON/error/exit mapping, lifecycle output, SCPI logging, streaming,
-  and artifact serialization.
+  emission, JSON/error/exit mapping, SCPI logging, streaming, and artifact
+  serialization.
+- `powers_tool_cli.lifecycle_client`: Worker lifecycle HTTP request construction,
+  response validation, dry-run handling, lifecycle output, and error mapping.
+- `powers_tool_cli.request_primitives`: shared argv parsing and JSON request
+  envelope fields, including serial, completion-pulse, and write-verification
+  request shapes.
+- `powers_tool_cli.runtime_mapping`: runtime identity, execution, support-policy,
+  and serial-option mapping for Core requests.
 - `powers_tool_cli.worker`: local async worker service, config validation,
   event emission, job queueing, artifact writing, and `/command`/`/stop` HTTP
   endpoints.
 - `powers_tool_cli.commands.lifecycle`: Worker lifecycle parser registration.
 - `powers_tool_cli.commands.output`: output command parser registration, runner
-  adapter, and JSON request-envelope mapping. Shared mapping primitives, Core
-  adaptation, JSON handling, and dispatch remain in `cli.py`.
+  adapter, and JSON request-envelope mapping.
 - `powers_tool_cli.commands.ramp_list`: independent Ramp List parser
   registration and request-envelope mapping.
 - `powers_tool_cli.commands.sequence`: sequence command registration and CLI
   request conversion.
 - `powers_tool_cli.commands.trigger`: Trigger parser registration, runner
-  adapter, and Trigger JSON request-envelope mapping. Shared mapping
-  primitives, Core adaptation, JSON handling, and dispatch remain in `cli.py`.
+  adapter, and Trigger JSON request-envelope mapping.
+
+Command-family modules import shared argparse primitives directly from
+`powers_tool_cli.cli_parser`; they do not receive the top-level `cli.py`
+module as a parser or request-mapping service locator.
 
 ## Install
 

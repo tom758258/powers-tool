@@ -28,7 +28,7 @@ OUTPUT_REQUEST_COMMANDS = (
 
 def _parsed_request(argv: list[str]) -> tuple[argparse.Namespace, dict[str, object]]:
     args = cli.build_parser().parse_args(argv)
-    return args, output.request_for_args(args, cli)
+    return args, output.request_for_args(args)
 
 
 @pytest.mark.parametrize(
@@ -232,7 +232,7 @@ def test_parsed_output_request_mapping_preserves_optional_fields_order_and_input
     args = cli.build_parser().parse_args(argv)
     before = vars(args).copy()
 
-    request = output.request_for_args(args, cli)
+    request = output.request_for_args(args)
 
     assert request == {
         "resource": "ASRL1::INSTR",
@@ -487,7 +487,7 @@ def test_raw_output_request_mappings_preserve_raw_values_and_order(
 ) -> None:
     before = list(argv)
 
-    request = output.request_from_argv(command, argv, cli)
+    request = output.request_from_argv(command, argv)
 
     assert request == expected
     assert list(request) == list(expected)
@@ -498,12 +498,10 @@ def test_raw_mapping_preserves_completion_path_differences() -> None:
     output_state = output.request_from_argv(
         "output-state",
         ["output-state", "--completion-pulse-pins", "1,bad"],
-        cli,
     )
     cycle_output = output.request_from_argv(
         "cycle-output",
         ["cycle-output", "--completion-pulse-pins", "1"],
-        cli,
     )
 
     assert output_state["completion_pulse"]["pins"] == [1, "bad"]
@@ -511,7 +509,7 @@ def test_raw_mapping_preserves_completion_path_differences() -> None:
 
 
 def test_raw_mapping_preserves_missing_values_option_order_and_serial_fields() -> None:
-    missing = output.request_from_argv("set", ["set", "--channel", "--voltage"], cli)
+    missing = output.request_from_argv("set", ["set", "--channel", "--voltage"])
     ordered = output.request_from_argv(
         "output-on",
         [
@@ -522,7 +520,6 @@ def test_raw_mapping_preserves_missing_values_option_order_and_serial_fields() -
             "--resource",
             "ASRL1::INSTR",
         ],
-        cli,
     )
     reordered = output.request_from_argv(
         "output-on",
@@ -534,7 +531,6 @@ def test_raw_mapping_preserves_missing_values_option_order_and_serial_fields() -
             "--channel=1",
             "--serial-read-termination=CRLF",
         ],
-        cli,
     )
 
     assert missing == {
@@ -694,15 +690,15 @@ def test_cli_delegates_output_mapping_and_keeps_ramp_list_independent(monkeypatc
     parsed_sentinel = {"owner": "output"}
     raw_sentinel = {"owner": "output-raw"}
     ramp_list_sentinel = {"owner": "ramp-list"}
-    calls: list[tuple[str, object]] = []
+    calls: list[str] = []
 
-    def parsed_mapper(args: argparse.Namespace, runtime: object) -> dict[str, str]:
-        calls.append(("parsed", runtime))
+    def parsed_mapper(args: argparse.Namespace) -> dict[str, str]:
+        calls.append("parsed")
         assert args.command == "set"
         return parsed_sentinel
 
-    def raw_mapper(command: str, argv: object, runtime: object) -> dict[str, str]:
-        calls.append(("raw", runtime))
+    def raw_mapper(command: str, argv: object) -> dict[str, str]:
+        calls.append("raw")
         assert command == "set"
         assert argv == ["set"]
         return raw_sentinel
@@ -711,13 +707,12 @@ def test_cli_delegates_output_mapping_and_keeps_ramp_list_independent(monkeypatc
 
     monkeypatch.setattr(output, "request_for_args", parsed_mapper)
     monkeypatch.setattr(output, "request_from_argv", raw_mapper)
-    monkeypatch.setattr(ramp_list, "request_for_args", lambda args, runtime: ramp_list_sentinel)
+    monkeypatch.setattr(ramp_list, "request_for_args", lambda args: ramp_list_sentinel)
 
     assert cli._request_for_args(argparse.Namespace(command="set")) is parsed_sentinel
     assert cli._request_from_argv("set", ["set"]) is raw_sentinel
     assert cli._request_for_args(argparse.Namespace(command="ramp-list")) is ramp_list_sentinel
-    assert [name for name, _ in calls] == ["parsed", "raw"]
-    assert all(runtime is cli for _, runtime in calls)
+    assert calls == ["parsed", "raw"]
 
 
 def test_output_request_command_ownership_is_explicit() -> None:

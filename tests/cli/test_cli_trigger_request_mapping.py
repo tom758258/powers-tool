@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 import powers_tool_cli.cli as cli
+import powers_tool_cli.cli_parser as cli_parser
 from powers_tool_cli.commands import output, ramp_list, sequence, trigger
 
 
@@ -37,7 +38,7 @@ _ARGUMENT_ERROR_MESSAGES = {
 
 def _parsed_request(argv: list[str]) -> tuple[argparse.Namespace, dict[str, object]]:
     args = cli.build_parser().parse_args(argv)
-    return args, trigger.request_for_args(args, cli)
+    return args, trigger.request_for_args(args)
 
 
 @pytest.mark.parametrize(
@@ -202,7 +203,7 @@ def test_parsed_trigger_list_mapping_copies_lists_and_keeps_metadata_separate() 
     args = cli.build_parser().parse_args(argv)
     before = vars(args).copy()
 
-    request = trigger.request_for_args(args, cli)
+    request = trigger.request_for_args(args)
 
     assert request == {
         "resource": "USB0::SIM::E36312A::INSTR",
@@ -287,8 +288,8 @@ def test_parsed_trigger_step_json_safe_numbers_and_fresh_requests() -> None:
         ]
     )
 
-    first = trigger.request_for_args(args, cli)
-    second = trigger.request_for_args(args, cli)
+    first = trigger.request_for_args(args)
+    second = trigger.request_for_args(args)
 
     assert first["voltage"] == "nan"
     assert first["current"] == "inf"
@@ -479,7 +480,7 @@ def test_raw_trigger_request_mappings_preserve_raw_values_and_order(
 ) -> None:
     before = list(argv)
 
-    request = trigger.request_from_argv(command, argv, cli)
+    request = trigger.request_from_argv(command, argv)
 
     assert request == expected
     assert list(request) == list(expected)
@@ -490,17 +491,14 @@ def test_raw_trigger_mapping_preserves_missing_values_and_option_order() -> None
     missing = trigger.request_from_argv(
         "trigger-step",
         ["trigger-step", "--channel", "--voltage"],
-        cli,
     )
     ordered = trigger.request_from_argv(
         "trigger-pulse",
         ["trigger-pulse", "--resource", "ASRL1::INSTR", "--pin", "1", "--channel=1"],
-        cli,
     )
     reordered = trigger.request_from_argv(
         "trigger-pulse",
         ["trigger-pulse", "--channel=1", "--pin", "1", "--resource", "ASRL1::INSTR"],
-        cli,
     )
 
     assert missing["channel"] is None
@@ -522,7 +520,7 @@ def test_trigger_list_parsed_and_raw_metadata_shapes_remain_distinct() -> None:
             "negative",
         ]
     )
-    parsed = trigger.request_for_args(args, cli)
+    parsed = trigger.request_for_args(args)
     raw = trigger.request_from_argv(
         "trigger-list",
         [
@@ -532,7 +530,6 @@ def test_trigger_list_parsed_and_raw_metadata_shapes_remain_distinct() -> None:
             "--trigger-output-pins=1",
             "--trigger-output-polarity=negative",
         ],
-        cli,
     )
 
     assert parsed["bost_list"] == [True, False]
@@ -563,7 +560,7 @@ def test_trigger_parser_errors_keep_raw_request_order_and_do_not_dispatch(
     def fail_dispatch(*_args: object, **_kwargs: object) -> int:
         raise AssertionError("parser failures must not dispatch trigger execution")
 
-    monkeypatch.setattr(cli, "emit_json_error", capture_error)
+    monkeypatch.setattr(cli_parser, "emit_json_error", capture_error)
     monkeypatch.setattr(cli, "_run_core_trigger", fail_dispatch)
     monkeypatch.setattr(cli, "open_resource", fail_dispatch)
 
@@ -572,7 +569,7 @@ def test_trigger_parser_errors_keep_raw_request_order_and_do_not_dispatch(
     assert len(captured) == 1
     payload = captured[0]
     command = argv[0]
-    expected = trigger.request_from_argv(command, argv, cli)
+    expected = trigger.request_from_argv(command, argv)
     assert payload["command"] == command
     assert payload["execution"] == {
         "mode": "real",
@@ -597,7 +594,6 @@ def test_trigger_parser_error_json_envelope_stays_machine_readable(capsys) -> No
     assert payload["request"] == trigger.request_from_argv(
         "trigger-step",
         ["trigger-step", "--json", "--channel", "bad"],
-        cli,
     )
     assert payload["error"]["type"] == "validation"
     assert payload["error"]["code"] == "argument_error"
@@ -660,7 +656,7 @@ def test_trigger_parser_errors_preserve_special_raw_requests_before_emission(
     message_key: str,
 ) -> None:
     captured: list[dict[str, Any]] = []
-    emit_json_error = cli.emit_json_error
+    emit_json_error = cli_parser.emit_json_error
 
     def capture_and_emit(**kwargs: Any) -> None:
         captured.append(kwargs)
@@ -669,7 +665,7 @@ def test_trigger_parser_errors_preserve_special_raw_requests_before_emission(
     def fail_dispatch(*_args: object, **_kwargs: object) -> int:
         raise AssertionError("parser failures must not dispatch trigger execution")
 
-    monkeypatch.setattr(cli, "emit_json_error", capture_and_emit)
+    monkeypatch.setattr(cli_parser, "emit_json_error", capture_and_emit)
     monkeypatch.setattr(trigger, "run_trigger", fail_dispatch)
     monkeypatch.setattr(cli, "_run_core_trigger", fail_dispatch)
     monkeypatch.setattr(cli, "open_resource", fail_dispatch)
@@ -762,32 +758,31 @@ def test_cli_delegates_trigger_mapping_and_keeps_other_families_independent(
     output_sentinel = {"owner": "output"}
     ramp_list_sentinel = {"owner": "ramp-list"}
     sequence_sentinel = {"owner": "sequence"}
-    calls: list[tuple[str, object]] = []
+    calls: list[str] = []
 
-    def parsed_mapper(args: argparse.Namespace, runtime: object) -> dict[str, str]:
-        calls.append(("parsed", runtime))
+    def parsed_mapper(args: argparse.Namespace) -> dict[str, str]:
+        calls.append("parsed")
         assert args.command == "trigger-fire"
         return parsed_sentinel
 
-    def raw_mapper(command: str, argv: object, runtime: object) -> dict[str, str]:
-        calls.append(("raw", runtime))
+    def raw_mapper(command: str, argv: object) -> dict[str, str]:
+        calls.append("raw")
         assert command == "trigger-fire"
         assert argv == ["trigger-fire"]
         return raw_sentinel
 
     monkeypatch.setattr(trigger, "request_for_args", parsed_mapper)
     monkeypatch.setattr(trigger, "request_from_argv", raw_mapper)
-    monkeypatch.setattr(output, "request_for_args", lambda args, runtime: output_sentinel)
-    monkeypatch.setattr(ramp_list, "request_for_args", lambda args, runtime: ramp_list_sentinel)
-    monkeypatch.setattr(sequence, "request_for_args", lambda args, runtime: sequence_sentinel)
+    monkeypatch.setattr(output, "request_for_args", lambda args: output_sentinel)
+    monkeypatch.setattr(ramp_list, "request_for_args", lambda args: ramp_list_sentinel)
+    monkeypatch.setattr(sequence, "request_for_args", lambda args: sequence_sentinel)
 
     assert cli._request_for_args(argparse.Namespace(command="trigger-fire")) is parsed_sentinel
     assert cli._request_from_argv("trigger-fire", ["trigger-fire"]) is raw_sentinel
     assert cli._request_for_args(argparse.Namespace(command="set")) is output_sentinel
     assert cli._request_for_args(argparse.Namespace(command="ramp-list")) is ramp_list_sentinel
     assert cli._request_for_args(argparse.Namespace(command="sequence")) is sequence_sentinel
-    assert [name for name, _ in calls] == ["parsed", "raw"]
-    assert all(runtime is cli for _, runtime in calls)
+    assert calls == ["parsed", "raw"]
 
 
 def test_trigger_command_ownership_is_explicit() -> None:
