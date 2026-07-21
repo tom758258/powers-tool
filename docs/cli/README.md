@@ -55,8 +55,10 @@ place.
 - `powers_tool_cli.cli_io`: stable JSON success/error envelope helpers and
   optional `--save-json` output.
 - `powers_tool_cli.cli_rendering`: pure human-readable success-line formatters
-  for shared Output, Trigger, plan, Sequence, discovery, read-only, and
-  inspection summaries. P3 write/artifact summaries remain in `cli.py`.
+  for shared Output, Trigger, plan, Sequence, discovery, read-only, inspection,
+  write, workflow, and artifact-success summaries. `cli.py` retains stream
+  emission, JSON/error/exit mapping, lifecycle output, SCPI logging, streaming,
+  and artifact serialization.
 - `powers_tool_cli.worker`: local async worker service, config validation,
   event emission, job queueing, artifact writing, and `/command`/`/stop` HTTP
   endpoints.

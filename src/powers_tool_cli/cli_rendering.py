@@ -10,19 +10,27 @@ __all__ = [
     "format_core_output_result",
     "format_core_trigger_result",
     "format_capabilities",
+    "format_clear_protection_success",
+    "format_clear_success",
     "format_doctor",
     "format_error_queue",
+    "format_hardware_report_success",
     "format_identify",
     "format_list_resources",
     "format_measure",
     "format_measure_all",
+    "format_log_success",
     "format_output_plan",
     "format_protection_status",
+    "format_protection_set_success",
     "format_read_status",
     "format_readback",
+    "format_ramp_list_summary",
+    "format_restore_from_snapshot_success",
     "format_safety_inspect",
     "format_scpi_plan",
     "format_sequence_summary",
+    "format_sequence_lint_summary",
     "format_snapshot",
     "format_snapshot_diff",
     "format_validate_readonly",
@@ -395,4 +403,89 @@ def format_safety_inspect(data: Mapping[str, Any]) -> tuple[str, ...]:
         f"Resource: {data['resource']}",
         f"Limits: {data['limits']}",
         f"Output allowed: {str(data['output_affecting_allowed']).lower()}",
+    )
+
+
+def format_clear_success(resource: object) -> tuple[str, ...]:
+    return (f"Cleared instrument status for {resource}",)
+
+
+def format_clear_protection_success(
+    resource: object,
+    cleared_channels: Sequence[object],
+) -> tuple[str, ...]:
+    return (
+        f"Resource: {resource}",
+        "Cleared channels: " + ", ".join(str(channel) for channel in cleared_channels),
+    )
+
+
+def format_protection_set_success(
+    resource: object,
+    channels: Sequence[Mapping[str, Any]],
+    *,
+    value_to_text: Callable[[object], str],
+) -> tuple[str, ...]:
+    lines = [f"Resource: {resource}"]
+    for channel in channels:
+        protection = channel["protection"]
+        lines.append(
+            f"Channel {channel['channel']}: "
+            f"OVP={value_to_text(protection['ovp_voltage'])}, "
+            f"OCP={value_to_text(protection['ocp_enabled'])}, "
+            f"OCP delay={value_to_text(protection['ocp_delay'])}, "
+            f"OCP delay trigger={value_to_text(protection['ocp_delay_trigger'])}"
+        )
+    return tuple(lines)
+
+
+def format_hardware_report_success(
+    report_json: object,
+    summary_md: object,
+    report: Mapping[str, Any],
+) -> tuple[str, ...]:
+    return (
+        f"Report: {report_json}",
+        f"Summary: {summary_md}",
+        f"Result: {report['result']}",
+    )
+
+
+def format_restore_from_snapshot_success(
+    resource: object,
+    restored_channels: Sequence[object],
+) -> tuple[str, ...]:
+    return (
+        f"Resource: {resource}",
+        "Restored channels: " + ", ".join(str(channel) for channel in restored_channels),
+    )
+
+
+def format_log_success(
+    resource: object,
+    csv_path: object,
+    result: Mapping[str, Any],
+) -> tuple[str, ...]:
+    return (
+        f"Resource: {resource}",
+        f"CSV: {csv_path}",
+        f"Samples written: {result['samples_written']}",
+        f"Stopped: {str(result['stopped']).lower()}",
+    )
+
+
+def format_sequence_lint_summary(data: Mapping[str, Any]) -> tuple[str, ...]:
+    return (
+        f"Status: {data['status']}",
+        f"Sequence version: {data['sequence_version']}",
+        f"Steps: {data['step_count']}",
+    )
+
+
+def format_ramp_list_summary(data: Mapping[str, Any]) -> tuple[str, ...]:
+    return (
+        f"Status: {data['status']}",
+        f"Ramp list version: {data['ramp_list_version']}",
+        f"Segments: {data['segment_count']}",
+        f"Completed segments: {data['completed_segments']}",
     )

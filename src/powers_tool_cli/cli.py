@@ -1273,7 +1273,7 @@ def _run_clear(args: argparse.Namespace) -> int:
         )
         return 0
 
-    print(f"Cleared instrument status for {args.resource}")
+    _emit_text_lines(cli_rendering.format_clear_success(args.resource))
     return 0
 
 
@@ -3317,8 +3317,12 @@ def _run_clear_protection(args: argparse.Namespace) -> int:
     if args.json:
         emit_json_success(command=args.command, execution=execution, request=request, data=data)
         return 0
-    print(f"Resource: {args.resource}")
-    print("Cleared channels: " + ", ".join(str(channel) for channel in data["cleared_channels"]))
+    _emit_text_lines(
+        cli_rendering.format_clear_protection_success(
+            args.resource,
+            data["cleared_channels"],
+        )
+    )
     return 0
 
 
@@ -3373,16 +3377,13 @@ def _run_protection_set(args: argparse.Namespace) -> int:
     if args.json:
         emit_json_success(command=args.command, execution=execution, request=request, data=data)
         return 0
-    print(f"Resource: {args.resource}")
-    for channel in data["channels"]:
-        protection = channel["protection"]
-        print(
-            f"Channel {channel['channel']}: "
-            f"OVP={_format_text_value(protection['ovp_voltage'])}, "
-            f"OCP={_format_text_value(protection['ocp_enabled'])}, "
-            f"OCP delay={_format_text_value(protection['ocp_delay'])}, "
-            f"OCP delay trigger={_format_text_value(protection['ocp_delay_trigger'])}"
+    _emit_text_lines(
+        cli_rendering.format_protection_set_success(
+            args.resource,
+            data["channels"],
+            value_to_text=_format_text_value,
         )
+    )
     return 0
 
 
@@ -3540,9 +3541,13 @@ def _run_hardware_report(args: argparse.Namespace) -> int:
     if args.json:
         emit_json_success(command=args.command, execution=execution, request=request, data=data)
         return 0
-    print(f"Report: {args.report_json}")
-    print(f"Summary: {args.summary_md}")
-    print(f"Result: {report['result']}")
+    _emit_text_lines(
+        cli_rendering.format_hardware_report_success(
+            args.report_json,
+            args.summary_md,
+            report,
+        )
+    )
     return 0
 
 
@@ -3691,8 +3696,12 @@ def _run_restore_from_snapshot(args: argparse.Namespace) -> int:
     if args.dry_run or args.simulate:
         _print_scpi_plan(data["plan"], mode=_mode_for_args(args), dry_run=args.dry_run)
         return 0
-    print(f"Resource: {args.resource}")
-    print("Restored channels: " + ", ".join(str(channel) for channel in data["restored_channels"]))
+    _emit_text_lines(
+        cli_rendering.format_restore_from_snapshot_success(
+            args.resource,
+            data["restored_channels"],
+        )
+    )
     return 0
 
 
@@ -3765,10 +3774,7 @@ def _run_log(args: argparse.Namespace) -> int:
         )
         return 0
 
-    print(f"Resource: {args.resource}")
-    print(f"CSV: {args.csv}")
-    print(f"Samples written: {result['samples_written']}")
-    print(f"Stopped: {str(result['stopped']).lower()}")
+    _emit_text_lines(cli_rendering.format_log_success(args.resource, args.csv, result))
     return 0
 
 
@@ -3911,9 +3917,7 @@ def _run_sequence(args: argparse.Namespace) -> int:
         )
     else:
         if args.lint:
-            print(f"Status: {data['status']}")
-            print(f"Sequence version: {data['sequence_version']}")
-            print(f"Steps: {data['step_count']}")
+            _emit_text_lines(cli_rendering.format_sequence_lint_summary(data))
         else:
             _print_sequence_summary(data)
     return 0
@@ -4014,10 +4018,7 @@ def _run_ramp_list(args: argparse.Namespace) -> int:
             data=data,
         )
     else:
-        print(f"Status: {data['status']}")
-        print(f"Ramp list version: {data['ramp_list_version']}")
-        print(f"Segments: {data['segment_count']}")
-        print(f"Completed segments: {data['completed_segments']}")
+        _emit_text_lines(cli_rendering.format_ramp_list_summary(data))
     return 0
 
 
