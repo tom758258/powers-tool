@@ -35,8 +35,7 @@ from powers_tool_core.support_policy import (
     exact_live_support_metadata,
     normalize_backend,
     normalize_transport,
-    unevaluated_live_support_policy_metadata,
-)
+    )
 from powers_tool_core.testing.simulator import SimulatedResourceManager
 
 from .jobs import Job
