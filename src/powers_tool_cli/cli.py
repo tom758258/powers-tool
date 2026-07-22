@@ -291,7 +291,31 @@ def build_parser() -> argparse.ArgumentParser:
         validation_execution_from_argv=_validation_execution_from_argv,
         request_from_argv=_request_from_argv,
     )
-    return _build_parser(sys.modules[__name__], _package_version)
+    return _build_parser(
+        _package_version,
+        run_list_resources=_run_list_resources,
+        run_verify=_run_verify,
+        run_clear=_run_clear,
+        run_error=_run_error,
+        run_measure=_run_measure,
+        run_measure_all=_run_measure_all,
+        run_status=_run_status,
+        run_validate_readonly=_run_validate_readonly,
+        run_readback=_run_readback,
+        run_protection_status=_run_protection_status,
+        run_protection_set=_run_protection_set,
+        run_clear_protection=_run_clear_protection,
+        run_identify=_run_identify,
+        run_snapshot=_run_snapshot,
+        run_snapshot_diff=_run_snapshot_diff,
+        run_hardware_report=_run_hardware_report,
+        run_restore_from_snapshot=_run_restore_from_snapshot,
+        run_log=_run_log,
+        run_doctor=_run_doctor,
+        run_capabilities=_run_capabilities,
+        run_safety_inspect=_run_safety_inspect,
+        run_worker=_run_worker,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

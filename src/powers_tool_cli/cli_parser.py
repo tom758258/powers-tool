@@ -497,9 +497,34 @@ def _trigger_pins_list(value: str) -> tuple[int, ...]:
         raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
+_CommandRunner = Callable[[argparse.Namespace], int]
+
+
 def build_parser(
-    runtime: Any,
     version_provider: Callable[[], str],
+    *,
+    run_list_resources: _CommandRunner,
+    run_verify: _CommandRunner,
+    run_clear: _CommandRunner,
+    run_error: _CommandRunner,
+    run_measure: _CommandRunner,
+    run_measure_all: _CommandRunner,
+    run_status: _CommandRunner,
+    run_validate_readonly: _CommandRunner,
+    run_readback: _CommandRunner,
+    run_protection_status: _CommandRunner,
+    run_protection_set: _CommandRunner,
+    run_clear_protection: _CommandRunner,
+    run_identify: _CommandRunner,
+    run_snapshot: _CommandRunner,
+    run_snapshot_diff: _CommandRunner,
+    run_hardware_report: _CommandRunner,
+    run_restore_from_snapshot: _CommandRunner,
+    run_log: _CommandRunner,
+    run_doctor: _CommandRunner,
+    run_capabilities: _CommandRunner,
+    run_safety_inspect: _CommandRunner,
+    run_worker: _CommandRunner,
 ) -> argparse.ArgumentParser:
     parser = JsonCliArgumentParser(
         prog="powers-tool",
@@ -535,7 +560,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses used for live checks.",
     )
-    list_parser.set_defaults(func=runtime._run_list_resources)
+    list_parser.set_defaults(func=run_list_resources)
 
     verify_parser = subparsers.add_parser(
         "verify",
@@ -553,7 +578,7 @@ def build_parser(
         action="store_true",
         help="Print the SCPI command and response for the verification query.",
     )
-    verify_parser.set_defaults(func=runtime._run_verify)
+    verify_parser.set_defaults(func=run_verify)
 
     clear_parser = subparsers.add_parser(
         "clear",
@@ -571,7 +596,7 @@ def build_parser(
         action="store_true",
         help="Print the SCPI clear command.",
     )
-    clear_parser.set_defaults(func=runtime._run_clear)
+    clear_parser.set_defaults(func=run_clear)
 
     error_parser = subparsers.add_parser(
         "error",
@@ -594,7 +619,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses used for the error query.",
     )
-    error_parser.set_defaults(func=runtime._run_error)
+    error_parser.set_defaults(func=run_error)
 
     measure_parser = subparsers.add_parser(
         "measure",
@@ -621,7 +646,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses used for measurements.",
     )
-    measure_parser.set_defaults(func=runtime._run_measure)
+    measure_parser.set_defaults(func=run_measure)
 
     measure_all_parser = subparsers.add_parser(
         "measure-all",
@@ -640,7 +665,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses used for measurements.",
     )
-    measure_all_parser.set_defaults(func=runtime._run_measure_all)
+    measure_all_parser.set_defaults(func=run_measure_all)
 
     from powers_tool_cli.commands import output as output_commands
     from powers_tool_cli.commands import trigger as trigger_commands
@@ -681,7 +706,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    status_parser.set_defaults(func=runtime._run_status)
+    status_parser.set_defaults(func=run_status)
 
     validate_readonly_parser = subparsers.add_parser(
         "validate-readonly",
@@ -704,7 +729,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    validate_readonly_parser.set_defaults(func=runtime._run_validate_readonly)
+    validate_readonly_parser.set_defaults(func=run_validate_readonly)
 
     readback_parser = subparsers.add_parser(
         "readback",
@@ -723,7 +748,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    readback_parser.set_defaults(func=runtime._run_readback)
+    readback_parser.set_defaults(func=run_readback)
 
     protection_parser = subparsers.add_parser(
         "protection-status",
@@ -741,7 +766,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    protection_parser.set_defaults(func=runtime._run_protection_status)
+    protection_parser.set_defaults(func=run_protection_status)
 
     protection_set_parser = subparsers.add_parser(
         "protection-set",
@@ -786,7 +811,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    protection_set_parser.set_defaults(func=runtime._run_protection_set)
+    protection_set_parser.set_defaults(func=run_protection_set)
 
     clear_protection_parser = subparsers.add_parser(
         "clear-protection",
@@ -821,7 +846,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    clear_protection_parser.set_defaults(func=runtime._run_clear_protection)
+    clear_protection_parser.set_defaults(func=run_clear_protection)
 
     identify_parser = subparsers.add_parser(
         "identify",
@@ -840,7 +865,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    identify_parser.set_defaults(func=runtime._run_identify)
+    identify_parser.set_defaults(func=run_identify)
 
     snapshot_parser = subparsers.add_parser(
         "snapshot",
@@ -874,7 +899,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    snapshot_parser.set_defaults(func=runtime._run_snapshot)
+    snapshot_parser.set_defaults(func=run_snapshot)
 
     snapshot_diff_parser = subparsers.add_parser(
         "snapshot-diff",
@@ -884,7 +909,7 @@ def build_parser(
     snapshot_diff_parser.add_argument("--after", required=True, help="After snapshot JSON path.")
     snapshot_diff_parser.add_argument("--summary", action="store_true", help="Include category change counts and shorten human output.")
     _add_json_argument(snapshot_diff_parser)
-    snapshot_diff_parser.set_defaults(func=runtime._run_snapshot_diff)
+    snapshot_diff_parser.set_defaults(func=run_snapshot_diff)
 
     hardware_report_parser = subparsers.add_parser(
         "hardware-report",
@@ -899,7 +924,7 @@ def build_parser(
     hardware_report_parser.add_argument("--before-json", help="Optional before snapshot JSON path.")
     hardware_report_parser.add_argument("--after-json", help="Optional after snapshot JSON path.")
     _add_json_argument(hardware_report_parser)
-    hardware_report_parser.set_defaults(func=runtime._run_hardware_report)
+    hardware_report_parser.set_defaults(func=run_hardware_report)
 
     restore_parser = subparsers.add_parser(
         "restore-from-snapshot",
@@ -936,7 +961,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    restore_parser.set_defaults(func=runtime._run_restore_from_snapshot)
+    restore_parser.set_defaults(func=run_restore_from_snapshot)
 
     log_parser = subparsers.add_parser(
         "log",
@@ -988,7 +1013,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    log_parser.set_defaults(func=runtime._run_log)
+    log_parser.set_defaults(func=run_log)
 
     from powers_tool_cli.commands import sequence as sequence_command
     from powers_tool_cli.commands import ramp_list as ramp_list_command
@@ -1012,7 +1037,7 @@ def build_parser(
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    doctor_parser.set_defaults(func=runtime._run_doctor)
+    doctor_parser.set_defaults(func=run_doctor)
 
     capabilities_parser = subparsers.add_parser(
         "capabilities",
@@ -1029,7 +1054,7 @@ def build_parser(
         help="Print SCPI commands and responses to stderr.",
     )
     capabilities_parser.add_argument("--command", dest="selected_command", help="Select one command support entry.")
-    capabilities_parser.set_defaults(func=runtime._run_capabilities)
+    capabilities_parser.set_defaults(func=run_capabilities)
 
     safety_parser = subparsers.add_parser(
         "safety",
@@ -1050,10 +1075,10 @@ def build_parser(
     _add_json_argument(safety_inspect_parser)
     _add_safety_config_argument(safety_inspect_parser)
     safety_inspect_parser.add_argument("--explain", action="store_true", help="Include per-field effective value and source details.")
-    safety_inspect_parser.set_defaults(func=runtime._run_safety_inspect)
+    safety_inspect_parser.set_defaults(func=run_safety_inspect)
 
     from powers_tool_cli.commands import lifecycle as lifecycle_commands
 
-    lifecycle_commands.register_commands(subparsers, run_worker_command=runtime._run_worker)
+    lifecycle_commands.register_commands(subparsers, run_worker_command=run_worker)
 
     return parser
