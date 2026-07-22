@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import ast
+import inspect
 from pathlib import Path
 import subprocess
 import sys
 import textwrap
+
+import pytest
 
 import powers_tool_cli.cli as cli
 import powers_tool_cli.cli_parser as cli_parser
@@ -57,6 +60,75 @@ PARSER_PRIMITIVES = (
     "_trigger_pins_list",
     "_trigger_poll_ms",
 )
+
+
+ROOT_RUNNER_BINDINGS = {
+    "run_list_resources": "_run_list_resources",
+    "run_verify": "_run_verify",
+    "run_clear": "_run_clear",
+    "run_error": "_run_error",
+    "run_measure": "_run_measure",
+    "run_measure_all": "_run_measure_all",
+    "run_status": "_run_status",
+    "run_validate_readonly": "_run_validate_readonly",
+    "run_readback": "_run_readback",
+    "run_protection_status": "_run_protection_status",
+    "run_protection_set": "_run_protection_set",
+    "run_clear_protection": "_run_clear_protection",
+    "run_identify": "_run_identify",
+    "run_snapshot": "_run_snapshot",
+    "run_snapshot_diff": "_run_snapshot_diff",
+    "run_hardware_report": "_run_hardware_report",
+    "run_restore_from_snapshot": "_run_restore_from_snapshot",
+    "run_log": "_run_log",
+    "run_doctor": "_run_doctor",
+    "run_capabilities": "_run_capabilities",
+    "run_safety_inspect": "_run_safety_inspect",
+    "run_worker": "_run_worker",
+}
+
+
+ROOT_COMMAND_HANDLERS = {
+    ("list-resources",): cli._run_list_resources,
+    ("verify",): cli._run_verify,
+    ("clear",): cli._run_clear,
+    ("error",): cli._run_error,
+    ("measure",): cli._run_measure,
+    ("measure-all",): cli._run_measure_all,
+    ("read-status",): cli._run_status,
+    ("validate-readonly",): cli._run_validate_readonly,
+    ("readback",): cli._run_readback,
+    ("protection-status",): cli._run_protection_status,
+    ("protection-set",): cli._run_protection_set,
+    ("clear-protection",): cli._run_clear_protection,
+    ("identify",): cli._run_identify,
+    ("snapshot",): cli._run_snapshot,
+    ("snapshot-diff",): cli._run_snapshot_diff,
+    ("hardware-report",): cli._run_hardware_report,
+    ("restore-from-snapshot",): cli._run_restore_from_snapshot,
+    ("log",): cli._run_log,
+    ("doctor",): cli._run_doctor,
+    ("capabilities",): cli._run_capabilities,
+    ("safety", "inspect"): cli._run_safety_inspect,
+    ("worker",): cli._run_worker,
+}
+
+
+def _parser_for_path(parser: argparse.ArgumentParser, path: tuple[str, ...]) -> argparse.ArgumentParser:
+    current_parser = parser
+    for command_name in path:
+        subparsers = next(
+            (
+                action
+                for action in current_parser._actions
+                if isinstance(action, argparse._SubParsersAction)
+            ),
+            None,
+        )
+        assert subparsers is not None, f"No subparsers found while resolving {path!r}."
+        assert command_name in subparsers.choices, f"Missing parser path {path!r}."
+        current_parser = subparsers.choices[command_name]
+    return current_parser
 
 
 def test_cli_parser_primitives_have_one_owner_and_keep_facade_imports() -> None:
@@ -124,30 +196,28 @@ def test_cli_parser_import_does_not_load_cli_or_worker() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 def test_cli_parser_build_parser_signature_has_no_whole_module_dependency() -> None:
-    import inspect
     sig = inspect.signature(cli_parser.build_parser)
     params = list(sig.parameters.values())
 
-    # 1. First parameter must be version_provider (positional or keyword)
-    assert len(params) > 0
     assert params[0].name == "version_provider"
+    assert params[0].kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert [param.name for param in params if param.kind != inspect.Parameter.KEYWORD_ONLY] == [
+        "version_provider"
+    ]
+    assert not any(
+        param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+        for param in params
+    )
 
-    # 2. Assert there are exactly 22 keyword-only runner callables
     kw_only_params = [p for p in params if p.kind == inspect.Parameter.KEYWORD_ONLY]
-    assert len(kw_only_params) == 22
+    assert {param.name for param in kw_only_params} == set(ROOT_RUNNER_BINDINGS)
 
-    # 3. Assert no generic runtime, module, namespace, mapping, or collection parameters are allowed
     banned_names = {"runtime", "module", "namespace", "runners", "registry", "mapping", "container", "context"}
     for param in params:
         assert param.name not in banned_names, f"Banned parameter '{param.name}' found in signature."
 
-    # 4. Verify all keyword-only parameters are runner names starting with 'run_'
-    for param in kw_only_params:
-        assert param.name.startswith("run_"), f"Keyword-only parameter '{param.name}' must start with 'run_'."
-
 
 def test_cli_build_parser_does_not_pass_whole_module() -> None:
-    import inspect
     source = Path(cli.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
 
@@ -171,79 +241,37 @@ def test_cli_build_parser_does_not_pass_whole_module() -> None:
     assert len(visitor.calls) == 1, "Expected exactly one call to '_build_parser' inside 'build_parser'."
     call = visitor.calls[0]
 
-    # Ensure sys.modules[__name__], cli, or similar module references are NOT passed
-    for arg in call.args:
-        if isinstance(arg, ast.Call):
-            # check for sys.modules[...]
-            if isinstance(arg.func, ast.Attribute) and arg.func.attr == "modules":
-                raise AssertionError("sys.modules must not be passed to '_build_parser'.")
-        if isinstance(arg, ast.Name):
-            assert arg.id not in ("cli", "sys"), "Module or package namespace passed to '_build_parser'."
-
-    # Ensure the 22 root runners are passed explicitly as keyword arguments
-    kwargs = {kw.arg: kw.value for kw in call.keywords}
-    assert len(kwargs) == 22
-    for k, v in kwargs.items():
-        assert k.startswith("run_")
-        assert isinstance(v, ast.Name)
-        assert v.id.startswith("_run_")
+    assert len(call.args) == 1
+    assert not any(isinstance(arg, ast.Starred) for arg in call.args)
+    assert isinstance(call.args[0], ast.Name)
+    assert call.args[0].id == "_package_version"
+    assert all(keyword.arg is not None for keyword in call.keywords)
+    assert len(call.keywords) == len(ROOT_RUNNER_BINDINGS)
+    assert {keyword.arg for keyword in call.keywords} == set(ROOT_RUNNER_BINDINGS)
+    for keyword in call.keywords:
+        assert keyword.arg is not None
+        assert isinstance(keyword.value, ast.Name)
+        assert keyword.value.id == ROOT_RUNNER_BINDINGS[keyword.arg]
 
 
 def test_cli_parser_commands_point_to_original_callables() -> None:
-    # Verify that the parsed command actions still link to the correct root and lifecycle runners in cli.py
     parser = cli.build_parser()
-    subparsers = next(
-        action
-        for action in parser._actions
-        if isinstance(action, argparse._SubParsersAction)
-    )
-
-    for cmd_name in cli.COMMAND_NAMES:
-        expected_func_name = f"_run_{cmd_name.replace('-', '_')}"
-        if not hasattr(cli, expected_func_name):
-            continue
-
-        sub_parser = subparsers.choices[cmd_name]
-        func = sub_parser.get_default("func")
-        if func is None:
-            continue
-
-        # Only check commands whose default function is defined inside cli.py itself
-        # This elegantly skips other modules (like lifecycle or family command modules)
-        if getattr(func, "__module__", None) != "powers_tool_cli.cli":
-            continue
-
-        expected_callable = getattr(cli, expected_func_name)
-        assert func is expected_callable, f"Command '{cmd_name}' has incorrect runner '{func.__name__}'."
-
-    # Verify lifecycle nested client runner (worker command)
-    worker_parser = subparsers.choices["worker"]
-    func = worker_parser.get_default("func")
-    assert func is cli._run_worker, f"Worker command has incorrect runner '{func.__name__ if func else None}'."
+    for path, expected_handler in ROOT_COMMAND_HANDLERS.items():
+        parser_for_path = _parser_for_path(parser, path)
+        assert parser_for_path.get_default("func") is expected_handler
 
 
-def test_args_runtime_still_exists_temporarily() -> None:
-    # In this first small step, args._runtime must still exist temporarily as required
-    parser = cli.build_parser()
-    args = parser.parse_args(["doctor", "--simulate", "--json"])
-    # Since main() is not called here, parser.parse_args() doesn't set _runtime directly,
-    # but cli.main() does. Let's make sure cli.main() sets args._runtime to sys.modules[__name__]
-    # as required for the temporary boundary.
-    import sys
+def test_args_runtime_still_exists_temporarily(monkeypatch: pytest.MonkeyPatch) -> None:
     cli_module = sys.modules[cli.__name__]
+    captured_args: argparse.Namespace | None = None
 
-    # Let's mock the internal run_doctor to make it a no-op so we can run main safely
-    orig_doctor = cli._run_doctor
-    captured_args = None
     def mock_doctor(args_obj: argparse.Namespace) -> int:
         nonlocal captured_args
         captured_args = args_obj
         return 0
 
-    cli._run_doctor = mock_doctor
-    try:
-        cli.main(["doctor", "--simulate", "--json"])
-        assert captured_args is not None
-        assert getattr(captured_args, "_runtime", None) is cli_module, "args._runtime should temporarily exist."
-    finally:
-        cli._run_doctor = orig_doctor
+    monkeypatch.setattr(cli, "_run_doctor", mock_doctor)
+
+    assert cli.main(["doctor", "--simulate", "--json"]) == 0
+    assert captured_args is not None
+    assert captured_args._runtime is cli_module
