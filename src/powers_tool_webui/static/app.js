@@ -1795,6 +1795,8 @@ function addHistory(jobId, command, status, label = command) {
   webuiJobTransport.addHistory(state, jobId, command, status, label, {
     commandDisplayName,
     statusSummary: webuiResults.statusSummary,
+    statusClass: webuiResults.statusClass,
+    statusLabel: webuiResults.statusLabel,
     updateExecutionModeUi
   });
 }
@@ -1802,6 +1804,8 @@ function addHistory(jobId, command, status, label = command) {
 function updateHistory(jobId, status) {
   webuiJobTransport.updateHistory(state, jobId, status, {
     statusSummary: webuiResults.statusSummary,
+    statusClass: webuiResults.statusClass,
+    statusLabel: webuiResults.statusLabel,
     updateExecutionModeUi
   });
 }
@@ -1809,6 +1813,8 @@ function updateHistory(jobId, status) {
 function updateJobResult(jobId, status, summary) {
   webuiJobTransport.updateJobResult(state, jobId, status, summary, {
     statusSummary: webuiResults.statusSummary,
+    statusClass: webuiResults.statusClass,
+    statusLabel: webuiResults.statusLabel,
     updateExecutionModeUi
   });
 }
