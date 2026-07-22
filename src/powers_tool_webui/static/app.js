@@ -44,18 +44,14 @@ const TRIGGER_COMMANDS = new Set([
   "trigger-fire",
   "trigger-abort"
 ]);
-const STATE_CLASS_NAMES = ["state-ok", "state-warning", "state-error", "state-idle"];
 const DEFAULT_CHANNELS = [1, 2, 3];
 const REAR_TRIGGER_PULSE_MODEL_ID = "keysight-e36312a";
-const E3646A_MODEL_ID = "keysight-e3646a";
 
 const deviceResourceController = webuiDevice.createDeviceResourceController({
   state,
   devicePresentation: webuiDevice,
   executionContext: webuiContext,
   fetchJson: (...args) => webuiApi.fetchJson(...args),
-  stateClassNames: STATE_CLASS_NAMES,
-  e3646aModelId: E3646A_MODEL_ID,
   clearStaleResourceLiveSupport: (...args) => clearStaleResourceLiveSupport(...args),
   syncBasicFromLivePanel: (...args) => syncBasicFromLivePanel(...args),
   selectCommand: (...args) => selectCommand(...args),
@@ -69,8 +65,6 @@ const deviceResourceController = webuiDevice.createDeviceResourceController({
   refreshElectricalRatingConstraints: (...args) => refreshElectricalRatingConstraints(...args),
   renderWorkspaceSummary: (...args) => renderWorkspaceSummary(...args),
   updateSelectedCommandState: (...args) => updateSelectedCommandState(...args),
-  refreshDeviceResourceSummary: (...args) => updateDeviceResourceSummary(...args),
-  stopLiveJobsBeforeModeChange: (...args) => stopRealLiveJobsAndWait(...args),
   closeEventSource: (...args) => closeEventSource(...args),
   renderClientResult: (...args) => renderClientResult(...args),
   renderBlankLivePanel: (...args) => renderBlankLivePanel(...args)
@@ -197,9 +191,6 @@ const commandController = webuiCommandForm.createCommandController({
   fetchJson: (...args) => webuiApi.fetchJson(...args),
   commandCatalog: webuiCommandCatalog,
   populateIdentitySelector: (...args) => populateIdentitySelector(...args),
-  refreshBasicInputConstraintsForForm: (...args) => refreshBasicInputConstraints(...args),
-  refreshBasicInputConstraints: (...args) => refreshBasicInputConstraints(...args),
-  commandDisplayName: (...args) => commandDisplayName(...args),
   commandMeta: (...args) => commandMeta(...args),
   renderWorkspaceSummary: (...args) => renderWorkspaceSummary(...args),
   prefillClearProtectionChannel: (...args) => prefillClearProtectionChannel(...args),
@@ -213,11 +204,7 @@ const commandController = webuiCommandForm.createCommandController({
   isNumericChannel: (...args) => isNumericChannel(...args),
   isChannelSupported: (...args) => isChannelSupported(...args),
   channelUnsupportedReason: (...args) => channelUnsupportedReason(...args),
-  applyParameterConstraintForForm: (...args) => applyParameterConstraint(...args),
-  applyElectricalRatingConstraintForForm: (...args) => applyElectricalRatingConstraint(...args),
   applyWorkflowPulseControlState: (...args) => applyWorkflowPulseControlState(...args),
-  enforcePulseFormRulesForForm: (...args) => enforcePulseFormRules(...args),
-  refreshElectricalRatingConstraintsForForm: (...args) => refreshElectricalRatingConstraints(...args),
   renderLoopControl: (...args) => renderLoopControl(...args),
   refreshLoopCompleteOption: (...args) => refreshLoopCompleteOption(...args),
   selectedPlanningIdentity: (...args) => selectedPlanningIdentity(...args),
@@ -227,7 +214,6 @@ const commandController = webuiCommandForm.createCommandController({
   activeTriggerListDraft: (...args) => activeTriggerListDraft(...args),
   sequenceDocumentFromEditor: (...args) => sequenceDocumentFromEditor(...args),
   parseMaybeJson: (...args) => parseMaybeJson(...args),
-  renderCurrentForm: (...args) => renderForm(...args),
   restoreDocument: webuiRestoreDocument,
   electrical: webuiElectrical,
   electricalConstraintAttributes: ELECTRICAL_CONSTRAINT_ATTRIBUTES,

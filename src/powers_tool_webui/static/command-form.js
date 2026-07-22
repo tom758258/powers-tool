@@ -151,7 +151,6 @@ export function createCommandController({
   fetchJson,
   commandCatalog,
   populateIdentitySelector,
-  refreshBasicInputConstraintsForForm,
   commandMeta,
   renderWorkspaceSummary,
   prefillClearProtectionChannel,
@@ -165,11 +164,7 @@ export function createCommandController({
   isNumericChannel,
   isChannelSupported,
   channelUnsupportedReason,
-  applyParameterConstraintForForm,
-  applyElectricalRatingConstraintForForm,
   applyWorkflowPulseControlState,
-  enforcePulseFormRulesForForm,
-  refreshElectricalRatingConstraintsForForm,
   renderLoopControl,
   refreshLoopCompleteOption,
   selectedPlanningIdentity,
@@ -179,7 +174,6 @@ export function createCommandController({
   activeTriggerListDraft,
   sequenceDocumentFromEditor,
   parseMaybeJson,
-  renderCurrentForm,
   restoreDocument,
   electrical,
   electricalConstraintAttributes,
@@ -197,7 +191,7 @@ async function loadCommands() {
   state.physicalModels = Array.isArray(payload.physical_models) ? payload.physical_models : [];
   state.planningProfiles = payload.planning_profiles || {};
   populateIdentitySelector();
-  refreshBasicInputConstraintsForForm();
+  refreshBasicInputConstraints();
   renderCommands();
 }
 
@@ -298,16 +292,16 @@ function renderForm(command) {
     }
     input.id = `param-${param.name}`;
     if (param.value !== undefined) input.value = param.value;
-    applyParameterConstraintForForm(input, param.name);
-    applyElectricalRatingConstraintForForm(input, param.name);
+    applyParameterConstraint(input, param.name);
+    applyElectricalRatingConstraint(input, param.name);
     if (param.name.includes("completion_pulse")) applyWorkflowPulseControlState(input);
     input.addEventListener("change", () => {
-      enforcePulseFormRulesForForm(command, param.name, input);
-      refreshElectricalRatingConstraintsForForm();
+      enforcePulseFormRules(command, param.name, input);
+      refreshElectricalRatingConstraints();
       updateSelectedCommandState();
     });
     input.addEventListener("input", () => {
-      enforcePulseFormRulesForForm(command, param.name, input);
+      enforcePulseFormRules(command, param.name, input);
       updateSelectedCommandState();
     });
     const label = param.type === "checkbox"
@@ -614,7 +608,7 @@ function updateRampListPulse(name, value) {
     state.rampListCompletionPulse ||= { timing: "segment", pins: [1], polarity: "positive" };
     state.rampListCompletionPulse[name] = name === "pins" ? parseRearPins(value) : value;
   }
-  renderCurrentForm("ramp-list");
+  renderForm("ramp-list");
   updateSelectedCommandState();
 }
 

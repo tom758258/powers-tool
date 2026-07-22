@@ -30,14 +30,15 @@ export function resourceLabel(resource, name) {
   return [name, resource.idn?.manufacturer, resource.idn?.model].filter(Boolean).join(" - ");
 }
 
+const STATE_CLASS_NAMES = ["state-ok", "state-warning", "state-error", "state-idle"];
+const E3646A_MODEL_ID = "keysight-e3646a";
+
 
 export function createDeviceResourceController({
   state,
   devicePresentation,
   executionContext,
   fetchJson,
-  stateClassNames,
-  e3646aModelId,
   clearStaleResourceLiveSupport,
   syncBasicFromLivePanel,
   selectCommand,
@@ -51,8 +52,6 @@ export function createDeviceResourceController({
   refreshElectricalRatingConstraints,
   renderWorkspaceSummary,
   updateSelectedCommandState,
-  refreshDeviceResourceSummary,
-  stopLiveJobsBeforeModeChange,
   closeEventSource,
   renderClientResult,
   renderBlankLivePanel
@@ -210,7 +209,7 @@ function updateExecutionModeUi({ renderCommands: shouldRenderCommands = true } =
     else { badge.textContent = "Real · Writes locked"; badge.classList.add("real-locked"); }
   }
   populateIdentitySelector();
-  refreshDeviceResourceSummary();
+  updateDeviceResourceSummary();
   if (shouldRenderCommands) renderCommands();
   syncBasicFromLivePanel(state.livePanel);
 }
@@ -256,7 +255,7 @@ async function handleExecutionModeChange(event) {
   state.executionModeTransition = true;
   document.querySelectorAll('input[name="execution-mode"]').forEach((radio) => radio.disabled = true);
   try {
-    await stopLiveJobsBeforeModeChange();
+    await stopRealLiveJobsAndWait();
     rememberCurrentExecutionIdentity();
     if (state.executionMode === "real") {
       clearRealWriteAuthorization();
@@ -390,7 +389,7 @@ function handleExpectedModelChanged() {
   if (state.executionMode === "real") {
     clearRealWriteAuthorization();
   }
-  refreshDeviceResourceSummary();
+  updateDeviceResourceSummary();
   refreshBasicInputConstraints();
   syncBasicFromLivePanel(state.livePanel);
   refreshElectricalRatingConstraints();

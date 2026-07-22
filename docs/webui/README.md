@@ -44,6 +44,15 @@ Snapshot, and Restore editors plus their JSON Load/Save orchestration. It
 receives state and application callbacks explicitly from `app.js`; document
 schemas remain owned by their focused document modules.
 
+`app.js` remains the bootstrap and composition root. Controller factory
+parameters represent only dependencies supplied across module boundaries;
+helpers owned by one controller call each other directly instead of being
+routed back through `app.js`. `device-resource.js` privately owns the fixed
+state-indicator class names and E3646A presentation model identifier used by
+its Device/Resource and execution-mode presentation. `command-form.js`
+continues to own command/form rendering, Trigger notes, and parameter and
+electrical constraints. Workflow ownership is unchanged.
+
 ## Package And Entry Point
 
 The WebUI exposes the `powers-tool-webui` console command for the local

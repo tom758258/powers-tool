@@ -445,7 +445,7 @@ def test_static_model_profile_change_refreshes_effective_ui_model():
     assert "return detectedCommandModelForResource(valueOrNull(\"resource\"));" in selected_command
     assert "state.channelCapabilitiesByModel?.[expected]" in selected_channel
     assert "return detectedChannelModelForResource(valueOrNull(\"resource\"));" in selected_channel
-    assert "refreshDeviceResourceSummary();" in handler
+    assert "updateDeviceResourceSummary();" in handler
     assert "refreshBasicInputConstraints();" in handler
     assert "syncBasicFromLivePanel(state.livePanel);" in handler
     assert "refreshElectricalRatingConstraints();" in handler

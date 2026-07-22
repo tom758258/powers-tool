@@ -518,6 +518,7 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
           ["execution-mode-badge", createControl()],
           ["execution-mode-help", createControl()],
           ["identity-model-label", createControl()],
+          ["device-resource-summary", createControl()],
           ["command-form", createControl()],
           ["workspace-summary-content", createControl()]
         ]);
@@ -621,7 +622,8 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         strictAssert.equal(webuiContext.buildWorkspaceResultKey(realContext), realKey);
         strictAssert.deepEqual(selectedCalls, ["set", "set", "set"]);
 
-        stopRealLiveJobsAndWait = async () => { throw new Error("Live stop failed"); };
+        state.liveJobId = "live-stop-failure";
+        webuiApi.fetchJson = async () => { throw new Error("Live stop failed"); };
         await handleExecutionModeChange({ target: radios[1] });
         strictAssert.equal(state.executionMode, "real");
         strictAssert.deepEqual(selectedCalls, ["set", "set", "set"]);

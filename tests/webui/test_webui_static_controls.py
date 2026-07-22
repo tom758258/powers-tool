@@ -711,7 +711,11 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         const byClass = (root, className) => descendants(root).filter(
           (node) => node.classList.contains(className)
         );
-        document.getElementById = (id) => id === "command-form" ? commandForm : byId(commandForm, id);
+        document.getElementById = (id) => {
+          if (id === "command-form") return commandForm;
+          if (["expected-model-id", "resource"].includes(id)) return { value: "" };
+          return byId(commandForm, id);
+        };
         document.querySelectorAll = () => [];
         applyParameterConstraint = () => {};
         applyElectricalRatingConstraint = () => {};
