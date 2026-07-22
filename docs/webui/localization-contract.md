@@ -369,10 +369,17 @@ switches.
 
 ### P1: Catalog And Runtime Contract
 
-Add dependency-free English and `zh-TW` catalogs, a pure i18n runtime, locale
-normalization, lookup/fallback, named interpolation, and catalog/runtime unit
-tests. Update explicit native-module and static-asset test inventories. Do not
-wire the runtime into production surfaces yet.
+P1 completed the dependency-free foundation in `locale_en.js`,
+`locale_zh_tw.js`, and `i18n.js`. The locale modules own frozen maintained
+catalogs, while the pure runtime owns exact locale validation, lookup and
+English fallback, optional raw fallback, named interpolation, and the initial
+English singleton. Both production catalogs remain empty because no existing
+WebUI prose is migrated in P1.
+
+The existing WebUI does not import the runtime and continues to display its
+current English presentation. Browser-language detection, storage access, DOM
+bindings, and language switching remain unimplemented. The P2-P5 ownership and
+state-preservation boundaries below are unchanged.
 
 ### P2: Static Browser Presentation
 
