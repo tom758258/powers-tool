@@ -19,7 +19,7 @@ modules are inventoried only where they explicitly provide presentation metadata
 or a message source that the browser displays. This does not transfer ownership
 of those messages, validation, or diagnostics to the WebUI.
 
-P0 does not add catalogs, an i18n runtime, DOM localization helpers, a locale
+P0 does not implement catalogs, an i18n runtime, DOM localization helpers, a locale
 control, or any production prerequisite. It does not alter the English currently
 displayed by the application.
 
@@ -36,14 +36,18 @@ LOCALE_STORAGE_KEY = "powers-tool.webui.locale"
 
 Initial locale resolution has this precedence:
 
-1. Use a valid supported locale saved under `powers-tool.webui.locale`.
-2. Select `zh-TW` when the browser language is `zh-TW` or `zh-Hant`.
-3. Use `en` for all other browser languages and invalid values.
+1. Use the saved locale only when the value under
+   `powers-tool.webui.locale` is exactly `en` or `zh-TW`.
+2. Otherwise, select `zh-TW` when the browser language matches `zh-TW`,
+   `zh-TW-*`, `zh-Hant`, or `zh-Hant-*`.
+3. Use `en` for all other browser languages and saved values.
 
-Locale matching should be case-insensitive, treat `_` as `-`, and accept a
-language tag whose normalized prefix is `zh-TW-` or `zh-Hant-`. A manually saved
-locale must be an exact supported locale after normalization; arbitrary Chinese
-language tags must not be mapped to `zh-TW`.
+Saved-locale validation and browser-language matching are intentionally
+different. A saved locale receives no case folding, underscore replacement, or
+other permissive canonicalization; any value other than the exact strings `en`
+and `zh-TW` is ignored. Browser-language matching is case-insensitive, first
+normalizes `_` to `-`, and then accepts `zh-TW`, a `zh-TW-` prefix, `zh-Hant`, or
+a `zh-Hant-` prefix. Other Chinese language tags must not be mapped to `zh-TW`.
 
 The future locale control will be a single button in the upper-right of the main
 interface, not inside Device options, Settings, or another menu. It displays the
@@ -236,11 +240,11 @@ P2-P5 references are plans only; P0 changes none of these sources.
 | `src/powers_tool_webui/static/index.html` | Page shell, header, sections | `Powers WebUI`, introductory help, Device options, Command, Job History, Workspace Result | Heading/help/static text | translate | `app.*`, `device.*`, `command.*`, `job.*`, `workspace.*` | Update text nodes in place | Broad static English surface | P2 |
 | `src/powers_tool_webui/static/index.html` | Buttons and links | Scan Device, Run, Stop, Clear, download/open actions | Button/link text | translate | `common.*`, `device.action.*`, `job.action.*`, `result.action.*` | Update in place; never dispatch click | Labels are adjacent to destructive/runtime actions | P2 |
 | `src/powers_tool_webui/static/index.html` | Forms | Labels, help, placeholders, option display, title and ARIA text | Form presentation | translate | `form.*`, `accessibility.*` | Update attributes/text in place | Values must remain canonical | P2 |
-| `src/powers_tool_webui/static/index.html` | Execution selector | Real, Simulate, Dry-run and mode help | Option display | translate_with_canonical_token | `execution_mode.option.*`, `execution_mode.help.*` | Replace option text only | Existing mojibake in Real write-lock wording; option values are contracts | P2/P3 |
+| `src/powers_tool_webui/static/index.html` | Execution selector | Real, Simulate, Dry-run, initial static help, title, and ARIA text | Option display/static presentation | translate_with_canonical_token | `execution_mode.option.*`, `execution_mode.help.*`, `accessibility.*` | P2 binds static radio labels, initial help, title, and ARIA in place; P3 refreshes dynamic mode presentation | Option values are contracts; dynamic badges, mode-specific help, identity labels, and Device/Resource summaries are P3-owned | P2/P3 |
 | `src/powers_tool_webui/static/app.js` | Application status and health | Loading, ready, failure, health and selected-command presentation | Status/message | translate or preserve_raw | `app.status.*`, `status.*`, `error.*` | Translate known wrapper from cached state; retain raw detail | Some render paths fetch or mutate state | P3/P4 |
 | `src/powers_tool_webui/static/app.js` | `renderChannelCard` | Channel/output/measurement card labels and values | Dynamic summary | translate; machine_value | `live_data.channel.*` | Cached presentation-only redraw | Duplicates Live Data card rendering; uses HTML construction | P4 |
-| `src/powers_tool_webui/static/api.js` | Request helpers | Endpoint, method, payload and thrown response detail | Machine/diagnostic | machine_value or preserve_raw | `error.http.*` only for known browser wrapper | No request during locale switch | Raw HTTP detail must not be hidden or translated | P1/P4 |
-| `src/powers_tool_webui/static/state.js` | Application state | Mode, selected command/resource, jobs, results and flags | Raw state | not_user_visible | None | Must remain unchanged | Some presentation strings are currently stored with raw state | P1/P4 |
+| `src/powers_tool_webui/static/api.js` | Request helpers | Endpoint, method, payload and thrown response detail | Machine/diagnostic | machine_value or preserve_raw | `error.http.*` only for known browser wrapper | No request during locale switch | Raw HTTP detail must not be hidden or translated | P4 |
+| `src/powers_tool_webui/static/state.js` | Application state | Mode, selected command/resource, jobs, results and flags | Raw state | not_user_visible | None | Must remain unchanged | Some presentation strings are currently stored with raw state | P4/P5 |
 | `src/powers_tool_webui/static/execution-context.js` | Execution context | Canonical mode/identity/planning values | Machine value | machine_value | `execution_mode.*` only at display boundary | Read only during refresh | Identity slots and mode semantics are protected | P3 |
 | `src/powers_tool_webui/static/device-resource.js` | Device/resource summary | Connected/selected resource, expected/planning model, scan results, empty states | Dynamic summary/status | translate or preserve_raw | `device.*`, `resource.*`, `support.*` | In-place or cached raw redraw only | `liveResourceSummary()` compares `textContent` to `No live resources found`; raw scan/health state is incomplete | P3 |
 | `src/powers_tool_webui/static/device-resource.js` | Resource options | Resource display and submitted resource string | Option display/value | translate around raw value; machine_value | `resource.option.*` | Preserve selected value | Display and machine value can be conflated | P3 |
@@ -292,7 +296,7 @@ Refresh ownership is as follows:
 | Surface | Allowed refresh | Forbidden action or prerequisite |
 | --- | --- | --- |
 | Static HTML | Update registered text and safe attributes in place. | Do not replace interactive containers or dispatch events. |
-| Execution mode | Update option display/help and known status text in place. | Do not call `updateExecutionModeUi()` if it also mutates controls; never change canonical mode or identity slot. |
+| Execution mode | P2 updates static radio labels, initial static help, title, and ARIA bindings in place. P3 updates dynamic badges, mode-specific help, identity labels, and Device/Resource summaries from raw state. | Locale refresh must not call `updateExecutionModeUi()` directly because it can modify controls, identity options, commands, or state; never change canonical mode or an identity slot. |
 | Device/Resource summary | Re-label existing DOM or redraw from cached raw identity/resource/support state. | No scan, health fetch, selection change, or support request. Cache raw scan and latest health state before relying on redraw. |
 | Command catalog | Re-label entries from cached catalog metadata while preserving raw command IDs and selection. | No catalog refetch or selection handler. |
 | Command form | Update labels/help/options/validation presentation in place. | Do not call `renderForm()` while it clears/rebuilds controls. A prerequisite is a field-to-key binding or complete raw draft state. |
@@ -373,15 +377,18 @@ wire the runtime into production surfaces yet.
 ### P2: Static Browser Presentation
 
 Add DOM localization bindings for static HTML, placeholders, titles, ARIA
-labels, and option display text. Preserve all form values, IDs, `data-*` values,
-and event bindings.
+labels, and option display text. For the execution selector, P2 owns only static
+radio labels, initial static help, title, and ARIA bindings. Preserve all form
+values, IDs, `data-*` values, and event bindings.
 
 ### P3: Device, Resource, Execution, And Command Surfaces
 
-Localize Device/Resource summaries, execution-mode presentation, catalog, and
-command forms. First replace English `textContent` state inference with raw
-state, add missing raw scan/health presentation cache, preserve selection/input,
-and separate presentation updates from state-changing render paths.
+Localize Device/Resource summaries, dynamic execution-mode badges,
+mode-specific help, identity labels, the command catalog, and command forms.
+First replace English `textContent` state inference with raw state, add missing
+raw scan/health presentation cache, preserve selection/input, and separate
+presentation updates from state-changing render paths. Locale refresh must not
+call `updateExecutionModeUi()` directly.
 
 ### P4: Workflows And Dynamic Operational Surfaces
 
