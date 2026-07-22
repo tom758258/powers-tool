@@ -315,6 +315,10 @@ def build_parser() -> argparse.ArgumentParser:
         run_capabilities=_run_capabilities,
         run_safety_inspect=_run_safety_inspect,
         run_worker=_run_worker,
+        run_output_plan=_run_output_plan,
+        run_core_trigger=_run_core_trigger,
+        run_sequence_command=_run_sequence,
+        run_ramp_list_command=_run_ramp_list,
     )
 
 
@@ -353,7 +357,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         if hasattr(args, "format"):
             args.format = "json"
     setattr(args, "_raw_argv", raw_argv)
-    setattr(args, "_runtime", sys.modules[__name__])
     if getattr(args, "save_json", None) is not None and not args.json:
         emit_json_error(
             command=args.command,

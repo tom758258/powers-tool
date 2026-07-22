@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-from typing import Any
+from functools import partial
+from typing import Any, Callable
 
 from powers_tool_cli import cli_parser as parser_helpers
 from powers_tool_cli.request_primitives import (
@@ -35,8 +36,13 @@ REQUEST_FIELDS = (
 )
 
 
-def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
+def register_commands(
+    subparsers: argparse._SubParsersAction[Any],
+    *,
+    run_sequence_command: Callable[[argparse.Namespace], int],
+) -> None:
     runtime = parser_helpers
+    handler = partial(run_sequence, run_sequence_command=run_sequence_command)
     sequence_parser = subparsers.add_parser(
         "sequence",
         help="Run a conservative software sequence from a YAML or JSON file.",
@@ -58,7 +64,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    sequence_parser.set_defaults(func=run_sequence)
+    sequence_parser.set_defaults(func=handler)
 
 
 def request_for_args(args: argparse.Namespace) -> dict[str, Any]:
@@ -110,5 +116,9 @@ def core_request_for_args(args: argparse.Namespace) -> SequenceRequest:
     )
 
 
-def run_sequence(args: argparse.Namespace) -> int:
-    return args._runtime._run_sequence(args)
+def run_sequence(
+    args: argparse.Namespace,
+    *,
+    run_sequence_command: Callable[[argparse.Namespace], int],
+) -> int:
+    return run_sequence_command(args)

@@ -525,6 +525,10 @@ def build_parser(
     run_capabilities: _CommandRunner,
     run_safety_inspect: _CommandRunner,
     run_worker: _CommandRunner,
+    run_output_plan: _CommandRunner,
+    run_core_trigger: _CommandRunner,
+    run_sequence_command: _CommandRunner,
+    run_ramp_list_command: _CommandRunner,
 ) -> argparse.ArgumentParser:
     parser = JsonCliArgumentParser(
         prog="powers-tool",
@@ -670,8 +674,8 @@ def build_parser(
     from powers_tool_cli.commands import output as output_commands
     from powers_tool_cli.commands import trigger as trigger_commands
 
-    output_commands.register_commands(subparsers)
-    trigger_commands.register_commands(subparsers)
+    output_commands.register_commands(subparsers, run_output_plan=run_output_plan)
+    trigger_commands.register_commands(subparsers, run_core_trigger=run_core_trigger)
 
     status_parser = subparsers.add_parser(
         "read-status",
@@ -1018,8 +1022,8 @@ def build_parser(
     from powers_tool_cli.commands import sequence as sequence_command
     from powers_tool_cli.commands import ramp_list as ramp_list_command
 
-    sequence_command.register_commands(subparsers)
-    ramp_list_command.register_commands(subparsers)
+    sequence_command.register_commands(subparsers, run_sequence_command=run_sequence_command)
+    ramp_list_command.register_commands(subparsers, run_ramp_list_command=run_ramp_list_command)
 
     doctor_parser = subparsers.add_parser(
         "doctor",

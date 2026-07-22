@@ -78,9 +78,12 @@ place.
 - `powers_tool_cli.commands.trigger`: Trigger parser registration, runner
   adapter, and Trigger JSON request-envelope mapping.
 
-Command-family modules import shared argparse primitives directly from
-`powers_tool_cli.cli_parser`; they do not receive the top-level `cli.py`
-module as a parser or request-mapping service locator.
+Parser construction binds explicit runner callables. Command-family modules
+import shared argparse primitives directly from `powers_tool_cli.cli_parser`
+and receive only their own execution callback; parsed argparse Namespaces do
+not carry the top-level `powers_tool_cli.cli` module or another service-locator
+object. Request mapping remains owned by the command-family modules and the
+existing CLI facades.
 
 ## Install
 

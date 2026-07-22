@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-from typing import Any
+from functools import partial
+from typing import Any, Callable
 
 from powers_tool_cli import cli_parser as parser_helpers
 from powers_tool_cli.request_primitives import (
@@ -37,8 +38,13 @@ TRIGGER_COMMANDS = frozenset(
 )
 
 
-def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
+def register_commands(
+    subparsers: argparse._SubParsersAction[Any],
+    *,
+    run_core_trigger: Callable[[argparse.Namespace], int],
+) -> None:
     runtime = parser_helpers
+    handler = partial(run_trigger, run_core_trigger=run_core_trigger)
     trigger_pulse_parser = subparsers.add_parser(
         "trigger-pulse",
         help="Configure a trigger output pin and emit a BUS trigger pulse.",
@@ -86,7 +92,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    trigger_pulse_parser.set_defaults(func=run_trigger)
+    trigger_pulse_parser.set_defaults(func=handler)
 
     trigger_status_parser = subparsers.add_parser(
         "trigger-status",
@@ -111,7 +117,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    trigger_status_parser.set_defaults(func=run_trigger)
+    trigger_status_parser.set_defaults(func=handler)
 
     trigger_step_parser = subparsers.add_parser(
         "trigger-step",
@@ -140,7 +146,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
     runtime._add_backend_argument(trigger_step_parser)
     runtime._add_timeout_argument(trigger_step_parser)
     trigger_step_parser.add_argument("--log-scpi", action="store_true", help="Print SCPI commands and responses to stderr.")
-    trigger_step_parser.set_defaults(func=run_trigger)
+    trigger_step_parser.set_defaults(func=handler)
 
     trigger_list_parser = subparsers.add_parser(
         "trigger-list",
@@ -177,7 +183,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
     runtime._add_backend_argument(trigger_list_parser)
     runtime._add_timeout_argument(trigger_list_parser)
     trigger_list_parser.add_argument("--log-scpi", action="store_true", help="Print SCPI commands and responses to stderr.")
-    trigger_list_parser.set_defaults(func=run_trigger)
+    trigger_list_parser.set_defaults(func=handler)
 
     trigger_fire_parser = subparsers.add_parser(
         "trigger-fire",
@@ -195,7 +201,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
     runtime._add_backend_argument(trigger_fire_parser)
     runtime._add_timeout_argument(trigger_fire_parser)
     trigger_fire_parser.add_argument("--log-scpi", action="store_true", help="Print SCPI commands and responses to stderr.")
-    trigger_fire_parser.set_defaults(func=run_trigger)
+    trigger_fire_parser.set_defaults(func=handler)
 
     trigger_abort_parser = subparsers.add_parser(
         "trigger-abort",
@@ -212,7 +218,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
     runtime._add_backend_argument(trigger_abort_parser)
     runtime._add_timeout_argument(trigger_abort_parser)
     trigger_abort_parser.add_argument("--log-scpi", action="store_true", help="Print SCPI commands and responses to stderr.")
-    trigger_abort_parser.set_defaults(func=run_trigger)
+    trigger_abort_parser.set_defaults(func=handler)
 
 
 def request_for_args(args: argparse.Namespace) -> dict[str, Any]:
@@ -403,5 +409,9 @@ def request_from_argv(
     return {}
 
 
-def run_trigger(args: argparse.Namespace) -> int:
-    return args._runtime._run_core_trigger(args)
+def run_trigger(
+    args: argparse.Namespace,
+    *,
+    run_core_trigger: Callable[[argparse.Namespace], int],
+) -> int:
+    return run_core_trigger(args)

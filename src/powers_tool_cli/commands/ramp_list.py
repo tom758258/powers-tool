@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-from typing import Any
+from functools import partial
+from typing import Any, Callable
 
 from powers_tool_cli import cli_parser as parser_helpers
 from powers_tool_cli.request_primitives import (
@@ -23,8 +24,13 @@ from powers_tool_core.core import OperationRequest, RuntimeOptions
 from powers_tool_core.ramp_list import RAMP_LIST_KIND, RAMP_LIST_VERSION
 
 
-def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
+def register_commands(
+    subparsers: argparse._SubParsersAction[Any],
+    *,
+    run_ramp_list_command: Callable[[argparse.Namespace], int],
+) -> None:
     runtime = parser_helpers
+    handler = partial(run_ramp_list, run_ramp_list_command=run_ramp_list_command)
     parser = subparsers.add_parser(
         "ramp-list",
         help="Run a versioned list of software setpoint ramp segments.",
@@ -66,7 +72,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
     runtime._add_timeout_argument(parser)
     runtime._add_serial_arguments(parser)
     parser.add_argument("--log-scpi", action="store_true", help="Print SCPI commands and responses to stderr.")
-    parser.set_defaults(func=run_ramp_list)
+    parser.set_defaults(func=handler)
 
 
 def request_for_args(args: argparse.Namespace) -> dict[str, Any]:
@@ -164,5 +170,9 @@ def _segment_document(values: Sequence[str]) -> dict[str, Any]:
         raise ValueError("--segment values must be numeric") from exc
 
 
-def run_ramp_list(args: argparse.Namespace) -> int:
-    return args._runtime._run_ramp_list(args)
+def run_ramp_list(
+    args: argparse.Namespace,
+    *,
+    run_ramp_list_command: Callable[[argparse.Namespace], int],
+) -> int:
+    return run_ramp_list_command(args)

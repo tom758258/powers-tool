@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-from typing import Any
+from functools import partial
+from typing import Any, Callable
 
 from powers_tool_cli import cli_parser as parser_helpers
 from powers_tool_cli.request_primitives import (
@@ -56,8 +57,13 @@ OUTPUT_REQUEST_COMMANDS = frozenset(
 )
 
 
-def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
+def register_commands(
+    subparsers: argparse._SubParsersAction[Any],
+    *,
+    run_output_plan: Callable[[argparse.Namespace], int],
+) -> None:
     runtime = parser_helpers
+    handler = partial(run_output, run_output_plan=run_output_plan)
     set_parser = subparsers.add_parser(
         "set",
         help="Preview safe voltage/current setpoint changes.",
@@ -87,7 +93,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    set_parser.set_defaults(func=run_output)
+    set_parser.set_defaults(func=handler)
 
     output_on_parser = subparsers.add_parser(
         "output-on",
@@ -121,7 +127,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Confirm real output enable when configured thresholds require it.",
     )
-    output_on_parser.set_defaults(func=run_output)
+    output_on_parser.set_defaults(func=handler)
 
     output_off_parser = subparsers.add_parser(
         "output-off",
@@ -150,7 +156,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    output_off_parser.set_defaults(func=run_output)
+    output_off_parser.set_defaults(func=handler)
 
     safe_off_parser = subparsers.add_parser(
         "safe-off",
@@ -178,7 +184,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    safe_off_parser.set_defaults(func=run_output)
+    safe_off_parser.set_defaults(func=handler)
 
     output_state_parser = subparsers.add_parser(
         "output-state",
@@ -203,7 +209,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    output_state_parser.set_defaults(func=run_output)
+    output_state_parser.set_defaults(func=handler)
 
     cycle_output_parser = subparsers.add_parser(
         "cycle-output",
@@ -242,7 +248,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Confirm real output enable when configured thresholds require it.",
     )
-    cycle_output_parser.set_defaults(func=run_output)
+    cycle_output_parser.set_defaults(func=handler)
 
     apply_parser = subparsers.add_parser(
         "apply",
@@ -283,7 +289,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Confirm real output enable when configured thresholds require it.",
     )
-    apply_parser.set_defaults(func=run_output)
+    apply_parser.set_defaults(func=handler)
 
     ramp_parser = subparsers.add_parser(
         "ramp",
@@ -328,7 +334,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Print SCPI commands and responses to stderr.",
     )
-    ramp_parser.set_defaults(func=run_output)
+    ramp_parser.set_defaults(func=handler)
 
     smoke_output_parser = subparsers.add_parser(
         "smoke-output",
@@ -364,7 +370,7 @@ def register_commands(subparsers: argparse._SubParsersAction[Any]) -> None:
         action="store_true",
         help="Confirm real output enable when configured thresholds require it.",
     )
-    smoke_output_parser.set_defaults(func=run_output)
+    smoke_output_parser.set_defaults(func=handler)
 
 
 def request_for_args(args: argparse.Namespace) -> dict[str, Any]:
@@ -592,5 +598,9 @@ def request_from_argv(
     return {}
 
 
-def run_output(args: argparse.Namespace) -> int:
-    return args._runtime._run_output_plan(args)
+def run_output(
+    args: argparse.Namespace,
+    *,
+    run_output_plan: Callable[[argparse.Namespace], int],
+) -> int:
+    return run_output_plan(args)
