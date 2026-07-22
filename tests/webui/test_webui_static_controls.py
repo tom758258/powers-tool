@@ -531,7 +531,7 @@ def test_job_result_is_expanded_collapsible_and_clearable():
     assert "jobResultCollapsed: false" in state_js
     assert 'document.getElementById("job-result-toggle").addEventListener("click", toggleJobResultPanel);' in app_js
     assert 'document.getElementById("job-result-clear").addEventListener("click", clearJobResults);' in app_js
-    clear_block = app_js[app_js.index("function clearJobResults()"):app_js.index("async function startLive")]
+    clear_block = extract_js_function(app_js, "clearJobResults")
     assert "state.jobs = [];" in clear_block
     assert 'document.getElementById("result").textContent' not in clear_block
 

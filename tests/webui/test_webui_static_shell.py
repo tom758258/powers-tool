@@ -635,13 +635,16 @@ def test_static_finished_real_command_refreshes_live_snapshot():
 
 def test_static_live_data_uses_three_channel_panel_contract():
     index_html, app_js, _styles_css = read_static_texts()
+    live_data_js = read_static_javascript("live-data.js")
 
     assert 'id="live-cards"' in index_html
     for channel in ("1", "2", "3"):
         assert f'data-channel-card="{channel}"' in index_html
     assert 'id="live-table"' not in index_html
 
-    start_live = app_js[app_js.index("async function startLive()"):app_js.index("async function stopLive()")]
+    start_live = extract_js_function(live_data_js, "startLive")
+    stop_live = extract_js_function(live_data_js, "stopLive")
+    wait_for_terminal = extract_js_function(live_data_js, "waitForLiveTerminal")
     assert 'parameters: { interval_ms: 5000 }' in start_live
     assert 'class="live-data-note"' in index_html
     assert "Live Data monitor" in index_html
@@ -651,6 +654,16 @@ def test_static_live_data_uses_three_channel_panel_contract():
     assert 'channel: "all"' not in start_live
     assert 'if (!payload.runtime.resource)' in start_live
     assert 'simulate: true' not in start_live
+    assert 'fetchJson("/api/live", { method: "POST"' in start_live
+    for event_type in ("progress", "finished", "failed"):
+        assert f'addEventListener("{event_type}"' in start_live
+    assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in stop_live
+    assert "await waitForLiveTerminal(jobId);" in stop_live
+    assert "Date.now() + 15000" in wait_for_terminal
+    assert 'fetchJson(`/api/jobs/${jobId}`)' in wait_for_terminal
+    assert 'document.getElementById("live-start").addEventListener("click", toggleLiveMonitor);' in app_js
+    assert "webuiLiveData.createLiveDataController({" in app_js
+    assert "var { startLive, toggleLiveMonitor, stopLive, startLivePreviewSnapshot, isFreshLivePreviewSample, waitForLiveTerminal } = liveDataController;" in app_js
     assert "sameResource ? previous?.channels : []" in app_js
     assert "Boolean(data.stale && sameResource)" in app_js
     for field in (

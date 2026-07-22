@@ -304,10 +304,12 @@ def test_static_job_result_summary_contract():
 def test_static_workspace_summary_keeps_latest_success_by_complete_execution_context():
     index_html, app_js, _styles_css = read_static_texts()
     context_js = read_static_javascript("execution-context.js")
+    jobs_js = read_static_javascript("jobs.js")
     state_js = read_static_javascript("state.js")
     workspace_js = read_static_javascript("results.js")
 
     capture = extract_js_function(app_js, "captureWorkspaceResult")
+    handle_job_event = extract_js_function(jobs_js, "handleJobEvent")
     render = extract_js_function(app_js, "renderWorkspaceSummary")
     current_context = extract_js_function(app_js, "currentWorkspaceResultContext")
 
@@ -323,7 +325,8 @@ def test_static_workspace_summary_keeps_latest_success_by_complete_execution_con
     assert "webuiResults.renderWorkspaceJob(container, job, context, {" in render
     assert "renderCapabilitiesWorkspaceSummary(container, job.result, helpers);" in workspace_js
     assert "renderIdentifyWorkspaceSummary(container, job.result);" in workspace_js
-    assert "captureWorkspaceResult(job);" in app_js
+    assert "captureWorkspaceResult(job);" in handle_job_event
+    assert "captureWorkspaceResult: (...args) => captureWorkspaceResult(...args)" in app_js
     assert "function buildWorkspaceResultKey(context)" not in app_js
     assert "function buildWorkspaceResultKey(context)" in context_js
     assert "function buildWorkspaceResultContextForJob(job, modelMaps = {})" in context_js
