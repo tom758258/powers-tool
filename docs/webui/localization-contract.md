@@ -373,20 +373,24 @@ P1 completed the dependency-free foundation in `locale_en.js`,
 `locale_zh_tw.js`, and `i18n.js`. The locale modules own frozen maintained
 catalogs, while the pure runtime owns exact locale validation, lookup and
 English fallback, optional raw fallback, named interpolation, and the initial
-English singleton. Both production catalogs remain empty because no existing
-WebUI prose is migrated in P1.
-
-The existing WebUI does not import the runtime and continues to display its
-current English presentation. Browser-language detection, storage access, DOM
-bindings, and language switching remain unimplemented. The P2-P5 ownership and
-state-preservation boundaries below are unchanged.
+English singleton. The catalogs were empty at the end of P1 and are populated
+with static presentation messages by P2.
 
 ### P2: Static Browser Presentation
 
-Add DOM localization bindings for static HTML, placeholders, titles, ARIA
-labels, and option display text. For the execution selector, P2 owns only static
-radio labels, initial static help, title, and ARIA bindings. Preserve all form
-values, IDs, `data-*` values, and event bindings.
+P2 completed the minimal `dom_i18n.js` binding for text content, placeholders,
+titles, and ARIA labels. `index.html` now binds the page title and brand,
+Device/Resource static framing, execution radio labels and initial help, serial
+controls, initial resource controls, Commands empty state and Run control, and
+the static Result framing. English fallback prose remains in the HTML, and the
+production singleton applies the English catalog once after the DOM is ready.
+
+P2 preserves form values, IDs, `data-*` values, event bindings, and the existing
+`<html lang="en">`. Browser-language detection, storage, a language control,
+and runtime switching remain unimplemented until P5. Dynamic execution
+presentation, Device/Resource summaries, catalog/forms, workflows, Basic
+controls, Job History entries, result content, and Live Data remain assigned to
+P3 and P4.
 
 ### P3: Device, Resource, Execution, And Command Surfaces
 

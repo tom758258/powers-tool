@@ -379,10 +379,14 @@ globalThis.__webuiCommandSupport = {{ createCommandSupport }};`;
             'import * as webuiCommandSupport from "./command-support.js";',
             'var webuiCommandSupport = globalThis.__webuiCommandSupport;'
       )
-      .replace(
-            'import * as webuiWorkflows from "./workflows.js";',
-            'var webuiWorkflows = globalThis.__webuiWorkflows;'
-      );
+          .replace(
+                'import * as webuiWorkflows from "./workflows.js";',
+                'var webuiWorkflows = globalThis.__webuiWorkflows;'
+          )
+          .replace(
+                'import {{ applyStaticTranslations }} from "./dom_i18n.js";',
+                'var applyStaticTranslations = () => 0;'
+          );
   }}
   return source;
 }}

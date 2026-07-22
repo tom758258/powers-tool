@@ -17,6 +17,7 @@ import * as webuiJobTransport from "./jobs.js";
 import * as webuiBasicControls from "./basic-controls.js";
 import * as webuiCommandSupport from "./command-support.js";
 import * as webuiWorkflows from "./workflows.js";
+import { applyStaticTranslations } from "./dom_i18n.js";
 
 const state = webuiState.createInitialState({
   rampListSegments: [defaultRampSegment()],
@@ -301,6 +302,7 @@ const jobEventController = webuiJobTransport.createJobEventController({
 var { subscribeToJob, handleJobEvent } = jobEventController;
 
 document.addEventListener("DOMContentLoaded", async () => {
+  applyStaticTranslations(document);
   bind();
   renderBlankLivePanel();
   await refreshHealth();

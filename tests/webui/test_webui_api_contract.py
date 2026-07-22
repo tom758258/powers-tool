@@ -43,7 +43,7 @@ def test_index_uses_cache_busted_assets_and_no_store(client: TestClient):
     assert response.headers["Cache-Control"] == "no-store"
     assert '/static/styles.css?v=' in response.text
     assert '/static/app.js?v=' in response.text
-    assert f"Unofficial Tool v{__version__}" in response.text
+    assert f'<span data-i18n="app.unofficial_tool">Unofficial Tool</span> v{__version__}' in response.text
     assert "__WEBUI_VERSION__" not in response.text
     javascript_urls = re.findall(r'<script type="module" src="([^"]+)"', response.text)
     assert javascript_urls == [
@@ -62,6 +62,7 @@ def test_static_assets_accept_query_string_and_no_store(client: TestClient):
         ("/static/electrical.js?v=test", "export function resolveInputElectricalConstraint"),
         ("/static/api.js?v=test", "export async function fetchJson"),
         ("/static/i18n.js?v=test", "export function createI18n"),
+        ("/static/dom_i18n.js?v=test", "export function applyStaticTranslations"),
         ("/static/locale_en.js?v=test", "export const EN_MESSAGES"),
         ("/static/locale_zh_tw.js?v=test", "export const ZH_TW_MESSAGES"),
         ("/static/state.js?v=test", "export function createInitialState"),

@@ -516,7 +516,7 @@ def test_static_top_bar_uses_live_resource_defaults():
     assert 'id="resource" value="USB0::SIM::E36312A::INSTR"' not in index_html
     assert_static_id(index_html, "resource-select")
     assert_static_id(index_html, "scan")
-    assert "Unofficial Tool v__WEBUI_VERSION__" in index_html
+    assert '<span data-i18n="app.unofficial_tool">Unofficial Tool</span> v__WEBUI_VERSION__' in index_html
     assert_static_id(index_html, "server-state")
     assert_static_id(index_html, "device-state")
     assert_static_id(index_html, "live-state")

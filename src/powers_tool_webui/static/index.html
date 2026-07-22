@@ -3,21 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Powers Tool WebUI</title>
+  <title data-i18n="app.document_title">Powers Tool WebUI</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <header class="page-head">
     <div class="brand">
-      <h1>Powers Tool</h1>
-      <p class="brand-subtitle">Unofficial Tool v__WEBUI_VERSION__</p>
+      <h1 data-i18n="app.brand">Powers Tool</h1>
+      <p class="brand-subtitle"><span data-i18n="app.unofficial_tool">Unofficial Tool</span> v__WEBUI_VERSION__</p>
     </div>
 
     <section class="device-resource-section" aria-labelledby="device-resource-title">
       <div class="device-resource-header">
         <div class="device-resource-heading">
           <div class="device-resource-title-row">
-            <strong id="device-resource-title" class="device-resource-title">Device / Resource</strong>
+            <strong id="device-resource-title" class="device-resource-title" data-i18n="device.heading">Device / Resource</strong>
             <span id="execution-mode-badge" class="execution-mode-badge real-locked" aria-live="polite">Real · Writes locked</span>
           </div>
           <p id="device-resource-summary" class="device-resource-summary">No resource / not scanned / Auto-detect</p>
@@ -30,16 +30,18 @@
               type="button"
               aria-label="Device options"
               title="Device options"
+              data-i18n-aria-label="device.options"
+              data-i18n-title="device.options"
               aria-controls="device-options-panel"
               aria-expanded="false"
             >&#9881;</button>
-            <div id="device-options-panel" class="device-options-panel" role="dialog" aria-label="Device options" hidden>
+            <div id="device-options-panel" class="device-options-panel" role="dialog" aria-label="Device options" data-i18n-aria-label="device.options" hidden>
               <fieldset class="execution-mode-control" id="execution-mode-control">
-                <legend>Execution mode</legend>
-                <label><input type="radio" name="execution-mode" value="real" checked> Real</label>
-                <label><input type="radio" name="execution-mode" value="simulate"> Simulate</label>
-                <label><input type="radio" name="execution-mode" value="dry-run"> Dry-run</label>
-                <p id="execution-mode-help" class="model-profile-help">Real hardware mode. Writes are locked until explicitly enabled.</p>
+                <legend data-i18n="execution_mode.legend">Execution mode</legend>
+                <label><input type="radio" name="execution-mode" value="real" checked> <span data-i18n="execution_mode.option.real">Real</span></label>
+                <label><input type="radio" name="execution-mode" value="simulate"> <span data-i18n="execution_mode.option.simulate">Simulate</span></label>
+                <label><input type="radio" name="execution-mode" value="dry-run"> <span data-i18n="execution_mode.option.dry_run">Dry-run</span></label>
+                <p id="execution-mode-help" class="model-profile-help" data-i18n="execution_mode.help.real_locked">Real hardware mode. Writes are locked until explicitly enabled.</p>
               </fieldset>
               <div class="model-profile-control">
                 <label id="identity-model-label">Expected model
@@ -50,54 +52,54 @@
                 <p id="identity-model-help" class="model-profile-help">Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one. In live mode, the detected IDN model remains the runtime driver.</p>
               </div>
               <label id="real-write-authorization" class="real-write-authorization"><input id="real-write-enabled" type="checkbox"> Enable real hardware writes for this resource</label>
-              <p class="device-options-help">Optional ASRL/serial overrides. Usually needed only for RS-232 instruments such as E3646A.</p>
+              <p class="device-options-help" data-i18n="serial.help">Optional ASRL/serial overrides. Usually needed only for RS-232 instruments such as E3646A.</p>
               <div class="serial-grid">
-                <label>Baud rate
-                  <input id="serial-baud-rate" type="number" step="1" inputmode="numeric" placeholder="Use VISA setting">
+                <label><span data-i18n="serial.baud_rate">Baud rate</span>
+                  <input id="serial-baud-rate" type="number" step="1" inputmode="numeric" placeholder="Use VISA setting" data-i18n-placeholder="serial.option.use_visa_setting">
                 </label>
-                <label>Data bits
-                  <input id="serial-data-bits" type="number" step="1" inputmode="numeric" placeholder="Use VISA setting">
+                <label><span data-i18n="serial.data_bits">Data bits</span>
+                  <input id="serial-data-bits" type="number" step="1" inputmode="numeric" placeholder="Use VISA setting" data-i18n-placeholder="serial.option.use_visa_setting">
                 </label>
-                <label>Parity
+                <label><span data-i18n="serial.parity">Parity</span>
                   <select id="serial-parity">
-                    <option value="">Use VISA setting</option>
-                    <option value="none">None</option>
-                    <option value="odd">Odd</option>
-                    <option value="even">Even</option>
-                    <option value="mark">Mark</option>
-                    <option value="space">Space</option>
+                    <option value="" data-i18n="serial.option.use_visa_setting">Use VISA setting</option>
+                    <option value="none" data-i18n="serial.option.none">None</option>
+                    <option value="odd" data-i18n="serial.option.odd">Odd</option>
+                    <option value="even" data-i18n="serial.option.even">Even</option>
+                    <option value="mark" data-i18n="serial.option.mark">Mark</option>
+                    <option value="space" data-i18n="serial.option.space">Space</option>
                   </select>
                 </label>
-                <label>Stop bits
+                <label><span data-i18n="serial.stop_bits">Stop bits</span>
                   <select id="serial-stop-bits">
-                    <option value="">Use VISA setting</option>
+                    <option value="" data-i18n="serial.option.use_visa_setting">Use VISA setting</option>
                     <option value="1">1</option>
                     <option value="1.5">1.5</option>
                     <option value="2">2</option>
                   </select>
                 </label>
-                <label>Flow control
+                <label><span data-i18n="serial.flow_control">Flow control</span>
                   <select id="serial-flow-control">
-                    <option value="">Use VISA setting</option>
-                    <option value="none">None</option>
+                    <option value="" data-i18n="serial.option.use_visa_setting">Use VISA setting</option>
+                    <option value="none" data-i18n="serial.option.none">None</option>
                     <option value="xon_xoff">XON/XOFF</option>
                     <option value="rts_cts">RTS/CTS</option>
                     <option value="dtr_dsr">DTR/DSR</option>
                   </select>
                 </label>
-                <label>Read termination
-                  <input id="serial-read-termination" placeholder="Use VISA setting">
+                <label><span data-i18n="serial.read_termination">Read termination</span>
+                  <input id="serial-read-termination" placeholder="Use VISA setting" data-i18n-placeholder="serial.option.use_visa_setting">
                 </label>
-                <label>Write termination
-                  <input id="serial-write-termination" placeholder="Use VISA setting">
+                <label><span data-i18n="serial.write_termination">Write termination</span>
+                  <input id="serial-write-termination" placeholder="Use VISA setting" data-i18n-placeholder="serial.option.use_visa_setting">
                 </label>
                 <label class="serial-check">
                   <input id="serial-remote" type="checkbox">
-                  Serial remote
+                  <span data-i18n="serial.remote">Serial remote</span>
                 </label>
                 <label class="serial-check">
                   <input id="serial-local-on-close" type="checkbox">
-                  Local on close
+                  <span data-i18n="serial.local_on_close">Local on close</span>
                 </label>
               </div>
             </div>
@@ -108,22 +110,24 @@
             type="button"
             aria-label="Collapse Device / Resource"
             title="Collapse Device / Resource"
+            data-i18n-aria-label="accessibility.collapse_device_resource"
+            data-i18n-title="accessibility.collapse_device_resource"
             aria-controls="device-resource-body"
             aria-expanded="true"
           >-</button>
         </div>
       </div>
       <div id="device-resource-body" class="device-resource-body">
-        <label>VISA resource
-          <input id="resource" placeholder="Waiting Scan">
+        <label><span data-i18n="resource.visa_resource">VISA resource</span>
+          <input id="resource" placeholder="Waiting Scan" data-i18n-placeholder="resource.waiting_scan">
         </label>
         <div class="live-resource-field">
-          <label>Live resource
+          <label><span data-i18n="resource.live_resource">Live resource</span>
             <select id="resource-select">
-              <option value="">Scan to load live resources</option>
+              <option value="" data-i18n="resource.scan_to_load">Scan to load live resources</option>
             </select>
           </label>
-          <button id="scan" class="secondary command-pill-button scan-button">Scan Device</button>
+          <button id="scan" class="secondary command-pill-button scan-button" data-i18n="resource.scan">Scan Device</button>
         </div>
       </div>
     </section>
@@ -247,8 +251,8 @@
       <!-- 2. Commands -->
       <aside class="rail">
         <div class="rail-head">
-          <strong>Commands</strong>
-          <input id="command-filter" placeholder="Filter">
+          <strong data-i18n="command.heading">Commands</strong>
+          <input id="command-filter" placeholder="Filter" aria-label="Filter commands" data-i18n-placeholder="command.filter" data-i18n-aria-label="accessibility.filter_commands">
         </div>
         <div class="command-browser">
           <div id="command-categories" class="command-categories" aria-label="Command categories"></div>
@@ -261,18 +265,18 @@
         <section class="workspace">
           <div class="panel-title">
             <div class="command-title-group">
-              <h2 id="selected-command">No command selected</h2>
-              <p id="command-description" title="Choose a command from the rail.">Choose a command from the rail.</p>
+              <h2 id="selected-command" data-i18n="command.no_selection">No command selected</h2>
+              <p id="command-description" title="Choose a command from the rail." data-i18n="command.no_selection_help" data-i18n-title="command.no_selection_help">Choose a command from the rail.</p>
             </div>
-            <button id="run" type="button" aria-label="Run" disabled>Run</button>
+            <button id="run" type="button" aria-label="Run" data-i18n="command.run" data-i18n-aria-label="accessibility.run_command" disabled>Run</button>
           </div>
           <div id="command-guidance" class="command-guidance" hidden></div>
 
           <form id="command-form" class="form-grid"></form>
           <section class="workspace-summary" aria-live="polite">
-            <strong>Latest Successful Result</strong>
+            <strong data-i18n="workspace.latest_successful_result">Latest Successful Result</strong>
             <div id="workspace-summary-content" class="workspace-summary-content">
-              <p class="workspace-summary-empty">Run the selected command to see its latest successful result for this resource.</p>
+              <p class="workspace-summary-empty" data-i18n="workspace.latest_successful_result_empty">Run the selected command to see its latest successful result for this resource.</p>
             </div>
           </section>
         </section>
@@ -282,10 +286,10 @@
     <!-- 4. Job Result -->
     <section id="job-result-panel" class="job-result-panel">
       <div class="section-head">
-        <strong>Job Result</strong>
+        <strong data-i18n="job.result_heading">Job Result</strong>
         <div class="button-row">
-          <button id="job-result-clear" class="secondary command-pill-button utility-button" type="button">Clear</button>
-          <button id="job-result-toggle" class="secondary icon-button utility-icon-button" type="button" aria-label="Collapse job result" aria-expanded="true">-</button>
+          <button id="job-result-clear" class="secondary command-pill-button utility-button" type="button" data-i18n="common.clear">Clear</button>
+          <button id="job-result-toggle" class="secondary icon-button utility-icon-button" type="button" aria-label="Collapse job result" data-i18n-aria-label="accessibility.collapse_job_result" aria-expanded="true">-</button>
         </div>
       </div>
       <div id="job-history" class="history"></div>
@@ -294,8 +298,8 @@
     <!-- 5. Result Detail -->
     <section id="result-panel" class="result-panel collapsed">
       <div class="section-head">
-        <strong>Result Detail</strong>
-        <button id="result-toggle" class="secondary icon-button utility-icon-button" type="button" aria-label="Expand result detail" aria-expanded="false">+</button>
+        <strong data-i18n="result.detail_heading">Result Detail</strong>
+        <button id="result-toggle" class="secondary icon-button utility-icon-button" type="button" aria-label="Expand result detail" data-i18n-aria-label="accessibility.expand_result_detail" aria-expanded="false">+</button>
       </div>
       <pre id="result">{}</pre>
     </section>
