@@ -122,9 +122,16 @@ accepts only a non-empty JSON object with the documented fields and types:
   submitted `command` and `job_id`, and non-empty string `worker_job_id` and
   `artifact_path`.
 - `stop`: HTTP `200`, `ok: true`, and a non-empty string `message`.
-- `status`: HTTP `200` and the documented `GET /status` response.
-- `wait-ready`: each successful `GET /status` poll is HTTP `200` and the
-  documented status response; readiness remains `status: "ready"`.
+- `status`: HTTP `200` and a status object with `schema_version: 2`,
+  `service: "powers-tool"`, a non-empty `run_id`, and a documented Worker
+  lifecycle `status`.
+- `wait-ready`: each successful `GET /status` poll is HTTP `200` and has the
+  same lifecycle identity fields; readiness remains `status: "ready"`.
+
+The lifecycle client does not duplicate validation of display and progress
+fields such as URLs, queue details, or nested job objects. Those fields remain
+defined by the Worker contract and are passed through, including additive
+fields and failed jobs without an artifact path.
 
 An empty body, malformed JSON, JSON value other than an object, unexpected
 success HTTP status, or object that does not meet its endpoint response

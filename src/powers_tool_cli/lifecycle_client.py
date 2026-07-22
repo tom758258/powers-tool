@@ -251,36 +251,6 @@ def _validate_worker_status_response(data: dict[str, Any]) -> str | None:
         return "worker status response must contain a non-empty run_id"
     if data.get("status") not in {"ready", "busy", "stopping", "error"}:
         return "worker status response contained an unknown status"
-    for field in ("command_url", "stop_url", "status_url", "timestamp_utc"):
-        if not _is_nonempty_string(data.get(field)):
-            return f"worker status response must contain a non-empty string {field}"
-    queue_size = data.get("queue_size")
-    if type(queue_size) is not int or queue_size < 0:
-        return "worker status response must contain a non-negative integer queue_size"
-    for field in ("active_job", "last_job", "fatal_error"):
-        value = data.get(field)
-        if value is not None and not isinstance(value, dict):
-            return f"worker status response field {field} must be an object or null"
-    for field in ("active_job", "last_job"):
-        job = data.get(field)
-        if isinstance(job, dict):
-            error = _validate_worker_status_job(field, job)
-            if error is not None:
-                return error
-    return None
-
-
-def _validate_worker_status_job(field: str, job: dict[str, Any]) -> str | None:
-    if not _is_nonempty_string(job.get("worker_job_id")):
-        return f"worker status response {field} must contain a non-empty worker_job_id"
-    if job.get("job_id") is not None and not isinstance(job.get("job_id"), str):
-        return f"worker status response {field} job_id must be a string or null"
-    if not _is_nonempty_string(job.get("command")):
-        return f"worker status response {field} must contain a non-empty command"
-    if not _is_nonempty_string(job.get("status")):
-        return f"worker status response {field} must contain a non-empty status"
-    if not _is_nonempty_string(job.get("artifact_path")):
-        return f"worker status response {field} must contain a non-empty artifact_path"
     return None
 
 

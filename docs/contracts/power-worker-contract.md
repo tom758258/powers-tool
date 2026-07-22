@@ -121,9 +121,11 @@ The response includes integer `schema_version: 2`, exact string
 integer `queue_size`, plus `active_job`, `last_job`, and `fatal_error` objects
 or `null`. Worker status is one of `ready`, `busy`, `stopping`, or `error`.
 
-`active_job` and `last_job`, when present, include at least `worker_job_id`,
-`job_id`, `command`, `status`, and `artifact_path`. Top-level `job_id` is not
-used for domain job identity.
+`active_job` and `last_job`, when present, include job correlation and status
+fields. A terminal job also includes `artifact_available`; `artifact_path` is
+present only when the result artifact is available. An artifact-write failure
+therefore reports `artifact_available: false` and omits `artifact_path`.
+Top-level `job_id` is not used for domain job identity.
 
 ## Commands
 

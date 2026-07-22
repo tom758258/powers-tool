@@ -217,6 +217,52 @@ def test_status_accepts_documented_200_response(monkeypatch: pytest.MonkeyPatch,
     assert stderr == ""
 
 
+def test_status_accepts_lifecycle_identity_without_display_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_response(
+        monkeypatch,
+        200,
+        _body({"schema_version": 2, "service": "powers-tool", "run_id": "run-1", "status": "ready"}),
+    )
+
+    exit_code, payload, stderr = _run_json(capsys, ["status", "--url", "http://127.0.0.1:9000/status"])
+
+    assert exit_code == 0
+    assert payload["status"] == "ready"
+    assert stderr == ""
+
+
+def test_status_accepts_artifact_failure_without_path_and_additive_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    response = {
+        **_status_response(status="error"),
+        "last_job": {
+            "worker_job_id": "worker-job-1",
+            "job_id": None,
+            "command": "read-status",
+            "status": "failed",
+            "artifact_available": False,
+            "error": {"code": "artifact_error"},
+            "artifact_error": {"code": "artifact_error"},
+            "future_job_field": "accepted",
+        },
+        "future_status_field": "accepted",
+    }
+    _install_response(monkeypatch, 200, _body(response))
+
+    exit_code, payload, stderr = _run_json(capsys, ["status", "--url", "http://127.0.0.1:9000/status"])
+
+    assert exit_code == 0
+    assert payload["last_job"]["artifact_available"] is False
+    assert "artifact_path" not in payload["last_job"]
+    assert payload["future_status_field"] == "accepted"
+    assert stderr == ""
+
+
 @pytest.mark.parametrize(
     ("status", "body"),
     [
