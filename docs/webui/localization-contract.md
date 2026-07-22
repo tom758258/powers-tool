@@ -1,0 +1,415 @@
+# WebUI Localization Contract
+
+## 1. Purpose And Phase Boundary
+
+This document defines the investigation findings, browser-localization boundary,
+initial Traditional Chinese terminology, user-visible text inventory, refresh
+rules, and implementation plan for Powers WebUI localization.
+
+P0 is a documentation-only phase. It adds this contract and does not change
+production behavior, tests, API behavior, or packaging. The maintained locales
+are `en` and `zh-TW`. English is the source locale, a complete locale, and the
+mandatory fallback locale. Localization is limited to presentation owned by the
+browser WebUI.
+
+The CLI, Core, drivers, SCPI, VISA, transport and backend behavior, API schemas,
+workflow file schemas, CSV, JSON, JSONL, logs, exported artifacts, and raw
+diagnostics are outside the localization ownership of this contract. Backend
+modules are inventoried only where they explicitly provide presentation metadata
+or a message source that the browser displays. This does not transfer ownership
+of those messages, validation, or diagnostics to the WebUI.
+
+P0 does not add catalogs, an i18n runtime, DOM localization helpers, a locale
+control, or any production prerequisite. It does not alter the English currently
+displayed by the application.
+
+## 2. Locked Product Decisions
+
+Future implementation must use these constants and decisions:
+
+```text
+SOURCE_LOCALE = "en"
+FALLBACK_LOCALE = "en"
+SUPPORTED_LOCALES = ["en", "zh-TW"]
+LOCALE_STORAGE_KEY = "powers-tool.webui.locale"
+```
+
+Initial locale resolution has this precedence:
+
+1. Use a valid supported locale saved under `powers-tool.webui.locale`.
+2. Select `zh-TW` when the browser language is `zh-TW` or `zh-Hant`.
+3. Use `en` for all other browser languages and invalid values.
+
+Locale matching should be case-insensitive, treat `_` as `-`, and accept a
+language tag whose normalized prefix is `zh-TW-` or `zh-Hant-`. A manually saved
+locale must be an exact supported locale after normalization; arbitrary Chinese
+language tags must not be mapped to `zh-TW`.
+
+The future locale control will be a single button in the upper-right of the main
+interface, not inside Device options, Settings, or another menu. It displays the
+target language: `繁體中文` in English and `English` in Traditional Chinese.
+Changing locale must take effect immediately without reloading the page, update
+`<html lang>`, and persist a manual selection using the independent locale
+storage key. A localStorage read or write failure must safely fall back without
+making the WebUI unusable.
+
+## 3. Ownership And Architecture Boundary
+
+The browser WebUI owns only browser presentation: headings, labels, help text,
+option display text, placeholders, titles, ARIA labels, empty states, known
+status and summary presentation, and known browser-generated validation or error
+presentation.
+
+Core and backend data remain authoritative. Localization must never become an
+input to validation, authorization, capability selection, identity selection,
+Product admission, support decisions, or runtime behavior. It must not change:
+
+- Real, Simulate, or Dry-run execution semantics or their separate identity
+  slots;
+- page-local identity reset on reload, the Real-only Live Data restriction, or
+  Expected Model as an identity guard;
+- fail-closed command admission, Product support, model lifecycle, command
+  count, planning model, or planning profile semantics;
+- request or response schemas, the Job queue, admitted runtime options, Loop or
+  completion-pulse semantics;
+- Stop, safe-off, cleanup, local/release, Restore, SCPI, VISA, transport,
+  backend, hardware lock, evidence, or Product promotion boundaries.
+
+`app.py`, `commands.py`, and `jobs.py` remain backend-owned. Only explicitly
+browser-facing presentation metadata or message sources from those files are in
+the inventory. Unknown Core, backend, validation, VISA, SCPI, instrument, HTTP,
+support, admission, and rejection details must remain verbatim.
+
+## 4. Non-Translatable Machine Contracts
+
+Display text may be translated, but the following values must neither be
+translated nor derived from translated text.
+
+| Contract area | Protected examples | Rule |
+| --- | --- | --- |
+| HTTP interface | API endpoint, HTTP method, status code | Preserve exactly; locale switching makes no request. |
+| API schema | Request/response JSON keys, booleans, enum values, schema versions | Preserve exactly in payloads and logic. |
+| Commands | Command IDs and command-count semantics | Keep canonical IDs; translate only catalog labels and descriptions. |
+| Models and support | Model IDs, Product IDs, support/capability values | Keep authoritative raw values; never infer support from a label. |
+| Planning | Planning model IDs and planning profile IDs | Keep submitted and stored IDs unchanged. |
+| Execution | `real`, `simulate`, `dry-run` and runtime status values | Translate presentation only; compare canonical state. |
+| Device communication | Transport/backend values, VISA resources, SCPI tokens | Preserve verbatim and never interpolate as HTML. |
+| Electrical data | Channel values, units, numeric values | Preserve values and units; surrounding labels may be translated. |
+| Forms and DOM | Form `name`, form `value`, DOM contract IDs, `data-*` contract values | Translate associated display nodes/attributes only. |
+| Workflow documents | File paths, field names, enums, JSON structure, schema versions | Do not translate submitted, saved, previewed, or restored data. |
+| Artifacts | CSV/JSON/JSONL fields and machine-readable output | Outside browser localization ownership. |
+| Diagnostics | Unknown error, rejection, validation, support, HTTP, VISA, SCPI, and instrument text | Preserve the original text as a visible fallback. |
+
+For example, the display may say `實機（Real）`, `模擬（Simulate）`, or
+`Dry-run（規劃）`, while application and API values remain `real`, `simulate`,
+and `dry-run`.
+
+## 5. Translation-Key Contract
+
+Translation keys must be semantic, stable, and independent of presentation
+wording. Use dot-separated namespaces with lowercase `snake_case` segments.
+Do not use a complete English sentence as a key, a DOM ID as the only meaning,
+a locale name in a key, or an array index.
+
+The initial namespace set is:
+
+```text
+common.*
+app.*
+locale.*
+device.*
+resource.*
+execution_mode.*
+command.*
+form.*
+workflow.*
+ramp.*
+ramp_list.*
+sequence.*
+snapshot.*
+restore.*
+job.*
+result.*
+workspace.*
+live_data.*
+basic_controls.*
+status.*
+support.*
+validation.*
+error.*
+accessibility.*
+```
+
+Keys identify meaning and context, for example
+`execution_mode.option.real`, `job.summary.command`,
+`live_data.status.waiting`, and `validation.required_field`. Repeated wording
+with different meanings may use different keys. A single semantic message should
+not receive different keys merely because it appears in several DOM locations.
+
+## 6. Interpolation And Fallback
+
+Dynamic messages use named interpolation such as `{command}`, `{channel}`,
+`{count}`, `{model}`, `{path}`, or `{status}`. Positional interpolation is not
+allowed. All parameter values are inserted as text with `textContent`, explicit
+text nodes, or a fixed safe attribute. Catalog strings and parameters must never
+be executed or interpreted as HTML.
+
+Runtime lookup order is:
+
+1. the selected locale key;
+2. the English key;
+3. an explicitly supplied raw fallback;
+4. the semantic key itself as a diagnosable last resort.
+
+A missing `zh-TW` key falls back to English. A missing English key is a catalog
+contract failure and must fail catalog validation. Committed `en` and `zh-TW`
+catalogs are expected to have key parity; fallback tests should use synthetic
+incomplete catalogs rather than intentionally shipping incomplete `zh-TW`.
+
+An unknown semantic presentation key must retain diagnosable content. Unknown
+raw Core, backend, validation, VISA, SCPI, instrument, HTTP, support, or
+rejection text must be shown unchanged, never replaced with an empty string,
+hidden, or treated as HTML.
+
+## 7. Traditional Chinese Terminology Decisions
+
+These are formal initial P0 terminology decisions. Ordinary interface wording
+may be refined during P6 terminology QA when it is unnatural or inconsistent.
+Machine values, technical tokens, and the non-translatable contracts in section
+4 are fixed and cannot change as a translation decision.
+
+| English term | Recommended `zh-TW` display | Keep English token | Context | Notes |
+| --- | --- | --- | --- | --- |
+| Real | 實機（Real） | Yes | Execution mode | Makes hardware impact explicit. Canonical value remains `real`. |
+| Simulate | 模擬（Simulate） | Yes | Execution mode | Canonical value remains `simulate`. |
+| Dry-run | Dry-run（規劃） | Yes | Execution mode | Retain the established technical token. |
+| Device | 裝置 | No | Device identity and summary | Use Taiwan terminology. |
+| Resource | 資源 | No | Resource selection and scan | Do not translate the resource value. |
+| VISA Resource | VISA 資源 | Yes | Communication resource | `VISA` remains a technical token. |
+| Expected Model | 預期型號 | No | Real identity guard | Not a device selector. |
+| Planning Model | 規劃型號 | No | Non-Real planning | Preserve the model ID. |
+| Planning Profile | 規劃設定檔 | No | Planning behavior | Preserve the profile ID. |
+| Command | 指令 | No | Command catalog | Command ID remains canonical. |
+| Parameter | 參數 | No | Command form | Form names and values remain canonical. |
+| Job | 作業 | No | Queued execution | Not translated in API data. |
+| Job History | 作業歷程 | No | History panel | Entries require semantic raw state. |
+| Workspace | 工作區 | No | Current browser workspace | Not a filesystem translation. |
+| Workspace Result | 工作區結果 | No | Latest result summary | Raw result payload remains unchanged. |
+| Result | 結果 | No | Execution result | Raw fields remain unchanged. |
+| Result Detail | 結果詳細資料 | No | Raw JSON detail | Only the heading is translated. |
+| Live Data | 即時資料 | No | Real-only monitoring | Samples and units remain unchanged. |
+| Basic controls | 基本控制 | No | Direct controls | Lowercase `controls` follows current heading style. |
+| Ramp | 斜坡 | No | Workflow editor | Technical meaning is a value ramp. |
+| Ramp List | 斜坡清單 | No | Workflow editor | LIST payload stays canonical. |
+| Sequence | 序列 | No | Workflow editor | File fields stay canonical. |
+| Loop | 迴圈 | No | Workflow semantics | Loop count/value stays canonical. |
+| Snapshot | 快照 | No | State capture | Snapshot document remains unchanged. |
+| Restore | 還原 | No | State restoration | Does not change Restore execution semantics. |
+| Protection | 保護 | No | OVP/OCP presentation | OVP/OCP tokens may remain English. |
+| Trigger | 觸發 | No | Trigger workflow | SCPI and trigger enums remain unchanged. |
+| Pulse | 脈衝 | No | Completion pulse | Preserve established semantics. |
+| Output | 輸出 | No | Channel output | Boolean and API values remain unchanged. |
+| Channel | 通道 | No | Channel selection/status | Channel values remain unchanged. |
+| Scan Device | 掃描裝置 | No | Resource scan action | Must not run during locale refresh. |
+| Clear | 清除 | No | Clear presentation/history | Locale refresh must not invoke it. |
+| Stop | 停止 | No | Job/live action | Does not change stop semantics. |
+| Start | 開始 | No | Live/monitor action | Does not start during locale refresh. |
+| Run | 執行 | No | Command/workflow action | Does not submit during locale refresh. |
+| Status | 狀態 | No | Status label | Raw status remains canonical. |
+| Ready | 就緒 | No | Known status | Use only for a recognized semantic state. |
+| Busy | 忙碌 | No | Known status | Use only for a recognized semantic state. |
+| Failed | 失敗 | No | Known status | Preserve unknown failure detail. |
+| Cancelled | 已取消 | No | Known job status | Canonical status remains unchanged. |
+| Completed | 已完成 | No | Known job status | Canonical status remains unchanged. |
+| Supported | 支援 | No | Product/support summary | Never use the translation for admission. |
+| Unsupported | 不支援 | No | Product/support summary | Preserve an unknown support reason. |
+| Pending | 待處理 | No | Job state | Use `待驗證` only for support validation context. |
+
+## 8. User-Visible Text Inventory
+
+Treatment values are `translate`, `translate_with_canonical_token`,
+`preserve_raw`, `machine_value`, `not_user_visible`, and `out_of_scope`.
+P2-P5 references are plans only; P0 changes none of these sources.
+
+| Source | Surface/function | Current literal or pattern | Content type | Treatment | Proposed key/namespace | Refresh requirement | Risk | Planned phase |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `src/powers_tool_webui/static/index.html` | Page shell, header, sections | `Powers WebUI`, introductory help, Device options, Command, Job History, Workspace Result | Heading/help/static text | translate | `app.*`, `device.*`, `command.*`, `job.*`, `workspace.*` | Update text nodes in place | Broad static English surface | P2 |
+| `src/powers_tool_webui/static/index.html` | Buttons and links | Scan Device, Run, Stop, Clear, download/open actions | Button/link text | translate | `common.*`, `device.action.*`, `job.action.*`, `result.action.*` | Update in place; never dispatch click | Labels are adjacent to destructive/runtime actions | P2 |
+| `src/powers_tool_webui/static/index.html` | Forms | Labels, help, placeholders, option display, title and ARIA text | Form presentation | translate | `form.*`, `accessibility.*` | Update attributes/text in place | Values must remain canonical | P2 |
+| `src/powers_tool_webui/static/index.html` | Execution selector | Real, Simulate, Dry-run and mode help | Option display | translate_with_canonical_token | `execution_mode.option.*`, `execution_mode.help.*` | Replace option text only | Existing mojibake in Real write-lock wording; option values are contracts | P2/P3 |
+| `src/powers_tool_webui/static/app.js` | Application status and health | Loading, ready, failure, health and selected-command presentation | Status/message | translate or preserve_raw | `app.status.*`, `status.*`, `error.*` | Translate known wrapper from cached state; retain raw detail | Some render paths fetch or mutate state | P3/P4 |
+| `src/powers_tool_webui/static/app.js` | `renderChannelCard` | Channel/output/measurement card labels and values | Dynamic summary | translate; machine_value | `live_data.channel.*` | Cached presentation-only redraw | Duplicates Live Data card rendering; uses HTML construction | P4 |
+| `src/powers_tool_webui/static/api.js` | Request helpers | Endpoint, method, payload and thrown response detail | Machine/diagnostic | machine_value or preserve_raw | `error.http.*` only for known browser wrapper | No request during locale switch | Raw HTTP detail must not be hidden or translated | P1/P4 |
+| `src/powers_tool_webui/static/state.js` | Application state | Mode, selected command/resource, jobs, results and flags | Raw state | not_user_visible | None | Must remain unchanged | Some presentation strings are currently stored with raw state | P1/P4 |
+| `src/powers_tool_webui/static/execution-context.js` | Execution context | Canonical mode/identity/planning values | Machine value | machine_value | `execution_mode.*` only at display boundary | Read only during refresh | Identity slots and mode semantics are protected | P3 |
+| `src/powers_tool_webui/static/device-resource.js` | Device/resource summary | Connected/selected resource, expected/planning model, scan results, empty states | Dynamic summary/status | translate or preserve_raw | `device.*`, `resource.*`, `support.*` | In-place or cached raw redraw only | `liveResourceSummary()` compares `textContent` to `No live resources found`; raw scan/health state is incomplete | P3 |
+| `src/powers_tool_webui/static/device-resource.js` | Resource options | Resource display and submitted resource string | Option display/value | translate around raw value; machine_value | `resource.option.*` | Preserve selected value | Display and machine value can be conflated | P3 |
+| `src/powers_tool_webui/static/device-resource.js` | Mode UI | Write enabled/locked, identity guard and model help | Known status/help | translate_with_canonical_token | `execution_mode.*`, `device.identity.*` | In-place only | `updateExecutionModeUi()` also changes enabled state and must not be a generic locale refresh | P3 |
+| `src/powers_tool_webui/static/command-catalog.js` | Command catalog data | Command labels, groups and descriptions; command IDs | Presentation metadata/value | translate; machine_value | `command.catalog.*` | Re-label existing options/cards or cached catalog redraw | Labels must not replace IDs in selection logic | P3 |
+| `src/powers_tool_webui/static/command-form.js` | `renderCommands` | Group headings, option labels, support badges/help | Dynamic catalog presentation | translate | `command.*`, `support.*` | Prefer in-place label update | Uses `innerHTML`; command selection must remain by raw ID | P3 |
+| `src/powers_tool_webui/static/command-form.js` | `renderForm` and field builders | Parameter labels, help, placeholders, boolean/enum option text, required/validation messages | Dynamic form presentation | translate | `form.*`, `validation.*` | In-place only while editing | Clears/rebuilds form and can lose user input; generic/Ramp/Snapshot state is DOM-owned | P3 |
+| `src/powers_tool_webui/static/command-form.js` | Form submission | Form names, values, numeric/channel/model/path values | Machine value | machine_value | None | Never modify | Translated option text must not enter payloads | P3 |
+| `src/powers_tool_webui/static/command-support.js` | Support presentation | Supported/unsupported/pending and known reasons | Status/summary | translate or preserve_raw | `support.status.*`, `support.reason.*` | Render known state from cached raw metadata | Unknown support reason must stay verbatim; support remains authoritative | P3/P4 |
+| `src/powers_tool_webui/static/electrical.js` | Electrical fields | Voltage/current/power labels, constraints, units and numeric formatting | Label/value | translate; machine_value | `form.electrical.*` | Update label/help only | Units and numeric values are non-translatable | P3 |
+| `src/powers_tool_webui/static/json-files.js` | File controls | Choose/load/download/file-name and parse messages | Label/status/path | translate or preserve_raw | `common.file.*`, `validation.file.*` | Update known presentation only | Paths and raw parse detail must remain unchanged | P4 |
+| `src/powers_tool_webui/static/jobs.js` | Job History | Empty state, label, summary, status, cancel/detail controls | Dynamic history presentation | translate | `job.*`, `status.*` | Cached semantic redraw after prerequisite | `state.jobs` stores rendered English `label` and `summary`; not re-translatable today | P4 |
+| `src/powers_tool_webui/static/jobs.js` | Job transport | Job IDs, command, status, request and result data | Machine/raw value | machine_value or preserve_raw | None | Never mutate/re-request | Switching locale must not create, update, cancel, or fetch a Job | P4/P5 |
+| `src/powers_tool_webui/static/results.js` | Workspace Result | Empty state, command/result summary, status and actions | Dynamic summary | translate or preserve_raw | `workspace.*`, `result.summary.*`, `status.*` | Cached raw redraw or in-place | Must preserve result state and raw unknown messages | P4 |
+| `src/powers_tool_webui/static/results.js` | Result Detail | `Result Detail` heading and serialized JSON | Heading/raw diagnostic/data | translate heading; preserve_raw body | `result.detail.heading` | Heading in place; body unchanged | JSON keys/content must not be translated or treated as HTML | P2/P4 |
+| `src/powers_tool_webui/static/live-data.js` | Live Data shell | Start/Stop, interval/window/channel controls, waiting/empty/status text | Controls/status | translate | `live_data.*`, `status.*` | In-place or cached redraw | Live Data is Real-only; render functions can alter controls | P4/P5 |
+| `src/powers_tool_webui/static/live-data.js` | Charts and `renderChannelCard` | Titles, legends, axis labels, channel/output/measurement text | Cached dynamic presentation | translate; machine_value | `live_data.chart.*`, `live_data.channel.*` | Redraw from existing cached samples only | Uses HTML construction; must not append samples or touch EventSource | P4/P5 |
+| `src/powers_tool_webui/static/basic-controls.js` | Basic controls | Headings, field labels, Apply/Read/Output/Protection/Trigger messages | Controls/status | translate or preserve_raw | `basic_controls.*`, `protection.*`, `trigger.*` | In-place; cached status redraw only | Event handlers perform hardware/runtime actions | P4 |
+| `src/powers_tool_webui/static/workflows.js` | Workflow shell | Workflow selector, preview/run/status, Loop and completion pulse text | Controls/summary | translate_with_canonical_token where needed | `workflow.*` | In-place or cached semantic redraw | Preview/run paths must never execute on locale switch | P4 |
+| `src/powers_tool_webui/static/ramp-list.js` | Ramp List editor | Step/channel/dwell/repeat labels, add/remove/empty/validation summaries | Editor presentation | translate | `ramp_list.*`, `validation.*` | Prefer in-place; cached valid model only when safe | Re-render can lose invalid drafts, focus, or editor state | P4 |
+| `src/powers_tool_webui/static/trigger-list.js` | Trigger/List editor | Trigger source, list fields, completion and validation text | Editor presentation | translate_with_canonical_token | `trigger.*`, `workflow.*` | Prefer in-place | Enum/SCPI-style tokens and submitted fields remain canonical | P4 |
+| `src/powers_tool_webui/static/sequence.js` | Sequence editor | Steps, loop, add/remove, import/export and validation summaries | Editor presentation | translate | `sequence.*`, `validation.*` | Prefer in-place; cached raw model if complete | Re-render can lose invalid drafts or focus | P4 |
+| `src/powers_tool_webui/static/snapshot-restore.js` | Snapshot/Restore editor | Capture, file, preview, restore, confirmation, status and validation text | Editor/action presentation | translate | `snapshot.*`, `restore.*`, `validation.*` | In-place; cached presentation only | Must not capture, preview, restore, or clear state on switch | P4 |
+| `src/powers_tool_webui/app.py` | Browser API responses | Explicit browser-displayed health/support/message fields | Presentation source/raw diagnostic | translate known browser wrapper; preserve_raw | `status.*`, `support.*`, `error.*` | Cache before presentation redraw | Backend remains authoritative; do not localize API output | P3/P4 |
+| `src/powers_tool_webui/commands.py` | Command metadata | Explicit labels/descriptions plus IDs and parameter schema supplied to browser | Presentation metadata/machine schema | translate at browser boundary; machine_value | `command.catalog.*`, `form.*` | Use cached catalog metadata | Do not expand localization into command admission or Core | P3 |
+| `src/powers_tool_webui/jobs.py` | Job message sources | Status/result/rejection/detail displayed by browser | Raw state/diagnostic | known semantic status may translate; preserve_raw detail | `job.*`, `status.*`, `error.*` | Browser redraw from cached raw state | Backend messages and rejection reasons remain original | P4 |
+| `tests/webui/test_webui_static_shell.py` and static device/context tests | HTML/module assertions | Exact English headings, options, help and state strings | Test literal | English source tests or future structural/key assertions | `app.*`, `device.*`, `execution_mode.*` | N/A | Structural tests are coupled to full sentences | P2/P3 |
+| `tests/webui/test_webui_static_command_catalog.py`, `test_webui_static_command_support.py`, `test_webui_static_controls.py` | Catalog/form/support assertions | English labels, descriptions, statuses and messages | Test literal | Source-locale assertions where intentional; otherwise semantic/raw assertions | `command.*`, `form.*`, `support.*` | N/A | Must continue testing canonical IDs and values separately | P3 |
+| `tests/webui/test_webui_static_workflows.py` and workflow document tests | Editor assertions | English editor labels/messages and document field literals | Test literal/schema | Translate presentation tests; machine_value for schemas | `workflow.*`, `ramp_list.*`, `sequence.*`, `snapshot.*`, `restore.*` | N/A | Do not localize JSON document contracts | P4 |
+| `tests/webui/test_webui_static_job_history.py`, `test_webui_static_result_summary.py`, `test_webui_static_live_data.py`, `test_webui_static_basic_controls.py` | Dynamic surface assertions | English summaries/statuses/empty states | Test literal | Locale-aware presentation assertions plus raw-state assertions | `job.*`, `result.*`, `live_data.*`, `basic_controls.*` | N/A | Existing literals conceal retranslation/state-preservation needs | P4/P5 |
+| `tests/webui/_webui_shared.py` and `test_webui_native_module_graph.py` | Native module harness | Fixed production module list and compatibility transforms | Test infrastructure | not_user_visible | None | Include future locale modules | New modules will otherwise be absent from native graph tests | P1/P6 |
+| `tests/webui/test_webui_api_contract.py`, packaging/release tests, `pyproject.toml` | Static assets/package graph | Explicit assets plus `static/*.js` collection | Packaging contract | not_user_visible | None | Include future modules where explicit | Wildcard collection is compatible, but explicit asset assertions need updates | P1/P6 |
+| CLI, Core, driver, CSV/JSON/JSONL output | Non-browser interfaces | User and machine output outside the browser | Out of scope | out_of_scope | None | None | Must not be pulled into WebUI localization | None |
+
+## 9. State-Preserving Locale Refresh Contract
+
+Locale switching may regenerate browser presentation only. It must not reload,
+call an API, create/submit/cancel/update a Job, start/stop/rebuild an EventSource,
+start/stop/request Live Data, start/stop preview or monitor work, change execution
+mode, selected command, resource, Expected Model, planning model/profile, write
+authorization, form values, workflow documents, or any runtime option. It must
+not clear command input, editors, Snapshot/Restore state, Job History, Workspace
+Result, Result Detail, Live Data samples/charts/display state, or logs. It must
+not rescan resources, request capability/support metadata, dispatch existing
+event handlers, or cause VISA, SCPI, transport, or hardware behavior.
+
+Refresh ownership is as follows:
+
+| Surface | Allowed refresh | Forbidden action or prerequisite |
+| --- | --- | --- |
+| Static HTML | Update registered text and safe attributes in place. | Do not replace interactive containers or dispatch events. |
+| Execution mode | Update option display/help and known status text in place. | Do not call `updateExecutionModeUi()` if it also mutates controls; never change canonical mode or identity slot. |
+| Device/Resource summary | Re-label existing DOM or redraw from cached raw identity/resource/support state. | No scan, health fetch, selection change, or support request. Cache raw scan and latest health state before relying on redraw. |
+| Command catalog | Re-label entries from cached catalog metadata while preserving raw command IDs and selection. | No catalog refetch or selection handler. |
+| Command form | Update labels/help/options/validation presentation in place. | Do not call `renderForm()` while it clears/rebuilds controls. A prerequisite is a field-to-key binding or complete raw draft state. |
+| Workflow editors | Update headings, labels, buttons, help, and known validation text in place; redraw only from a complete cached raw editor model. | No preview/run/import/export and no loss of invalid drafts, focus, selection, Loop, or completion-pulse state. |
+| Basic controls | Update labels and known status wrappers in place. | Never read/write output, protection, trigger, or device state. |
+| Job History | Redraw from cached raw command/status plus semantic `{key, params, rawFallback}` descriptors. | Current rendered `label`/`summary` storage is insufficient and must be replaced before retranslation; no Job API action. |
+| Workspace Result | Re-label or redraw from cached raw result/status and semantic summary data. | No result clear, refetch, or mutation. |
+| Result Detail | Translate only surrounding heading/ARIA; preserve serialized raw JSON exactly. | Never translate keys or values or re-request detail. |
+| Live Data | Update controls, known status text, titles, legends, and axis labels in place, or perform a presentation-only redraw using existing cached samples. | Must not fetch, append samples, create/close EventSource, or change monitor/preview state. Redraw must preserve samples, channel/window state, and connection state. |
+| Status/log/error presentation | Re-render recognized semantic messages from key/params/raw fallback; retain unknown raw text. | Never infer application state from translated text or hide raw diagnostics. |
+| Support summary | Re-render known presentation from cached authoritative support metadata. | No capability/support request and no admission decision from presentation. |
+
+Known unsafe refresh paths include `updateDeviceResourceSummary()`,
+`updateExecutionModeUi()`, `updateSelectedCommandState()`, `renderLivePanel()`,
+`refreshHealth()`, `handleExecutionModeChange()`, and
+`syncSelectedResource()` when they combine presentation with state mutation,
+fetching, or event effects. Future work must separate or bypass those effects for
+locale refresh rather than invoke them wholesale.
+
+`liveResourceSummary()` currently derives state by comparing option
+`textContent` with the English sentence `No live resources found`. It must use
+raw state or an option/data sentinel before that surface is localized. Likewise,
+Job History needs semantic presentation descriptors, and device scan/latest
+health state needs sufficient raw caching. These are implementation
+prerequisites for their respective P3/P4 surfaces, not P0 changes and not
+blockers to the P1 runtime/catalog work.
+
+Visible strings currently inserted using `innerHTML`, notably command catalog
+content and Live Data channel cards, must move to explicit DOM construction and
+`textContent` before translated parameters or backend/raw values pass through
+those paths.
+
+## 10. Testing And Acceptance Criteria
+
+Future localization work must verify:
+
+- committed English and `zh-TW` catalog key parity and English completeness;
+- English fallback using a synthetic missing-translation catalog;
+- named interpolation, text-only insertion, and missing/unknown key behavior;
+- invalid saved locale handling, browser-language mapping, and storage
+  read/write failure behavior;
+- initial and runtime `<html lang>` updates;
+- static text, placeholders, titles, ARIA labels, option display, and dynamic
+  presentation in both locales;
+- unchanged machine values, form values, canonical IDs, units, DOM/data
+  contracts, API endpoints, and API payloads;
+- preservation of unknown raw diagnostics and rejection/support reasons;
+- zero API requests and zero Job creation/update/cancellation during locale
+  switching;
+- no EventSource creation/closure/rebuild and no Live Data acquisition or sample
+  append during switching;
+- unchanged execution mode, all identity slots, selected command/resource,
+  Expected Model, planning model/profile, and write authorization;
+- preservation of command form input, every workflow editor, Snapshot/Restore,
+  Job History, Workspace Result, Result Detail, logs, cached Live Data samples,
+  chart state, and monitor/preview state;
+- presentation-only Live Data redraw from cached samples, including translated
+  titles, legends, axes, and recognized status text;
+- English source-locale literal tests where language is the subject, while
+  structure/behavior tests assert semantic keys, raw values, or DOM structure;
+- future locale modules in the native module graph, `_webui_shared.py` harness,
+  explicit static asset contracts, package contents, and standalone build.
+
+The no-side-effect switching tests must instrument `fetch`, EventSource
+construction/closure, reload, Job actions, preview/monitor actions, and state
+snapshots. They must compare all protected state before and after multiple locale
+switches.
+
+## 11. Planned Implementation Phases
+
+### P1: Catalog And Runtime Contract
+
+Add dependency-free English and `zh-TW` catalogs, a pure i18n runtime, locale
+normalization, lookup/fallback, named interpolation, and catalog/runtime unit
+tests. Update explicit native-module and static-asset test inventories. Do not
+wire the runtime into production surfaces yet.
+
+### P2: Static Browser Presentation
+
+Add DOM localization bindings for static HTML, placeholders, titles, ARIA
+labels, and option display text. Preserve all form values, IDs, `data-*` values,
+and event bindings.
+
+### P3: Device, Resource, Execution, And Command Surfaces
+
+Localize Device/Resource summaries, execution-mode presentation, catalog, and
+command forms. First replace English `textContent` state inference with raw
+state, add missing raw scan/health presentation cache, preserve selection/input,
+and separate presentation updates from state-changing render paths.
+
+### P4: Workflows And Dynamic Operational Surfaces
+
+Localize workflow editors, Basic controls, Job History, Workspace Result, Result
+Detail surroundings, Live Data, known status/support/error wrappers, and chart
+presentation. Add semantic `{key, params, rawFallback}` data for re-translatable
+history/summaries, preserve raw diagnostics, and replace unsafe `innerHTML`
+presentation paths with explicit text nodes.
+
+### P5: Locale UI And State-Preserving Runtime Switching
+
+Add the upper-right target-language button, initial locale resolution,
+persistence, `<html lang>`, and the centralized no-side-effect refresh path.
+Verify localStorage failures and repeated switching across populated forms,
+editors, history, results, and Live Data. Live Data may redraw from cached
+samples for presentation only and must not acquire data or touch EventSource or
+monitor/preview state.
+
+### P6: Terminology, Regression, And Distribution QA
+
+Review ordinary Traditional Chinese wording for Taiwan usage, naturalness, and
+consistency; refinements must not change machine contracts or technical tokens.
+Run complete localization and WebUI regression coverage, text hygiene, package
+inspection, standalone native-module validation, and documentation review.
+
+This split follows Powers ownership: execution modes and independent identity
+slots require focused P3 work, while Job History, workflow editors, Basic
+controls, and Live Data need raw-state and side-effect isolation before the P5
+switch can safely refresh them. Meters remains a design reference for catalogs,
+fallback, DOM binding, target-language control, and no-side-effect tests, but
+Powers modules must not be copied file-for-file.
