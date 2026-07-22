@@ -15,6 +15,46 @@ from _webui_shared import (
     run_frontend_javascript_assertions,
 )
 
+
+def test_workflow_factory_wiring_omits_unused_dependencies() -> None:
+    app_js = read_static_javascript("app.js")
+    workflows_js = read_static_javascript("workflows.js")
+    workflow_wiring = app_js[
+        app_js.index("webuiWorkflows.createWorkflows({"):app_js.index(
+            "});", app_js.index("webuiWorkflows.createWorkflows({")
+        )
+    ]
+    artifact_wiring = app_js[
+        app_js.index("webuiWorkflows.createArtifactAndSequenceWorkflows({"):app_js.index(
+            "});", app_js.index("webuiWorkflows.createArtifactAndSequenceWorkflows({")
+        )
+    ]
+    workflow_signature = workflows_js[
+        workflows_js.index("export function createWorkflows({"):workflows_js.index("}) {", workflows_js.index("export function createWorkflows({"))
+    ]
+    artifact_signature = workflows_js[
+        workflows_js.index("export function createArtifactAndSequenceWorkflows({"):workflows_js.index("}) {", workflows_js.index("export function createArtifactAndSequenceWorkflows({"))
+    ]
+
+    for removed in ("defaultRampSegment", "triggerListParams", "commandDisplayName", "params", "normalizeChannelValue"):
+        assert f"{removed}:" not in workflow_wiring
+        assert removed not in workflow_signature
+    assert "normalizeChannelValue:" not in artifact_wiring
+    assert "normalizeChannelValue" not in artifact_signature
+
+    for retained in ("webuiRampListDocument", "webuiTriggerListDocument", "openJsonFile", "saveJsonFile"):
+        assert retained in workflow_wiring
+        assert retained in workflow_signature
+    for retained in ("webuiRestoreDocument", "webuiSequenceDocument", "restoreSnapshotParameters", "submitJob", "subscribeToJob"):
+        assert retained in artifact_wiring
+        assert retained in artifact_signature
+
+    combined = workflow_signature + artifact_signature
+    assert all(
+        f"{name}," not in combined and f"{name}:" not in combined
+        for name in ("services", "dependencies", "context", "container", "registry", "callbacks", "workflowBag")
+    )
+
 def test_static_pulse_child_fields_and_rear_pin_select_contracts():
     _index_html, app_js, styles_css = read_static_texts()
     sequence_document_js = read_static_javascript("sequence.js")

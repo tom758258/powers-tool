@@ -53,7 +53,7 @@ def test_static_json_artifact_abort_errors_do_not_render_client_failures():
 def test_static_snapshot_completion_validates_finished_result_before_saving_state():
     _index_html, app_js, _styles_css = read_static_texts()
 
-    handle_job_event = extract_js_function(app_js, "handleJobEvent")
+    handle_job_event = extract_js_function(read_static_javascript("jobs.js"), "handleJobEvent")
     capture_snapshot = extract_js_function(app_js, "captureLatestSnapshotDocument")
 
     assert "captureLatestSnapshotDocument(job);" in handle_job_event
@@ -122,7 +122,7 @@ def test_static_restore_plan_preview_reuses_dry_run_job():
 
     render_restore = extract_js_function(workflows_js, "renderRestoreForm")
     preview_restore = extract_js_function(workflows_js, "previewRestorePlan")
-    handle_job_event = extract_js_function(app_js, "handleJobEvent")
+    handle_job_event = extract_js_function(read_static_javascript("jobs.js"), "handleJobEvent")
     update_selected = extract_js_function(app_js, "updateSelectedCommandState")
 
     assert 'previewPlanBtn.id = "btn-preview-restore-plan";' in render_restore

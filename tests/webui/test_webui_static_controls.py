@@ -442,7 +442,7 @@ def test_static_basic_command_submission_reuses_existing_jobs():
     run_set = extract_js_function(app_js, "runBasicSet")
     run_output = extract_js_function(app_js, "runBasicOutput")
     run_all = extract_js_function(app_js, "runBasicOutputAll")
-    handle_job = extract_js_function(app_js, "handleJobEvent")
+    handle_job = extract_js_function(read_static_javascript("jobs.js"), "handleJobEvent")
 
     assert 'command: "set"' not in run_set
     assert 'await submitBasicJob("set"' in run_set
@@ -963,6 +963,7 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
 
 def test_static_workflow_run_button_state_contract():
     index_html, app_js, styles_css = read_static_texts()
+    jobs_js = read_static_javascript("jobs.js")
 
     assert 'id="run" type="button" aria-label="Run"' in index_html
     assert 'const STOPPABLE_WORKFLOWS = new Set(["ramp", "ramp-list", "sequence"]);' in app_js
@@ -974,9 +975,9 @@ def test_static_workflow_run_button_state_contract():
     assert 'webuiApi.fetchJson(`/api/jobs/${encodeURIComponent(jobId)}/cancel`' in extract_js_function(
         app_js, "stopActiveWorkflow"
     )
-    assert 'event.type === "cancel_requested"' in extract_js_function(app_js, "handleJobEvent")
-    assert "Waiting for safe-off and cleanup" in app_js
-    assert "Failed  cleanup_failed" in app_js
+    assert 'event.type === "cancel_requested"' in extract_js_function(jobs_js, "handleJobEvent")
+    assert "Waiting for safe-off and cleanup" in jobs_js
+    assert "Failed  cleanup_failed" in jobs_js
     assert "button#run.workflow-stop" in styles_css
 
 

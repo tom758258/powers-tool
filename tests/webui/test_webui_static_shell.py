@@ -568,9 +568,10 @@ def test_static_resource_selection_refreshes_live_preview():
 
 def test_static_state_indicators_show_webui_command_and_live_state():
     index_html, app_js, _styles_css = read_static_texts()
+    live_data_js = read_static_javascript("live-data.js")
     refresh_health = extract_js_function(app_js, "refreshHealth")
-    preview = extract_js_function(app_js, "startLivePreviewSnapshot")
-    stop_live = extract_js_function(app_js, "stopLive")
+    preview = extract_js_function(live_data_js, "startLivePreviewSnapshot")
+    stop_live = extract_js_function(live_data_js, "stopLive")
     monitor_button = extract_js_function(app_js, "updateLiveMonitorButton")
 
     for hook in ('class="state-dot"', 'class="state-text"', 'class="state-indicator'):
@@ -592,12 +593,13 @@ def test_static_state_indicators_show_webui_command_and_live_state():
 
 def test_scan_resources_handles_missing_live_only_checkbox():
     _index_html, app_js, _styles_css = read_static_texts()
+    live_data_js = read_static_javascript("live-data.js")
 
     assert 'command: "list-resources"' in app_js
     assert "parameters: { live_only: true }" in app_js
     assert 'webuiApi.fetchJson("/api/jobs", { method: "POST", body: JSON.stringify(payload) })' in app_js
-    assert 'webuiApi.fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
-    assert 'webuiApi.fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
+    assert 'fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in live_data_js
+    assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in live_data_js
     assert 'selectCommand("list-resources")' not in app_js
     assert 'const liveOnly = document.getElementById("param-live_only")' not in app_js
     assert 'document.getElementById("param-live_only").checked = true' not in app_js
@@ -605,14 +607,15 @@ def test_scan_resources_handles_missing_live_only_checkbox():
 
 def test_static_finished_real_command_refreshes_live_snapshot():
     _index_html, app_js, _styles_css = read_static_texts()
+    jobs_js = read_static_javascript("jobs.js")
+    live_data_js = read_static_javascript("live-data.js")
     refresh = extract_js_function(app_js, "shouldRefreshLiveAfterCommand")
-    preview = extract_js_function(app_js, "startLivePreviewSnapshot")
-    fresh_preview = extract_js_function(app_js, "isFreshLivePreviewSample")
+    preview = extract_js_function(live_data_js, "startLivePreviewSnapshot")
+    fresh_preview = extract_js_function(live_data_js, "isFreshLivePreviewSample")
 
-    assert 'webuiApi.fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in app_js
-    assert 'webuiApi.fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
-    assert 'webuiApi.fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in app_js
-    assert "job.runtime.resource" in app_js
+    assert 'fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in live_data_js
+    assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in live_data_js
+    assert "job.runtime.resource" in jobs_js
     assert "runtime.simulate === false" in refresh
     assert "runtime.dry_run === false" in refresh
     assert "!state.liveEvents" not in refresh

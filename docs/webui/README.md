@@ -41,8 +41,9 @@ materialization.
 `command-support.js` owns command-support and channel-capability presentation.
 `workflows.js` owns the browser-facing Ramp List, Trigger List, Sequence,
 Snapshot, and Restore editors plus their JSON Load/Save orchestration. It
-receives state and application callbacks explicitly from `app.js`; document
-schemas remain owned by their focused document modules.
+receives only the state, document helpers, and application callbacks it uses
+across module boundaries; document schemas remain owned by their focused
+document modules.
 
 `app.js` remains the bootstrap and composition root. Controller factory
 parameters represent only dependencies supplied across module boundaries;
@@ -52,6 +53,11 @@ state-indicator class names and E3646A presentation model identifier used by
 its Device/Resource and execution-mode presentation. `command-form.js`
 continues to own command/form rendering, Trigger notes, and parameter and
 electrical constraints. Workflow ownership is unchanged.
+
+Frontend tests include a native module-graph smoke that imports the real
+`app.js` graph root without rewriting its imports or exports. The existing
+global compatibility harness remains available for broader frontend behavior
+tests; it does not replace the native graph check.
 
 ## Package And Entry Point
 

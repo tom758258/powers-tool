@@ -406,8 +406,6 @@ const TRIGGER_LIST_WORKSPACE_JSON_EXTENSIONS = [".trigger-list-workspace.json", 
 
 const workflows = webuiWorkflows.createWorkflows({
   state,
-  defaultRampSegment: (...args) => defaultRampSegment(...args),
-  triggerListParams: (...args) => triggerListParams(...args),
   optionalRearPinOptions: OPTIONAL_REAR_PIN_OPTIONS,
   rearPinOptions: REAR_PIN_OPTIONS,
   webuiCommandForm,
@@ -419,12 +417,9 @@ const workflows = webuiWorkflows.createWorkflows({
   rampListJsonExtensions: RAMP_LIST_JSON_EXTENSIONS,
   triggerListWorkspaceJsonExtensions: TRIGGER_LIST_WORKSPACE_JSON_EXTENSIONS,
   renderClientResult: (...args) => renderClientResult(...args),
-  commandDisplayName: (...args) => commandDisplayName(...args),
   optionDisplayName: (...args) => optionDisplayName(...args),
-  params: PARAMS,
   renderForm: (...args) => renderForm(...args),
   updateSelectedCommandState: (...args) => updateSelectedCommandState(...args),
-  normalizeChannelValue: (...args) => normalizeChannelValue(...args),
   rearPinDisplayName: (...args) => rearPinDisplayName(...args),
   parseRearPins: (...args) => parseRearPins(...args),
   renderLoopControl: (...args) => renderLoopControl(...args),
@@ -480,7 +475,6 @@ const artifactAndSequenceWorkflows = webuiWorkflows.createArtifactAndSequenceWor
   snapshotJsonExtensions: SNAPSHOT_JSON_EXTENSIONS,
   sequenceJsonExtensions: SEQUENCE_JSON_EXTENSIONS,
   optionDisplayName: (...args) => optionDisplayName(...args),
-  normalizeChannelValue: (...args) => normalizeChannelValue(...args),
   rearPinDisplayName: (...args) => rearPinDisplayName(...args),
   parseRearPins: (...args) => parseRearPins(...args),
   renderLoopControl: (...args) => renderLoopControl(...args),
@@ -870,75 +864,6 @@ function submitJob(payload) {
   return webuiJobTransport.submitJob(webuiApi.fetchJson, payload);
 }
 
-function subscribeToJob(jobId, baseUrl) {
-  state.events = webuiJobTransport.openJobEvents({
-    jobId,
-    baseUrl,
-    closeEvents: () => closeEventSource("events"),
-    onEvent: handleJobEvent,
-    onError: (activeJobId) => {
-      if (state.workflowControl.jobId === activeJobId && state.workflowControl.phase !== "idle") {
-        reconcileWorkflowJob(activeJobId);
-      }
-    }
-  });
-}
-
-async function handleJobEvent(jobId, event) {
-  updateHistory(jobId, event.type);
-  if (state.workflowControl.jobId === jobId) {
-    if (event.type === "cancel_requested") {
-      setWorkflowControl("stopping", { jobId, command: state.workflowControl.command });
-      updateJobResult(jobId, "cancel_requested", "Waiting for safe-off and cleanup");
-    } else if (["started", "progress"].includes(event.type) && state.workflowControl.phase !== "stopping") {
-      setWorkflowControl("active", { jobId, command: state.workflowControl.command });
-    }
-  }
-  if (jobCommand(jobId) === "snapshot" && (event.type === "accepted" || event.type === "started" || event.type === "progress")) {
-    refreshSnapshotFormIfVisible(jobId);
-  }
-  if (event.type === "finished" || event.type === "failed" || event.type === "cancelled") {
-    const job = await renderJobDetail(jobId, event);
-    if (state.workflowControl.jobId === jobId && job && ["finished", "failed", "cancelled"].includes(job.status)) {
-      if (job.status === "failed" && job.error_code === "cleanup_failed") {
-        updateJobResult(jobId, "failed", "Failed  cleanup_failed");
-      } else if (job.status === "cancelled") {
-        updateJobResult(jobId, "cancelled", "Cancelled");
-      }
-      setWorkflowControl("idle");
-    }
-    let healthState = null;
-    if (event.type === "finished" && jobCommand(jobId) === "list-resources") {
-      populateResourceSelect(event.data?.result?.resources || []);
-      healthState = await refreshHealth();
-      startLivePreviewSnapshot(healthState);
-    } else if (shouldRefreshLiveAfterCommand(event, job)) {
-      healthState = await refreshHealth();
-      startLivePreviewSnapshot(healthState, job.runtime.resource);
-    }
-    if (event.type === "finished" && job) {
-      captureLatestSnapshotDocument(job);
-      captureWorkspaceResult(job);
-    }
-    if (jobCommand(jobId) === "snapshot") {
-      refreshSnapshotFormIfVisible(jobId);
-    }
-    if (state.basicJobActions[jobId]) {
-      updateBasicActionFromJob(jobId, event, job);
-    }
-    if (event.type === "finished") updateResourceModelFromJob(job);
-    if (jobLabel(jobId) === "Restore plan preview") {
-      captureRestorePlanPreview(job);
-      if (state.selected === "restore-from-snapshot") {
-        renderForm("restore-from-snapshot");
-        updateSelectedCommandState();
-      }
-    }
-    closeEventSource("events");
-    if (!healthState) refreshHealth();
-  }
-}
-
 function captureLatestSnapshotDocument(job) {
   if (!job || job.command !== "snapshot" || job.status !== "finished" || !job.result) {
     return false;
@@ -1267,132 +1192,6 @@ function toggleJobResultPanel() {
 function clearJobResults() {
   state.jobs = [];
   renderHistory();
-}
-
-async function startLive() {
-  if (isNoHardwareMode()) {
-    renderBlankLivePanel("error", "Live Data is available only in Real hardware mode.");
-    return;
-  }
-  const payload = { runtime: runtimePayload(), parameters: { interval_ms: 5000 } };
-  if (!payload.runtime.resource) {
-    renderLivePanel({ status: "error", stale: true, message: "Select or enter a hardware resource before starting Live Data." });
-    return;
-  }
-  try {
-    stopLivePreviewSnapshot();
-    updateLiveMonitorButton(false, true);
-    const response = await webuiApi.fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) });
-    state.liveJobId = response.job_id;
-    updateLiveMonitorButton(true, false);
-    closeEventSource("liveEvents");
-    state.liveEvents = new EventSource(response.events_url);
-    state.liveEvents.addEventListener("progress", (event) => renderLivePanel(JSON.parse(event.data).data));
-    state.liveEvents.addEventListener("finished", () => {
-      state.liveJobId = null;
-      updateLiveMonitorButton(false, false);
-      setLiveState("Not monitoring", "state-idle", "Live Data monitor is stopped.");
-      closeEventSource("liveEvents");
-    });
-    state.liveEvents.addEventListener("failed", (event) => {
-      const message = JSON.parse(event.data).data?.error || "Live Data monitor failed.";
-      renderLivePanel({ status: "error", stale: true, message });
-      state.liveJobId = null;
-      updateLiveMonitorButton(false, false);
-      closeEventSource("liveEvents");
-    });
-  } catch (error) {
-    renderLivePanel({ status: "error", stale: true, message: error.message || String(error) });
-    state.liveJobId = null;
-    updateLiveMonitorButton(false, false);
-  }
-}
-
-async function toggleLiveMonitor() {
-  if (state.liveJobId || state.liveEvents) {
-    await stopLive();
-  } else {
-    await startLive();
-  }
-}
-
-async function stopLive() {
-  if (!state.liveJobId) return;
-  updateLiveMonitorButton(true, true);
-  try {
-    const jobId = state.liveJobId;
-    await webuiApi.fetchJson(`/api/live/${jobId}/stop`, { method: "POST" });
-    closeEventSource("liveEvents");
-    await waitForLiveTerminal(jobId);
-    state.liveJobId = null;
-    updateLiveMonitorButton(false, false);
-    setLiveState("Not monitoring", "state-idle", "Live Data monitor is stopped.");
-  } catch (error) {
-    renderLivePanel({ status: "error", stale: true, message: error.message || String(error) });
-    updateLiveMonitorButton(true, false);
-  }
-}
-
-async function startLivePreviewSnapshot(healthState, resource = null) {
-  if (isNoHardwareMode()) return;
-  stopLivePreviewSnapshot();
-  setLiveState("Refreshing once...", "state-warning", "Refreshing Live Data once after command completion.");
-  if (!healthState?.serverReady || !healthState?.deviceIdle) {
-    renderBlankLivePanel("error", "Server or hardware is not ready.");
-    setLiveState("Refresh blocked", "state-error", "Server or command path is not ready for a one-shot Live Data refresh.");
-    return;
-  }
-  const payload = { runtime: runtimePayload(), parameters: { interval_ms: 1000 } };
-  if (resource) payload.runtime.resource = resource;
-  if (!payload.runtime.resource) {
-    renderBlankLivePanel();
-    setLiveState("Not monitoring", "state-idle", "No hardware resource is selected.");
-    return;
-  }
-  try {
-    const response = await webuiApi.fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) });
-    state.previewJobId = response.job_id;
-    let handledFreshSample = false;
-    state.previewEvents = new EventSource(response.events_url);
-    state.previewEvents.addEventListener("progress", (event) => {
-      if (handledFreshSample) return;
-      const sample = JSON.parse(event.data).data;
-      renderLivePanel(sample);
-      if (!isFreshLivePreviewSample(sample)) return;
-      handledFreshSample = true;
-      stopLivePreviewSnapshot();
-    });
-    state.previewEvents.addEventListener("failed", (event) => {
-      const error = JSON.parse(event.data).data?.error || "Snapshot preview failed.";
-      renderBlankLivePanel("error", error);
-      setLiveState(liveStateText("error", Date.now() / 1000, error), "state-error", error);
-      stopLivePreviewSnapshot();
-    });
-  } catch (error) {
-    const message = error.message || String(error);
-    renderBlankLivePanel("error", message);
-    setLiveState(liveStateText("error", Date.now() / 1000, message), "state-error", message);
-  }
-}
-
-function isFreshLivePreviewSample(sample) {
-  return Boolean(
-    sample
-    && sample.stale === false
-    && sample.status !== "busy"
-    && sample.status !== "error"
-    && Array.isArray(sample.channels)
-  );
-}
-
-async function waitForLiveTerminal(jobId) {
-  const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) {
-    const job = await webuiApi.fetchJson(`/api/jobs/${jobId}`);
-    if (["cancelled", "finished", "failed"].includes(job.status)) return job;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("Live Data stop timed out while waiting for the backend job to finish.");
 }
 
 function pulseTimingDisplayName(command, value) {
