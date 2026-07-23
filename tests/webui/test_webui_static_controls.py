@@ -19,8 +19,9 @@ def test_static_e3646a_basic_global_output_dom_and_accessibility_contract():
     assert index_html.count('id="basic-output-all"') == 1
     assert index_html.count("data-basic-all-output") == 1
     assert_static_id(index_html, "basic-output-all-header-slot")
-    assert_static_id(index_html, "basic-output-all-global-slot")
-    assert_static_id(index_html, "basic-e3646a-output-row")
+    assert "basic-output-all-global-slot" not in index_html
+    assert "basic-e3646a-output-row" not in index_html
+    assert index_html.index('id="basic-output-all-header-slot"') < index_html.index('id="advanced-command-toggle"')
     assert_static_id(index_html, "basic-output-capability-status")
     assert_static_id(index_html, "e3646a-global-output-description")
 
@@ -38,7 +39,7 @@ def test_static_e3646a_basic_global_output_dom_and_accessibility_contract():
     assert ".basic-toggle[hidden]" in styles_css
     assert ".basic-output-status[hidden]" in styles_css
     assert ".basic-output-info[hidden]" in styles_css
-    assert ".basic-e3646a-output-row[hidden]" in styles_css
+    assert ".basic-e3646a-output-row" not in styles_css
     assert 'document.querySelector("[data-basic-all-output]").addEventListener("click", runBasicOutputAll);' in app_js
 
 
@@ -191,8 +192,6 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         const resource = { value: "RESOURCE-E3646A" };
         const expected = { value: "" };
         const headerSlot = new FakeElement("span");
-        const globalSlot = new FakeElement("span");
-        const globalRow = new FakeElement("div");
         const capabilityStatus = new FakeElement("div");
         const basicStatus = new FakeElement("div");
         const allButton = new FakeElement("button");
@@ -221,8 +220,6 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
           ["resource", resource],
           ["expected-model-id", expected],
           ["basic-output-all-header-slot", headerSlot],
-          ["basic-output-all-global-slot", globalSlot],
-          ["basic-e3646a-output-row", globalRow],
           ["basic-output-capability-status", capabilityStatus],
           ["basic-command-status", basicStatus]
         ]);
@@ -271,8 +268,7 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         renderBasicOutputButton(1, state.livePanel.channels[0], true);
         renderBasicOutputButton(2, state.livePanel.channels[1], true);
         renderBasicOutputControlState(1);
-        strictAssert.equal(allButton.parentNode, globalSlot);
-        strictAssert.equal(globalRow.hidden, false);
+        strictAssert.equal(allButton.parentNode, headerSlot);
         strictAssert.equal(outputButtons[1].hidden, false);
         strictAssert.equal(outputButtons[1].disabled, true);
         strictAssert.equal(outputButtons[1].textContent, "Controlled by ALL");
@@ -283,16 +279,20 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         strictAssert.equal(outputStatuses[2].hidden, true);
         strictAssert.equal(outputInfo[1].hidden, false);
         strictAssert.equal(outputInfo[1].title, "E3646A does not support independent channel output switching. Use ALL to turn CH1 and CH2 on or off together.");
-        strictAssert.equal(allButton.textContent, "Turn outputs off");
+        strictAssert.equal(allButton.textContent, "ALL ON");
+        strictAssert.equal(allButton.classList.contains("on"), true);
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "true");
+        strictAssert.equal(allButton.getAttribute("aria-label"), "All outputs on");
         strictAssert.equal(allButton.disabled, false);
 
         state.livePanel.channels[0].output_enabled = false;
         state.livePanel.channels[1].output_enabled = false;
         renderBasicAllOutputButton(state.livePanel.channels);
         renderBasicOutputButton(1, state.livePanel.channels[0], true);
-        strictAssert.equal(allButton.textContent, "Turn outputs on");
+        strictAssert.equal(allButton.textContent, "ALL ON");
+        strictAssert.equal(allButton.classList.contains("off"), true);
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "false");
+        strictAssert.equal(allButton.getAttribute("aria-label"), "Not all outputs on");
         strictAssert.equal(allButton.disabled, false);
         strictAssert.equal(outputButtons[1].textContent, "Controlled by ALL");
 
@@ -302,7 +302,9 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         renderBasicOutputControlState("all");
         strictAssert.equal(outputButtons[1].textContent, "Controlled by ALL");
         strictAssert.equal(allButton.textContent, "ALL ON");
+        strictAssert.equal(allButton.classList.contains("unknown"), true);
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "mixed");
+        strictAssert.equal(allButton.getAttribute("aria-label"), "Not all outputs on");
         strictAssert.equal(allButton.disabled, false);
         state.livePanel.channels[0].output_enabled = true;
         renderBasicAllOutputButton(state.livePanel.channels);
@@ -353,7 +355,7 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         const originalListener = allButton.listeners.click[0];
         applyBasicOutputPresentation();
         applyBasicOutputPresentation();
-        strictAssert.equal(globalSlot.children.filter((node) => node === allButton).length, 1);
+        strictAssert.equal(headerSlot.children.filter((node) => node === allButton).length, 1);
         strictAssert.equal(allButton.listeners.click.length, 1);
         strictAssert.equal(allButton.listeners.click[0], originalListener);
         const allButtonIdentity = allButton;
@@ -371,7 +373,8 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         refreshBasicControlsPresentation();
         strictAssert.equal(allButton, allButtonIdentity);
         strictAssert.equal(state.livePanel, livePanelIdentity);
-        strictAssert.equal(allButton.textContent, "關閉輸出");
+        strictAssert.equal(allButton.textContent, "全部開啟");
+        strictAssert.equal(allButton.getAttribute("aria-label"), "所有輸出皆開啟");
         strictAssert.equal(outputButtons[1].textContent, "由 ALL 控制");
         strictAssert.equal(outputButtons[1].getAttribute("aria-label"), "CH1 輸出 由 ALL 控制");
         strictAssert.equal(outputInfo[1].getAttribute("aria-label"), "E3646A 全域輸出資訊");
@@ -397,7 +400,7 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         state.basicActionStates = {};
         setLocale("en");
         refreshBasicControlsPresentation();
-        strictAssert.equal(allButton.textContent, "Turn outputs off");
+        strictAssert.equal(allButton.textContent, "ALL ON");
 
         state.channelCapabilitiesByModel["keysight-e3646a"] = {
           channels: [1, 2],
@@ -413,7 +416,6 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         delete state.channelCapabilitiesByModel["keysight-e3646a"];
         applyBasicOutputPresentation();
         strictAssert.equal(allButton.parentNode, headerSlot);
-        strictAssert.equal(globalRow.hidden, true);
         strictAssert.equal(capabilityStatus.hidden, false);
         strictAssert.equal(capabilityStatus.textContent, "E3646A output controls are disabled because global-output capability metadata is missing or inconsistent.");
         strictAssert.equal(allButton.disabled, true);

@@ -216,16 +216,12 @@ function renderBasicAllOutputButton(channels) {
   const presentation = basicOutputPresentation();
   if (presentation.mode === "e3646a-global") {
     const globalState = e3646aGlobalOutputState(presentation);
-    button.textContent = globalState === "on"
-      ? t("basic_controls.output.turn_off")
-      : globalState === "off"
-        ? t("basic_controls.output.turn_on")
-        : t("basic_controls.output.all_on_control");
+    button.textContent = t("basic_controls.output.all_on_control");
     button.classList.toggle("on", globalState === "on");
     button.classList.toggle("off", globalState === "off");
     button.classList.toggle("unknown", globalState === "unknown");
     button.setAttribute("aria-pressed", globalState === "on" ? "true" : globalState === "off" ? "false" : "mixed");
-    button.setAttribute("aria-label", t("basic_controls.aria.all_channel_output", { state: button.textContent }));
+    button.setAttribute("aria-label", t(globalState === "on" ? "basic_controls.aria.all_outputs_on" : "basic_controls.aria.not_all_outputs_on"));
     button.title = outputAllControlTitle(globalState === "on");
     applyBasicOutputPresentation();
     return;
@@ -285,17 +281,11 @@ function applyBasicAllOutputPresentation(button, presentation = basicOutputPrese
 function applyBasicOutputPresentation() {
   const presentation = basicOutputPresentation();
   const allButton = document.querySelector("[data-basic-all-output]");
-  const headerSlot = document.getElementById("basic-output-all-header-slot");
-  const globalSlot = document.getElementById("basic-output-all-global-slot");
-  const globalRow = document.getElementById("basic-e3646a-output-row");
   const capabilityStatus = document.getElementById("basic-output-capability-status");
 
   if (allButton) {
-    const targetSlot = presentation.mode === "e3646a-global" ? globalSlot : headerSlot;
-    if (targetSlot && allButton.parentNode !== targetSlot) targetSlot.appendChild(allButton);
     applyBasicAllOutputPresentation(allButton, presentation);
   }
-  if (globalRow) globalRow.hidden = presentation.mode !== "e3646a-global";
   if (capabilityStatus) {
     const disabled = presentation.mode === "e3646a-disabled";
     capabilityStatus.hidden = !disabled;

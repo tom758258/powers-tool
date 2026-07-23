@@ -1099,7 +1099,6 @@ canvas {
 }
 
 .basic-output-capability-status[hidden],
-.basic-e3646a-output-row[hidden],
 .basic-toggle[hidden],
 .basic-output-status[hidden],
 .basic-output-info[hidden] {
@@ -1224,30 +1223,9 @@ canvas {
   box-shadow: var(--shadow-focus);
 }
 
-.basic-e3646a-output-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  min-width: 0;
-  margin: 0 16px 14px;
-  padding-top: 2px;
-}
-
-.basic-e3646a-output-row > strong {
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .basic-output-all-slot {
   display: inline-flex;
   max-width: 100%;
-}
-
-.basic-e3646a-output-row #basic-output-all {
-  max-width: 100%;
-  white-space: normal;
 }
 
 .basic-fields {
