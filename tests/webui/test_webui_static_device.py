@@ -98,6 +98,11 @@ function element(id) {
       title: "",
       textContent: "",
       children: [],
+      attributes: {},
+      disabled: false,
+      hidden: false,
+      setAttribute(name, value) { this.attributes[name] = String(value); },
+      getAttribute(name) { return this.attributes[name] ?? null; },
       classList: {
         add(name) { classes.add(name); },
         toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); },
@@ -111,6 +116,8 @@ function element(id) {
 }
 globalThis.document = {
   getElementById: element,
+  querySelector(selector) { return selector === ".device-resource-section" ? element("device-resource-section") : null; },
+  querySelectorAll(selector) { return selector === 'input[name="execution-mode"]' ? radios : []; },
   createElement() {
     return {
       selector: "",
@@ -122,6 +129,7 @@ globalThis.document = {
     };
   }
 };
+const radios = [{ title: "", disabled: false }, { title: "", disabled: true }, { title: "", disabled: false }];
 const state = {
   executionMode: "simulate",
   planningIdentityCache: { simulate: "keysight-e3646a", "dry-run": "" },
@@ -144,17 +152,71 @@ const controller = webuiDevice.createDeviceResourceController({
   valueOrNull: (id) => id === "expected-model-id" ? state.planningIdentityCache.simulate : null,
   channelCapabilityForModel: (model) => model === "keysight-e3646a" ? capability : null
 });
+const i18n = await import(new URL("./i18n.js", moduleUrls["device-resource.js"]));
 controller.setStateIndicator("status", "Ready", "state-ok", "Ready title");
 const indicator = element("status");
 strictAssert.equal(indicator.classList.contains("state-ok"), true);
 strictAssert.equal(indicator.classList.contains("state-warning"), false);
 strictAssert.equal(indicator.querySelector(".state-text").textContent, "Ready");
 strictAssert.equal(indicator.title, "Ready title");
+state.health = { status: "not_loaded", readiness: null, hardwareLocked: null, activeJob: null, detail: "" };
+controller.refreshHealthPresentation();
+strictAssert.equal(element("server-state").querySelector(".state-text").textContent, "Checking");
+strictAssert.equal(element("server-state").classList.contains("state-warning"), true);
+strictAssert.equal(element("device-state").querySelector(".state-text").textContent, "Unknown");
+strictAssert.equal(element("device-state").classList.contains("state-idle"), true);
+state.health = { status: "loaded", readiness: "ok", hardwareLocked: false, activeJob: null, detail: "" };
+controller.refreshHealthPresentation();
+strictAssert.equal(element("server-state").querySelector(".state-text").textContent, "Ready");
+strictAssert.equal(element("device-state").querySelector(".state-text").textContent, "Ready");
 state.health = { status: "loaded", readiness: "ok", hardwareLocked: true, activeJob: "job-raw-42", detail: "" };
 controller.refreshHealthPresentation();
 strictAssert.equal(element("server-state").querySelector(".state-text").textContent, "Ready");
 strictAssert.equal(element("device-state").querySelector(".state-text").textContent, "Busy");
 strictAssert.match(element("device-state").title, /job-raw-42/);
+state.health = { status: "loaded", readiness: "starting", hardwareLocked: false, activeJob: null, detail: "" };
+controller.refreshHealthPresentation();
+strictAssert.equal(element("server-state").querySelector(".state-text").textContent, "Error");
+strictAssert.match(element("server-state").title, /starting/);
+strictAssert.equal(element("device-state").querySelector(".state-text").textContent, "Unknown");
+state.health = { status: "failed", readiness: null, hardwareLocked: null, activeJob: null, detail: "raw backend health failure" };
+controller.refreshHealthPresentation();
+strictAssert.equal(element("server-state").title, "raw backend health failure");
+
+state.executionModeTransition = true;
+const disabledBeforeBusyRefresh = radios.map((radio) => radio.disabled);
+controller.refreshExecutionModePresentation();
+strictAssert.equal(radios[0].title, "Execution mode cannot change while a job is submitting, active, or stopping.");
+strictAssert.deepEqual(radios.map((radio) => radio.disabled), disabledBeforeBusyRefresh);
+i18n.setLocale("zh-TW");
+controller.refreshExecutionModePresentation();
+strictAssert.equal(radios[0].title, "工作正在提交、執行或停止時無法變更執行模式。");
+strictAssert.deepEqual(radios.map((radio) => radio.disabled), disabledBeforeBusyRefresh);
+state.health = { status: "not_loaded", readiness: null, hardwareLocked: null, activeJob: null, detail: "" };
+controller.refreshHealthPresentation();
+strictAssert.equal(element("server-state").querySelector(".state-text").textContent, "檢查中");
+strictAssert.equal(element("device-state").querySelector(".state-text").textContent, "未知");
+state.executionModeTransition = false;
+controller.refreshExecutionModePresentation();
+strictAssert.equal(radios[0].title, "");
+
+controller.setDeviceResourceExpanded(true);
+const toggle = element("toggle-device-resource");
+strictAssert.equal(toggle.getAttribute("aria-expanded"), "true");
+strictAssert.equal(toggle.getAttribute("aria-label"), "收合裝置／資源");
+const expandedHidden = element("device-resource-body").hidden;
+controller.refreshDeviceResourceExpandedPresentation();
+strictAssert.equal(element("device-resource-body").hidden, expandedHidden);
+strictAssert.equal(toggle.getAttribute("aria-expanded"), "true");
+controller.setDeviceResourceExpanded(false);
+strictAssert.equal(toggle.getAttribute("aria-expanded"), "false");
+strictAssert.equal(toggle.title, "展開裝置／資源");
+const collapsedHidden = element("device-resource-body").hidden;
+i18n.setLocale("en");
+controller.refreshDeviceResourceExpandedPresentation();
+strictAssert.equal(toggle.title, "Expand Device / Resource");
+strictAssert.equal(element("device-resource-body").hidden, collapsedHidden);
+strictAssert.equal(toggle.getAttribute("aria-expanded"), "false");
 strictAssert.equal(fetchCalls, 0);
 strictAssert.deepEqual(controller.e3646aGlobalOutputCapability(), capability);
 strictAssert.equal(controller.basicOutputPresentation().mode, "e3646a-global");

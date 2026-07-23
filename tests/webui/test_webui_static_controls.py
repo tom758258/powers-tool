@@ -660,6 +660,18 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
             return this.children;
           }
 
+          get firstChild() {
+            if (this.textContent) {
+              const owner = this;
+              return {
+                nodeType: 3,
+                get textContent() { return owner.textContent; },
+                set textContent(value) { owner.textContent = value; }
+              };
+            }
+            return this.children[0];
+          }
+
           set innerHTML(value) {
             strictAssert.equal(value, "");
             this.textContent = "";
@@ -699,6 +711,9 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
             }
             if (selector === "option[data-i18n-option]") {
               return descendants(this).filter((node) => node.tagName === "OPTION" && node.dataset.i18nOption !== undefined);
+            }
+            if (selector === "[data-i18n-loop]") {
+              return descendants(this).filter((node) => node.dataset.i18nLoop);
             }
             return [];
           }
@@ -803,6 +818,54 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
           "None", "Every step", "Ramp complete", "Loop complete"
         ]);
         rampTiming.value = "loop";
+        const rampStart = byId(commandForm, "param-start_voltage");
+        rampStart.value = "0.375";
+        const rampCountIdentity = rampLoopCount;
+        const rampCheckboxIdentity = rampLoopEnabled;
+        const timingDisabled = rampTiming.disabled;
+        const countListeners = {
+          input: rampLoopCount.listeners.input.length,
+          change: rampLoopCount.listeners.change.length
+        };
+        setLocale("zh-TW");
+        refreshCommandFormPresentation();
+        strictAssert.equal(byId(commandForm, "param-loop_enabled"), rampCheckboxIdentity);
+        strictAssert.equal(byId(commandForm, "param-loop_count"), rampCountIdentity);
+        strictAssert.equal(rampCheckboxIdentity.checked, true);
+        strictAssert.equal(rampCountIdentity.value, "2");
+        strictAssert.equal(rampCountIdentity.min, "2");
+        strictAssert.equal(rampCountIdentity.max, "255");
+        strictAssert.equal(rampCountIdentity.step, "1");
+        strictAssert.equal(rampCountIdentity.required, true);
+        strictAssert.deepEqual({
+          input: rampCountIdentity.listeners.input.length,
+          change: rampCountIdentity.listeners.change.length
+        }, countListeners);
+        strictAssert.equal(rampStart.value, "0.375");
+        strictAssert.equal(rampTiming.value, "loop");
+        strictAssert.equal(rampTiming.disabled, timingDisabled);
+        strictAssert.equal(byClass(commandForm, "checkbox-label-text").find((node) => node.parentNode === rampCheckboxIdentity.parentNode).textContent, "啟用迴圈");
+        strictAssert.equal(byClass(commandForm, "loop-count-label-text")[0].textContent, "迴圈次數");
+        strictAssert.deepEqual(rampTiming.children.map((option) => option.textContent), [
+          "無", "每個步驟", "斜坡完成", "迴圈完成"
+        ]);
+        const rampPins = byId(commandForm, "param-completion_pulse_pins");
+        strictAssert.equal(rampPins.children[0].textContent, "接腳 1");
+        strictAssert.equal(rampPins.children[0].value, "1");
+        strictAssert.equal(rampPins.children.find((option) => option.value === "1,2").textContent, "接腳 1 + 2");
+        const rampPolarity = byId(commandForm, "param-completion_pulse_polarity");
+        strictAssert.deepEqual(rampPolarity.children.map((option) => option.textContent), ["正極性", "負極性"]);
+        strictAssert.deepEqual(rampPolarity.children.map((option) => option.value), ["positive", "negative"]);
+        const rampChannel = byId(commandForm, "param-channel");
+        strictAssert.deepEqual(rampChannel.children.map((option) => option.textContent), ["1", "2", "3"]);
+        strictAssert.deepEqual(rampChannel.children.map((option) => option.value), ["1", "2", "3"]);
+        setLocale("en");
+        refreshCommandFormPresentation();
+        strictAssert.equal(byClass(commandForm, "checkbox-label-text").find((node) => node.parentNode === rampCheckboxIdentity.parentNode).textContent, "Enable loop");
+        strictAssert.equal(byClass(commandForm, "loop-count-label-text")[0].textContent, "Loop count");
+        strictAssert.deepEqual(rampTiming.children.map((option) => option.textContent), [
+          "None", "Every step", "Ramp complete", "Loop complete"
+        ]);
         rampLoopEnabled.checked = false;
         rampLoopEnabled.listeners.change.forEach((listener) => listener());
         strictAssert.equal(byId(commandForm, "param-loop_count"), undefined);
@@ -810,8 +873,6 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(rampParts.input.listeners.change.length, 1);
         strictAssert.equal(rampParts.input.listeners.input.length, 1);
 
-        const rampStart = byId(commandForm, "param-start_voltage");
-        rampStart.value = "0.375";
         rampParts.input.checked = true;
         const formIdentity = commandForm;
         const selectedBeforeRefresh = state.selected;
@@ -828,6 +889,44 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(descendants(commandForm).filter((node) => node.id === "param-enable_output").length, 1);
         strictAssert.equal(descendants(commandForm).filter((node) => node.id === "ramp-enable-output-help").length, 1);
         strictAssert.equal(byClass(commandForm, "output-behavior").length, 0);
+
+        state.selected = "trigger-step";
+        renderForm("trigger-step");
+        const triggerVoltage = byId(commandForm, "param-voltage");
+        const triggerCurrent = byId(commandForm, "param-current");
+        strictAssert.equal(triggerVoltage.parentNode.textContent, "Triggered voltage(V)");
+        strictAssert.equal(triggerCurrent.parentNode.textContent, "Triggered current(A)");
+        triggerVoltage.value = "1.25";
+        triggerCurrent.value = "0.2";
+        const triggerSource = byId(commandForm, "param-source");
+        const triggerChannel = byId(commandForm, "param-channel");
+        const sourceValues = triggerSource.children.map((option) => option.value);
+        setLocale("zh-TW");
+        refreshCommandFormPresentation();
+        strictAssert.equal(triggerVoltage.parentNode.textContent, "觸發電壓 (V)");
+        strictAssert.equal(triggerCurrent.parentNode.textContent, "觸發電流 (A)");
+        strictAssert.deepEqual(triggerChannel.children.map((option) => option.textContent), ["1", "2", "3"]);
+        strictAssert.deepEqual(triggerChannel.children.map((option) => option.value), ["1", "2", "3"]);
+        strictAssert.deepEqual(triggerSource.children.map((option) => option.textContent), ["BUS", "Immediate"]);
+        strictAssert.deepEqual(triggerSource.children.map((option) => option.value), sourceValues);
+        const triggerPayload = parameterPayload();
+        strictAssert.equal(triggerPayload.voltage, 1.25);
+        strictAssert.equal(triggerPayload.current, 0.2);
+        strictAssert.equal(Object.hasOwn(triggerPayload, "triggered_voltage"), false);
+        strictAssert.equal(Object.hasOwn(triggerPayload, "triggered_current"), false);
+        setLocale("en");
+        refreshCommandFormPresentation();
+        strictAssert.equal(triggerVoltage.parentNode.textContent, "Triggered voltage(V)");
+        strictAssert.equal(triggerCurrent.parentNode.textContent, "Triggered current(A)");
+
+        state.selected = "apply";
+        renderForm("apply");
+        const applyChannel = byId(commandForm, "param-channel");
+        setLocale("zh-TW");
+        refreshCommandFormPresentation();
+        strictAssert.equal(applyChannel.children[0].textContent, "全部");
+        strictAssert.equal(applyChannel.children[0].value, "all");
+        setLocale("en");
 
         const rampListHelp = "Each channel is enabled only after its first safe segment setpoint is written and verified. Outputs remain ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation.";
         state.selected = "ramp-list";

@@ -76,8 +76,18 @@ function setDeviceResourceExpanded(expanded) {
   section.classList.toggle("collapsed", !expanded);
   button.textContent = expanded ? "-" : "+";
   button.setAttribute("aria-expanded", String(expanded));
-  button.setAttribute("aria-label", expanded ? "Collapse Device / Resource" : "Expand Device / Resource");
-  button.title = expanded ? "Collapse Device / Resource" : "Expand Device / Resource";
+  refreshDeviceResourceExpandedPresentation();
+}
+
+function refreshDeviceResourceExpandedPresentation() {
+  const button = document.getElementById("toggle-device-resource");
+  if (!button) return;
+  const expanded = button.getAttribute("aria-expanded") === "true";
+  const text = t(expanded
+    ? "accessibility.collapse_device_resource"
+    : "accessibility.expand_device_resource");
+  button.setAttribute("aria-label", text);
+  button.title = text;
 }
 
 function updateDeviceResourceSummary() {
@@ -189,11 +199,11 @@ function hasRealWriteAuthorization() {
 
 function updateExecutionModeUi({ renderCommands: shouldRenderCommands = true } = {}) {
   const noHardware = isNoHardwareMode();
-  const jobBusy = state.executionModeTransition || state.workflowControl.phase !== "idle" || Object.values(state.basicActionStates).some((action) => ["pending", "submitting", "active", "stopping"].includes(action.status)) || state.jobs.some((job) => ["accepted", "started", "progress", "running", "cancel_requested"].includes(job.status));
+  const jobBusy = executionModeBusy();
   document.querySelectorAll('input[name="execution-mode"]').forEach((radio) => {
     radio.disabled = jobBusy;
-    radio.title = jobBusy ? "Execution mode cannot change while a job is submitting, active, or stopping." : "";
   });
+  refreshExecutionModeBusyPresentation();
   const badge = document.getElementById("execution-mode-badge");
   const checkbox = document.getElementById("real-write-enabled");
   const resourceControls = ["resource", "resource-select", "scan", "live-start", "serial-baud-rate", "serial-data-bits", "serial-parity", "serial-stop-bits", "serial-flow-control", "serial-read-termination", "serial-write-termination", "serial-remote", "serial-local-on-close"];
@@ -221,6 +231,20 @@ function updateExecutionModeUi({ renderCommands: shouldRenderCommands = true } =
   syncBasicFromLivePanel(state.livePanel);
 }
 
+function executionModeBusy() {
+  return state.executionModeTransition
+    || state.workflowControl.phase !== "idle"
+    || Object.values(state.basicActionStates).some((action) => ["pending", "submitting", "active", "stopping"].includes(action.status))
+    || state.jobs.some((job) => ["accepted", "started", "progress", "running", "cancel_requested"].includes(job.status));
+}
+
+function refreshExecutionModeBusyPresentation() {
+  const title = executionModeBusy() ? t("execution_mode.busy_title") : "";
+  document.querySelectorAll('input[name="execution-mode"]').forEach((radio) => {
+    radio.title = title;
+  });
+}
+
 function refreshExecutionModePresentation() {
   const noHardware = isNoHardwareMode();
   const badge = document.getElementById("execution-mode-badge");
@@ -237,6 +261,7 @@ function refreshExecutionModePresentation() {
     : state.executionMode === "dry-run"
       ? "execution_mode.badge.dry_run"
       : hasRealWriteAuthorization() ? "execution_mode.badge.real_enabled" : "execution_mode.badge.real_locked");
+  refreshExecutionModeBusyPresentation();
 }
 
 function populateIdentitySelector() {
@@ -467,14 +492,17 @@ async function refreshHealth() {
 
 function refreshHealthPresentation() {
   const health = state.health;
+  const notLoaded = !health || health.status === "not_loaded";
   const failed = health?.status === "failed";
   const ready = health?.status === "loaded" && health.readiness === "ok";
   const idle = ready && !health.hardwareLocked;
   setStateIndicator(
     "server-state",
-    t(ready ? "health.status.ready" : "health.status.error"),
-    ready ? "state-ok" : "state-error",
-    failed
+    t(notLoaded ? "health.status.checking" : ready ? "health.status.ready" : "health.status.error"),
+    notLoaded ? "state-warning" : ready ? "state-ok" : "state-error",
+    notLoaded
+      ? t("health.server.checking")
+      : failed
       ? health.detail
       : ready
         ? t("health.server.reachable")
@@ -494,6 +522,7 @@ function refreshHealthPresentation() {
 
 function refreshDeviceResourcePresentation() {
   refreshExecutionModePresentation();
+  refreshDeviceResourceExpandedPresentation();
   refreshDeviceResourceSummaryPresentation();
   refreshHealthPresentation();
   const select = document.getElementById("resource-select");
@@ -543,6 +572,7 @@ function setStateIndicator(elementId, text, stateClass = "state-idle", title = "
   return {
     setDeviceOptionsExpanded,
     setDeviceResourceExpanded,
+    refreshDeviceResourceExpandedPresentation,
     updateDeviceResourceSummary,
     refreshDeviceResourceSummaryPresentation,
     buildDeviceResourceSummary,
@@ -558,6 +588,7 @@ function setStateIndicator(elementId, text, stateClass = "state-idle", title = "
     hasRealWriteAuthorization,
     updateExecutionModeUi,
     refreshExecutionModePresentation,
+    refreshExecutionModeBusyPresentation,
     refreshDeviceResourcePresentation,
     populateIdentitySelector,
     handleExecutionModeChange,

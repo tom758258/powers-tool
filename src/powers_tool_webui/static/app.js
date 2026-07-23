@@ -1258,7 +1258,10 @@ function renderLoopControl({
   loopEnabled = null,
   countDraft = null,
   onEnabled = () => {},
-  onDraft = () => {}
+  onDraft = () => {},
+  translate = null,
+  enabledTranslationKey = null,
+  countTranslationKey = null
 }) {
   const hasExplicitState = typeof loopEnabled === "boolean";
   const wrapper = document.createElement("div");
@@ -1267,13 +1270,27 @@ function renderLoopControl({
   enabled.type = "checkbox";
   enabled.id ||= prefix + "-loop-enabled";
   enabled.checked = hasExplicitState ? loopEnabled : Number.isInteger(current) && current >= 2;
-  wrapper.appendChild(webuiCommandForm.createCheckboxField(enabled, "Enable loop"));
+  const enabledLabel = webuiCommandForm.createCheckboxField(
+    enabled,
+    enabledTranslationKey && translate ? translate(enabledTranslationKey) : "Enable loop"
+  );
+  if (enabledTranslationKey) enabledLabel.querySelector(".checkbox-label-text").dataset.i18nLoop = enabledTranslationKey;
+  wrapper.appendChild(enabledLabel);
 
   const mountCount = (value = 2) => {
     wrapper.querySelector?.(".loop-count-field")?.remove();
     const label = document.createElement("label");
     label.className = "loop-count-field";
-    label.textContent = "Loop count";
+    let labelText = null;
+    if (countTranslationKey) {
+      labelText = document.createElement("span");
+      labelText.className = "loop-count-label-text";
+      labelText.textContent = translate ? translate(countTranslationKey) : "Loop count";
+      labelText.dataset.i18nLoop = countTranslationKey;
+      label.appendChild(labelText);
+    } else {
+      label.textContent = "Loop count";
+    }
     const count = document.createElement("input");
     count.type = "number";
     count.id = countInputId || prefix + "-loop-count";

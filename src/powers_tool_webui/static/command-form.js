@@ -288,6 +288,7 @@ function renderForm(command) {
           ? rearPinDisplayName(option)
           : pulseTimingDisplayName(command, option);
         item.dataset.i18nOption = option;
+        item.dataset.i18nParam = param.name;
         if (param.name === "channel" && isNumericChannel(option) && !isChannelSupported(option)) {
           item.disabled = true;
           item.title = channelUnsupportedReason(option);
@@ -329,6 +330,9 @@ function renderForm(command) {
         enabledInput: input,
         current: 1,
         countInputId: "param-loop_count",
+        translate: t,
+        enabledTranslationKey: "form.field.loop_enabled",
+        countTranslationKey: "form.field.loop_count",
         onValue: () => {},
         onDisable: () => {
           const timing = document.getElementById("param-completion_pulse_timing");
@@ -369,7 +373,7 @@ function refreshCommandFormPresentation() {
   form.querySelectorAll("label[data-i18n-param]").forEach((label) => {
     const param = params.get(label.dataset.i18nParam);
     if (!param) return;
-    const text = t(`form.field.${param.name}`, undefined, param.label);
+    const text = t(fieldTranslationKey(command, param.name), undefined, param.label);
     const checkboxText = label.querySelector(".checkbox-label-text");
     if (checkboxText) checkboxText.textContent = text;
     else if (label.firstChild?.nodeType === 3) label.firstChild.textContent = text;
@@ -388,8 +392,11 @@ function refreshCommandFormPresentation() {
     }
   });
   form.querySelectorAll("option[data-i18n-option]").forEach((option) => {
-    const optionKey = optionTranslationKey(option.dataset.i18nOption);
+    const optionKey = optionTranslationKey(option.dataset.i18nParam, option.dataset.i18nOption);
     if (optionKey) option.textContent = t(optionKey, undefined, option.textContent);
+  });
+  form.querySelectorAll("[data-i18n-loop]").forEach((element) => {
+    element.textContent = t(element.dataset.i18nLoop, undefined, element.textContent);
   });
   const setGuidance = form.querySelector?.(".set-field-guidance");
   if (setGuidance) setGuidance.textContent = t("form.guidance.set_partial", undefined, SET_PARTIAL_GUIDANCE);
@@ -401,7 +408,7 @@ function refreshCommandFormPresentation() {
     if (summary) summary.textContent = commandCatalog.commandDescription(command, commandMeta(command).description || "");
     notes.querySelectorAll("dt").forEach((term, index) => {
       const param = (PARAMS[command] || []).filter((item) => item.description)[index];
-      if (param) term.textContent = t(`form.field.${param.name}`, undefined, param.label);
+      if (param) term.textContent = t(fieldTranslationKey(command, param.name), undefined, param.label);
     });
     notes.querySelectorAll("dd").forEach((detail, index) => {
       const param = (PARAMS[command] || []).filter((item) => item.description)[index];
@@ -410,16 +417,15 @@ function refreshCommandFormPresentation() {
   }
 }
 
-function optionTranslationKey(value) {
-  const keys = {
-    "": "none",
-    "1": "pin_1",
-    "2": "pin_2",
-    "3": "pin_3",
-    "1,2": "pins_1_2",
-    "1,3": "pins_1_3",
-    "2,3": "pins_2_3",
-    "1,2,3": "all",
+function fieldTranslationKey(command, paramName) {
+  if (command === "trigger-step" && ["voltage", "current"].includes(paramName)) {
+    return `form.field.triggered_${paramName}`;
+  }
+  return `form.field.${paramName}`;
+}
+
+function optionTranslationKey(paramName, value) {
+  const commonKeys = {
     all: "all",
     bus: "bus",
     immediate: "immediate",
@@ -427,12 +433,25 @@ function optionTranslationKey(value) {
     negative: "negative",
     on: "on",
     off: "off",
-    step: "step",
-    segment: "segment",
-    loop: "loop",
     "setting-change": "setting_change",
     "cc-transition": "cc_transition"
   };
+  const rearPinKeys = {
+    "": "none",
+    "1": "pin_1",
+    "2": "pin_2",
+    "3": "pin_3",
+    "1,2": "pins_1_2",
+    "1,3": "pins_1_3",
+    "2,3": "pins_2_3",
+    "1,2,3": "all"
+  };
+  const timingKeys = { "": "none", step: "step", segment: "segment", loop: "loop" };
+  const keys = ["pins", "completion_pulse_pins"].includes(paramName)
+    ? rearPinKeys
+    : paramName === "completion_pulse_timing"
+      ? timingKeys
+      : commonKeys;
   return Object.hasOwn(keys, value) ? `form.option.${keys[value]}` : null;
 }
 

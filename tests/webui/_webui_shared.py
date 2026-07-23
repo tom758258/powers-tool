@@ -209,6 +209,14 @@ def run_frontend_javascript_assertions(
             re.MULTILINE,
         )
     }
+    zh_tw_messages = {
+        key: json.loads(f'"{value}"')
+        for key, value in re.findall(
+            r'^  "([a-z][a-z0-9_.]+)": "((?:[^"\\]|\\.)*)",?$',
+            read_static_javascript("locale_zh_tw.js"),
+            re.MULTILINE,
+        )
+    }
     runner = f"""
 const vm = require("node:vm");
 const bootstrapSource = {json.dumps(FRONTEND_JAVASCRIPT_BOOTSTRAP + bootstrap)};
@@ -216,6 +224,8 @@ const productionScripts = {json.dumps(production_scripts)};
 const assertionsSource = {json.dumps(assertions)};
 const afterSourceAssertions = {json.dumps(after_source_assertions or {})};
 const englishMessages = {json.dumps(english_messages)};
+const zhTwMessages = {json.dumps(zh_tw_messages)};
+let activeMessages = englishMessages;
 const sandbox = {{
       console,
       require,
@@ -226,8 +236,11 @@ const sandbox = {{
   clearInterval
 }};
 const context = vm.createContext(sandbox);
+sandbox.setLocale = (locale) => {{
+  activeMessages = locale === "zh-TW" ? zhTwMessages : englishMessages;
+}};
 sandbox.__webuiTranslate = (key, params, rawFallback) => {{
-  let message = Object.hasOwn(englishMessages, key) ? englishMessages[key] : (rawFallback ?? key);
+  let message = Object.hasOwn(activeMessages, key) ? activeMessages[key] : (rawFallback ?? key);
   return message.replace(/\\{{([A-Za-z_][A-Za-z0-9_]*)\\}}/g, (placeholder, name) =>
     params && Object.hasOwn(params, name) ? String(params[name]) : placeholder
   );

@@ -402,6 +402,9 @@ the production catalogs. Form localization covers labels, maintained
 descriptions, compact help, ARIA labels, maintained option display text,
 guidance, and command notes while preserving command IDs, parameter names,
 option values, model/profile/resource values, and payloads.
+Option translation uses parameter context so channel numbers remain channel
+values while rear-pin fields use pin wording. Command-specific Trigger Step
+labels and Ramp Loop labels retain their semantics during in-place refresh.
 
 Resource scan presentation now uses explicit raw `not_scanned`, `scanning`,
 `results`, `empty`, and `failed` state instead of option text. The latest raw
@@ -411,6 +414,9 @@ health, command catalog, and ordinary command-form presentation have focused
 refresh functions that do not call the state-changing execution-mode path,
 select a command, rebuild the current ordinary form, submit/fetch a Job, or
 touch EventSource state.
+The initial cached health state presents Checking/Unknown until a health
+response arrives; busy execution tooltips and Device/Resource toggle
+accessibility text are also refreshed without changing control state.
 
 P3 intentionally does not localize specialized workflow editors, Basic
 controls, Job History, Workspace Result content, Result Detail content, Live
