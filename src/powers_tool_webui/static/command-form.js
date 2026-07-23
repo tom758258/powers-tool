@@ -418,6 +418,9 @@ function refreshCommandFormPresentation() {
 }
 
 function fieldTranslationKey(command, paramName) {
+  if (command === "trigger-fire" && paramName === "channel") {
+    return "form.field.trigger_fire_channel";
+  }
   if (command === "trigger-step" && ["voltage", "current"].includes(paramName)) {
     return `form.field.triggered_${paramName}`;
   }
@@ -426,6 +429,7 @@ function fieldTranslationKey(command, paramName) {
 
 function optionTranslationKey(paramName, value) {
   const commonKeys = {
+    "": "none",
     all: "all",
     bus: "bus",
     immediate: "immediate",

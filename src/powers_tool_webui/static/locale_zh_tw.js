@@ -120,6 +120,7 @@ export const ZH_TW_MESSAGES = Object.freeze({
   "form.description.trigger_step.wait_complete": "傳回前等待整台儀器的操作完成事件。",
   "form.description.trigger_step.wait_timeout_ms": "選用的最長等待時間；留白則使用命令預設值。",
   "form.field.channel": "通道",
+  "form.field.trigger_fire_channel": "中止目標通道",
   "form.field.completion_pulse_enabled": "完成時送出觸發脈衝",
   "form.field.completion_pulse_pins": "後面板接腳",
   "form.field.completion_pulse_polarity": "極性",

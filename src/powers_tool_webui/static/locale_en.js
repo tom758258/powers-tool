@@ -120,6 +120,7 @@ export const EN_MESSAGES = Object.freeze({
   "form.description.trigger_step.wait_complete": "Waits for the instrument-wide operation-complete event before returning.",
   "form.description.trigger_step.wait_timeout_ms": "Optional maximum wait time; leave blank to use the command default.",
   "form.field.channel": "Channel",
+  "form.field.trigger_fire_channel": "Abort target channel",
   "form.field.completion_pulse_enabled": "Trigger pulse when finished",
   "form.field.completion_pulse_pins": "Rear pins",
   "form.field.completion_pulse_polarity": "Polarity",

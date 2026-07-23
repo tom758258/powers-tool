@@ -919,6 +919,60 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(triggerVoltage.parentNode.textContent, "Triggered voltage(V)");
         strictAssert.equal(triggerCurrent.parentNode.textContent, "Triggered current(A)");
 
+        state.selected = "trigger-fire";
+        renderForm("trigger-fire");
+        const triggerFireChannel = byId(commandForm, "param-channel");
+        const triggerFireLabel = triggerFireChannel.parentNode;
+        const triggerFireIdentity = triggerFireChannel;
+        const triggerFireListeners = {
+          input: triggerFireChannel.listeners.input.length,
+          change: triggerFireChannel.listeners.change.length
+        };
+        const triggerFireOptionValues = triggerFireChannel.children.map((option) => option.value);
+        strictAssert.equal(triggerFireLabel.textContent, "Abort target channel");
+        strictAssert.equal(triggerFireChannel.id, "param-channel");
+        strictAssert.equal(triggerFireChannel.dataset.i18nParam, "channel");
+        strictAssert.deepEqual(triggerFireOptionValues, ["", "1", "2", "3"]);
+        strictAssert.deepEqual(triggerFireChannel.children.map((option) => option.textContent), ["None", "1", "2", "3"]);
+        triggerFireChannel.value = "2";
+        setLocale("zh-TW");
+        refreshCommandFormPresentation();
+        strictAssert.equal(byId(commandForm, "param-channel"), triggerFireIdentity);
+        strictAssert.equal(triggerFireLabel.textContent, "中止目標通道");
+        strictAssert.equal(triggerFireChannel.value, "2");
+        strictAssert.deepEqual({
+          input: triggerFireChannel.listeners.input.length,
+          change: triggerFireChannel.listeners.change.length
+        }, triggerFireListeners);
+        strictAssert.deepEqual(triggerFireChannel.children.map((option) => option.value), triggerFireOptionValues);
+        strictAssert.deepEqual(triggerFireChannel.children.map((option) => option.textContent), ["無", "1", "2", "3"]);
+        const triggerFirePayload = parameterPayload();
+        strictAssert.equal(triggerFirePayload.channel, 2);
+        strictAssert.equal(Object.hasOwn(triggerFirePayload, "trigger_fire_channel"), false);
+        setLocale("en");
+        refreshCommandFormPresentation();
+        strictAssert.equal(triggerFireLabel.textContent, "Abort target channel");
+        strictAssert.equal(triggerFireChannel.children[0].textContent, "None");
+        strictAssert.equal(triggerFireChannel.children[0].value, "");
+
+        state.selected = "protection-set";
+        renderForm("protection-set");
+        const protectionOcp = byId(commandForm, "param-ocp");
+        const protectionDelayTrigger = byId(commandForm, "param-ocp_delay_trigger");
+        const protectionOcpValues = protectionOcp.children.map((option) => option.value);
+        const protectionDelayValues = protectionDelayTrigger.children.map((option) => option.value);
+        strictAssert.equal(protectionOcp.children[0].textContent, "None");
+        strictAssert.equal(protectionOcp.children[0].value, "");
+        strictAssert.equal(protectionDelayTrigger.children[0].textContent, "None");
+        strictAssert.equal(protectionDelayTrigger.children[0].value, "");
+        setLocale("zh-TW");
+        refreshCommandFormPresentation();
+        strictAssert.equal(protectionOcp.children[0].textContent, "無");
+        strictAssert.equal(protectionDelayTrigger.children[0].textContent, "無");
+        strictAssert.deepEqual(protectionOcp.children.map((option) => option.value), protectionOcpValues);
+        strictAssert.deepEqual(protectionDelayTrigger.children.map((option) => option.value), protectionDelayValues);
+        setLocale("en");
+
         state.selected = "apply";
         renderForm("apply");
         const applyChannel = byId(commandForm, "param-channel");
