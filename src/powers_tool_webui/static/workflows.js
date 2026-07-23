@@ -8,10 +8,23 @@ export function refreshWorkflowPresentation(root = document) {
     if (checkboxText) checkboxText.textContent = text;
     else if (node.firstChild?.nodeType === 3) node.firstChild.textContent = text;
     else node.textContent = text;
+    if (node.dataset.workflowCompactHelpDescription) refreshCompactCheckboxHelp(node);
   });
   root.querySelectorAll?.("[data-i18n-loop]").forEach((node) => {
     node.textContent = t(node.dataset.i18nLoop, undefined, node.textContent);
   });
+}
+
+function refreshCompactCheckboxHelp(label) {
+  const description = t(label.dataset.workflowCompactHelpDescription);
+  const input = label.querySelector?.("input") || label.children?.[0];
+  const help = label.querySelector?.(".visually-hidden");
+  label.title = description;
+  if (input) {
+    input.title = description;
+    input.setAttribute("aria-label", t(label.dataset.workflowCompactHelpAria));
+  }
+  if (help) help.textContent = description;
 }
 
 function workflowText(node, key, fallback, params) {
@@ -273,10 +286,12 @@ function renderRampListForm(form) {
   enableLabel.dataset.workflowI18nFallback = "Enable each channel";
   enableLabel.querySelector(".checkbox-label-text").textContent = t("workflow.field.enable_each_channel");
   webuiCommandForm.configureCompactCheckboxHelp(enableLabel, enableInput, {
-    ariaLabel: "Enable each channel at its first segment",
+    ariaLabel: t("ramp_list.aria.enable_each_channel"),
     helpId: "ramp-list-enable-output-help",
-    description: "Each channel is enabled only after its first safe segment setpoint is written and verified. Outputs remain ON after normal completion. Stop workflow turns off every instrument output. Real hardware still requires confirmation."
+    description: t("ramp_list.help.enable_each_channel")
   });
+  enableLabel.dataset.workflowCompactHelpAria = "ramp_list.aria.enable_each_channel";
+  enableLabel.dataset.workflowCompactHelpDescription = "ramp_list.help.enable_each_channel";
   editor.appendChild(enableLabel);
   editor.appendChild(renderLoopControl({
     prefix: "ramp-list",

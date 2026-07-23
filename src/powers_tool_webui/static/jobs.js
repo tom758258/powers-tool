@@ -27,15 +27,15 @@ export function createJobEventController({ state, fetchJson, closeEventSource, u
   async function handleJobEvent(jobId, event) {
     updateHistory(jobId, event.type);
     if (state.workflowControl.jobId === jobId) {
-      if (event.type === "cancel_requested") { setWorkflowControl("stopping", { jobId, command: state.workflowControl.command }); updateJobResult(jobId, "cancel_requested", "Waiting for safe-off and cleanup"); }
+      if (event.type === "cancel_requested") { setWorkflowControl("stopping", { jobId, command: state.workflowControl.command }); updateJobResult(jobId, "cancel_requested", { key: "job.summary.waiting_cleanup" }); }
       else if (["started", "progress"].includes(event.type) && state.workflowControl.phase !== "stopping") setWorkflowControl("active", { jobId, command: state.workflowControl.command });
     }
     if (jobCommand(jobId) === "snapshot" && ["accepted", "started", "progress"].includes(event.type)) refreshSnapshotFormIfVisible(jobId);
     if (!["finished", "failed", "cancelled"].includes(event.type)) return;
     const job = await renderJobDetail(jobId, event);
     if (state.workflowControl.jobId === jobId && job && ["finished", "failed", "cancelled"].includes(job.status)) {
-      if (job.status === "failed" && job.error_code === "cleanup_failed") updateJobResult(jobId, "failed", "Failed  cleanup_failed");
-      else if (job.status === "cancelled") updateJobResult(jobId, "cancelled", "Cancelled");
+      if (job.status === "failed" && job.error_code === "cleanup_failed") updateJobResult(jobId, "failed", { key: "job.summary.cleanup_failed" });
+      else if (job.status === "cancelled") updateJobResult(jobId, "cancelled", { key: "job.summary.cancelled" });
       setWorkflowControl("idle");
     }
     let healthState = null;
@@ -81,7 +81,7 @@ export function updateJobResult(state, jobId, status, summary, helpers, presenta
   if (!job) return;
   job.status = status;
   job.summary = summary || null;
-  job.presentationJob = presentationJob;
+  if (presentationJob) job.presentationJob = presentationJob;
   renderHistory(state, helpers);
   helpers.updateExecutionModeUi();
 }
@@ -101,8 +101,16 @@ export function renderHistory(state, helpers) {
     summary.className = "result-summary";
     summary.textContent = job.presentationJob && helpers.jobSummary
       ? helpers.jobSummary(job.presentationJob)
-      : job.summary || helpers.statusSummary(job.status);
+      : semanticSummaryText(job.summary, helpers) || helpers.statusSummary(job.status);
     item.append(label, " - ", badge, " - ", summary);
     history.appendChild(item);
   });
+}
+
+function semanticSummaryText(summary, helpers) {
+  if (!summary || typeof summary === "string") return summary || "";
+  if (typeof summary.key === "string" && helpers.translate) {
+    return helpers.translate(summary.key, summary.params || {}, summary.rawFallback);
+  }
+  return summary.rawFallback || "";
 }

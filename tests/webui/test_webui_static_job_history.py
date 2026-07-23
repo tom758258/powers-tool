@@ -33,6 +33,7 @@ const helpers = {
   statusSummary: (value) => `Summary ${value}`,
   statusLabel: (value) => `Status ${value}`,
   statusClass: (value) => `Class ${value}`,
+  translate: (key) => `Translated ${key}`,
   updateExecutionModeUi: () => calls.push("mode")
 };
 history.addHistory(state, "job-1", "set", "accepted", "Set", helpers);
@@ -41,6 +42,10 @@ history.updateHistory(state, "job-1", "started", helpers);
 strictAssert.equal(state.jobs[0].status, "started");
 history.updateJobResult(state, "job-1", "finished", "Done", helpers);
 strictAssert.equal(state.jobs[0].summary, "Done");
+const rawPresentationJob = { status: "finished", command: "set", result: { marker: "raw" } };
+history.updateJobResult(state, "job-1", "finished", { key: "job.summary.finished" }, helpers, rawPresentationJob);
+history.updateJobResult(state, "job-1", "finished", { key: "job.summary.finished" }, helpers);
+strictAssert.equal(state.jobs[0].presentationJob, rawPresentationJob);
 for (let index = 2; index <= 21; index += 1) {
   history.addHistory(state, `job-${index}`, "set", "accepted", "Set", helpers);
 }
@@ -100,18 +105,24 @@ webuiApi.fetchJson = async () => ({ job_id: "scan-job" });
 
   addHistory("locale-job", "set", "accepted", "set");
   const rawLocaleJob = state.jobs[0];
+  updateJobResult("locale-job", "cancel_requested", { key: "job.summary.waiting_cleanup" });
   setLocale("zh-TW");
   renderHistory();
   strictAssert.equal(state.jobs[0], rawLocaleJob);
   strictAssert.equal(state.jobs[0].command, "set");
-  strictAssert.equal(state.jobs[0].status, "accepted");
+  strictAssert.equal(state.jobs[0].status, "cancel_requested");
   strictAssert.equal(historyNode.children[0].children[0].textContent, "設定");
-  strictAssert.equal(historyNode.children[0].children[2].textContent, "已接受");
-  strictAssert.equal(historyNode.children[0].children[4].textContent, "已接受");
-  updateJobResult("locale-job", "failed", "VISA <raw> detail");
+  strictAssert.equal(historyNode.children[0].children[2].textContent, "已要求取消");
+  strictAssert.equal(historyNode.children[0].children[4].textContent, "正在等待安全關閉輸出與清理");
   setLocale("en");
   renderHistory();
+  strictAssert.equal(historyNode.children[0].children[4].textContent, "Waiting for safe-off and cleanup");
+  updateJobResult("locale-job", "failed", "VISA <raw> detail");
+  setLocale("zh-TW");
+  renderHistory();
   strictAssert.equal(historyNode.children[0].children[4].textContent, "VISA <raw> detail");
+  setLocale("en");
+  renderHistory();
   strictAssert.equal(historyNode.children[0].children[0].textContent, "Set");
 
   renderClientResult("Scan Device", "failed", "Client failure", { error: "detail survives" });

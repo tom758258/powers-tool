@@ -194,6 +194,7 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         const globalSlot = new FakeElement("span");
         const globalRow = new FakeElement("div");
         const capabilityStatus = new FakeElement("div");
+        const basicStatus = new FakeElement("div");
         const allButton = new FakeElement("button");
         allButton.className = "basic-toggle off";
         allButton.addEventListener("click", runBasicOutputAll);
@@ -222,7 +223,8 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
           ["basic-output-all-header-slot", headerSlot],
           ["basic-output-all-global-slot", globalSlot],
           ["basic-e3646a-output-row", globalRow],
-          ["basic-output-capability-status", capabilityStatus]
+          ["basic-output-capability-status", capabilityStatus],
+          ["basic-command-status", basicStatus]
         ]);
         document.getElementById = (id) => ids.get(id) || null;
         document.querySelector = (selector) => {
@@ -279,7 +281,7 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         strictAssert.equal(outputStatuses[1].getAttribute("aria-pressed"), null);
         strictAssert.equal(outputStatuses[2].textContent, "ON");
         strictAssert.equal(outputInfo[1].hidden, false);
-        strictAssert.equal(outputInfo[1].title, E3646A_GLOBAL_OUTPUT_DESCRIPTION);
+        strictAssert.equal(outputInfo[1].title, "E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable.");
         strictAssert.equal(allButton.textContent, "Turn outputs off");
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "true");
         strictAssert.equal(allButton.disabled, false);
@@ -353,13 +355,40 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         strictAssert.equal(allButton.listeners.click[0], originalListener);
         const allButtonIdentity = allButton;
         const livePanelIdentity = state.livePanel;
+        setpointControls[0].value = "1.234";
+        setpointControls[0].dataset = { basicDirty: "true" };
+        let basicFetchCalls = 0;
+        webuiApi.fetchJson = async () => { basicFetchCalls += 1; };
+        setBasicActionState("output:all", "pending", { key: "basic_controls.status.waiting_readback" }, {
+          desiredOutput: true,
+          awaitingReadback: true
+        });
+        const pendingActionIdentity = state.basicActionStates["output:all"];
         setLocale("zh-TW");
         refreshBasicControlsPresentation();
         strictAssert.equal(allButton, allButtonIdentity);
         strictAssert.equal(state.livePanel, livePanelIdentity);
         strictAssert.equal(allButton.textContent, "關閉輸出");
+        strictAssert.equal(outputButtons[1].getAttribute("aria-label"), "CH1 輸出 開啟");
+        strictAssert.equal(outputInfo[1].getAttribute("aria-label"), "E3646A 全域輸出資訊");
+        strictAssert.equal(basicStatus.textContent, "正在等待即時資料讀回。");
+        strictAssert.equal(allButton.title, "正在等待即時資料讀回。");
+        strictAssert.equal(state.basicActionStates["output:all"], pendingActionIdentity);
+        strictAssert.equal(pendingActionIdentity.desiredOutput, true);
+        strictAssert.equal(pendingActionIdentity.awaitingReadback, true);
+        strictAssert.equal(setpointControls[0].value, "1.234");
+        strictAssert.equal(setpointControls[0].dataset.basicDirty, "true");
         strictAssert.equal(allButton.listeners.click.length, 1);
         strictAssert.equal(allButton.listeners.click[0], originalListener);
+        setBasicActionState("output:all", "error", "VISA <raw> detail", {
+          desiredOutput: true,
+          awaitingReadback: false
+        });
+        refreshBasicControlsPresentation();
+        strictAssert.equal(basicStatus.textContent, "VISA <raw> detail");
+        strictAssert.equal(allButton.title, "VISA <raw> detail");
+        strictAssert.equal(basicFetchCalls, 0);
+        state.basicActionStates = {};
         setLocale("en");
         refreshBasicControlsPresentation();
         strictAssert.equal(allButton.textContent, "Turn outputs off");
@@ -373,19 +402,19 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         strictAssert.equal(allButton.parentNode, headerSlot);
         strictAssert.equal(outputButtons[1].hidden, false);
         strictAssert.equal(outputButtons[1].disabled, true);
-        strictAssert.equal(capabilityStatus.textContent, E3646A_CAPABILITY_ERROR);
+        strictAssert.equal(capabilityStatus.textContent, "E3646A output controls are disabled because global-output capability metadata is missing or inconsistent.");
 
         delete state.channelCapabilitiesByModel["keysight-e3646a"];
         applyBasicOutputPresentation();
         strictAssert.equal(allButton.parentNode, headerSlot);
         strictAssert.equal(globalRow.hidden, true);
         strictAssert.equal(capabilityStatus.hidden, false);
-        strictAssert.equal(capabilityStatus.textContent, E3646A_CAPABILITY_ERROR);
+        strictAssert.equal(capabilityStatus.textContent, "E3646A output controls are disabled because global-output capability metadata is missing or inconsistent.");
         strictAssert.equal(allButton.disabled, true);
-        strictAssert.equal(allButton.title, E3646A_CAPABILITY_ERROR);
+        strictAssert.equal(allButton.title, "E3646A output controls are disabled because global-output capability metadata is missing or inconsistent.");
         for (const channel of [1, 2, 3]) {
           strictAssert.equal(outputButtons[channel].disabled, true);
-          strictAssert.equal(outputButtons[channel].title, E3646A_CAPABILITY_ERROR);
+          strictAssert.equal(outputButtons[channel].title, "E3646A output controls are disabled because global-output capability metadata is missing or inconsistent.");
         }
         setpointControls.forEach((control) => strictAssert.equal(control.disabled, false));
 
@@ -745,10 +774,13 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
             if (selector === "[data-i18n-loop]") {
               return descendants(this).filter((node) => node.dataset.i18nLoop);
             }
-            if (selector === "[data-workflow-i18n]") {
-              return descendants(this).filter((node) => node.dataset.workflowI18n);
-            }
-            return [];
+                if (selector === "[data-workflow-i18n]") {
+                  return descendants(this).filter((node) => node.dataset.workflowI18n);
+                }
+                if (selector === "[data-workflow-compact-help-description]") {
+                  return descendants(this).filter((node) => node.dataset.workflowCompactHelpDescription);
+                }
+                return [];
           }
 
           remove() {
@@ -1100,6 +1132,37 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(updateWorkflowDocumentValidity("ramp-list", invalidRampRun), false);
         strictAssert.equal(invalidRampRun.disabled, true);
         strictAssert.equal(byId(rerenderedEditor, "save-ramp-list").disabled, true);
+        const invalidEditorIdentity = rerenderedEditor;
+        const invalidEnableParts = {
+          input: byId(rerenderedEditor, "ramp-list-enable-output"),
+          label: byId(rerenderedEditor, "ramp-list-enable-output").parentNode,
+          help: byId(rerenderedEditor, "ramp-list-enable-output-help")
+        };
+        const invalidSegmentIdentity = byClass(rerenderedEditor, "ramp-segment-card")[0];
+        const invalidPulseIdentity = rerenderedTiming;
+        const invalidLoopIdentity = rampListLoopCount;
+        const invalidEnableChecked = invalidEnableParts.input.checked;
+        const invalidEnableListeners = invalidEnableParts.input.listeners.change.length;
+        setLocale("zh-TW");
+        webuiWorkflows.refreshWorkflowPresentation(rerenderedEditor);
+        strictAssert.equal(commandForm.children[0], invalidEditorIdentity);
+        strictAssert.equal(byId(rerenderedEditor, "ramp-list-enable-output"), invalidEnableParts.input);
+        strictAssert.equal(byId(rerenderedEditor, "ramp-list-enable-output-help"), invalidEnableParts.help);
+        strictAssert.equal(byClass(rerenderedEditor, "ramp-segment-card")[0], invalidSegmentIdentity);
+        strictAssert.equal(byId(rerenderedEditor, "ramp-list-loop-count"), invalidLoopIdentity);
+        strictAssert.equal(byId(rerenderedEditor, "ramp-list-pulse-timing"), invalidPulseIdentity);
+        strictAssert.equal(invalidEnableParts.input.checked, invalidEnableChecked);
+        strictAssert.equal(invalidEnableParts.input.listeners.change.length, invalidEnableListeners);
+        strictAssert.equal(rampListLoopCount.value, "1.5");
+        strictAssert.equal(rerenderedTiming.value, "loop");
+        strictAssert.equal(invalidEnableParts.label.querySelector(".checkbox-label-text").textContent, "啟用各通道");
+        strictAssert.equal(invalidEnableParts.label.title, "各通道只會在第一個安全區段設定值寫入並驗證後啟用。正常完成後輸出會維持 ON。停止工作流程會關閉儀器的所有輸出。實體硬體仍需確認。");
+        strictAssert.equal(invalidEnableParts.input.title, invalidEnableParts.label.title);
+        strictAssert.equal(invalidEnableParts.input.getAttribute("aria-label"), "在各通道的第一個區段啟用通道");
+        strictAssert.equal(invalidEnableParts.help.textContent, invalidEnableParts.label.title);
+        setLocale("en");
+        webuiWorkflows.refreshWorkflowPresentation(rerenderedEditor);
+        strictAssert.equal(invalidEnableParts.input.getAttribute("aria-label"), "Enable each channel at its first segment");
         rampListLoopCount.value = "3";
         rampListLoopCount.listeners.input.forEach((listener) => listener());
         strictAssert.equal(rerenderedTiming.value, "loop");
@@ -1190,22 +1253,77 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
 
 
 def test_static_workflow_run_button_state_contract():
-    index_html, app_js, styles_css = read_static_texts()
+    _index_html, app_js, styles_css = read_static_texts()
     jobs_js = read_static_javascript("jobs.js")
 
-    assert 'id="run" type="button" aria-label="Run"' in index_html
     assert 'const STOPPABLE_WORKFLOWS = new Set(["ramp", "ramp-list", "sequence"]);' in app_js
-    assert '"Stop the active workflow and safely turn all outputs off."' in app_js
-    workflow_button = extract_js_function(app_js, "updateWorkflowRunButton")
-    for label in ('"Run"', '"Starting..."', '"Stop"', '"Stopping..."'):
-        assert label in workflow_button
-    assert 'button.classList.toggle("workflow-stop"' in workflow_button
     assert 'webuiApi.fetchJson(`/api/jobs/${encodeURIComponent(jobId)}/cancel`' in extract_js_function(
         app_js, "stopActiveWorkflow"
     )
     assert 'event.type === "cancel_requested"' in extract_js_function(jobs_js, "handleJobEvent")
-    assert "Waiting for safe-off and cleanup" in jobs_js
-    assert "Failed  cleanup_failed" in jobs_js
     assert "button#run.workflow-stop" in styles_css
+
+    run_frontend_javascript_assertions(
+        r"""
+        const strictAssert = require("node:assert/strict");
+        const button = {
+          textContent: "",
+          title: "",
+          disabled: false,
+          attrs: {},
+          classList: { toggle() {} },
+          setAttribute(name, value) { this.attrs[name] = String(value); },
+          getAttribute(name) { return this.attrs[name] ?? null; }
+        };
+        const guidance = { textContent: "", hidden: true };
+        document.getElementById = (id) => id === "run" ? button : id === "command-guidance" ? guidance : null;
+        let fetchCalls = 0;
+        webuiApi.fetchJson = async () => { fetchCalls += 1; };
+
+        const assertPhase = (phase, expectedText, expectedTitle, expectedGuidance = "") => {
+          state.workflowControl = {
+            phase,
+            command: phase === "idle" ? null : "ramp",
+            jobId: phase === "idle" || phase === "submitting" ? null : "job-raw"
+          };
+          const rawControl = state.workflowControl;
+          refreshWorkflowOperationalPresentation();
+          strictAssert.equal(state.workflowControl, rawControl);
+          strictAssert.equal(button.textContent, expectedText);
+          strictAssert.equal(button.title, expectedTitle);
+          strictAssert.equal(button.attrs["aria-label"], expectedTitle || expectedText);
+          if (expectedGuidance) {
+            strictAssert.equal(guidance.textContent, expectedGuidance);
+            strictAssert.equal(guidance.hidden, false);
+          }
+        };
+
+        assertPhase("idle", "Run", "");
+        assertPhase("submitting", "Starting...", "");
+        assertPhase(
+          "active",
+          "Stop",
+          "Stop the active workflow and safely turn all outputs off.",
+          "Stop the active workflow and safely turn all outputs off."
+        );
+        assertPhase(
+          "stopping",
+          "Stopping...",
+          "Stop the active workflow and safely turn all outputs off.",
+          "Waiting for safe-off and cleanup"
+        );
+
+        const stoppingControl = state.workflowControl;
+        setLocale("zh-TW");
+        refreshWorkflowOperationalPresentation();
+        strictAssert.equal(state.workflowControl, stoppingControl);
+        strictAssert.equal(button.textContent, "正在停止...");
+        strictAssert.equal(button.title, "停止作用中的工作流程，並安全關閉所有輸出。");
+        strictAssert.equal(button.attrs["aria-label"], "停止作用中的工作流程，並安全關閉所有輸出。");
+        strictAssert.equal(guidance.textContent, "正在等待安全關閉輸出與清理");
+        strictAssert.equal(fetchCalls, 0);
+        setLocale("en");
+        """
+    )
 
 

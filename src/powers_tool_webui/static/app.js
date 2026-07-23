@@ -86,10 +86,7 @@ var {
   selectedElectricalRatingModel, handleExpectedModelChanged, updateLiveMonitorButton, refreshLiveMonitorPresentation,
   refreshHealth, refreshHealthPresentation, refreshDeviceResourcePresentation, setStateIndicator
 } = deviceResourceController;
-const E3646A_GLOBAL_OUTPUT_DESCRIPTION = "E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable.";
-const E3646A_CAPABILITY_ERROR = "E3646A output controls are disabled because global-output capability metadata is missing or inconsistent.";
 const STOPPABLE_WORKFLOWS = new Set(["ramp", "ramp-list", "sequence"]);
-const WORKFLOW_STOP_DESCRIPTION = "Stop the active workflow and safely turn all outputs off.";
 const ELECTRICAL_CONSTRAINT_ATTRIBUTES = ["min", "max", "step", "title"];
 
 const PARAMS = {
@@ -565,7 +562,7 @@ function setAdvancedCommandsExpanded(expanded) {
   const button = document.getElementById("advanced-command-toggle");
   panel.hidden = !expanded;
   panel.classList.toggle("collapsed", !expanded);
-  button.textContent = expanded ? "Hide commands" : "Show more commands";
+  button.textContent = t(expanded ? "basic_controls.action.hide_commands" : "basic_controls.action.show_more_commands");
   button.setAttribute("aria-expanded", String(expanded));
 }
 
@@ -634,7 +631,7 @@ async function submitBasicJob(command, parameters, actionKey, label, actionState
     return;
   }
 
-  setBasicActionState(actionKey, "pending", "Basic command running...", { command, parameters, ...actionState });
+  setBasicActionState(actionKey, "pending", { key: "basic_controls.status.running" }, { command, parameters, ...actionState });
   try {
     const response = await submitJob(payload);
     state.basicJobActions[response.job_id] = { actionKey, command, parameters, ...actionState };
@@ -792,7 +789,7 @@ async function stopActiveWorkflow() {
   if (control.phase !== "active" || !control.jobId || !STOPPABLE_WORKFLOWS.has(control.command)) return;
   const jobId = control.jobId;
   setWorkflowControl("stopping", { command: control.command, jobId });
-  updateJobResult(jobId, "cancel_requested", "Waiting for safe-off and cleanup");
+  updateJobResult(jobId, "cancel_requested", { key: "job.summary.waiting_cleanup" });
   try {
     await webuiApi.fetchJson(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
       method: "POST",
@@ -822,23 +819,25 @@ function updateWorkflowRunButton() {
   const { phase, command } = state.workflowControl;
   const activeWorkflow = STOPPABLE_WORKFLOWS.has(command);
   button.classList.toggle("workflow-stop", activeWorkflow && phase === "active");
-  button.textContent = phase === "submitting"
-    ? "Starting..."
+  const labelKey = phase === "submitting"
+    ? "workflow.action.starting"
     : phase === "active" && activeWorkflow
-      ? "Stop"
+      ? "workflow.action.stop"
       : phase === "stopping"
-        ? "Stopping..."
-        : "Run";
+        ? "workflow.action.stopping"
+        : "workflow.action.run";
+  button.textContent = t(labelKey);
   const stopMeaning = activeWorkflow && ["active", "stopping"].includes(phase);
-  button.title = stopMeaning ? WORKFLOW_STOP_DESCRIPTION : "";
-  button.setAttribute("aria-label", stopMeaning ? WORKFLOW_STOP_DESCRIPTION : button.textContent);
+  const stopDescription = t("workflow.guidance.stop_safe_off");
+  button.title = stopMeaning ? stopDescription : "";
+  button.setAttribute("aria-label", stopMeaning ? stopDescription : button.textContent);
   if (phase === "active" && activeWorkflow) button.disabled = false;
   if (phase === "submitting" || phase === "stopping") button.disabled = true;
   const guidance = document.getElementById("command-guidance");
   if (guidance && stopMeaning) {
     guidance.textContent = phase === "stopping"
-      ? "Waiting for safe-off and cleanup"
-      : WORKFLOW_STOP_DESCRIPTION;
+      ? t("workflow.guidance.waiting_cleanup")
+      : stopDescription;
     guidance.hidden = false;
   }
 }
@@ -907,7 +906,8 @@ async function renderJobDetail(jobId, event) {
     });
     return job;
   } catch (error) {
-    updateJobResult(jobId, event.type, webuiResults.eventSummary(event));
+    const rawError = event.data?.error || event.data?.detail;
+    updateJobResult(jobId, event.type, rawError || { key: event.type === "failed" ? "job.summary.failed" : `job.summary.${event.type}` });
     renderResult(event.data);
     return null;
   }
@@ -1362,8 +1362,6 @@ async function refreshSelectedResourcePreview(resource) {
 const basicControls = webuiBasicControls.createBasicControls({
   state,
   defaultChannels: DEFAULT_CHANNELS,
-  e3646aCapabilityError: E3646A_CAPABILITY_ERROR,
-  e3646aGlobalOutputDescription: E3646A_GLOBAL_OUTPUT_DESCRIPTION,
   valueOrNull,
   basicOutputPresentation,
   supportedChannelsForCurrentModel,
@@ -1380,6 +1378,7 @@ const basicControls = webuiBasicControls.createBasicControls({
 let {
   basicActionKey,
   basicActionDisplayName,
+  basicActionMessage,
   basicLiveChannel,
   basicChannelOutputState,
   e3646aGlobalOutputState,
@@ -1405,8 +1404,21 @@ let {
   nearlyEqual,
   basicStatusText,
   setBasicStatus,
-  refreshBasicControlsPresentation
+  refreshBasicControlsPresentation: refreshBasicControlsPresentationBase
 } = basicControls;
+
+function refreshBasicControlsPresentation() {
+  refreshBasicControlsPresentationBase();
+  const advancedToggle = document.getElementById("advanced-command-toggle");
+  if (advancedToggle) {
+    const expanded = advancedToggle.getAttribute("aria-expanded") === "true";
+    advancedToggle.textContent = t(expanded ? "basic_controls.action.hide_commands" : "basic_controls.action.show_more_commands");
+  }
+}
+
+function refreshWorkflowOperationalPresentation() {
+  updateWorkflowRunButton();
+}
 
 function refreshLiveDataPresentation() {
   const panel = state.livePanel;
@@ -1780,6 +1792,7 @@ function addHistory(jobId, command, status, label = command) {
     statusSummary: webuiResults.statusSummary,
     statusClass: webuiResults.statusClass,
     statusLabel: webuiResults.statusLabel,
+    translate: t,
     updateExecutionModeUi
   });
 }
@@ -1790,6 +1803,7 @@ function updateHistory(jobId, status) {
     statusSummary: webuiResults.statusSummary,
     statusClass: webuiResults.statusClass,
     statusLabel: webuiResults.statusLabel,
+    translate: t,
     updateExecutionModeUi
   });
 }
@@ -1801,12 +1815,13 @@ function updateJobResult(jobId, status, summary, presentationJob = null) {
     statusClass: webuiResults.statusClass,
     statusLabel: webuiResults.statusLabel,
     jobSummary: webuiResults.jobSummary,
+    translate: t,
     updateExecutionModeUi
   }, presentationJob);
 }
 
 function renderHistory() {
-  webuiJobTransport.renderHistory(state, { ...webuiResults, commandDisplayName });
+  webuiJobTransport.renderHistory(state, { ...webuiResults, commandDisplayName, translate: t });
 }
 
 function closeEventSource(name) {

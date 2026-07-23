@@ -3,8 +3,6 @@ import { t } from "./i18n.js";
 export function createBasicControls({
   state,
   defaultChannels,
-  e3646aCapabilityError,
-  e3646aGlobalOutputDescription,
   valueOrNull,
   basicOutputPresentation,
   supportedChannelsForCurrentModel,
@@ -64,10 +62,23 @@ function basicAllOutputsOn() {
   return supportedChannelsForCurrentModel().every((channel) => channels.find((item) => Number(item.channel) === channel)?.output_enabled === true);
 }
 
-function setBasicActionState(actionKey, status, message = "", context = {}) {
-  state.basicActionStates[actionKey] = { ...context, status, message };
+function setBasicActionState(actionKey, status, presentation = null, context = {}) {
+  state.basicActionStates[actionKey] = {
+    ...context,
+    status,
+    presentation: presentation && typeof presentation === "object" ? presentation : null,
+    rawMessage: typeof presentation === "string" ? presentation : ""
+  };
   renderBasicActionState(actionKey);
-  setBasicStatus(status === "pending" ? message || t("basic_controls.status.running") : message || basicStatusText(status));
+  setBasicStatus(basicActionMessage(state.basicActionStates[actionKey]) || basicStatusText(status));
+}
+
+function basicActionMessage(action) {
+  if (!action) return "";
+  if (action.presentation?.key) {
+    return t(action.presentation.key, action.presentation.params || {}, action.presentation.rawFallback);
+  }
+  return action.rawMessage || "";
 }
 
 function clearBasicActionState(actionKey) {
@@ -94,7 +105,7 @@ function renderBasicActionState(actionKey) {
     button.classList.toggle("basic-action-pending", action?.status === "pending");
     button.classList.toggle("basic-action-success", action?.status === "success");
     button.classList.toggle("basic-action-error", action?.status === "error");
-    button.title = action?.message || "";
+    button.title = basicActionMessage(action);
   }
   if (target !== "all") renderBasicChannelActionState(Number(target));
 }
@@ -125,19 +136,19 @@ function updateBasicActionFromJob(jobId, event, job) {
   if (event.type === "finished" && job?.status === "finished") {
     if (action.command === "set") {
       clearBasicInputDirty(action.parameters.channel);
-      setBasicActionState(action.actionKey, "success", t("basic_controls.status.completed"), action);
+      setBasicActionState(action.actionKey, "success", { key: "basic_controls.status.completed" }, action);
     } else if (typeof action.desiredOutput === "boolean" && state.executionMode === "real") {
-      setBasicActionState(action.actionKey, "pending", t("basic_controls.status.waiting_readback"), { ...action, awaitingReadback: true });
+      setBasicActionState(action.actionKey, "pending", { key: "basic_controls.status.waiting_readback" }, { ...action, awaitingReadback: true });
     } else {
-      setBasicActionState(action.actionKey, "success", state.executionMode === "simulate"
-        ? t("basic_controls.status.simulation_completed")
+      setBasicActionState(action.actionKey, "success", { key: state.executionMode === "simulate"
+        ? "basic_controls.status.simulation_completed"
         : state.executionMode === "dry-run"
-          ? t("result.summary.plan_generated")
-          : t("basic_controls.status.completed"), action);
+          ? "result.summary.plan_generated"
+          : "basic_controls.status.completed" }, action);
     }
   } else {
-    const detail = job?.error || event.data?.error || eventSummary(event);
-    setBasicActionState(action.actionKey, "error", detail, action);
+    const detail = job?.error || event.data?.error;
+    setBasicActionState(action.actionKey, "error", detail || { key: "basic_controls.status.failed" }, action);
   }
   delete state.basicJobActions[jobId];
 }
@@ -183,7 +194,10 @@ function renderBasicOutputButton(channel, liveChannel, fresh) {
   button.classList.toggle("on", enabled);
   button.classList.toggle("off", !enabled);
   button.setAttribute("aria-pressed", String(enabled));
-  button.setAttribute("aria-label", `CH${channel} output ${enabled ? "on" : "off"}`);
+  button.setAttribute("aria-label", t("basic_controls.aria.channel_output_control", {
+    channel,
+    state: t(enabled ? "status.on" : fresh ? "status.off" : "health.status.unknown")
+  }));
   button.disabled = Boolean(unsupported);
   button.title = unsupported || outputControlTitle(channel, enabled, fresh);
   applyBasicPerChannelOutputPresentation(channel, button);
@@ -232,7 +246,7 @@ function applyBasicPerChannelOutputPresentation(channel, button, presentation = 
   if (readOnly) button.disabled = true;
   if (presentation.mode === "e3646a-disabled") {
     button.disabled = true;
-    button.title = e3646aCapabilityError;
+    button.title = t("basic_controls.error.e3646a_capability");
   }
 
   if (status) {
@@ -251,14 +265,15 @@ function applyBasicPerChannelOutputPresentation(channel, button, presentation = 
   }
   if (info) {
     info.hidden = !readOnly;
-    info.title = e3646aGlobalOutputDescription;
+    info.title = t("basic_controls.help.e3646a_global_output");
+    info.setAttribute("aria-label", t("basic_controls.aria.e3646a_global_output_information"));
   }
 }
 
 function applyBasicAllOutputPresentation(button, presentation = basicOutputPresentation()) {
   if (presentation.mode === "e3646a-disabled") {
     button.disabled = true;
-    button.title = e3646aCapabilityError;
+    button.title = t("basic_controls.error.e3646a_capability");
   } else if (presentation.mode === "e3646a-global" && e3646aGlobalOutputState(presentation) === "unknown") {
     button.disabled = true;
     button.title = t("basic_controls.help.synchronized_readback");
@@ -282,7 +297,7 @@ function applyBasicOutputPresentation() {
   if (capabilityStatus) {
     const disabled = presentation.mode === "e3646a-disabled";
     capabilityStatus.hidden = !disabled;
-    capabilityStatus.textContent = disabled ? e3646aCapabilityError : "";
+    capabilityStatus.textContent = disabled ? t("basic_controls.error.e3646a_capability") : "";
   }
   defaultChannels.forEach((channel) => {
     const button = document.querySelector(`[data-basic-output="${channel}"]`);
@@ -316,11 +331,11 @@ function renderBasicOutputControlState(target) {
   if (unsupported) {
     button.title = unsupported;
   } else if (lockAction) {
-    button.title = lockAction.message || t("basic_controls.status.waiting_readback");
+    button.title = basicActionMessage(lockAction) || t("basic_controls.status.waiting_readback");
   } else if (commandMetaForState.disabled) {
     button.title = commandMetaForState.disabled_reason || t("basic_controls.error.output_unavailable");
-  } else if (ownAction?.message) {
-    button.title = ownAction.message;
+  } else if (basicActionMessage(ownAction)) {
+    button.title = basicActionMessage(ownAction);
   } else {
     button.title = commandMetaForState.live_support_status || button.title;
   }
@@ -353,7 +368,7 @@ function clearResolvedBasicErrors(channel, liveChannel, fresh) {
   }
   const outputAction = state.basicActionStates[outputKey];
   if (outputAction?.status === "pending" && outputAction.awaitingReadback === true && typeof outputAction.desiredOutput === "boolean" && liveChannel.output_enabled === outputAction.desiredOutput) {
-    setBasicActionState(outputKey, "success", t("basic_controls.status.completed"), outputAction);
+    setBasicActionState(outputKey, "success", { key: "basic_controls.status.completed" }, outputAction);
   } else if (outputAction?.status === "error" && typeof outputAction.desiredOutput === "boolean" && liveChannel.output_enabled === outputAction.desiredOutput) {
     clearBasicActionState(outputKey);
   }
@@ -368,7 +383,7 @@ function clearResolvedBasicErrors(channel, liveChannel, fresh) {
         ? false
         : supportedChannelsForCurrentModel().every((item) => channels.find((entry) => Number(entry.channel) === item)?.output_enabled === allAction.desiredOutput);
     if (allMatched && allAction.status === "pending" && allAction.awaitingReadback === true) {
-      setBasicActionState(basicActionKey("output", "all"), "success", t("basic_controls.status.completed"), allAction);
+      setBasicActionState(basicActionKey("output", "all"), "success", { key: "basic_controls.status.completed" }, allAction);
     } else if (allMatched && allAction.status === "error") {
       clearBasicActionState(basicActionKey("output", "all"));
     }
@@ -410,14 +425,15 @@ function refreshBasicControlsPresentation() {
   renderBasicAllOutputButton(fresh ? panel.channels || [] : []);
   renderBasicOutputActionStates();
   applyBasicOutputPresentation();
-  const active = Object.values(state.basicActionStates).find((action) => action?.message);
-  setBasicStatus(active?.message || basicStatusText(active?.status));
+  const active = Object.values(state.basicActionStates).find((action) => basicActionMessage(action));
+  setBasicStatus(basicActionMessage(active) || basicStatusText(active?.status));
 }
 
 
   return {
     basicActionKey,
     basicActionDisplayName,
+    basicActionMessage,
     basicLiveChannel,
     basicChannelOutputState,
     e3646aGlobalOutputState,

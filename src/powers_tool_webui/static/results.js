@@ -159,7 +159,7 @@ export function statusSummary(status) {
 
 export function statusLabel(status) {
   const known = status === "finished" ? "success" : status === "error" ? "failed" : status === "progress" ? "running" : status;
-  if (["success", "failed", "cancelled", "running", "started", "accepted"].includes(known)) {
+  if (["success", "failed", "cancel_requested", "cancelled", "running", "started", "accepted"].includes(known)) {
     return t(`status.${known}`);
   }
   return status || t("status.pending");

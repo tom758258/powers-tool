@@ -437,6 +437,12 @@ render time; workspace summaries likewise render from cached raw results.
 Live Data channel cards and protection presentation use explicit DOM nodes and
 `textContent`, including cached-sample redraws.
 
+Focused P4 review fixes also make workflow run/stop guidance render from
+canonical workflow state, keep known Job History and Basic-control action
+messages as semantic presentation state, and complete Basic-control and Ramp
+List compact-help accessibility refresh. These paths translate at render time;
+raw diagnostics and machine values remain unchanged.
+
 Workflow documents, command and option values, Job IDs, model/resource values,
 units, serialized Result Detail JSON, exported artifacts, and unknown backend,
 Core, VISA, SCPI, instrument, HTTP, support, validation, and file-parse detail

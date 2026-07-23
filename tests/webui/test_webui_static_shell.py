@@ -733,6 +733,10 @@ def test_static_basic_command_panel_contract():
     assert 'data-basic-all-output' in index_html
     assert_static_attr(index_html, "advanced-command-toggle", "aria-controls", "advanced-commands")
     assert_static_attr(index_html, "advanced-command-toggle", "aria-expanded", "false")
+    assert 'data-i18n="basic_controls.action.show_more_commands"' in index_html
+    assert index_html.count('data-i18n="basic_controls.action.set"') == 3
+    assert index_html.count('data-i18n-aria-label="basic_controls.aria.e3646a_global_output_information"') == 2
+    assert index_html.count('data-i18n-title="basic_controls.help.e3646a_global_output"') == 2
     assert 'panel.hidden = !expanded;' in app_js
 
     for channel in ("1", "2", "3"):
@@ -773,7 +777,9 @@ def test_static_basic_output_buttons_lock_until_matching_readback():
     clear_resolved = extract_js_function(basic_controls_js, "clearResolvedBasicErrors")
     render_channel = extract_js_function(basic_controls_js, "renderBasicChannelActionState")
 
-    assert 'state.basicActionStates[actionKey] = { ...context, status, message };' in set_action
+    assert "presentation:" in set_action
+    assert "rawMessage:" in set_action
+    assert "basicActionMessage(state.basicActionStates[actionKey])" in set_action
     assert 'state.basicActionStates[actionKey] = { status, message, ...context };' not in set_action
     assert 'if (basicOutputLockAction(channel)) return;' in run_output
     assert 'if (basicOutputLockAction("all")) return;' in run_all
