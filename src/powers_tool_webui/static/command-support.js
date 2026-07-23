@@ -222,12 +222,18 @@ function selectedChannelsForCommand(command, parameters = {}) {
 }
 
 function outputControlTitle(channel, enabled, fresh) {
-  const base = fresh ? `CH${channel} output is ${enabled ? "ON" : "OFF"}.` : `CH${channel} output state is unknown.`;
+  const base = t(fresh
+    ? enabled
+      ? "basic_controls.tooltip.channel_output_on"
+      : "basic_controls.tooltip.channel_output_off"
+    : "basic_controls.tooltip.channel_output_unknown", { channel });
   return outputControlScopeForCurrentModel() === "global" ? `${base} ${globalOutputHintText()}` : base;
 }
 
 function outputAllControlTitle(allOn) {
-  const base = allOn ? "All supported outputs are ON." : "One or more supported outputs are OFF or unknown.";
+  const base = t(allOn
+    ? "basic_controls.tooltip.all_outputs_on"
+    : "basic_controls.tooltip.outputs_off_or_unknown");
   return outputControlScopeForCurrentModel() === "global" ? `${base} ${globalOutputHintText()}` : base;
 }
 
@@ -237,7 +243,9 @@ function outputControlScopeForCurrentModel() {
 
 function globalOutputHintText() {
   const model = currentChannelCapabilityModel();
-  return model ? `${physicalModelDisplayName(model)} output enable is global for supported channels.` : "Output enable is global for supported channels.";
+  return model
+    ? t("basic_controls.tooltip.global_output_model", { model: physicalModelDisplayName(model) })
+    : t("basic_controls.tooltip.global_output");
 }
 
 

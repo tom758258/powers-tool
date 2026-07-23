@@ -69,6 +69,7 @@ function setBasicActionState(actionKey, status, presentation = null, context = {
     presentation: presentation && typeof presentation === "object" ? presentation : null,
     rawMessage: typeof presentation === "string" ? presentation : ""
   };
+  state.basicStatusActionKey = actionKey;
   renderBasicActionState(actionKey);
   setBasicStatus(basicActionMessage(state.basicActionStates[actionKey]) || basicStatusText(status));
 }
@@ -83,8 +84,9 @@ function basicActionMessage(action) {
 
 function clearBasicActionState(actionKey) {
   delete state.basicActionStates[actionKey];
+  if (state.basicStatusActionKey === actionKey) state.basicStatusActionKey = null;
   renderBasicActionState(actionKey);
-  if (!Object.keys(state.basicActionStates).length) setBasicStatus("");
+  if (!state.basicStatusActionKey) setBasicStatus("");
 }
 
 function renderBasicActionState(actionKey) {
@@ -123,8 +125,13 @@ function renderBasicChannelActionState(channel) {
   const setButton = card.querySelector("[data-basic-set]");
   if (setButton) {
     const setMeta = commandMeta("set");
+    const setAction = state.basicActionStates[basicActionKey("set", channel)];
     setButton.disabled = Boolean(unsupported || setMeta.disabled);
-    setButton.title = unsupported || setMeta.disabled_reason || setMeta.live_support_status || "";
+    setButton.title = basicActionMessage(setAction)
+      || unsupported
+      || setMeta.disabled_reason
+      || setMeta.live_support_status
+      || "";
   }
   card.classList.toggle("basic-action-error", setState === "error" || outputState === "error" || allOutputState === "error");
   card.classList.toggle("basic-action-pending", setState === "pending" || outputState === "pending" || allOutputState === "pending");
@@ -424,8 +431,9 @@ function refreshBasicControlsPresentation() {
   });
   renderBasicAllOutputButton(fresh ? panel.channels || [] : []);
   renderBasicOutputActionStates();
+  defaultChannels.forEach((channel) => renderBasicChannelActionState(channel));
   applyBasicOutputPresentation();
-  const active = Object.values(state.basicActionStates).find((action) => basicActionMessage(action));
+  const active = state.basicActionStates[state.basicStatusActionKey];
   setBasicStatus(basicActionMessage(active) || basicStatusText(active?.status));
 }
 

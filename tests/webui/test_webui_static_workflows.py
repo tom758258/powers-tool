@@ -1024,7 +1024,9 @@ def test_static_e3646a_output_hint_is_global_for_supported_channels():
     assert 'model === "E3646A"' not in all_title
     assert "function outputControlScopeForCurrentModel()" in command_support_js
     assert "output_control_scope" in extract_js_function(command_support_js, "outputControlScopeForCurrentModel")
-    assert "output enable is global for supported channels." in extract_js_function(command_support_js, "globalOutputHintText")
+    global_hint = extract_js_function(command_support_js, "globalOutputHintText")
+    assert 't("basic_controls.tooltip.global_output_model"' in global_hint
+    assert 't("basic_controls.tooltip.global_output")' in global_hint
 
 
 def test_static_trip_guard_and_clear_protection_recovery_contract():

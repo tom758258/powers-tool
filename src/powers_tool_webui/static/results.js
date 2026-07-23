@@ -2,8 +2,14 @@ import { t } from "./i18n.js";
 
 export function jobSummary(job, event = null) {
   const status = job?.status || event?.type;
-  if (status === "failed" && (job?.error_code || event?.data?.code) === "cleanup_failed") return t("job.summary.cleanup_failed");
-  if (status === "failed") return job?.error || event?.data?.error || t("job.summary.failed");
+  if (status === "failed") {
+    const error = job?.error || event?.data?.error;
+    const errorCode = job?.error_code || event?.data?.code;
+    if (error) return error;
+    if (errorCode === "cleanup_failed") return t("job.summary.cleanup_failed");
+    if (errorCode) return t("job.summary.failed_detail", { detail: errorCode });
+    return t("job.summary.failed");
+  }
   if (status === "cancelled") return t("status.cancelled");
   if (status !== "finished") return statusSummary(status);
   return successfulJobSummary(job);
@@ -11,8 +17,12 @@ export function jobSummary(job, event = null) {
 
 export function eventSummary(event) {
   if (event?.type === "cancel_requested") return t("job.summary.waiting_cleanup");
-  if (event?.type === "failed" && event.data?.code === "cleanup_failed") return t("job.summary.cleanup_failed");
-  if (event?.type === "failed") return event.data?.error || t("job.summary.failed");
+  if (event?.type === "failed") {
+    if (event.data?.error) return event.data.error;
+    if (event.data?.code === "cleanup_failed") return t("job.summary.cleanup_failed");
+    if (event.data?.code) return t("job.summary.failed_detail", { detail: event.data.code });
+    return t("job.summary.failed");
+  }
   if (event?.type === "cancelled") return t("status.cancelled");
   return statusSummary(event?.type);
 }

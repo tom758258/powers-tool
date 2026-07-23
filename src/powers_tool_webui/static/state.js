@@ -39,6 +39,7 @@ export function createInitialState({
     livePanel: null,
     basicJobActions: {},
     basicActionStates: {},
+    basicStatusActionKey: null,
     resultCollapsed: true,
     jobResultCollapsed: false,
     rampListSegments,

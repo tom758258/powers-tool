@@ -443,6 +443,10 @@ messages as semantic presentation state, and complete Basic-control and Ramp
 List compact-help accessibility refresh. These paths translate at render time;
 raw diagnostics and machine values remain unchanged.
 
+Basic status refresh now follows an explicit current action instead of object
+insertion order. Set-action titles and browser-owned output tooltips translate
+at render time, while unknown Job `error_code` values remain visible verbatim.
+
 Workflow documents, command and option values, Job IDs, model/resource values,
 units, serialized Result Detail JSON, exported artifacts, and unknown backend,
 Core, VISA, SCPI, instrument, HTTP, support, validation, and file-parse detail

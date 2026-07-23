@@ -125,6 +125,28 @@ webuiApi.fetchJson = async () => ({ job_id: "scan-job" });
   renderHistory();
   strictAssert.equal(historyNode.children[0].children[0].textContent, "Set");
 
+  const unknownCodeJob = {
+    status: "failed",
+    command: "set",
+    error_code: "driver_timeout",
+    error: null
+  };
+  updateJobResult("locale-job", "failed", { key: "job.summary.failed" }, unknownCodeJob);
+  renderHistory();
+  strictAssert.equal(historyNode.children[0].children[4].textContent, "Command failed - driver_timeout");
+  setLocale("zh-TW");
+  renderHistory();
+  strictAssert.equal(historyNode.children[0].children[4].textContent, "命令失敗 - driver_timeout");
+  unknownCodeJob.error = "VISA <raw> detail";
+  renderHistory();
+  strictAssert.equal(historyNode.children[0].children[4].textContent, "VISA <raw> detail");
+  unknownCodeJob.error = null;
+  unknownCodeJob.error_code = "cleanup_failed";
+  renderHistory();
+  strictAssert.equal(historyNode.children[0].children[4].textContent, "失敗 - cleanup_failed");
+  strictAssert.equal(state.jobs[0].presentationJob, unknownCodeJob);
+  setLocale("en");
+
   renderClientResult("Scan Device", "failed", "Client failure", { error: "detail survives" });
   strictAssert.equal(state.jobs[0].summary, "Client failure");
   strictAssert.equal(resultNode.textContent, JSON.stringify({ error: "detail survives" }, null, 2));
