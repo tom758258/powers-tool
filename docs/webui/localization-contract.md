@@ -458,12 +458,19 @@ controller; those remain P5.
 
 ### P5: Locale UI And State-Preserving Runtime Switching
 
-Add the upper-right target-language button, initial locale resolution,
-persistence, `<html lang>`, and the centralized no-side-effect refresh path.
-Verify localStorage failures and repeated switching across populated forms,
-editors, history, results, and Live Data. Live Data may redraw from cached
-samples for presentation only and must not acquire data or touch EventSource or
-monitor/preview state.
+Completed. The upper-right target-language button switches between English and
+Traditional Chinese without reload. Initialization accepts only exact saved
+`en` or `zh-TW` values, otherwise maps supported Traditional Chinese browser
+tags, updates `<html lang>`, and tolerates navigator or localStorage failures.
+Manual selection is persisted when storage is available.
+
+The centralized presentation refresh composes the existing static, execution,
+Device/Resource, command/form, workflow, Basic controls, Job History, workspace
+result, Result Detail surroundings, and cached Live Data refresh paths. Repeated
+switching tests preserve browser state, drafts, semantic/raw result data,
+samples, machine values, and raw diagnostics while prohibiting requests, Job or
+workflow actions, EventSource changes, acquisition, sample append, and reload.
+P6 still owns terminology review, complete regression, and distribution QA.
 
 ### P6: Terminology, Regression, And Distribution QA
 

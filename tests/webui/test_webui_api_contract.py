@@ -65,6 +65,7 @@ def test_static_assets_accept_query_string_and_no_store(client: TestClient):
         ("/static/dom_i18n.js?v=test", "export function applyStaticTranslations"),
         ("/static/locale_en.js?v=test", "export const EN_MESSAGES"),
         ("/static/locale_zh_tw.js?v=test", "export const ZH_TW_MESSAGES"),
+        ("/static/locale_ui.js?v=test", "export function initializeLocaleUi"),
         ("/static/state.js?v=test", "export function createInitialState"),
         ("/static/device-resource.js?v=test", "export function physicalModelDisplayName"),
         ("/static/command-form.js?v=test", "export function setOutputParams"),

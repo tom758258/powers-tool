@@ -34,6 +34,135 @@ def test_guard_no_cli_import():
         assert not any(name == "powers_tool_cli" or name.startswith("powers_tool_cli.") for name in imported)
 
 
+def test_p5_localized_refresh_composes_only_presentation_paths_and_preserves_state():
+    assertions = r"""
+const strictAssert = require("node:assert/strict");
+const calls = [];
+let fetchCalls = 0;
+let eventSourceConstructions = 0;
+let eventSourceCloses = 0;
+let reloads = 0;
+globalThis.fetch = () => { fetchCalls += 1; };
+globalThis.EventSource = class {
+  constructor() { eventSourceConstructions += 1; }
+  close() { eventSourceCloses += 1; }
+};
+globalThis.location = { reload() { reloads += 1; } };
+
+applyStaticTranslations = () => calls.push("static");
+webuiLocaleUi.renderLanguageButton = () => calls.push("locale");
+refreshDeviceResourcePresentation = () => calls.push("device");
+refreshCommandPresentation = () => calls.push("command");
+webuiWorkflows.refreshWorkflowPresentation = () => calls.push("workflow");
+refreshWorkflowOperationalPresentation = () => calls.push("workflow-operation");
+refreshBasicControlsPresentation = () => calls.push("basic");
+refreshResultPresentation = () => calls.push("result");
+refreshLiveDataPresentation = () => calls.push("live");
+
+state.executionMode = "simulate";
+state.realIdentityCache = { expectedModelId: "keysight-e36312a", resource: "RAW::RESOURCE", serial: { baud_rate: 9600 } };
+state.planningIdentityCache = { simulate: "keysight-e3646a", "dry-run": "keysight-edu36311a" };
+state.realWriteAuthorization = { resource: "RAW::RESOURCE" };
+state.selected = "ramp";
+state.activeCategory = "workflow";
+state.rampListSegments = [{ channel: 1, voltage: 1.25, current: 0.1, dwell: 0.5 }];
+state.rampListLoopEnabled = true;
+state.rampListLoopCountDraft = "invalid draft";
+state.triggerListControls = { source: "bus", wait_complete: true };
+state.sequenceSteps = [{ action: "wait", seconds: 2 }];
+state.latestSnapshotDocument = { schema_version: 1, model_id: "keysight-e36312a" };
+state.jobs = [{ jobId: "job-raw", command: "ramp", status: "failed", summary: { rawFallback: "VISA <raw> detail" } }];
+state.workspaceResults = { raw: { command: "ramp", result: { unit: "V", value: 1.25 } } };
+state.liveJobId = "live-job";
+state.livePanel = { status: "ok", resource: "RAW::RESOURCE", channels: [{ channel: 1, voltage: 1.25 }] };
+state.samples = [{ timestamp: 1, data: state.livePanel }];
+const commandInput = { value: "draft", checked: true };
+const resultJson = '{"raw":"VISA <raw> detail"}';
+const before = JSON.stringify({
+  executionMode: state.executionMode,
+  realIdentityCache: state.realIdentityCache,
+  planningIdentityCache: state.planningIdentityCache,
+  realWriteAuthorization: state.realWriteAuthorization,
+  selected: state.selected,
+  activeCategory: state.activeCategory,
+  rampListSegments: state.rampListSegments,
+  rampListLoopEnabled: state.rampListLoopEnabled,
+  rampListLoopCountDraft: state.rampListLoopCountDraft,
+  triggerListControls: state.triggerListControls,
+  sequenceSteps: state.sequenceSteps,
+  latestSnapshotDocument: state.latestSnapshotDocument,
+  jobs: state.jobs,
+  workspaceResults: state.workspaceResults,
+  liveJobId: state.liveJobId,
+  livePanel: state.livePanel,
+  samples: state.samples,
+  commandInput,
+  resultJson,
+});
+const identities = {
+  realIdentityCache: state.realIdentityCache,
+  rampListSegments: state.rampListSegments,
+  jobs: state.jobs,
+  workspaceResults: state.workspaceResults,
+  livePanel: state.livePanel,
+  samples: state.samples,
+};
+
+for (const locale of ["en", "zh-TW", "en", "zh-TW"]) {
+  globalThis.__webuiLocale = locale;
+  refreshLocalizedPresentation();
+}
+
+const after = JSON.stringify({
+  executionMode: state.executionMode,
+  realIdentityCache: state.realIdentityCache,
+  planningIdentityCache: state.planningIdentityCache,
+  realWriteAuthorization: state.realWriteAuthorization,
+  selected: state.selected,
+  activeCategory: state.activeCategory,
+  rampListSegments: state.rampListSegments,
+  rampListLoopEnabled: state.rampListLoopEnabled,
+  rampListLoopCountDraft: state.rampListLoopCountDraft,
+  triggerListControls: state.triggerListControls,
+  sequenceSteps: state.sequenceSteps,
+  latestSnapshotDocument: state.latestSnapshotDocument,
+  jobs: state.jobs,
+  workspaceResults: state.workspaceResults,
+  liveJobId: state.liveJobId,
+  livePanel: state.livePanel,
+  samples: state.samples,
+  commandInput,
+  resultJson,
+});
+strictAssert.equal(after, before);
+for (const [name, value] of Object.entries(identities)) strictAssert.equal(state[name], value);
+strictAssert.equal(fetchCalls, 0);
+strictAssert.equal(eventSourceConstructions, 0);
+strictAssert.equal(eventSourceCloses, 0);
+strictAssert.equal(reloads, 0);
+strictAssert.deepEqual(calls, Array(4).fill([
+  "static", "locale", "device", "command", "workflow",
+  "workflow-operation", "basic", "result", "live",
+]).flat());
+"""
+    run_frontend_javascript_assertions(assertions)
+
+    _index_html, app_js, _styles_css = read_static_texts()
+    refresh = extract_js_function(app_js, "refreshLocalizedPresentation")
+    for forbidden in (
+        "fetch",
+        "EventSource",
+        "renderForm",
+        "updateExecutionModeUi",
+        "refreshHealth",
+        "selectCommand",
+        "toggleLiveMonitor",
+        "runSelected",
+        "location.reload",
+    ):
+        assert forbidden not in refresh
+
+
 def test_import_smoke():
     """Verify WebUI runtime is importable."""
     from powers_tool_webui.app import app

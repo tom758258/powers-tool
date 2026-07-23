@@ -189,7 +189,7 @@ globalThis.document = {
 
 def run_frontend_javascript_assertions(
     assertions: str,
-    source_names: tuple[str, ...] = ("execution-context.js", "electrical.js", "api.js", "state.js", "device-resource.js", "command-catalog.js", "command-form.js", "results.js", "live-data.js", "json-files.js", "ramp-list.js", "trigger-list.js", "sequence.js", "snapshot-restore.js", "jobs.js", "basic-controls.js", "command-support.js", "workflows.js", "app.js"),
+    source_names: tuple[str, ...] = ("execution-context.js", "electrical.js", "api.js", "state.js", "device-resource.js", "command-catalog.js", "command-form.js", "results.js", "live-data.js", "json-files.js", "ramp-list.js", "trigger-list.js", "sequence.js", "snapshot-restore.js", "jobs.js", "basic-controls.js", "command-support.js", "workflows.js", "locale_ui.js", "app.js"),
     *,
     bootstrap: str = "",
     expected_failure_substrings: tuple[str, ...] = (),
@@ -329,6 +329,20 @@ globalThis.__webuiCommandSupport = {{ createCommandSupport }};`;
   if (filename === "workflows.js") {{
     return `(function() {{\n${{source.replace('import {{ t }} from "./i18n.js";', 'const t = globalThis.__webuiTranslate;').replace(/^export function /gm, "function ")}}\nglobalThis.__webuiWorkflows = {{ refreshWorkflowPresentation, createWorkflows, createArtifactAndSequenceWorkflows }};\n}})();`;
   }}
+  if (filename === "locale_ui.js") {{
+    return `(function() {{
+${{source
+      .replace(/import \\{{[\\s\\S]*?\\}} from "\\.\\/i18n\\.js";/, `
+const LOCALE_STORAGE_KEY = "powers-tool.webui.locale";
+const SUPPORTED_LOCALES = ["en", "zh-TW"];
+const getLocale = () => globalThis.__webuiLocale;
+const isSupportedLocale = (value) => ["en", "zh-TW"].includes(value);
+const setLocale = (locale) => {{ globalThis.__webuiLocale = locale; return locale; }};
+const t = globalThis.__webuiTranslate;`)
+      .replace(/^export function /gm, "function ")}}
+globalThis.__webuiLocaleUi = {{ normalizeBrowserLanguage, browserLocale, detectBrowserLocale, readSavedLocale, resolveInitialLocale, persistLocale, targetLocale, renderLanguageButton, initializeLocaleUi }};
+}})();`;
+  }}
   if (filename === "app.js") {{
     return source
       .replace(
@@ -411,6 +425,10 @@ globalThis.__webuiCommandSupport = {{ createCommandSupport }};`;
                 'import * as webuiWorkflows from "./workflows.js";',
                 'var webuiWorkflows = globalThis.__webuiWorkflows;'
           )
+          .replace(
+                'import * as webuiLocaleUi from "./locale_ui.js";',
+                'var webuiLocaleUi = globalThis.__webuiLocaleUi;'
+          )
               .replace(
                     'import {{ applyStaticTranslations }} from "./dom_i18n.js";',
                     'var applyStaticTranslations = () => 0;'
@@ -479,6 +497,7 @@ if (moduleUrls["jobs.js"]) globalThis.webuiJobTransport = await import(moduleUrl
 if (moduleUrls["basic-controls.js"]) globalThis.webuiBasicControls = await import(moduleUrls["basic-controls.js"]);
 if (moduleUrls["command-support.js"]) globalThis.webuiCommandSupport = await import(moduleUrls["command-support.js"]);
 if (moduleUrls["workflows.js"]) globalThis.webuiWorkflows = await import(moduleUrls["workflows.js"]);
+if (moduleUrls["locale_ui.js"]) globalThis.webuiLocaleUi = await import(moduleUrls["locale_ui.js"]);
 {assertions}
 """
     completed = subprocess.run(

@@ -21,6 +21,7 @@ def test_i18n_modules_use_the_existing_static_root_package_layout() -> None:
         STATIC_DIR / "dom_i18n.js",
         STATIC_DIR / "locale_en.js",
         STATIC_DIR / "locale_zh_tw.js",
+        STATIC_DIR / "locale_ui.js",
     }
 
     assert all(path.is_file() for path in expected)
@@ -30,6 +31,163 @@ def test_i18n_modules_use_the_existing_static_root_package_layout() -> None:
     app_source = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     assert 'import { applyStaticTranslations } from "./dom_i18n.js";' in app_source
     assert "applyStaticTranslations(document);" in app_source
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is required for ES-module runtime tests")
+def test_locale_ui_resolution_persistence_and_button_contract() -> None:
+    script = r"""
+import assert from "node:assert/strict";
+
+const [localeUiUrl, i18nUrl] = process.argv.slice(1);
+const localeUi = await import(localeUiUrl);
+const i18n = await import(i18nUrl);
+
+for (const [language, expected] of [
+  ["zh-TW", "zh-TW"],
+  ["ZH_tw", "zh-TW"],
+  ["zh-TW-x-private", "zh-TW"],
+  ["zh-Hant", "zh-TW"],
+  ["ZH_hAnT-HK", "zh-TW"],
+  ["zh-CN", "en"],
+  ["zh-Hans-TW", "en"],
+  ["en-US", "en"],
+  ["", "en"],
+  [null, "en"],
+]) {
+  assert.equal(localeUi.browserLocale(language), expected);
+}
+assert.equal(localeUi.normalizeBrowserLanguage(" ZH_hAnT-TW "), "zh-hant-tw");
+
+assert.equal(localeUi.detectBrowserLocale({ languages: ["", "zh-Hant-HK"], language: "en-US" }), "zh-TW");
+assert.equal(localeUi.detectBrowserLocale({ languages: ["en-US", "zh-TW"], language: "zh-TW" }), "en");
+assert.equal(localeUi.detectBrowserLocale({ languages: [], language: "zh_TW" }), "zh-TW");
+assert.equal(localeUi.detectBrowserLocale({ languages: [null, "  "], language: "" }), "en");
+assert.equal(localeUi.detectBrowserLocale(Object.defineProperty({}, "languages", {
+  get() { throw new Error("navigator blocked"); },
+})), "en");
+
+function storageWith(value) {
+  return {
+    writes: [],
+    getItem(key) {
+      assert.equal(key, i18n.LOCALE_STORAGE_KEY);
+      return value;
+    },
+    setItem(key, locale) {
+      this.writes.push([key, locale]);
+    },
+  };
+}
+for (const valid of ["en", "zh-TW"]) {
+  assert.equal(localeUi.readSavedLocale(storageWith(valid)), valid);
+}
+for (const invalid of ["EN", "zh-tw", "zh_TW", " zh-TW ", "", null, undefined]) {
+  assert.equal(localeUi.readSavedLocale(storageWith(invalid)), null);
+}
+assert.equal(localeUi.readSavedLocale({ getItem() { throw new Error("read denied"); } }), null);
+assert.equal(
+  localeUi.resolveInitialLocale({
+    storage: storageWith("en"),
+    navigatorObject: { languages: ["zh-TW"] },
+  }),
+  "en"
+);
+assert.equal(
+  localeUi.resolveInitialLocale({
+    storage: storageWith("invalid"),
+    navigatorObject: { languages: ["zh-Hant-TW"] },
+  }),
+  "zh-TW"
+);
+assert.equal(localeUi.persistLocale("zh-TW", { setItem() { throw new Error("write denied"); } }), false);
+
+class FakeButton {
+  constructor() {
+    this.attributes = {};
+    this.listeners = [];
+    this.textContent = "";
+  }
+  setAttribute(name, value) { this.attributes[name] = value; }
+  addEventListener(type, listener) { this.listeners.push({ type, listener }); }
+  click() { this.listeners.filter(({ type }) => type === "click").forEach(({ listener }) => listener()); }
+}
+
+const button = new FakeButton();
+const documentObject = {
+  documentElement: { lang: "en" },
+  getElementById(id) {
+    assert.equal(id, "locale-toggle");
+    return button;
+  },
+};
+const storage = storageWith("zh-TW");
+let refreshes = 0;
+assert.equal(localeUi.initializeLocaleUi({
+  documentObject,
+  navigatorObject: { languages: ["en-US"] },
+  storage,
+  refreshPresentation() { refreshes += 1; },
+}), "zh-TW");
+assert.equal(i18n.getLocale(), "zh-TW");
+assert.equal(documentObject.documentElement.lang, "zh-TW");
+assert.equal(button.textContent, "English");
+assert.equal(button.attributes.lang, "en");
+assert.equal(button.attributes["aria-label"], "切換語言為英文");
+assert.equal(button.listeners.length, 1);
+
+localeUi.initializeLocaleUi({
+  documentObject,
+  navigatorObject: { languages: ["en-US"] },
+  storage,
+  refreshPresentation() { refreshes += 100; },
+});
+assert.equal(button.listeners.length, 1);
+assert.equal(i18n.getLocale(), "zh-TW");
+
+button.click();
+assert.equal(i18n.getLocale(), "en");
+assert.equal(documentObject.documentElement.lang, "en");
+assert.equal(button.textContent, "繁體中文");
+assert.equal(button.attributes.lang, "zh-TW");
+assert.equal(button.attributes["aria-label"], "Switch language to Traditional Chinese");
+assert.deepEqual(storage.writes, [[i18n.LOCALE_STORAGE_KEY, "en"]]);
+assert.equal(refreshes, 1);
+
+const failingButton = new FakeButton();
+const failingDocument = {
+  documentElement: { lang: "en" },
+  getElementById() { return failingButton; },
+};
+localeUi.initializeLocaleUi({
+  documentObject: failingDocument,
+  navigatorObject: { language: "en" },
+  storage: {
+    getItem() { throw new Error("read denied"); },
+    setItem() { throw new Error("write denied"); },
+  },
+  refreshPresentation() { refreshes += 1; },
+});
+failingButton.click();
+assert.equal(i18n.getLocale(), "zh-TW");
+assert.equal(failingDocument.documentElement.lang, "zh-TW");
+assert.equal(refreshes, 2);
+"""
+    completed = subprocess.run(
+        [
+            NODE,
+            "--input-type=module",
+            "--eval",
+            script,
+            (STATIC_DIR / "locale_ui.js").resolve().as_uri(),
+            (STATIC_DIR / "i18n.js").resolve().as_uri(),
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert completed.returncode == 0, completed.stderr or completed.stdout
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is required for ES-module runtime tests")
@@ -382,6 +540,9 @@ def test_static_html_p2_bindings_have_catalog_parity_and_preserve_contracts() ->
     assert binding_keys <= en_keys
     assert '<html lang="en">' in html
     assert '<span data-i18n="app.unofficial_tool">Unofficial Tool</span> v__WEBUI_VERSION__' in html
+    assert 'id="locale-toggle"' in html
+    assert 'lang="zh-TW"' in html
+    assert ">繁體中文</button>" in html
     for mode in ("real", "simulate", "dry-run"):
         assert f'name="execution-mode" value="{mode}"' in html
     for machine_value in ("none", "odd", "even", "mark", "space", "xon_xoff", "rts_cts", "dtr_dsr"):

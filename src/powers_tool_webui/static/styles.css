@@ -52,7 +52,16 @@ button, input, select, textarea { font: inherit; }
   padding: 24px 0 0;
 }
 
-.brand { margin-bottom: 16px; }
+.page-head-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.brand { min-width: 0; }
 
 .brand h1 {
   margin: 0 0 4px;
@@ -70,6 +79,11 @@ button, input, select, textarea { font: inherit; }
   font-weight: 500;
   line-height: 18px;
   letter-spacing: 0.01em;
+}
+
+.locale-toggle {
+  flex: none;
+  white-space: nowrap;
 }
 
 /* ─── Device / Resource ──────────────────────────────────────────────────── */
