@@ -570,6 +570,7 @@ def test_p3_maintained_catalog_messages_are_complete() -> None:
         "device.expected.auto_detect",
         "device.identity.simulation_model",
         "execution_mode.badge.real_locked",
+        "execution_mode.badge.real_enabled",
         "execution_mode.help.dry_run",
         "health.device.busy",
         "health.server.reachable",
@@ -582,6 +583,8 @@ def test_p3_maintained_catalog_messages_are_complete() -> None:
         "form.field.channel",
         "form.guidance.set_partial",
         "form.option.positive",
+        "basic_controls.output.controlled_by_all",
+        "basic_controls.help.e3646a_global_output",
     }
 
     assert en_keys == zh_tw_keys

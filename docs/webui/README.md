@@ -273,7 +273,13 @@ driver; Core remains the authority for live mismatch rejection before setup or
 write SCPI. The Device / Resource header displays the page-local write
 authorization state as `Real · Writes locked` or `Real · Writes enabled`; the
 badge is not interactive, and authorization remains controlled by Device
-options.
+options. In Real mode, a non-blank VISA resource creates write authorization
+for the exact current resource, expected-model guard, and detected model
+context by default. The Device options checkbox can disable writes for that
+unchanged context. Selecting or typing another resource, changing Expected
+model, detecting a different model, or returning to Real mode creates a new
+context with writes enabled by default. With no resource, the checkbox is
+disabled and no authorization exists.
 The serial fields are optional; blank fields are omitted from the runtime
 payload and do not override VISA backend or Connection Expert settings.
 Read/write termination fields accept `CR`, `LF`, `CRLF`, and `NONE` aliases.
@@ -349,6 +355,11 @@ metadata does not introduce hard decimal-place rejection or silent
 rounding/truncation.
 Basic output controls are lit-state ON buttons: an unlit ON control represents
 OFF/unknown, and a lit ON control represents ON according to fresh Live Data.
+E3646A uses one global output switch: its CH1 and CH2 output controls are
+disabled and identify that they are controlled by ALL, while their Voltage,
+Current, and Set controls remain independent. The E3646A ALL control remains
+available when readback is unknown and submits output-on; fresh Live Data
+continues to determine the displayed hardware state after the command.
 
 The Live Data status row uses LED indicators for WebUI State, Command State,
 and Live State. Command State reports whether the WebUI command path is free

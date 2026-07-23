@@ -160,11 +160,20 @@ channel.
 
 The ON controls reflect fresh Live Data when available. An unlit ON control
 means OFF or unknown; it is not a confirmed OFF state unless Live Data is
-fresh. Real output-affecting actions require enabling `Enable real hardware
-writes for this resource` in Device options. The Device / Resource header shows
+fresh. In Real mode, `Enable real hardware writes for this resource` is enabled
+and selected by default whenever a non-blank VISA resource is present. Clear
+the checkbox in Device options to disable writes for the current resource and
+identity context. Selecting or typing another resource, changing Expected
+model, detecting a different model, or returning to Real mode creates a new
+context with writes enabled by default. With no resource, the checkbox is
+disabled and no write authorization exists. The Device / Resource header shows
 `Real · Writes locked` or `Real · Writes enabled`; it is a status indicator,
-not a control. The authorization clears when the resource, expected model,
-detected identity, mode, or page changes.
+not a control.
+
+E3646A does not support independent CH1 or CH2 output switching. Their output
+controls show `Controlled by ALL`; use the ALL control to turn both channels on
+or off together. CH1 and CH2 Voltage, Current, and Set controls remain
+independent.
 
 Before enabling output:
 

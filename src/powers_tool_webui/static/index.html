@@ -50,7 +50,7 @@
                 <label><input type="radio" name="execution-mode" value="real" checked> <span data-i18n="execution_mode.option.real">Real</span></label>
                 <label><input type="radio" name="execution-mode" value="simulate"> <span data-i18n="execution_mode.option.simulate">Simulate</span></label>
                 <label><input type="radio" name="execution-mode" value="dry-run"> <span data-i18n="execution_mode.option.dry_run">Dry-run</span></label>
-                <p id="execution-mode-help" class="model-profile-help" data-i18n="execution_mode.help.real_locked">Real hardware mode. Writes are locked until explicitly enabled.</p>
+                <p id="execution-mode-help" class="model-profile-help" data-i18n="execution_mode.help.real_locked">Real hardware mode. Writes are enabled by default when a VISA resource is present.</p>
               </fieldset>
               <div class="model-profile-control">
                 <label id="identity-model-label">Expected model
@@ -194,7 +194,7 @@
       </div>
       <div id="basic-command-status" class="basic-command-status" aria-live="polite" data-i18n="basic_controls.status.live_source">Live Data remains the source of instrument state.</div>
       <div id="basic-output-capability-status" class="basic-output-capability-status" role="status" hidden></div>
-      <span id="e3646a-global-output-description" class="visually-hidden" data-i18n="basic_controls.help.e3646a_global_output">E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable.</span>
+      <span id="e3646a-global-output-description" class="visually-hidden" data-i18n="basic_controls.help.e3646a_global_output">E3646A does not support independent channel output switching. Use ALL to turn CH1 and CH2 on or off together.</span>
       <div class="basic-channel-grid">
         <div class="basic-channel-card" data-basic-channel="1">
           <div class="basic-channel-head">
@@ -202,7 +202,7 @@
             <span class="basic-channel-output-presentation">
               <button class="basic-toggle off" type="button" data-basic-output="1" data-i18n="basic_controls.output.on_control">ON</button>
               <span class="basic-output-status unknown" data-basic-output-status="1" role="status" hidden>UNKNOWN</span>
-              <span class="basic-output-info" data-basic-output-info="1" role="note" tabindex="0" aria-label="E3646A global output information" data-i18n-aria-label="basic_controls.aria.e3646a_global_output_information" aria-describedby="e3646a-global-output-description" title="E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable." data-i18n-title="basic_controls.help.e3646a_global_output" hidden>i</span>
+              <span class="basic-output-info" data-basic-output-info="1" role="note" tabindex="0" aria-label="E3646A global output information" data-i18n-aria-label="basic_controls.aria.e3646a_global_output_information" aria-describedby="e3646a-global-output-description" title="E3646A does not support independent channel output switching. Use ALL to turn CH1 and CH2 on or off together." data-i18n-title="basic_controls.help.e3646a_global_output" hidden>i</span>
             </span>
           </div>
           <div class="basic-fields">
@@ -221,7 +221,7 @@
             <span class="basic-channel-output-presentation">
               <button class="basic-toggle off" type="button" data-basic-output="2" data-i18n="basic_controls.output.on_control">ON</button>
               <span class="basic-output-status unknown" data-basic-output-status="2" role="status" hidden>UNKNOWN</span>
-              <span class="basic-output-info" data-basic-output-info="2" role="note" tabindex="0" aria-label="E3646A global output information" data-i18n-aria-label="basic_controls.aria.e3646a_global_output_information" aria-describedby="e3646a-global-output-description" title="E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable." data-i18n-title="basic_controls.help.e3646a_global_output" hidden>i</span>
+              <span class="basic-output-info" data-basic-output-info="2" role="note" tabindex="0" aria-label="E3646A global output information" data-i18n-aria-label="basic_controls.aria.e3646a_global_output_information" aria-describedby="e3646a-global-output-description" title="E3646A does not support independent channel output switching. Use ALL to turn CH1 and CH2 on or off together." data-i18n-title="basic_controls.help.e3646a_global_output" hidden>i</span>
             </span>
           </div>
           <div class="basic-fields">

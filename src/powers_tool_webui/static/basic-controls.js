@@ -220,14 +220,13 @@ function renderBasicAllOutputButton(channels) {
       ? t("basic_controls.output.turn_off")
       : globalState === "off"
         ? t("basic_controls.output.turn_on")
-        : t("basic_controls.output.unknown");
+        : t("basic_controls.output.all_on_control");
     button.classList.toggle("on", globalState === "on");
     button.classList.toggle("off", globalState === "off");
     button.classList.toggle("unknown", globalState === "unknown");
     button.setAttribute("aria-pressed", globalState === "on" ? "true" : globalState === "off" ? "false" : "mixed");
     button.setAttribute("aria-label", t("basic_controls.aria.all_channel_output", { state: button.textContent }));
-    button.disabled = globalState === "unknown";
-    button.title = globalState === "unknown" ? t("basic_controls.help.synchronized_readback") : outputAllControlTitle(globalState === "on");
+    button.title = outputAllControlTitle(globalState === "on");
     applyBasicOutputPresentation();
     return;
   }
@@ -249,26 +248,25 @@ function applyBasicPerChannelOutputPresentation(channel, button, presentation = 
   const readOnly = presentation.mode === "e3646a-global"
     && presentation.capability.channels.includes(channel);
 
-  button.hidden = readOnly;
-  if (readOnly) button.disabled = true;
+  button.hidden = false;
+  if (readOnly) {
+    button.disabled = true;
+    button.textContent = t("basic_controls.output.controlled_by_all");
+    button.classList.remove("on", "off");
+    button.setAttribute("aria-pressed", "false");
+    button.setAttribute("aria-label", t("basic_controls.aria.channel_output_control", {
+      channel,
+      state: button.textContent
+    }));
+    button.title = t("basic_controls.help.e3646a_global_output");
+  }
   if (presentation.mode === "e3646a-disabled") {
     button.disabled = true;
     button.title = t("basic_controls.error.e3646a_capability");
   }
 
   if (status) {
-    status.hidden = !readOnly;
-    status.classList.remove("on", "off", "unknown");
-    if (readOnly) {
-      const outputState = basicChannelOutputState(channel);
-      status.textContent = outputState === "on"
-        ? t("status.on")
-        : outputState === "off"
-          ? t("status.off")
-          : t("basic_controls.output.unknown_status");
-      status.classList.add(outputState);
-      status.setAttribute("aria-label", t("basic_controls.aria.channel_output_status", { channel, status: status.textContent }));
-    }
+    status.hidden = true;
   }
   if (info) {
     info.hidden = !readOnly;
@@ -281,9 +279,6 @@ function applyBasicAllOutputPresentation(button, presentation = basicOutputPrese
   if (presentation.mode === "e3646a-disabled") {
     button.disabled = true;
     button.title = t("basic_controls.error.e3646a_capability");
-  } else if (presentation.mode === "e3646a-global" && e3646aGlobalOutputState(presentation) === "unknown") {
-    button.disabled = true;
-    button.title = t("basic_controls.help.synchronized_readback");
   }
 }
 

@@ -506,6 +506,7 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
             this.options = [];
             this.children = [];
             this.classList = new FakeClassList();
+            this._selectedIndex = -1;
           }
           replaceChildren() {
             this.value = "";
@@ -519,6 +520,23 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
           append(...children) {
             this.children.push(...children);
             children.forEach((child) => this.options.push(...(child.children || [])));
+          }
+          appendChild(child) {
+            this.add(child);
+            return child;
+          }
+          set innerHTML(value) {
+            this.replaceChildren();
+          }
+          get innerHTML() {
+            return "";
+          }
+          set selectedIndex(index) {
+            this._selectedIndex = index;
+            this.value = this.options[index]?.value || "";
+          }
+          get selectedIndex() {
+            return this._selectedIndex;
           }
         }
 
@@ -555,8 +573,8 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         const identity = new FakeSelect("keysight-e36312a");
         const elements = new Map([
           ["expected-model-id", identity],
-          ["resource", createControl("RESOURCE-REAL")],
-          ["resource-select", new FakeSelect("RESOURCE-REAL")],
+          ["resource", createControl("")],
+          ["resource-select", new FakeSelect("")],
           ["real-write-enabled", createControl()],
           ["execution-mode-badge", createControl()],
           ["execution-mode-help", createControl()],
@@ -599,6 +617,14 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
           "keysight-e36312a": { channels: [{ channel: 1, max_voltage: 6, max_current: 5 }] },
           "keysight-e3646a": { channels: [{ channel: 1, max_voltage: 20, max_current: 1 }] }
         };
+        state.commandSupportByModel = {
+          "keysight-e36312a": {},
+          "keysight-e3646a": {}
+        };
+        state.channelCapabilitiesByModel = {
+          "keysight-e36312a": { channels: [1, 2, 3], output_control_scope: "per_channel" },
+          "keysight-e3646a": { channels: [1, 2], output_control_scope: "global" }
+        };
         state.resourceModels = { "RESOURCE-REAL": "keysight-e3646a" };
         state.resourceChannelModels = { "RESOURCE-REAL": "keysight-e3646a" };
         state.livePanel = null;
@@ -624,6 +650,7 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         renderBlankLivePanel = () => {};
         renderClientResult = (...args) => clientFailures.push(args);
         updateDeviceResourceSummary = () => {};
+        updateSelectedCommandState = () => {};
         syncBasicFromLivePanel = () => {};
         renderCommands = () => {};
         selectCommand = (name) => {
@@ -638,9 +665,83 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
           const context = currentWorkspaceResultContext(state.selected);
           workspaceViews.push({ context, marker: webuiContext.findWorkspaceResult(state.workspaceResults, context)?.marker || null });
         };
+        refreshSelectedResourcePreview = async () => {};
+
+        updateExecutionModeUi({ renderCommands: false, resetAuthorization: true });
+        const writeCheckbox = elements.get("real-write-enabled");
+        strictAssert.equal(writeCheckbox.disabled, true);
+        strictAssert.equal(writeCheckbox.checked, false);
+        strictAssert.equal(state.realWriteAuthorization, null);
+
+        elements.get("resource").value = "RESOURCE-REAL";
+        elements.get("resource-select").value = "RESOURCE-REAL";
+        syncTypedResource();
+        strictAssert.equal(writeCheckbox.disabled, false);
+        strictAssert.equal(writeCheckbox.checked, true);
+        strictAssert.equal(state.realWriteAuthorization, realAuthorizationContext());
+        strictAssert.deepEqual(JSON.parse(state.realWriteAuthorization), {
+          resource: "RESOURCE-REAL",
+          expected_model_id: "keysight-e36312a",
+          connected_model_id: "keysight-e3646a"
+        });
+        strictAssert.equal(elements.get("execution-mode-badge").textContent, "Real · Writes enabled");
+
+        writeCheckbox.checked = false;
+        state.realWriteAuthorization = null;
+        updateExecutionModeUi({ renderCommands: false });
+        strictAssert.equal(writeCheckbox.checked, false);
+        strictAssert.equal(state.realWriteAuthorization, null);
+
+        populateResourceSelect([{
+          name: "RESOURCE-SCAN",
+          model_id: "keysight-e3646a",
+          idn: { manufacturer: "Keysight", model: "E3646A" }
+        }]);
+        strictAssert.equal(elements.get("resource").value, "RESOURCE-SCAN");
+        strictAssert.equal(writeCheckbox.checked, true);
+        strictAssert.equal(state.realWriteAuthorization, realAuthorizationContext());
+
+        elements.get("resource-select").value = "RESOURCE-SELECTED";
+        state.resourceModels["RESOURCE-SELECTED"] = "keysight-e36312a";
+        state.resourceChannelModels["RESOURCE-SELECTED"] = "keysight-e36312a";
+        await syncSelectedResource();
+        strictAssert.deepEqual(JSON.parse(state.realWriteAuthorization), {
+          resource: "RESOURCE-SELECTED",
+          expected_model_id: "keysight-e36312a",
+          connected_model_id: "keysight-e36312a"
+        });
+
+        elements.get("resource").value = "RESOURCE-TYPED";
+        state.resourceModels["RESOURCE-TYPED"] = "keysight-e3646a";
+        state.resourceChannelModels["RESOURCE-TYPED"] = "keysight-e3646a";
+        syncTypedResource();
+        strictAssert.equal(state.realWriteAuthorization, realAuthorizationContext());
+        strictAssert.equal(JSON.parse(state.realWriteAuthorization).resource, "RESOURCE-TYPED");
+
+        identity.value = "keysight-e3646a";
+        handleExpectedModelChanged();
+        strictAssert.equal(JSON.parse(state.realWriteAuthorization).expected_model_id, "keysight-e3646a");
+
+        elements.get("resource").value = "RESOURCE-REAL";
+        elements.get("resource-select").value = "RESOURCE-REAL";
+        syncTypedResource();
+        identity.value = "keysight-e36312a";
+        handleExpectedModelChanged();
+        const beforeDetectedModelChange = state.realWriteAuthorization;
+        updateResourceModel("RESOURCE-REAL", "keysight-e36312a", "E36312A");
+        strictAssert.notEqual(state.realWriteAuthorization, beforeDetectedModelChange);
+        strictAssert.equal(JSON.parse(state.realWriteAuthorization).connected_model_id, "keysight-e36312a");
+        updateResourceModel("RESOURCE-REAL", "keysight-e3646a", "E3646A");
+        strictAssert.equal(JSON.parse(state.realWriteAuthorization).connected_model_id, "keysight-e3646a");
+        selectedCalls.length = 0;
+        formLimits.length = 0;
+        workspaceViews.length = 0;
 
         await handleExecutionModeChange({ target: radios[1] });
         strictAssert.equal(identity.value, "keysight-e3646a");
+        strictAssert.equal(writeCheckbox.checked, false);
+        strictAssert.equal(writeCheckbox.disabled, true);
+        strictAssert.equal(state.realWriteAuthorization, null);
         strictAssert.deepEqual(formLimits.at(-1), { mode: "simulate", max: "20", title: "Official independent-channel DC output rating: maximum 20 V." });
         strictAssert.equal(workspaceViews.at(-1).context.executionMode, "simulate");
         strictAssert.equal(workspaceViews.at(-1).marker, null, "Simulate must not show the Real result");
@@ -649,12 +750,18 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         state.workspaceResults[webuiContext.buildWorkspaceResultKey(simulateContext)] = { marker: "simulate" };
         await handleExecutionModeChange({ target: radios[2] });
         strictAssert.equal(identity.value, "profile:generic-scpi");
+        strictAssert.equal(writeCheckbox.checked, false);
+        strictAssert.equal(state.realWriteAuthorization, null);
         strictAssert.deepEqual(formLimits.at(-1), { mode: "dry-run", max: "100", title: "Generic voltage guidance" });
         strictAssert.equal(workspaceViews.at(-1).context.executionMode, "dry-run");
         strictAssert.equal(workspaceViews.at(-1).marker, null, "Dry-run must not show the Simulate result");
 
         await handleExecutionModeChange({ target: radios[0] });
         strictAssert.equal(identity.value, "keysight-e36312a");
+        strictAssert.equal(writeCheckbox.checked, true);
+        strictAssert.equal(writeCheckbox.disabled, false);
+        strictAssert.equal(state.realWriteAuthorization, realAuthorizationContext());
+        strictAssert.equal(elements.get("execution-mode-badge").textContent, "Real · Writes enabled");
         strictAssert.deepEqual(formLimits.at(-1), { mode: "real", max: "6", title: "Official independent-channel DC output rating: maximum 6 V." });
         const realContext = workspaceViews.at(-1).context;
         strictAssert.equal(realContext.resource, "RESOURCE-REAL");

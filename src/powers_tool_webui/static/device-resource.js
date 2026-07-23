@@ -193,11 +193,26 @@ function clearRealWriteAuthorization() {
   if (checkbox) checkbox.checked = false;
 }
 
+function resetRealWriteAuthorization() {
+  const resource = valueOrNull("resource");
+  if (state.executionMode !== "real" || !resource) {
+    clearRealWriteAuthorization();
+    return false;
+  }
+  state.realWriteAuthorization = realAuthorizationContext();
+  const checkbox = document.getElementById("real-write-enabled");
+  if (checkbox) checkbox.checked = true;
+  return true;
+}
+
 function hasRealWriteAuthorization() {
   return state.executionMode === "real" && state.realWriteAuthorization === realAuthorizationContext();
 }
 
-function updateExecutionModeUi({ renderCommands: shouldRenderCommands = true } = {}) {
+function updateExecutionModeUi({
+  renderCommands: shouldRenderCommands = true,
+  resetAuthorization = false
+} = {}) {
   const noHardware = isNoHardwareMode();
   const jobBusy = executionModeBusy();
   document.querySelectorAll('input[name="execution-mode"]').forEach((radio) => {
@@ -213,8 +228,11 @@ function updateExecutionModeUi({ renderCommands: shouldRenderCommands = true } =
     control.disabled = noHardware;
     control.classList.toggle("no-hardware-control", noHardware);
   });
+  populateIdentitySelector();
+  if (resetAuthorization) resetRealWriteAuthorization();
   if (checkbox) {
     checkbox.disabled = noHardware || !valueOrNull("resource");
+    checkbox.checked = hasRealWriteAuthorization();
     checkbox.parentElement.hidden = noHardware;
   }
   refreshExecutionModePresentation();
@@ -225,7 +243,6 @@ function updateExecutionModeUi({ renderCommands: shouldRenderCommands = true } =
     else if (hasRealWriteAuthorization()) badge.classList.add("real-enabled");
     else badge.classList.add("real-locked");
   }
-  populateIdentitySelector();
   updateDeviceResourceSummary();
   if (shouldRenderCommands) renderCommands();
   syncBasicFromLivePanel(state.livePanel);
@@ -307,19 +324,18 @@ async function handleExecutionModeChange(event) {
   try {
     await stopRealLiveJobsAndWait();
     rememberCurrentExecutionIdentity();
-    if (state.executionMode === "real") {
-      clearRealWriteAuthorization();
-    }
     state.executionMode = requested;
     modeChanged = true;
-    if (requested === "real") clearRealWriteAuthorization();
     document.querySelector(`input[name="execution-mode"][value="${requested}"]`).checked = true;
     renderBlankLivePanel("ok", "Execution mode changed.");
   } catch (error) {
     renderClientResult("Execution mode", "failed", error.message || String(error), { error: "Mode change cancelled" });
   } finally {
     state.executionModeTransition = false;
-    updateExecutionModeUi({ renderCommands: !modeChanged || !state.selected });
+    updateExecutionModeUi({
+      renderCommands: !modeChanged || !state.selected,
+      resetAuthorization: modeChanged
+    });
     if (modeChanged) {
       if (state.selected) selectCommand(state.selected);
       else renderWorkspaceSummary();
@@ -436,12 +452,8 @@ function selectedElectricalRatingModel() {
 
 function handleExpectedModelChanged() {
   rememberCurrentExecutionIdentity();
-  if (state.executionMode === "real") {
-    clearRealWriteAuthorization();
-  }
-  updateDeviceResourceSummary();
+  updateExecutionModeUi({ renderCommands: false, resetAuthorization: state.executionMode === "real" });
   refreshBasicInputConstraints();
-  syncBasicFromLivePanel(state.livePanel);
   refreshElectricalRatingConstraints();
   if (state.selected) {
     selectCommand(state.selected);
@@ -591,6 +603,7 @@ function setStateIndicator(elementId, text, stateClass = "state-idle", title = "
     isNoHardwareMode,
     realAuthorizationContext,
     clearRealWriteAuthorization,
+    resetRealWriteAuthorization,
     hasRealWriteAuthorization,
     updateExecutionModeUi,
     refreshExecutionModePresentation,

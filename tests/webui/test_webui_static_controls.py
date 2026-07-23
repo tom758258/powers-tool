@@ -25,8 +25,8 @@ def test_static_e3646a_basic_global_output_dom_and_accessibility_contract():
     assert_static_id(index_html, "e3646a-global-output-description")
 
     explanation = (
-        "E3646A uses global output control. Enabling or disabling output switches "
-        "CH1 and CH2 together; voltage and current setpoints remain independently adjustable."
+        "E3646A does not support independent channel output switching. "
+        "Use ALL to turn CH1 and CH2 on or off together."
     )
     assert index_html.count(explanation) == 3
     for channel in ("1", "2"):
@@ -273,15 +273,16 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         renderBasicOutputControlState(1);
         strictAssert.equal(allButton.parentNode, globalSlot);
         strictAssert.equal(globalRow.hidden, false);
-        strictAssert.equal(outputButtons[1].hidden, true);
+        strictAssert.equal(outputButtons[1].hidden, false);
         strictAssert.equal(outputButtons[1].disabled, true);
-        strictAssert.equal(outputButtons[2].hidden, true);
-        strictAssert.equal(outputStatuses[1].hidden, false);
-        strictAssert.equal(outputStatuses[1].textContent, "ON");
-        strictAssert.equal(outputStatuses[1].getAttribute("aria-pressed"), null);
-        strictAssert.equal(outputStatuses[2].textContent, "ON");
+        strictAssert.equal(outputButtons[1].textContent, "Controlled by ALL");
+        strictAssert.equal(outputButtons[2].hidden, false);
+        strictAssert.equal(outputButtons[2].disabled, true);
+        strictAssert.equal(outputButtons[2].textContent, "Controlled by ALL");
+        strictAssert.equal(outputStatuses[1].hidden, true);
+        strictAssert.equal(outputStatuses[2].hidden, true);
         strictAssert.equal(outputInfo[1].hidden, false);
-        strictAssert.equal(outputInfo[1].title, "E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable.");
+        strictAssert.equal(outputInfo[1].title, "E3646A does not support independent channel output switching. Use ALL to turn CH1 and CH2 on or off together.");
         strictAssert.equal(allButton.textContent, "Turn outputs off");
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "true");
         strictAssert.equal(allButton.disabled, false);
@@ -293,43 +294,45 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         strictAssert.equal(allButton.textContent, "Turn outputs on");
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "false");
         strictAssert.equal(allButton.disabled, false);
-        strictAssert.equal(outputStatuses[1].textContent, "OFF");
+        strictAssert.equal(outputButtons[1].textContent, "Controlled by ALL");
 
         state.livePanel.channels[0].output_enabled = null;
         renderBasicOutputButton(1, state.livePanel.channels[0], true);
         renderBasicAllOutputButton(state.livePanel.channels);
         renderBasicOutputControlState("all");
-        strictAssert.equal(outputStatuses[1].textContent, "UNKNOWN");
-        strictAssert.equal(outputStatuses[1].getAttribute("aria-pressed"), null);
-        strictAssert.equal(allButton.textContent, "Output state unknown");
+        strictAssert.equal(outputButtons[1].textContent, "Controlled by ALL");
+        strictAssert.equal(allButton.textContent, "ALL ON");
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "mixed");
-        strictAssert.equal(allButton.disabled, true);
+        strictAssert.equal(allButton.disabled, false);
         state.livePanel.channels[0].output_enabled = true;
         renderBasicAllOutputButton(state.livePanel.channels);
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "mixed");
-        strictAssert.equal(allButton.disabled, true);
+        strictAssert.equal(allButton.disabled, false);
         state.livePanel.stale = true;
         renderBasicAllOutputButton(state.livePanel.channels);
+        renderBasicOutputControlState("all");
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "mixed");
-        strictAssert.equal(allButton.disabled, true);
+        strictAssert.equal(allButton.disabled, false);
         state.livePanel.stale = false;
 
         let submissions = [];
         submitBasicJob = async (...args) => { submissions.push(args); };
         runBasicOutputAll();
-        strictAssert.equal(submissions.length, 0);
-
-        state.livePanel.channels[0].output_enabled = false;
-        runBasicOutputAll();
         strictAssert.equal(submissions.length, 1);
         strictAssert.equal(submissions[0][0], "output-on");
         strictAssert.deepEqual(submissions[0][1], { channel: "all" });
+
+        state.livePanel.channels[0].output_enabled = false;
+        runBasicOutputAll();
+        strictAssert.equal(submissions.length, 2);
+        strictAssert.equal(submissions[1][0], "output-on");
+        strictAssert.deepEqual(submissions[1][1], { channel: "all" });
         state.livePanel.channels[0].output_enabled = true;
         state.livePanel.channels[1].output_enabled = true;
         runBasicOutputAll();
-        strictAssert.equal(submissions.length, 2);
-        strictAssert.equal(submissions[1][0], "output-off");
-        strictAssert.deepEqual(submissions[1][1], { channel: "all" });
+        strictAssert.equal(submissions.length, 3);
+        strictAssert.equal(submissions[2][0], "output-off");
+        strictAssert.deepEqual(submissions[2][1], { channel: "all" });
 
         state.basicActionStates = {
           "output:all": {
@@ -369,10 +372,13 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         strictAssert.equal(allButton, allButtonIdentity);
         strictAssert.equal(state.livePanel, livePanelIdentity);
         strictAssert.equal(allButton.textContent, "關閉輸出");
-        strictAssert.equal(outputButtons[1].getAttribute("aria-label"), "CH1 輸出 開啟");
+        strictAssert.equal(outputButtons[1].textContent, "由 ALL 控制");
+        strictAssert.equal(outputButtons[1].getAttribute("aria-label"), "CH1 輸出 由 ALL 控制");
         strictAssert.equal(outputInfo[1].getAttribute("aria-label"), "E3646A 全域輸出資訊");
+        strictAssert.equal(outputInfo[1].title, "E3646A 不支援個別通道輸出開關，請使用 ALL 同時開啟或關閉 CH1 與 CH2。");
         strictAssert.equal(basicStatus.textContent, "正在等待即時資料讀回。");
         strictAssert.equal(allButton.title, "正在等待即時資料讀回。");
+        strictAssert.equal(allButton.disabled, true);
         strictAssert.equal(state.basicActionStates["output:all"], pendingActionIdentity);
         strictAssert.equal(pendingActionIdentity.desiredOutput, true);
         strictAssert.equal(pendingActionIdentity.awaitingReadback, true);

@@ -78,7 +78,7 @@ var {
   buildDeviceResourceSummary, planningIdentitySummary, liveResourceSummary,
   expectedModelSummary, selectedExpectedModel, selectedPlanningIdentity,
   rememberCurrentExecutionIdentity, isNoHardwareMode, realAuthorizationContext,
-  clearRealWriteAuthorization, hasRealWriteAuthorization, updateExecutionModeUi,
+  hasRealWriteAuthorization, updateExecutionModeUi,
   populateIdentitySelector, handleExecutionModeChange, stopRealLiveJobsAndWait,
   selectedExpectedModelLabel, physicalModelDisplayName, detectedResourceDisplayModel,
   resourceModelDetectionRecorded, detectedCommandModelForResource,
@@ -317,11 +317,6 @@ function bind() {
   document.getElementById("run").addEventListener("click", runSelected);
   document.getElementById("scan").addEventListener("click", scanResources);
   document.getElementById("resource-select").addEventListener("change", syncSelectedResource);
-  const syncTypedResource = () => {
-    clearRealWriteAuthorization();
-    updateDeviceResourceSummary();
-    syncBasicFromLivePanel(state.livePanel);
-  };
   document.getElementById("resource").addEventListener("input", syncTypedResource);
   document.getElementById("resource").addEventListener("change", syncTypedResource);
   document.getElementById("resource-select").addEventListener("change", updateDeviceResourceSummary);
@@ -372,7 +367,11 @@ function bind() {
   setDeviceOptionsExpanded(false);
   setDeviceResourceExpanded(true);
   updateDeviceResourceSummary();
-  updateExecutionModeUi();
+  updateExecutionModeUi({ resetAuthorization: true });
+}
+
+function syncTypedResource() {
+  updateExecutionModeUi({ renderCommands: false, resetAuthorization: true });
 }
 
 function buildNativeJsonPickerAccept() {
@@ -606,7 +605,6 @@ async function runBasicOutputAll() {
     : supportedChannelsForCurrentModel();
   if (!supported.length) return;
   const globalState = presentation.mode === "e3646a-global" ? e3646aGlobalOutputState(presentation) : null;
-  if (globalState === "unknown") return;
   const allOn = state.executionMode === "real" && (globalState ? globalState === "on" : basicAllOutputsOn());
   const command = allOn ? "output-off" : "output-on";
   const desiredOutput = !allOn;
@@ -1006,6 +1004,7 @@ function jobLabel(jobId) {
 function populateResourceSelect(resources) {
   const select = document.getElementById("resource-select");
   const input = document.getElementById("resource");
+  const previous = input.value;
   select.innerHTML = "";
   updateResourceModels(resources);
   if (!Array.isArray(resources) || resources.length === 0) {
@@ -1014,7 +1013,7 @@ function populateResourceSelect(resources) {
     option.value = "";
     option.textContent = "No live resources found";
     select.appendChild(option);
-    updateDeviceResourceSummary();
+    updateExecutionModeUi({ renderCommands: false });
     return;
   }
 
@@ -1036,9 +1035,11 @@ function populateResourceSelect(resources) {
     select.selectedIndex = 0;
     input.value = select.value;
   }
-  updateDeviceResourceSummary();
+  updateExecutionModeUi({
+    renderCommands: false,
+    resetAuthorization: input.value !== previous
+  });
   refreshBasicInputConstraints();
-  syncBasicFromLivePanel(state.livePanel);
   if (state.selected) selectCommand(state.selected);
   else renderCommands();
 }
@@ -1061,10 +1062,11 @@ async function syncSelectedResource() {
   const previous = input.value;
   const value = document.getElementById("resource-select").value;
   input.value = value;
-  if (value !== previous) clearRealWriteAuthorization();
-  updateDeviceResourceSummary();
+  updateExecutionModeUi({
+    renderCommands: false,
+    resetAuthorization: value !== previous
+  });
   refreshBasicInputConstraints();
-  syncBasicFromLivePanel(state.livePanel);
   renderWorkspaceSummary();
   if (state.selected) selectCommand(state.selected);
   else renderCommands();
@@ -1110,9 +1112,11 @@ function updateResourceModel(resource, modelId, reportedModel = null) {
     state.resourceLiveSupportContext = null;
   }
   if (state.resourceModels[resource] === next && state.resourceChannelModels[resource] === nextChannelModel) return false;
-  if (resource === valueOrNull("resource")) clearRealWriteAuthorization();
   state.resourceModels[resource] = next;
   state.resourceChannelModels[resource] = nextChannelModel;
+  if (resource === valueOrNull("resource")) {
+    updateExecutionModeUi({ renderCommands: false, resetAuthorization: true });
+  }
   return true;
 }
 

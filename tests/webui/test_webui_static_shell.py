@@ -62,7 +62,8 @@ refreshLiveDataPresentation = () => calls.push("live");
 state.executionMode = "simulate";
 state.realIdentityCache = { expectedModelId: "keysight-e36312a", resource: "RAW::RESOURCE", serial: { baud_rate: 9600 } };
 state.planningIdentityCache = { simulate: "keysight-e3646a", "dry-run": "keysight-edu36311a" };
-state.realWriteAuthorization = { resource: "RAW::RESOURCE" };
+state.realWriteAuthorization = '{"resource":"RAW::RESOURCE","expected_model_id":"keysight-e36312a","connected_model_id":"keysight-e3646a"}';
+state.basicActionStates = { "output:all": { status: "pending", desiredOutput: true, awaitingReadback: true } };
 state.selected = "ramp";
 state.activeCategory = "workflow";
 state.rampListSegments = [{ channel: 1, voltage: 1.25, current: 0.1, dwell: 0.5 }];
@@ -87,17 +88,20 @@ state.restorePlanPreviewStatus = "finished";
 state.jobs = [{ jobId: "job-raw", command: "ramp", status: "failed", summary: { rawFallback: "VISA <raw> detail" } }];
 state.workspaceResults = { raw: { command: "ramp", result: { unit: "V", value: 1.25 } } };
 state.liveJobId = "live-job";
-state.livePanel = { status: "ok", resource: "RAW::RESOURCE", channels: [{ channel: 1, voltage: 1.25 }] };
+state.livePanel = { status: "ok", resource: "RAW::RESOURCE", channels: [{ channel: 1, voltage: 1.25, output_enabled: false }] };
 state.samples = [{ timestamp: 1, data: state.livePanel }];
 state.resultCollapsed = false;
 state.jobResultCollapsed = true;
 const commandInput = { value: "draft", checked: true, selectValue: "all", parameterName: "channel" };
+const resourceInput = { value: "RAW::RESOURCE" };
+const realWriteCheckbox = { checked: false, disabled: false };
 const resultJson = '{"raw":"VISA <raw> detail"}';
 const before = JSON.stringify({
   executionMode: state.executionMode,
   realIdentityCache: state.realIdentityCache,
   planningIdentityCache: state.planningIdentityCache,
   realWriteAuthorization: state.realWriteAuthorization,
+  basicActionStates: state.basicActionStates,
   selected: state.selected,
   activeCategory: state.activeCategory,
   rampListSegments: state.rampListSegments,
@@ -127,10 +131,13 @@ const before = JSON.stringify({
   resultCollapsed: state.resultCollapsed,
   jobResultCollapsed: state.jobResultCollapsed,
   commandInput,
+  resourceInput,
+  realWriteCheckbox,
   resultJson,
 });
 const identities = {
   realIdentityCache: state.realIdentityCache,
+  basicActionStates: state.basicActionStates,
   rampListSegments: state.rampListSegments,
   rampListCompletionPulse: state.rampListCompletionPulse,
   triggerListChannels: state.triggerListChannels,
@@ -154,6 +161,7 @@ const after = JSON.stringify({
   realIdentityCache: state.realIdentityCache,
   planningIdentityCache: state.planningIdentityCache,
   realWriteAuthorization: state.realWriteAuthorization,
+  basicActionStates: state.basicActionStates,
   selected: state.selected,
   activeCategory: state.activeCategory,
   rampListSegments: state.rampListSegments,
@@ -183,6 +191,8 @@ const after = JSON.stringify({
   resultCollapsed: state.resultCollapsed,
   jobResultCollapsed: state.jobResultCollapsed,
   commandInput,
+  resourceInput,
+  realWriteCheckbox,
   resultJson,
 });
 strictAssert.equal(after, before);
@@ -450,14 +460,20 @@ def test_static_command_forms_do_not_repeat_real_write_authorization_warning() -
     assert "confirm: hasRealWriteAuthorization()" in runtime_block
     assert 'meta.requires_confirm && state.executionMode === "real" && !payload.runtime.confirm' in submit_selected
     assert 'meta.requires_confirm && state.executionMode === "real" && !payload.runtime.confirm' in submit_basic
-    for function_name in (
-        "clearRealWriteAuthorization",
-        "handleExpectedModelChanged",
-        "handleExecutionModeChange",
-        "syncSelectedResource",
-        "updateResourceModel",
-    ):
-        assert "clearRealWriteAuthorization()" in extract_js_function(app_js, function_name)
+    reset_authorization = extract_js_function(app_js, "resetRealWriteAuthorization")
+    assert "clearRealWriteAuthorization()" in reset_authorization
+    assert "state.realWriteAuthorization = realAuthorizationContext();" in reset_authorization
+    assert "resetAuthorization: state.executionMode === \"real\"" in extract_js_function(
+        app_js, "handleExpectedModelChanged"
+    )
+    assert "resetAuthorization: modeChanged" in extract_js_function(
+        app_js, "handleExecutionModeChange"
+    )
+    assert "resetAuthorization: value !== previous" in extract_js_function(
+        app_js, "syncSelectedResource"
+    )
+    assert "resetAuthorization: true" in extract_js_function(app_js, "syncTypedResource")
+    assert "resetAuthorization: true" in extract_js_function(app_js, "updateResourceModel")
 
 
 def test_static_normal_model_dropdown_policy() -> None:
@@ -742,9 +758,9 @@ def test_static_model_profile_change_refreshes_effective_ui_model():
     assert "return detectedCommandModelForResource(valueOrNull(\"resource\"));" in selected_command
     assert "state.channelCapabilitiesByModel?.[expected]" in selected_channel
     assert "return detectedChannelModelForResource(valueOrNull(\"resource\"));" in selected_channel
-    assert "updateDeviceResourceSummary();" in handler
+    assert "updateExecutionModeUi({ renderCommands: false" in handler
+    assert 'resetAuthorization: state.executionMode === "real"' in handler
     assert "refreshBasicInputConstraints();" in handler
-    assert "syncBasicFromLivePanel(state.livePanel);" in handler
     assert "refreshElectricalRatingConstraints();" in handler
     assert "renderWorkspaceSummary();" in handler
     assert "updateSelectedCommandState();" in handler
