@@ -265,6 +265,8 @@ assert.equal(EN_MESSAGES["command.name.ramp"], "Ramp");
 assert.equal(EN_MESSAGES["command.name.ramp_list"], "Ramp list");
 assert.equal(EN_MESSAGES["workflow.action.add_ramp_segment"], "Add Ramp Segment");
 assert.equal(EN_MESSAGES["workflow.ramp_segment"], "Ramp Segment {index}");
+assert.equal(ZH_TW_MESSAGES["form.option.segment"], "逐步輸出完成");
+assert.equal(EN_MESSAGES["form.option.segment"], "Ramp complete");
 assert.equal(ZH_TW_MESSAGES["basic_controls.heading"], "基本指令");
 assert.equal(ZH_TW_MESSAGES["health.device.busy"], "硬體鎖定由作業 {job} 持有。");
 assert.match(ZH_TW_MESSAGES["form.description.ramp.enable_output"], /實機硬體/);

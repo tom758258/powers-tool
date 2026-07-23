@@ -887,6 +887,8 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(rampLoopCount.step, "1");
         strictAssert.equal(rampLoopCount.required, true);
         const rampTiming = byId(commandForm, "param-completion_pulse_timing");
+        const rampTimingValues = rampTiming.children.map((option) => option.value);
+        strictAssert.deepEqual(rampTimingValues, ["", "step", "segment", "loop"]);
         strictAssert.deepEqual(rampTiming.children.map((option) => option.textContent), [
           "None", "Every step", "Ramp complete", "Loop complete"
         ]);
@@ -917,10 +919,11 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(rampStart.value, "0.375");
         strictAssert.equal(rampTiming.value, "loop");
         strictAssert.equal(rampTiming.disabled, timingDisabled);
+        strictAssert.deepEqual(rampTiming.children.map((option) => option.value), rampTimingValues);
         strictAssert.equal(byClass(commandForm, "checkbox-label-text").find((node) => node.parentNode === rampCheckboxIdentity.parentNode).textContent, "啟用迴圈");
         strictAssert.equal(byClass(commandForm, "loop-count-label-text")[0].textContent, "迴圈次數");
         strictAssert.deepEqual(rampTiming.children.map((option) => option.textContent), [
-          "無", "每個步驟", "斜坡完成", "迴圈完成"
+          "無", "每個步驟", "逐步輸出完成", "迴圈完成"
         ]);
         const rampPins = byId(commandForm, "param-completion_pulse_pins");
         strictAssert.equal(rampPins.children[0].textContent, "接腳 1");
@@ -1064,6 +1067,7 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         const loadRampListButton = toolbar.children[0];
         const p4RampListTiming = byId(editor, "ramp-list-pulse-timing");
         const rampListTimingValues = p4RampListTiming.children.map((option) => option.value);
+        strictAssert.deepEqual(rampListTimingValues, ["", "step", "segment", "loop"]);
         const rampDraftInput = descendants(editor).find((node) => node.dataset.rampField === "start_voltage");
         rampDraftInput.value = "invalid draft";
         const rampDraftIdentity = rampDraftInput;

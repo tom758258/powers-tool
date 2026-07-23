@@ -179,7 +179,7 @@ export const ZH_TW_MESSAGES = Object.freeze({
   "form.option.pins_2_3": "接腳 2 + 3",
   "form.option.positive": "正極性",
   "form.option.loop": "迴圈完成",
-  "form.option.segment": "斜坡完成",
+  "form.option.segment": "逐步輸出完成",
   "form.option.segment_complete": "逐步輸出區段完成",
   "form.option.setting_change": "設定變更",
   "form.option.step": "每個步驟",
