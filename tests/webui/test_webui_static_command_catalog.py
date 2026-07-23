@@ -44,6 +44,18 @@ i18n.setLocale("zh-TW");
 strictAssert.equal(catalog.commandCategoryLabel("output"), "輸出");
 strictAssert.equal(catalog.commandDisplayName("output-on", "Output on"), "開啟輸出");
 strictAssert.equal(catalog.commandDescription("trigger-fire", "raw"), "將 *TRG 傳送至已準備的 BUS 觸發");
+strictAssert.equal(catalog.commandDisplayName("ramp", "Ramp"), "單段逐步輸出");
+strictAssert.equal(catalog.commandDisplayName("ramp-list", "Ramp list"), "多段逐步輸出");
+strictAssert.equal(
+  catalog.commandDescription("ramp", "raw"),
+  "依起始電壓、終止電壓與步進量，逐步調整指定通道的輸出。"
+);
+strictAssert.equal(
+  catalog.commandDescription("ramp-list", "raw"),
+  "依序執行多個逐步輸出區段，各區段可設定通道、電壓範圍、步進量與時間。"
+);
+strictAssert.equal(catalog.commandDisplayName("sequence", "Sequence"), "序列");
+strictAssert.equal(catalog.commandDisplayName("trigger-step", "Trigger step"), "STEP 觸發");
 strictAssert.equal(catalog.commandDisplayName("backend-new-command", "Backend New Command"), "Backend New Command");
 strictAssert.equal(catalog.commandSourceDisplayName("output-on", "Output on"), "Output on");
 strictAssert.equal(i18n.getLocale(), "zh-TW");
@@ -123,7 +135,10 @@ const formIdentity = form.children[0];
 i18n.setLocale("zh-TW");
 controller.refreshCommandPresentation();
 strictAssert.deepEqual(commandIds(), expectedIds);
-strictAssert.ok(commandLabels().every((label) => /[^\x00-\x7f]/.test(label)));
+strictAssert.deepEqual(
+  commandLabels(),
+  ["循環切換輸出", "單段逐步輸出", "多段逐步輸出", "序列", "輸出基本診斷"],
+);
 strictAssert.equal(state.selected, "ramp-list");
 strictAssert.equal(state.activeCategory, "workflow");
 strictAssert.equal(form.children[0], formIdentity);

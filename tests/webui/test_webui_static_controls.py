@@ -1071,11 +1071,11 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         webuiWorkflows.refreshWorkflowPresentation(editor);
         strictAssert.equal(commandForm.children[0], editor);
         strictAssert.equal(toolbar.children[0], loadRampListButton);
-        strictAssert.equal(loadRampListButton.textContent, "載入斜坡清單");
+        strictAssert.equal(loadRampListButton.textContent, "載入多段逐步輸出");
         strictAssert.equal(rampDraftInput, rampDraftIdentity);
         strictAssert.equal(rampDraftInput.value, "invalid draft");
         strictAssert.deepEqual(p4RampListTiming.children.map((option) => option.value), rampListTimingValues);
-        strictAssert.deepEqual(p4RampListTiming.children.map((option) => option.textContent), ["無", "每個步驟", "區段完成", "迴圈完成"]);
+        strictAssert.deepEqual(p4RampListTiming.children.map((option) => option.textContent), ["無", "每個步驟", "逐步輸出區段完成", "迴圈完成"]);
         setLocale("en");
         webuiWorkflows.refreshWorkflowPresentation(editor);
         strictAssert.equal(loadRampListButton.textContent, "Load Ramp List");
@@ -1164,9 +1164,9 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(rampListLoopCount.value, "1.5");
         strictAssert.equal(rerenderedTiming.value, "loop");
         strictAssert.equal(invalidEnableParts.label.querySelector(".checkbox-label-text").textContent, "啟用各通道");
-        strictAssert.equal(invalidEnableParts.label.title, "各通道只會在第一個安全區段設定值寫入並驗證後啟用。正常完成後輸出會維持 ON。停止工作流程會關閉儀器的所有輸出。實機硬體仍需確認。");
+        strictAssert.equal(invalidEnableParts.label.title, "各通道只會在第一個安全的逐步輸出區段設定值寫入並驗證後啟用。正常完成後輸出會維持 ON。停止工作流程會關閉儀器的所有輸出。實機硬體仍需確認。");
         strictAssert.equal(invalidEnableParts.input.title, invalidEnableParts.label.title);
-        strictAssert.equal(invalidEnableParts.input.getAttribute("aria-label"), "在各通道的第一個區段啟用通道");
+        strictAssert.equal(invalidEnableParts.input.getAttribute("aria-label"), "在各通道的第一個逐步輸出區段啟用通道");
         strictAssert.equal(invalidEnableParts.help.textContent, invalidEnableParts.label.title);
         setLocale("en");
         webuiWorkflows.refreshWorkflowPresentation(rerenderedEditor);

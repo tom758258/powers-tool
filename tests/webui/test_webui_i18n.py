@@ -247,6 +247,24 @@ assert.equal(ZH_TW_MESSAGES["execution_mode.option.simulate"], "模擬（Simulat
 assert.equal(ZH_TW_MESSAGES["execution_mode.option.dry_run"], "Dry-run（規劃）");
 assert.equal(ZH_TW_MESSAGES["execution_mode.busy_title"], "作業正在提交、執行或停止時無法變更執行模式。");
 assert.equal(ZH_TW_MESSAGES["command.heading"], "指令");
+assert.equal(ZH_TW_MESSAGES["command.name.ramp"], "單段逐步輸出");
+assert.equal(ZH_TW_MESSAGES["command.name.ramp_list"], "多段逐步輸出");
+assert.equal(
+  ZH_TW_MESSAGES["command.description.ramp"],
+  "依起始電壓、終止電壓與步進量，逐步調整指定通道的輸出。"
+);
+assert.equal(
+  ZH_TW_MESSAGES["command.description.ramp_list"],
+  "依序執行多個逐步輸出區段，各區段可設定通道、電壓範圍、步進量與時間。"
+);
+assert.equal(ZH_TW_MESSAGES["workflow.action.add_ramp_segment"], "新增逐步輸出區段");
+assert.equal(ZH_TW_MESSAGES["workflow.ramp_segment"], "逐步輸出區段 {index}");
+assert.equal(ZH_TW_MESSAGES["command.name.sequence"], "序列");
+assert.equal(ZH_TW_MESSAGES["command.name.trigger_step"], "STEP 觸發");
+assert.equal(EN_MESSAGES["command.name.ramp"], "Ramp");
+assert.equal(EN_MESSAGES["command.name.ramp_list"], "Ramp list");
+assert.equal(EN_MESSAGES["workflow.action.add_ramp_segment"], "Add Ramp Segment");
+assert.equal(EN_MESSAGES["workflow.ramp_segment"], "Ramp Segment {index}");
 assert.equal(ZH_TW_MESSAGES["basic_controls.heading"], "基本指令");
 assert.equal(ZH_TW_MESSAGES["health.device.busy"], "硬體鎖定由作業 {job} 持有。");
 assert.match(ZH_TW_MESSAGES["form.description.ramp.enable_output"], /實機硬體/);

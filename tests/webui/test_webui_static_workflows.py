@@ -114,7 +114,15 @@ class FakeElement {
     }
     return undefined;
   }
-  querySelectorAll() { return []; }
+  querySelectorAll(selector) {
+    if (selector === "[data-workflow-i18n]") {
+      return descendants(this).filter((node) => node.dataset.workflowI18n);
+    }
+    if (selector === "[data-workflow-compact-help-description]") {
+      return descendants(this).filter((node) => node.dataset.workflowCompactHelpDescription);
+    }
+    return [];
+  }
   set innerHTML(value) {
     strictAssert.equal(value, "");
     this.children = [];
@@ -268,6 +276,39 @@ timingInput.value = "";
 strictAssert.doesNotThrow(() => timingInput.listeners.change[0]());
 strictAssert.equal(state.rampListCompletionPulse, null);
 strictAssert.equal(selectedUpdateCount - selectedUpdatesBeforePulse, 4);
+
+const i18n = await import(new URL("./i18n.js", moduleUrls["command-catalog.js"]));
+i18n.setLocale("zh-TW");
+let localizedEditor = commandForm.children[0];
+globalThis.webuiWorkflows.refreshWorkflowPresentation(localizedEditor);
+let localizedToolbar = descendants(localizedEditor).find((node) => node.classList.contains("ramp-list-toolbar"));
+strictAssert.deepEqual(
+  localizedToolbar.children.map((button) => button.textContent),
+  ["載入多段逐步輸出", "儲存多段逐步輸出", "新增逐步輸出區段"],
+);
+strictAssert.equal(
+  descendants(localizedEditor).find((node) => node.classList.contains("ramp-segment-head")).children[0].textContent,
+  "逐步輸出區段 1",
+);
+strictAssert.doesNotThrow(() => localizedToolbar.children[2].listeners.click[0]());
+localizedEditor = commandForm.children[0];
+strictAssert.equal(state.rampListSegments.length, 2);
+strictAssert.deepEqual(
+  descendants(localizedEditor)
+    .filter((node) => node.classList.contains("ramp-segment-head"))
+    .map((head) => head.children[0].textContent),
+  ["逐步輸出區段 1", "逐步輸出區段 2"],
+);
+i18n.setLocale("en");
+globalThis.webuiWorkflows.refreshWorkflowPresentation(localizedEditor);
+localizedToolbar = descendants(localizedEditor).find((node) => node.classList.contains("ramp-list-toolbar"));
+strictAssert.equal(localizedToolbar.children[2].textContent, "Add Ramp Segment");
+strictAssert.deepEqual(
+  descendants(localizedEditor)
+    .filter((node) => node.classList.contains("ramp-segment-head"))
+    .map((head) => head.children[0].textContent),
+  ["Ramp Segment 1", "Ramp Segment 2"],
+);
 """,
         (
             "command-catalog.js",
