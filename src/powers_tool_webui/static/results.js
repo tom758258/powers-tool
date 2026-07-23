@@ -5,8 +5,8 @@ export function jobSummary(job, event = null) {
   if (status === "failed") {
     const error = job?.error || event?.data?.error;
     const errorCode = job?.error_code || event?.data?.code;
-    if (error) return error;
     if (errorCode === "cleanup_failed") return t("job.summary.cleanup_failed");
+    if (error) return error;
     if (errorCode) return t("job.summary.failed_detail", { detail: errorCode });
     return t("job.summary.failed");
   }
@@ -18,8 +18,8 @@ export function jobSummary(job, event = null) {
 export function eventSummary(event) {
   if (event?.type === "cancel_requested") return t("job.summary.waiting_cleanup");
   if (event?.type === "failed") {
-    if (event.data?.error) return event.data.error;
     if (event.data?.code === "cleanup_failed") return t("job.summary.cleanup_failed");
+    if (event.data?.error) return event.data.error;
     if (event.data?.code) return t("job.summary.failed_detail", { detail: event.data.code });
     return t("job.summary.failed");
   }

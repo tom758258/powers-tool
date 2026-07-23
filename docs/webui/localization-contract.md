@@ -445,7 +445,9 @@ raw diagnostics and machine values remain unchanged.
 
 Basic status refresh now follows an explicit current action instead of object
 insertion order. Set-action titles and browser-owned output tooltips translate
-at render time, while unknown Job `error_code` values remain visible verbatim.
+at render time. Known `cleanup_failed` summaries use maintained translations
+while their raw errors remain in Job and Result Detail data; unknown Job errors
+and `error_code` values remain visible verbatim.
 
 Workflow documents, command and option values, Job IDs, model/resource values,
 units, serialized Result Detail JSON, exported artifacts, and unknown backend,

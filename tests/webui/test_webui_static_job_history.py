@@ -140,12 +140,40 @@ webuiApi.fetchJson = async () => ({ job_id: "scan-job" });
   unknownCodeJob.error = "VISA <raw> detail";
   renderHistory();
   strictAssert.equal(historyNode.children[0].children[4].textContent, "VISA <raw> detail");
-  unknownCodeJob.error = null;
-  unknownCodeJob.error_code = "cleanup_failed";
+  strictAssert.equal(webuiResults.jobSummary({ status: "failed" }), "命令失敗");
+  setLocale("en");
+  const cleanupFailedJob = {
+    status: "failed",
+    command: "ramp",
+    error_code: "cleanup_failed",
+    error: "Cancellation arrived after the VISA session had closed"
+  };
+  const cleanupFailedIdentity = cleanupFailedJob;
+  updateJobResult("locale-job", "failed", { key: "job.summary.cleanup_failed" }, cleanupFailedJob);
+  renderHistory();
+  strictAssert.equal(historyNode.children[0].children[4].textContent, "Failed  cleanup_failed");
+  strictAssert.equal(webuiResults.jobSummary(cleanupFailedJob), "Failed  cleanup_failed");
+  strictAssert.equal(webuiResults.eventSummary({
+    type: "failed",
+    data: {
+      code: "cleanup_failed",
+      error: "Cancellation arrived after the VISA session had closed"
+    }
+  }), "Failed  cleanup_failed");
+  strictAssert.equal(cleanupFailedJob, cleanupFailedIdentity);
+  strictAssert.equal(cleanupFailedJob.error, "Cancellation arrived after the VISA session had closed");
+  strictAssert.equal(cleanupFailedJob.error_code, "cleanup_failed");
+  strictAssert.equal(state.jobs[0].presentationJob, cleanupFailedJob);
+  setLocale("zh-TW");
   renderHistory();
   strictAssert.equal(historyNode.children[0].children[4].textContent, "失敗 - cleanup_failed");
-  strictAssert.equal(state.jobs[0].presentationJob, unknownCodeJob);
+  strictAssert.equal(webuiResults.jobSummary(cleanupFailedJob), "失敗 - cleanup_failed");
+  strictAssert.equal(cleanupFailedJob.error, "Cancellation arrived after the VISA session had closed");
+  strictAssert.equal(cleanupFailedJob.error_code, "cleanup_failed");
   setLocale("en");
+  renderHistory();
+  strictAssert.equal(historyNode.children[0].children[4].textContent, "Failed  cleanup_failed");
+  strictAssert.equal(state.jobs[0].presentationJob, cleanupFailedIdentity);
 
   renderClientResult("Scan Device", "failed", "Client failure", { error: "detail survives" });
   strictAssert.equal(state.jobs[0].summary, "Client failure");

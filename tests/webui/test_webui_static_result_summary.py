@@ -21,7 +21,22 @@ strictAssert.equal(summary.statusSummary("accepted"), "Accepted");
 strictAssert.equal(summary.statusSummary("cancel_requested"), "Waiting for safe-off and cleanup");
 strictAssert.equal(summary.statusLabel("finished"), "Success");
 strictAssert.equal(summary.statusClass("failed"), "failed");
-strictAssert.equal(summary.eventSummary({ type: "failed", data: { code: "cleanup_failed" } }), "Failed  cleanup_failed");
+strictAssert.equal(summary.eventSummary({
+  type: "failed",
+  data: {
+    code: "cleanup_failed",
+    error: "Cancellation arrived after the VISA session had closed"
+  }
+}), "Failed  cleanup_failed");
+strictAssert.equal(summary.eventSummary({
+  type: "failed",
+  data: { code: "driver_timeout", error: "VISA <raw> detail" }
+}), "VISA <raw> detail");
+strictAssert.equal(summary.eventSummary({
+  type: "failed",
+  data: { code: "driver_timeout" }
+}), "Command failed - driver_timeout");
+strictAssert.equal(summary.eventSummary({ type: "failed", data: {} }), "Command failed");
 strictAssert.equal(summary.jobSummary({ status: "cancelled" }), "Cancelled");
 strictAssert.equal(summary.successfulJobSummary({
   command: "readback",
