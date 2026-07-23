@@ -22,8 +22,7 @@ export function renderCommandGuidance(command, parameters, triggerControlGuardRe
   };
   const guard = triggerControlGuardReason(command, parameters) || triggerFireWaitGuardReason(command, parameters);
   const text = [guard, messages[command]].filter(Boolean).join(" ");
-  guidance.dataset.command = command;
-  guidance.dataset.rawGuard = guard || "";
+  if (guidance.dataset) guidance.dataset.command = command;
   guidance.textContent = text;
   guidance.hidden = !text;
 }
@@ -403,6 +402,9 @@ function refreshCommandFormPresentation() {
   form.querySelectorAll("option[data-i18n-option]").forEach((option) => {
     const optionKey = optionTranslationKey(option.dataset.i18nParam, option.dataset.i18nOption);
     if (optionKey) option.textContent = t(optionKey, undefined, option.textContent);
+    if (option.dataset.i18nParam === "channel" && isNumericChannel(option.value) && option.disabled) {
+      option.title = channelUnsupportedReason(option.value);
+    }
   });
   form.querySelectorAll("[data-i18n-loop]").forEach((element) => {
     element.textContent = t(element.dataset.i18nLoop, undefined, element.textContent);
@@ -473,18 +475,16 @@ function refreshCommandPresentation() {
   const selected = document.getElementById("selected-command");
   if (selected && state.selected) selected.textContent = commandDisplayName(state.selected);
   refreshCommandFormPresentation();
-  refreshSelectedCommandDescription();
 }
 
-function refreshSelectedCommandDescription() {
+function refreshSelectedCommandDescription(presentationParts = []) {
   const description = document.getElementById("command-description");
   if (!description || !state.selected) return;
   const meta = commandMeta(state.selected);
-  const rawParts = JSON.parse(description.dataset.presentationParts || "[]");
   const text = [
     commandCatalog.commandDescription(state.selected, meta.description || ""),
     meta.live_support_status,
-    ...rawParts
+    ...presentationParts
   ].filter(Boolean).join(" ");
   description.textContent = text;
   description.title = text;
@@ -498,10 +498,10 @@ function refreshCommandGuidancePresentation() {
     "trigger-list": "command.guidance.trigger_list",
     "trigger-fire": "command.guidance.trigger_fire"
   };
-  const maintained = keys[guidance.dataset.command] ? t(keys[guidance.dataset.command]) : "";
-  const text = [guidance.dataset.rawGuard, maintained].filter(Boolean).join(" ");
-  guidance.textContent = text;
-  guidance.hidden = !text;
+  const command = guidance.dataset?.command;
+  const maintained = keys[command] ? t(keys[command]) : "";
+  guidance.textContent = maintained;
+  guidance.hidden = !maintained;
 }
 
 function updatePulseChildVisibility(command) {

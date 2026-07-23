@@ -556,11 +556,111 @@ def test_static_command_panel_exposes_description():
 
     assert 'id="selected-command"' in index_html
     assert 'id="command-description"' in index_html
-    assert "commandDescription.dataset.presentationParts = JSON.stringify([" in update_selected
-    assert "refreshSelectedCommandDescription();" in update_selected
+    assert "selectedCommandPresentation(state.selected, parameters)" in update_selected
+    assert "refreshSelectedCommandDescription(presentation.descriptionParts);" in update_selected
+    assert "dataset.presentationParts" not in app_js
+    assert "dataset.rawGuard" not in command_form_js
     assert "commandCatalog.commandDescription(state.selected, meta.description || \"\")" in refresh_description
+    assert "...presentationParts" in refresh_description
     assert "description.textContent = text;" in refresh_description
     assert "description.title = text;" in refresh_description
+
+
+def test_command_guard_presentation_refreshes_without_mutating_runtime_state():
+    run_frontend_javascript_assertions(
+        r"""
+        const strictAssert = require("node:assert/strict");
+        const description = { textContent: "", title: "" };
+        const guidance = { dataset: {}, textContent: "", hidden: true };
+        const source = { value: "bus" };
+        const fire = { checked: false, disabled: false, title: "", listeners: { change: [() => {}] } };
+        const channel = { value: "9", listeners: { change: [() => {}], input: [() => {}] } };
+        const resource = { value: "" };
+        const expectedModel = { value: "" };
+        const pulseControl = {
+          dataset: { pulseControl: "true", pulsePrerequisiteI18n: "workflow.guard.select_pulse_timing" },
+          disabled: true,
+          title: "Select a pulse timing to configure this field."
+        };
+        const run = { disabled: true };
+        const nodes = {
+          "command-description": description,
+          "command-guidance": guidance,
+          "param-source": source,
+          "param-fire": fire,
+          "param-channel": channel,
+          "expected-model-id": expectedModel,
+          resource,
+          run
+        };
+        document.getElementById = (id) => nodes[id] || null;
+        document.querySelectorAll = (selector) => selector === "#command-form [data-pulse-control]" ? [pulseControl] : [];
+
+        state.activeCategory = "output";
+        state.selected = "set";
+        state.commands = {
+          set: { description: "Set one or more output setpoints" },
+          "trigger-step": { description: "Configure and run a trigger step" }
+        };
+        state.livePanel = null;
+        const commandOrder = Object.keys(state.commands);
+        const descriptionIdentity = description;
+        const guidanceIdentity = guidance;
+        const channelIdentity = channel;
+        const listenerCount = channel.listeners.change.length + channel.listeners.input.length + fire.listeners.change.length;
+        let currentPayload = { channel: "9", voltage: 1 };
+        parameterPayload = () => currentPayload;
+        commandMeta = (name) => ({ ...state.commands[name] });
+        channelAvailabilityGuardReason = (_command, parameters) => parameters.channel === "9"
+          ? t("support.reason.channel_unsupported", { model: "Model A", channel: parameters.channel })
+          : "";
+
+        const assertPreserved = (payloadIdentity, selected, category) => {
+          strictAssert.equal(document.getElementById("command-description"), descriptionIdentity);
+          strictAssert.equal(document.getElementById("command-guidance"), guidanceIdentity);
+          strictAssert.equal(document.getElementById("param-channel"), channelIdentity);
+          strictAssert.equal(channel.value, "9");
+          strictAssert.equal(state.selected, selected);
+          strictAssert.equal(state.activeCategory, category);
+          strictAssert.equal(run.disabled, true);
+          strictAssert.equal(currentPayload, payloadIdentity);
+          strictAssert.deepEqual(Object.keys(state.commands), commandOrder);
+          strictAssert.equal(channel.listeners.change.length + channel.listeners.input.length + fire.listeners.change.length, listenerCount);
+        };
+
+        const setPayload = currentPayload;
+        refreshSelectedCommandGuardPresentation();
+        strictAssert.match(description.textContent, /Model A does not support channel 9/);
+        strictAssert.equal(pulseControl.title, "Select a pulse timing to configure this field.");
+        strictAssert.equal(pulseControl.disabled, true);
+        assertPreserved(setPayload, "set", "output");
+
+        setLocale("zh-TW");
+        refreshSelectedCommandGuardPresentation();
+        strictAssert.match(description.textContent, /Model A 不支援通道 9/);
+        strictAssert.doesNotMatch(description.textContent, /does not support channel/);
+        strictAssert.equal(pulseControl.title, "請先選取脈衝時機，再設定此欄位。");
+        strictAssert.equal(pulseControl.disabled, true);
+        assertPreserved(setPayload, "set", "output");
+
+        state.selected = "trigger-step";
+        state.activeCategory = "trigger";
+        currentPayload = { channel: "1", source: "bus", wait_complete: true, fire: false };
+        const triggerPayload = currentPayload;
+        refreshSelectedCommandGuardPresentation();
+        strictAssert.match(guidance.textContent, /BUS 的「等待完成」要求在同一指令中啟用「立即觸發」/);
+        strictAssert.doesNotMatch(guidance.textContent, /BUS Wait complete requires Fire now/);
+        assertPreserved(triggerPayload, "trigger-step", "trigger");
+
+        setLocale("en");
+        refreshSelectedCommandGuardPresentation();
+        strictAssert.match(guidance.textContent, /BUS Wait complete requires Fire now in the same command/);
+        strictAssert.doesNotMatch(guidance.textContent, /等待完成/);
+        strictAssert.equal(pulseControl.title, "Select a pulse timing to configure this field.");
+        strictAssert.equal(pulseControl.disabled, true);
+        assertPreserved(triggerPayload, "trigger-step", "trigger");
+        """
+    )
 
 
 def test_static_commands_use_category_navigation():

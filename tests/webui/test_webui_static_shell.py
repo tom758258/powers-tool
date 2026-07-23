@@ -53,6 +53,7 @@ applyStaticTranslations = () => calls.push("static");
 webuiLocaleUi.renderLanguageButton = () => calls.push("locale");
 refreshDeviceResourcePresentation = () => calls.push("device");
 refreshCommandPresentation = () => calls.push("command");
+refreshSelectedCommandGuardPresentation = () => calls.push("command-guards");
 webuiWorkflows.refreshWorkflowPresentation = () => calls.push("workflow");
 refreshWorkflowOperationalPresentation = () => calls.push("workflow-operation");
 refreshBasicControlsPresentation = () => calls.push("basic");
@@ -202,7 +203,7 @@ strictAssert.equal(eventSourceConstructions, 0);
 strictAssert.equal(eventSourceCloses, 0);
 strictAssert.equal(reloads, 0);
 strictAssert.deepEqual(calls, Array(4).fill([
-  "static", "locale", "device", "command", "workflow",
+  "static", "locale", "device", "command", "command-guards", "workflow",
   "workflow-operation", "basic", "result", "live",
 ]).flat());
 """

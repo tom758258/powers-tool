@@ -262,6 +262,34 @@ assert.deepEqual(
     .sort(),
   [...maintainedCommandDescriptions].sort()
 );
+const maintainedCommandGuardMessages = [
+  "command.guard.electrical_current",
+  "command.guard.electrical_voltage",
+  "command.guard.protection_trip",
+  "command.guard.pulse_expected_model",
+  "command.guard.pulse_no_model",
+  "command.guard.pulse_unknown_model",
+  "command.guard.pulse_unsupported_model",
+  "command.guard.set_requires_setpoint",
+  "command.guard.trigger_bus_wait_requires_fire",
+  "command.guard.trigger_fire_wait_requires_channel",
+  "command.guard.trigger_immediate_fire",
+  "command.guard.trigger_list_arm_requires_leave",
+  "command.guard.trigger_list_pulse_requires_pins",
+  "command.guard.trigger_list_started_requires_leave",
+  "command.tooltip.trigger_immediate_fire",
+  "command.warning.protection_trip",
+];
+for (const key of maintainedCommandGuardMessages) {
+  assert.equal(typeof EN_MESSAGES[key], "string", key);
+  assert.equal(typeof ZH_TW_MESSAGES[key], "string", key);
+}
+assert.deepEqual(
+  Object.keys(EN_MESSAGES)
+    .filter((key) => key.startsWith("command.guard.") || key.startsWith("command.tooltip.") || key.startsWith("command.warning."))
+    .sort(),
+  [...maintainedCommandGuardMessages].sort()
+);
 const maintainedFieldDescriptions = [
   "form.description.ramp.enable_output",
   "form.description.safe_off.channel",

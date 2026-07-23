@@ -96,6 +96,36 @@ state.resourceLiveSupport.commands.set = {
 const exactValidated = support.commandMeta("set");
 strictAssert.equal(exactValidated.disabled, undefined);
 strictAssert.equal(exactValidated.live_support_status, "已通過實機驗證：-- / --");
+state.resourceLiveSupport = {
+  evaluated: true,
+  transport_scope: "usb",
+  backend_scope: "system_visa",
+  commands: {
+    set: {
+      product_open: false,
+      exact_scope_validation_status: null,
+      disabled_reason: "No product-open live scope is registered for USB / system VISA."
+    }
+  }
+};
+const noExactScopeZh = support.commandMeta("set");
+strictAssert.equal(noExactScopeZh.disabled, true);
+strictAssert.equal(noExactScopeZh.live_support_status, "USB / system VISA 尚未登錄 Product-open 實機範圍");
+strictAssert.equal(noExactScopeZh.disabled_reason, noExactScopeZh.live_support_status);
+strictAssert.doesNotMatch(noExactScopeZh.disabled_reason, /No product-open live scope/);
+i18n.setLocale("en");
+const noExactScopeEn = support.commandMeta("set");
+strictAssert.equal(noExactScopeEn.live_support_status, "No Product-open live scope is registered for USB / system VISA");
+strictAssert.equal(noExactScopeEn.disabled_reason, noExactScopeEn.live_support_status);
+i18n.setLocale("zh-TW");
+state.resourceLiveSupport.commands.set = {
+  product_open: false,
+  exact_scope_validation_status: "future_status",
+  disabled_reason: "Backend raw future reason"
+};
+const futureExactStatus = support.commandMeta("set");
+strictAssert.equal(futureExactStatus.disabled_reason, "Backend raw future reason");
+strictAssert.equal(futureExactStatus.live_support_status, "Backend raw future reason");
 state.resourceLiveSupport = null;
 state.resourceLiveSupportContext = null;
 state.liveSupportByModel["model-a"].commands.set = {

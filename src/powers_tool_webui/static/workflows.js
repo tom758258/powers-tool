@@ -347,9 +347,11 @@ function renderRampListForm(form) {
       : String(state.rampListCompletionPulse?.[definition.name] || (definition.name === "polarity" ? "positive" : ""));
     input.id = `ramp-list-pulse-${definition.name}`;
     input.addEventListener("change", () => updateRampListPulse(definition.name, input.value));
-    const prerequisiteReason = definition.name !== "timing" && !state.rampListCompletionPulse
-      ? "Select a pulse timing to configure this field."
+    const prerequisiteKey = definition.name !== "timing" && !state.rampListCompletionPulse
+      ? "workflow.guard.select_pulse_timing"
       : "";
+    const prerequisiteReason = prerequisiteKey ? t(prerequisiteKey) : "";
+    if (prerequisiteKey) input.dataset.pulsePrerequisiteI18n = prerequisiteKey;
     applyWorkflowPulseControlState(input, prerequisiteReason);
     label.appendChild(input);
     if (definition.name !== "timing") label.hidden = !state.rampListCompletionPulse;

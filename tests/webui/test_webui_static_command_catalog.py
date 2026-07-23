@@ -155,10 +155,7 @@ strictAssert.equal(
   "開啟指定通道，維持設定時間後自動關閉。"
 );
 state.selected = "cycle-output";
-elements.get("command-description").dataset.presentationParts = JSON.stringify([
-  "Backend raw guard"
-]);
-controller.refreshSelectedCommandDescription();
+controller.refreshSelectedCommandDescription(["Backend raw guard"]);
 strictAssert.equal(
   elements.get("command-description").textContent,
   "開啟指定通道，維持設定時間後自動關閉。 Backend raw guard"
@@ -184,7 +181,6 @@ for (const [command, expected] of [
   state.commands[command] ||= {};
   state.commands[command].description = `Raw API description for ${command}`;
   state.selected = command;
-  elements.get("command-description").dataset.presentationParts = "[]";
   controller.refreshSelectedCommandDescription();
   strictAssert.equal(elements.get("command-description").textContent, expected);
 }
@@ -193,7 +189,6 @@ state.commands["backend-new-command"] = {
   description: "Raw API description"
 };
 state.selected = "backend-new-command";
-elements.get("command-description").dataset.presentationParts = "[]";
 controller.refreshSelectedCommandDescription();
 strictAssert.equal(elements.get("command-description").textContent, "Raw API description");
 state.selected = "ramp-list";

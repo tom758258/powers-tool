@@ -1456,6 +1456,7 @@ function refreshLocalizedPresentation() {
   webuiLocaleUi.renderLanguageButton(document.getElementById("locale-toggle"));
   refreshDeviceResourcePresentation();
   refreshCommandPresentation();
+  refreshSelectedCommandGuardPresentation();
   webuiWorkflows.refreshWorkflowPresentation(document);
   refreshWorkflowOperationalPresentation();
   refreshBasicControlsPresentation();
@@ -1577,30 +1578,19 @@ function updateSelectedCommandState() {
   if (!state.selected) return;
   syncTriggerImmediateControls(state.selected);
   const meta = commandMeta(state.selected);
-  let parameters = {};
-  try {
-    parameters = parameterPayload();
-  } catch (e) {
-    // Keep the form responsive while artifact editors contain invalid JSON.
-  }
-  const tripGuard = tripGuardReason(state.selected, parameters);
-  const channelGuard = channelAvailabilityGuardReason(state.selected, parameters);
-  const ratingGuard = electricalRatingGuardReason(state.selected, parameters);
-  const setGuard = setRequiresSetpointGuardReason(state.selected, parameters);
-  const triggerControlGuard = triggerControlGuardReason(state.selected, parameters);
-  const triggerFireWaitGuard = triggerFireWaitGuardReason(state.selected, parameters);
-  const workflowPulseGuard = workflowPulseGuardReason(state.selected, parameters);
-  const tripWarning = tripContextWarning(state.selected);
-  const runButton = document.getElementById("run");
-  const commandDescription = document.getElementById("command-description");
-  commandDescription.dataset.presentationParts = JSON.stringify([
+  const parameters = selectedCommandParameters();
+  const presentation = selectedCommandPresentation(state.selected, parameters);
+  const {
+    tripGuard,
     channelGuard,
     ratingGuard,
     setGuard,
-    tripGuard || tripWarning,
+    triggerControlGuard,
+    triggerFireWaitGuard,
     workflowPulseGuard
-  ].filter(Boolean));
-  refreshSelectedCommandDescription();
+  } = presentation;
+  const runButton = document.getElementById("run");
+  refreshSelectedCommandDescription(presentation.descriptionParts);
   webuiCommandForm.renderCommandGuidance(state.selected, parameters, triggerControlGuardReason, triggerFireWaitGuardReason);
   if (state.workflowControl.phase !== "idle") {
     runButton.disabled = state.workflowControl.phase !== "active";
@@ -1618,6 +1608,52 @@ function updateSelectedCommandState() {
   if (["sequence", "ramp-list"].includes(state.selected)) {
     updateWorkflowDocumentValidity(state.selected, runButton);
   }
+}
+
+function selectedCommandParameters() {
+  let parameters = {};
+  try {
+    parameters = parameterPayload();
+  } catch (e) {
+    // Keep the form responsive while artifact editors contain invalid JSON.
+  }
+  return parameters;
+}
+
+function selectedCommandPresentation(command, parameters) {
+  const tripGuard = tripGuardReason(command, parameters);
+  const channelGuard = channelAvailabilityGuardReason(command, parameters);
+  const ratingGuard = electricalRatingGuardReason(command, parameters);
+  const setGuard = setRequiresSetpointGuardReason(command, parameters);
+  const triggerControlGuard = triggerControlGuardReason(command, parameters);
+  const triggerFireWaitGuard = triggerFireWaitGuardReason(command, parameters);
+  const workflowPulseGuard = workflowPulseGuardReason(command, parameters);
+  const tripWarning = tripContextWarning(command);
+  return {
+    tripGuard,
+    channelGuard,
+    ratingGuard,
+    setGuard,
+    triggerControlGuard,
+    triggerFireWaitGuard,
+    workflowPulseGuard,
+    descriptionParts: [channelGuard, ratingGuard, setGuard, tripGuard || tripWarning, workflowPulseGuard].filter(Boolean)
+  };
+}
+
+function refreshSelectedCommandGuardPresentation() {
+  if (!state.selected) return;
+  const parameters = selectedCommandParameters();
+  const presentation = selectedCommandPresentation(state.selected, parameters);
+  refreshSelectedCommandDescription(presentation.descriptionParts);
+  webuiCommandForm.renderCommandGuidance(state.selected, parameters, triggerControlGuardReason, triggerFireWaitGuardReason);
+  refreshTriggerImmediateControlTitle(state.selected);
+  document.querySelectorAll?.("#command-form [data-pulse-control]").forEach((input) => {
+    const prerequisite = input.dataset.pulsePrerequisiteI18n
+      ? t(input.dataset.pulsePrerequisiteI18n)
+      : "";
+    refreshWorkflowPulseControlPresentation(input, prerequisite);
+  });
 }
 
 function updateWorkflowDocumentValidity(command, runButton = null) {
@@ -1642,7 +1678,15 @@ function syncTriggerImmediateControls(command) {
   const immediate = ["immediate", "imm"].includes(source);
   if (immediate) fire.checked = false;
   fire.disabled = immediate;
-  fire.title = immediate ? "Immediate starts when INIT is sent; Fire now does not apply." : "";
+  refreshTriggerImmediateControlTitle(command);
+}
+
+function refreshTriggerImmediateControlTitle(command) {
+  if (!["trigger-step", "trigger-list"].includes(command)) return;
+  const source = String(document.getElementById("param-source")?.value || "bus").toLowerCase();
+  const fire = document.getElementById("param-fire");
+  if (!fire) return;
+  fire.title = ["immediate", "imm"].includes(source) ? t("command.tooltip.trigger_immediate_fire") : "";
 }
 
 function triggerControlGuardReason(command, parameters) {
@@ -1650,21 +1694,21 @@ function triggerControlGuardReason(command, parameters) {
   const source = String(parameters.source || "bus").toLowerCase();
   const immediate = ["immediate", "imm"].includes(source);
   if (immediate && parameters.fire) {
-    return "Immediate starts from INIT and does not accept Fire now.";
+    return t("command.guard.trigger_immediate_fire");
   }
   if (source === "bus" && parameters.wait_complete && !parameters.fire) {
-    return "BUS Wait complete requires Fire now in the same command.";
+    return t("command.guard.trigger_bus_wait_requires_fire");
   }
   if (command === "trigger-list") {
     if ([...(parameters.bost_list || []), ...(parameters.eost_list || [])].some(Boolean) && !(parameters.trigger_output_pins || []).length) {
-      return "BOST/EOST pulses require LIST output pins.";
+      return t("command.guard.trigger_list_pulse_requires_pins");
     }
     const started = immediate || (source === "bus" && parameters.fire);
     if (!started && !parameters.leave_trigger_configured) {
-      return "Arm-only LIST requires Leave configured so a later Trigger fire can start it.";
+      return t("command.guard.trigger_list_arm_requires_leave");
     }
     if (started && !parameters.wait_complete && !parameters.leave_trigger_configured) {
-      return "A started LIST without Wait complete requires Leave configured.";
+      return t("command.guard.trigger_list_started_requires_leave");
     }
   }
   return "";
@@ -1673,7 +1717,7 @@ function triggerControlGuardReason(command, parameters) {
 function triggerFireWaitGuardReason(command, parameters) {
   if (command !== "trigger-fire") return "";
   if (parameters.wait_complete && parameters.channel == null) {
-    return "Wait complete requires an Abort target channel.";
+    return t("command.guard.trigger_fire_wait_requires_channel");
   }
   return "";
 }
@@ -1681,7 +1725,7 @@ function triggerFireWaitGuardReason(command, parameters) {
 function setRequiresSetpointGuardReason(command, parameters) {
   if (command !== "set") return "";
   return parameters.voltage === undefined && parameters.current === undefined
-    ? "Set requires Voltage, Current, or both."
+    ? t("command.guard.set_requires_setpoint")
     : "";
 }
 
@@ -1693,8 +1737,8 @@ function electricalRatingGuardReason(command, parameters) {
   const check = (channel, voltage, current) => {
     const selected = channel === "all" ? ratings : ratings.filter((rating) => String(rating.channel) === String(channel));
     for (const rating of selected) {
-      if (voltage !== undefined && voltage !== null && Number(voltage) > Number(rating.max_voltage)) return `Voltage ${voltage} exceeds official DC output rating ${rating.max_voltage} V for ${displayModel} channel ${rating.channel}.`;
-      if (current !== undefined && current !== null && Number(current) > Number(rating.max_current)) return `Current ${current} exceeds official DC output rating ${rating.max_current} A for ${displayModel} channel ${rating.channel}.`;
+      if (voltage !== undefined && voltage !== null && Number(voltage) > Number(rating.max_voltage)) return t("command.guard.electrical_voltage", { voltage, limit: rating.max_voltage, model: displayModel, channel: rating.channel });
+      if (current !== undefined && current !== null && Number(current) > Number(rating.max_current)) return t("command.guard.electrical_current", { current, limit: rating.max_current, model: displayModel, channel: rating.channel });
     }
     return "";
   };
@@ -1714,26 +1758,42 @@ function pulseControlsUnavailableReason() {
   const detected = detectedChannelModelForResource(resource);
   const supportedModel = physicalModelDisplayName(REAR_TRIGGER_PULSE_MODEL_ID);
   if (expected && resourceModelDetectionRecorded(resource) && detected !== expected) {
-    const detectedModel = detected ? physicalModelDisplayName(detected) : "an unknown model";
-    return `Expected ${physicalModelDisplayName(expected)} does not match detected ${detectedModel}. Rear trigger pulse is only supported on ${supportedModel}.`;
+    const detectedModel = detected ? physicalModelDisplayName(detected) : t("command.guard.pulse_unknown_model");
+    return t("command.guard.pulse_expected_model", {
+      model: physicalModelDisplayName(expected),
+      detectedModel,
+      supportedModel
+    });
   }
   const model = selectedChannelModel();
   if (model === REAR_TRIGGER_PULSE_MODEL_ID) return "";
-  if (!model) return `Rear trigger pulse is only supported on ${supportedModel}; no supported model is selected or detected.`;
-  return `Rear trigger pulse is only supported on ${supportedModel}, not ${physicalModelDisplayName(model)}.`;
+  if (!model) return t("command.guard.pulse_no_model", { supportedModel });
+  return t("command.guard.pulse_unsupported_model", {
+    supportedModel,
+    model: physicalModelDisplayName(model)
+  });
 }
 
 function applyWorkflowPulseControlState(input, prerequisiteReason = "") {
+  if (input.dataset) input.dataset.pulseControl = "true";
+  const reason = pulseControlPresentationReason(prerequisiteReason);
+  input.disabled = Boolean(reason);
+  input.title = reason;
+}
+
+function refreshWorkflowPulseControlPresentation(input, prerequisiteReason = "") {
+  input.title = pulseControlPresentationReason(prerequisiteReason);
+}
+
+function pulseControlPresentationReason(prerequisiteReason = "") {
   const unavailable = pulseControlsUnavailableReason();
   const unknownModel = !selectedChannelModel()
     && !(
       selectedExpectedModel()
       && resourceModelDetectionRecorded(valueOrNull("resource"))
       && detectedChannelModelForResource(valueOrNull("resource")) !== selectedExpectedModel()
-    );
-  const reason = (unknownModel ? "" : unavailable) || prerequisiteReason;
-  input.disabled = Boolean(reason);
-  input.title = reason;
+  );
+  return (unknownModel ? "" : unavailable) || prerequisiteReason;
 }
 
 function workflowPulseGuardReason(command, parameters) {
@@ -1770,14 +1830,19 @@ function tripGuardReason(command, parameters) {
     ? tripped.filter((channel) => rampListChannels.includes(channel))
     : selected === "all" ? tripped : tripped.filter((channel) => channel === Number(selected));
   if (!blocked.length) return "";
-  return `Protection TRIP active on ${blocked.map((channel) => `CH${channel}`).join(", ")}. Clear protection before running ${command}.`;
+  return t("command.guard.protection_trip", {
+    channels: blocked.map((channel) => `CH${channel}`).join(", "),
+    command
+  });
 }
 
 function tripContextWarning(command) {
   if (!TRIP_WARNING_COMMANDS.has(command)) return "";
   const tripped = currentTripChannels();
   if (!tripped.length) return "";
-  return `Warning: protection TRIP active on ${tripped.map((channel) => `CH${channel}`).join(", ")}.`;
+  return t("command.warning.protection_trip", {
+    channels: tripped.map((channel) => `CH${channel}`).join(", ")
+  });
 }
 
 function formatProtectionVoltage(value) {

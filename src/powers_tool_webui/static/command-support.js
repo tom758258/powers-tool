@@ -105,7 +105,9 @@ function commandMeta(name) {
   effective.live_support_status = exactCommandSupportText(exactCommand, exactSupport);
   if (!exactCommand.policy_exempt && exactCommand.product_open !== true) {
     effective.disabled = true;
-    effective.disabled_reason = exactCommand.disabled_reason || effective.live_support_status;
+    effective.disabled_reason = hasMaintainedExactSupportStatus(exactCommand)
+      ? effective.live_support_status
+      : exactCommand.disabled_reason || effective.live_support_status;
   }
   return effective;
 }
@@ -129,8 +131,21 @@ function exactCommandSupportText(commandSupport, liveSupport) {
       model: liveSupport.display_name || liveSupport.model_name || liveSupport.model_id
     });
   }
+  if (commandSupport.product_open === false && commandSupport.exact_scope_validation_status == null) {
+    return t("support.status.no_product_open_scope", { scope });
+  }
   return localizedKnownSupportReason(commandSupport.disabled_reason)
     || t("support.status.no_product_open_scope", { scope });
+}
+
+function hasMaintainedExactSupportStatus(commandSupport) {
+  return Boolean(
+    commandSupport.offline_only
+    || commandSupport.policy_exempt
+    || commandSupport.profile_validation_status === "not_supported_by_model"
+    || ["live_validated_full_suite", "transport_pending", "feature_pending"].includes(commandSupport.exact_scope_validation_status)
+    || (commandSupport.product_open === false && commandSupport.exact_scope_validation_status == null)
+  );
 }
 
 function selectedCommandSupport(name) {

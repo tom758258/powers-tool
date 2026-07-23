@@ -500,7 +500,7 @@ def test_static_workflow_pulse_gates_do_not_compare_display_model_names() -> Non
     assert "applyWorkflowPulseControlState(input);" in extract_js_function(command_form_js, "renderForm")
     assert "applyWorkflowPulseControlState(input, prerequisiteReason);" in extract_js_function(workflows_js, "renderRampListForm")
     assert "applyWorkflowPulseControlState(input);" in extract_js_function(workflows_js, "sequenceStepFields")
-    assert "workflowPulseGuardReason(state.selected, parameters)" in extract_js_function(app_js, "updateSelectedCommandState")
+    assert "workflowPulseGuardReason(command, parameters)" in extract_js_function(app_js, "selectedCommandPresentation")
     assert 'command === "trigger-pulse"' not in extract_js_function(app_js, "commandRequestsPulse")
 
 
@@ -1345,7 +1345,7 @@ def test_static_channel_capability_guards_use_metadata():
     assert "return selectedChannelModel();" in extract_js_function(command_support_js, "currentChannelCapabilityModel")
     assert "function channelModelKey(model)" in command_support_js
     assert "state.resourceChannelModels[resource] = nextChannelModel;" in app_js
-    assert "channelAvailabilityGuardReason(state.selected, parameters)" in app_js
+    assert "channelAvailabilityGuardReason(command, parameters)" in extract_js_function(app_js, "selectedCommandPresentation")
     assert "channelAvailabilityGuardReason(state.selected, payload.parameters)" in app_js
     assert "item.disabled = true;" in command_form_js
     assert "channelUnsupportedReason(option)" in command_form_js
@@ -1444,7 +1444,7 @@ def test_static_channel_confirmation_and_job_detail_contracts():
     assert "SET_PARTIAL_GUIDANCE" not in render_guidance
     field_description_css = styles_css[styles_css.index(".field-description {"):styles_css.index(".command-notes {")]
     assert "text-transform: none;" in field_description_css
-    assert "setRequiresSetpointGuardReason(state.selected, parameters)" in app_js
+    assert "setRequiresSetpointGuardReason(command, parameters)" in extract_js_function(app_js, "selectedCommandPresentation")
     assert '"smoke-output": webuiCommandForm.smokeOutputParams()' in app_js
     assert_param_contract(app_js, "channel", "select", ["1", "2", "3"])
     assert_param_contract(workflows_js, "voltage", "number")
@@ -1592,14 +1592,15 @@ def test_static_trigger_controls_disable_invalid_combinations_and_immediate_fire
     guard = extract_js_function(app_js, "triggerControlGuardReason")
 
     assert "syncTriggerImmediateControls(state.selected)" in update_state
-    assert "triggerControlGuardReason(state.selected, parameters)" in update_state
+    assert "selectedCommandPresentation(state.selected, parameters)" in update_state
+    assert "triggerControlGuardReason(command, parameters)" in extract_js_function(app_js, "selectedCommandPresentation")
     assert "meta.disabled || channelGuard || tripGuard || ratingGuard || setGuard || triggerControlGuard || triggerFireWaitGuard" in update_state
     assert "triggerArmOnlyGuardReason" not in app_js
     assert '["trigger-step", "trigger-list"]' in guard
     assert "fire.checked = false" in sync
     assert "fire.disabled = immediate" in sync
-    assert "BUS Wait complete requires Fire now in the same command." in guard
-    assert "A started LIST without Wait complete requires Leave configured." in guard
+    assert 't("command.guard.trigger_bus_wait_requires_fire")' in guard
+    assert 't("command.guard.trigger_list_started_requires_leave")' in guard
 
 
 def test_static_trigger_guidance_explains_global_fire_and_wait_semantics():
@@ -1612,7 +1613,7 @@ def test_static_trigger_guidance_explains_global_fire_and_wait_semantics():
     assert index_html.index('id="command-guidance"') < index_html.index('id="command-form"')
     assert "command.guidance.trigger_fire" in guidance
     assert "command.guidance.trigger_step" in guidance
-    assert "Wait complete requires an Abort target channel." in fire_guard
+    assert 't("command.guard.trigger_fire_wait_requires_channel")' in fire_guard
     assert ".command-guidance {" in styles_css
     command_guidance_css = styles_css[styles_css.index(".command-guidance {"):styles_css.index(".trigger-list-editor {")]
     assert "text-transform: none;" in command_guidance_css
@@ -1669,5 +1670,5 @@ def test_static_trigger_list_documents_restore_and_pulse_pin_guard():
     guard = extract_js_function(app_js, "triggerControlGuardReason")
 
     assert "command.guidance.trigger_list" in guidance
-    assert "BOST/EOST pulses require LIST output pins." in guard
+    assert 't("command.guard.trigger_list_pulse_requires_pins")' in guard
 
