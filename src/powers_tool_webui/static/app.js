@@ -427,7 +427,11 @@ const workflows = webuiWorkflows.createWorkflows({
   rearPinDisplayName: (...args) => rearPinDisplayName(...args),
   parseRearPins: (...args) => parseRearPins(...args),
   renderLoopControl: (...args) => renderLoopControl(...args),
-  applyWorkflowPulseControlState: (...args) => applyWorkflowPulseControlState(...args)
+  applyWorkflowPulseControlState: (...args) => applyWorkflowPulseControlState(...args),
+  pulseTimingDisplayName: (...args) => pulseTimingDisplayName(...args),
+  pinsSelectValue: (...args) => pinsSelectValue(...args),
+  applyParameterConstraint: (...args) => applyParameterConstraint(...args),
+  updateWorkflowDocumentValidity: (...args) => updateWorkflowDocumentValidity(...args)
 });
 
 var {

@@ -68,7 +68,11 @@ export function createWorkflows({
   rearPinDisplayName,
   parseRearPins,
   renderLoopControl,
-  applyWorkflowPulseControlState
+  applyWorkflowPulseControlState,
+  pulseTimingDisplayName,
+  pinsSelectValue,
+  applyParameterConstraint,
+  updateWorkflowDocumentValidity
 }) {
 function defaultTriggerListStep() {
   return webuiTriggerListDocument.defaultTriggerListStep();

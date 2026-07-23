@@ -149,3 +149,11 @@ export function setLocale(locale) {
 export function t(key, params, rawFallback) {
   return defaultI18n.t(key, params, rawFallback);
 }
+
+export function sourceT(key, params, rawFallback) {
+  validateTranslationKey(key);
+  if (!hasOwn(EN_MESSAGES, key)) {
+    return rawFallback === undefined ? key : String(rawFallback);
+  }
+  return interpolate(EN_MESSAGES[key], params);
+}

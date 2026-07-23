@@ -13,6 +13,7 @@ from _webui_shared import (
     read_static_javascript,
     read_static_texts,
     run_frontend_javascript_assertions,
+    run_webui_module_assertions,
 )
 
 
@@ -42,7 +43,16 @@ def test_workflow_factory_wiring_omits_unused_dependencies() -> None:
     assert "normalizeChannelValue:" not in artifact_wiring
     assert "normalizeChannelValue" not in artifact_signature
 
-    for retained in ("webuiRampListDocument", "webuiTriggerListDocument", "openJsonFile", "saveJsonFile"):
+    for retained in (
+        "webuiRampListDocument",
+        "webuiTriggerListDocument",
+        "openJsonFile",
+        "saveJsonFile",
+        "pulseTimingDisplayName",
+        "pinsSelectValue",
+        "applyParameterConstraint",
+        "updateWorkflowDocumentValidity",
+    ):
         assert retained in workflow_wiring
         assert retained in workflow_signature
     for retained in ("webuiRestoreDocument", "webuiSequenceDocument", "restoreSnapshotParameters", "submitJob", "subscribeToJob"):
@@ -54,6 +64,177 @@ def test_workflow_factory_wiring_omits_unused_dependencies() -> None:
         f"{name}," not in combined and f"{name}:" not in combined
         for name in ("services", "dependencies", "context", "container", "registry", "callbacks", "workflowBag")
     )
+
+
+def test_ramp_list_renderer_uses_explicit_module_dependencies() -> None:
+    run_webui_module_assertions(
+        r"""
+class FakeClassList {
+  constructor(owner) { this.owner = owner; }
+  add(...names) {
+    const values = new Set(this.owner.className.split(/\s+/).filter(Boolean));
+    names.forEach((name) => values.add(name));
+    this.owner.className = [...values].join(" ");
+  }
+  contains(name) { return this.owner.className.split(/\s+/).includes(name); }
+}
+
+class FakeElement {
+  constructor(tagName) {
+    this.tagName = tagName.toUpperCase();
+    this.children = [];
+    this.parentNode = null;
+    this.dataset = {};
+    this.className = "";
+    this.classList = new FakeClassList(this);
+    this.listeners = {};
+    this.attributes = {};
+    this.textContent = "";
+    this.value = "";
+    this.checked = false;
+    this.disabled = false;
+    this.hidden = false;
+    this.id = "";
+  }
+  appendChild(child) {
+    this.children.push(child);
+    child.parentNode = this;
+    return child;
+  }
+  append(...children) { children.forEach((child) => this.appendChild(child)); }
+  addEventListener(type, listener) {
+    if (!this.listeners[type]) this.listeners[type] = [];
+    this.listeners[type].push(listener);
+  }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  querySelector(selector) {
+    if (selector === ".checkbox-label-text") {
+      return descendants(this).find((node) => node.classList.contains("checkbox-label-text"));
+    }
+    return undefined;
+  }
+  querySelectorAll() { return []; }
+  set innerHTML(value) {
+    strictAssert.equal(value, "");
+    this.children = [];
+  }
+}
+
+const elements = new Map();
+const descendants = (root) => [root, ...root.children.flatMap((child) => descendants(child))];
+const addElement = (id, tagName = "div") => {
+  const element = new FakeElement(tagName);
+  element.id = id;
+  elements.set(id, element);
+  return element;
+};
+addElement("command-filter", "input");
+addElement("command-categories");
+addElement("command-list");
+addElement("selected-command");
+const commandForm = addElement("command-form", "form");
+globalThis.document = {
+  createElement: (tagName) => new FakeElement(tagName),
+  getElementById: (id) => elements.get(id) || descendants(commandForm).find((node) => node.id === id),
+};
+
+const state = {
+  selected: null,
+  activeCategory: "workflow",
+  commands: { "ramp-list": { category: "workflow" } },
+  workflowControl: { phase: "idle" },
+  rampListSegments: [{
+    channel: 2,
+    start_voltage: 1.25,
+    stop_voltage: 2.5,
+    step_voltage: 0.25,
+    current: 0.2,
+    delay_ms: 50,
+  }],
+  rampListEnableOutput: true,
+  rampListLoopEnabled: false,
+  rampListLoopCountDraft: "2",
+  rampListCompletionPulse: null,
+};
+const originalSegments = state.rampListSegments;
+const constrainedFields = [];
+const validityCalls = [];
+let renderFormFromController;
+
+const loopControl = ({ prefix }) => {
+  const wrapper = new FakeElement("div");
+  const label = new FakeElement("label");
+  const input = new FakeElement("input");
+  input.id = `${prefix}-loop-enabled`;
+  label.appendChild(input);
+  wrapper.appendChild(label);
+  return wrapper;
+};
+const workflows = globalThis.webuiWorkflows.createWorkflows({
+  state,
+  rearPinOptions: ["1", "2", "3"],
+  webuiCommandForm: globalThis.webuiCommandForm,
+  webuiRampListDocument: globalThis.webuiRampListDocument,
+  renderForm: (...args) => renderFormFromController(...args),
+  updateSelectedCommandState: () => {},
+  rearPinDisplayName: (value) => value || "None",
+  parseRearPins: (value) => String(value).split(",").filter(Boolean).map(Number),
+  renderLoopControl: loopControl,
+  applyWorkflowPulseControlState: () => {},
+  pulseTimingDisplayName: (_command, value) => value || "None",
+  pinsSelectValue: (value) => Array.isArray(value) ? value.join(",") : String(value),
+  applyParameterConstraint: (input, name) => {
+    constrainedFields.push(name);
+    input.dataset.constraintApplied = name;
+  },
+  updateWorkflowDocumentValidity: (command) => validityCalls.push(command),
+});
+const controller = globalThis.webuiCommandForm.createCommandController({
+  state,
+  commandCatalog: globalThis.webuiCommandCatalog,
+  commandMeta: (name) => state.commands[name] || {},
+  renderWorkspaceSummary: () => {},
+  prefillClearProtectionChannel: () => {},
+  updateSelectedCommandState: () => {},
+  renderRampListForm: workflows.renderRampListForm,
+});
+renderFormFromController = controller.renderForm;
+
+strictAssert.doesNotThrow(() => controller.selectCommand("ramp-list"));
+strictAssert.equal(state.selected, "ramp-list");
+strictAssert.equal(commandForm.children.length, 1);
+const editor = commandForm.children[0];
+const findClass = (name) => descendants(editor).filter((node) => node.classList.contains(name));
+strictAssert.equal(findClass("ramp-list-toolbar").length, 1);
+strictAssert.deepEqual(
+  findClass("ramp-list-toolbar")[0].children.map((button) => button.textContent),
+  ["Load Ramp List", "Save Ramp List", "Add Ramp Segment"],
+);
+strictAssert.ok(descendants(editor).some((node) => node.id === "ramp-list-enable-output"));
+strictAssert.ok(descendants(editor).some((node) => node.id === "ramp-list-loop-enabled"));
+strictAssert.ok(descendants(editor).some((node) => node.id === "ramp-list-pulse-timing"));
+strictAssert.equal(findClass("ramp-segment-card").length, 1);
+strictAssert.deepEqual(
+  constrainedFields,
+  globalThis.webuiRampListDocument.rampSegmentDefinitions().map((definition) => definition.name),
+);
+strictAssert.deepEqual(validityCalls, ["ramp-list"]);
+strictAssert.ok(descendants(editor).find((node) => node.dataset.rampField === "start_voltage").dataset.constraintApplied);
+
+controller.renderForm("ramp-list");
+strictAssert.equal(state.rampListSegments, originalSegments);
+strictAssert.equal(state.rampListSegments[0].start_voltage, 1.25);
+strictAssert.deepEqual(validityCalls, ["ramp-list", "ramp-list"]);
+""",
+        (
+            "command-catalog.js",
+            "command-form.js",
+            "ramp-list.js",
+            "trigger-list.js",
+            "workflows.js",
+        ),
+    )
+
 
 def test_static_pulse_child_fields_and_rear_pin_select_contracts():
     _index_html, app_js, styles_css = read_static_texts()
@@ -824,7 +1005,8 @@ def test_static_command_display_names_preserve_machine_command_keys():
     render_commands = command_form_js[command_form_js.index("function renderCommands()"):command_form_js.index("function selectCommand")]
 
     assert 'name.includes(filter) || commandDisplayName(name).toLowerCase().includes(filter)' in render_commands
-    assert 'commandDisplayName(a[0]).localeCompare(commandDisplayName(b[0]))' in render_commands
+    assert 'commandSourceDisplayName(a[0]).localeCompare(commandSourceDisplayName(b[0]), "en")' in render_commands
+    assert 'a[0].localeCompare(b[0], "en")' in render_commands
 
 
 def test_static_command_select_options_use_human_labels_and_machine_values():

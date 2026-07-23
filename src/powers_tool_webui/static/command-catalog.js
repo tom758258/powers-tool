@@ -1,4 +1,4 @@
-import { t } from "./i18n.js";
+import { sourceT, t } from "./i18n.js";
 
 export const COMMAND_CATEGORIES = ["output", "workflow", "protection", "trigger", "artifact", "discovery"];
 
@@ -21,6 +21,10 @@ export function commandMessageKey(kind, command) {
 
 export function commandDisplayName(command, rawFallback) {
   return t(commandMessageKey("name", command), undefined, rawFallback);
+}
+
+export function commandSourceDisplayName(command, rawFallback) {
+  return sourceT(commandMessageKey("name", command), undefined, rawFallback);
 }
 
 export function commandDescription(command, rawFallback) {

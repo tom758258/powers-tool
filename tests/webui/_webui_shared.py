@@ -245,6 +245,12 @@ sandbox.__webuiTranslate = (key, params, rawFallback) => {{
     params && Object.hasOwn(params, name) ? String(params[name]) : placeholder
   );
 }};
+sandbox.__webuiSourceTranslate = (key, params, rawFallback) => {{
+  let message = Object.hasOwn(englishMessages, key) ? englishMessages[key] : (rawFallback ?? key);
+  return message.replace(/\\{{([A-Za-z_][A-Za-z0-9_]*)\\}}/g, (placeholder, name) =>
+    params && Object.hasOwn(params, name) ? String(params[name]) : placeholder
+  );
+}};
 
 function runScript(source, filename) {{
   return new vm.Script(source, {{ filename }}).runInContext(context);
@@ -278,8 +284,8 @@ globalThis.__webuiState = {{ createInitialState }};`;
     return `(function() {{\n${{source.replace('import {{ t }} from "./i18n.js";', 'const t = globalThis.__webuiTranslate;').replace(/^export function /gm, "function ")}}\nglobalThis.__webuiDevice = {{ physicalModelDisplayName, planningIdentitySummary, liveResourceSummary, resourceLabel, createDeviceResourceController }};\n}})();`;
   }}
   if (filename === "command-catalog.js") {{
-    return source.replace('import {{ t }} from "./i18n.js";', 'const t = globalThis.__webuiTranslate;').replace(/^export (?:const|function) /gm, (match) => match.replace("export ", "")) + `
-globalThis.__webuiCommandCatalog = {{ COMMAND_CATEGORIES, COMMAND_CATEGORY_LABELS, commandCategoryLabel, commandMessageKey, commandDisplayName, commandDescription }};`;
+    return source.replace('import {{ sourceT, t }} from "./i18n.js";', 'const sourceT = globalThis.__webuiSourceTranslate; const t = globalThis.__webuiTranslate;').replace(/^export (?:const|function) /gm, (match) => match.replace("export ", "")) + `
+globalThis.__webuiCommandCatalog = {{ COMMAND_CATEGORIES, COMMAND_CATEGORY_LABELS, commandCategoryLabel, commandMessageKey, commandDisplayName, commandSourceDisplayName, commandDescription }};`;
   }}
   if (filename === "command-form.js") {{
     return source.replace('import {{ t }} from "./i18n.js";', '').replace(/^export function /gm, "function ") + `

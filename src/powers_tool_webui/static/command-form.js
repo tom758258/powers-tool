@@ -225,7 +225,10 @@ function renderCommands() {
   Object.entries(state.commands)
     .filter(([name, meta]) => (meta.category || "discovery") === state.activeCategory)
     .filter(([name]) => !filter || name.includes(filter) || commandDisplayName(name).toLowerCase().includes(filter))
-    .sort((a, b) => commandDisplayName(a[0]).localeCompare(commandDisplayName(b[0])))
+    .sort((a, b) => {
+      const displayOrder = commandSourceDisplayName(a[0]).localeCompare(commandSourceDisplayName(b[0]), "en");
+      return displayOrder || a[0].localeCompare(b[0], "en");
+    })
     .forEach(([name]) => {
       const effectiveMeta = commandMeta(name);
       const button = document.createElement("button");
@@ -781,13 +784,22 @@ function parseDelimitedNumbers(value, integerOnly) {
 
 function commandDisplayName(name) {
   if (!name) return "";
+  return commandCatalog.commandDisplayName(name, commandDisplayNameFallback(name));
+}
+
+function commandSourceDisplayName(name) {
+  if (!name) return "";
+  return commandCatalog.commandSourceDisplayName(name, commandDisplayNameFallback(name));
+}
+
+function commandDisplayNameFallback(name) {
   const overrides = {
     snapshot: "Create snapshot", "restore-from-snapshot": "Restore snapshot", "protection-set": "Set protection",
     clear: "Clear Status / Errors", capabilities: "Get capabilities", identify: "Read device information", error: "Read errors"
   };
-  if (overrides[name]) return commandCatalog.commandDisplayName(name, overrides[name]);
+  if (overrides[name]) return overrides[name];
   const spaced = name.replace(/-/g, " ");
-  return commandCatalog.commandDisplayName(name, spaced.charAt(0).toUpperCase() + spaced.slice(1));
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 function parseRearPins(value) {
