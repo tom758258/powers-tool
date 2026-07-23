@@ -915,7 +915,10 @@ def test_static_resource_selection_refreshes_live_preview():
     assert "stopLivePreviewSnapshot();" in refresh_preview
     assert "renderBlankLivePanel();" in refresh_preview
     assert "if (!resource)" in refresh_preview
-    assert 'setLiveState("Not monitoring", "state-idle", "No hardware resource is selected.");' in refresh_preview
+    assert (
+        'setLiveState(t("live_data.status.not_monitoring"), "state-idle", '
+        't("live_data.status.no_resource"));'
+    ) in refresh_preview
     assert "const healthState = await refreshHealth();" in refresh_preview
     assert "await startLivePreviewSnapshot(healthState, resource);" in refresh_preview
     assert refresh_preview.index("stopLivePreviewSnapshot();") < refresh_preview.index("renderBlankLivePanel();")
@@ -935,6 +938,10 @@ def test_static_state_indicators_show_webui_command_and_live_state():
 
     for hook in ('class="state-dot"', 'class="state-text"', 'class="state-indicator'):
         assert hook in index_html
+    assert (
+        '<span class="state-text" data-i18n="live_data.status.not_monitoring">'
+        "Not monitoring</span>"
+    ) in index_html
 
     assert "state.health =" in refresh_health
     assert "refreshHealthPresentation();" in refresh_health

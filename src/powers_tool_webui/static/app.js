@@ -1372,7 +1372,7 @@ async function refreshSelectedResourcePreview(resource) {
   stopLivePreviewSnapshot();
   renderBlankLivePanel();
   if (!resource) {
-    setLiveState("Not monitoring", "state-idle", "No hardware resource is selected.");
+    setLiveState(t("live_data.status.not_monitoring"), "state-idle", t("live_data.status.no_resource"));
     return;
   }
   const healthState = await refreshHealth();
@@ -1443,7 +1443,11 @@ function refreshWorkflowOperationalPresentation() {
 function refreshLiveDataPresentation() {
   const panel = state.livePanel;
   if (!panel) return;
-  setLiveState(liveStateText(panel.status, panel.timestamp, panel.message, panel.stale), liveStateClass(panel.status, panel.stale), panel.message);
+  if (!panel.resource && panel.status === "ok" && !panel.message) {
+    setLiveState(t("live_data.status.not_monitoring"), "state-idle", t("live_data.status.no_resource"));
+  } else {
+    setLiveState(liveStateText(panel.status, panel.timestamp, panel.message, panel.stale), liveStateClass(panel.status, panel.stale), panel.message);
+  }
   panel.channels.forEach((channel) => renderChannelCard(channel, panel));
   drawTrend();
 }

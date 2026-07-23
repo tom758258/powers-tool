@@ -395,6 +395,10 @@ assert.equal(ZH_TW_MESSAGES["form.option.segment"], "逐步輸出完成");
 assert.equal(EN_MESSAGES["form.option.segment"], "Ramp complete");
 assert.equal(ZH_TW_MESSAGES["support.scope.not_evaluated"], "尚未評估連線支援範圍");
 assert.equal(EN_MESSAGES["support.scope.not_evaluated"], "Connection scope not evaluated");
+assert.equal(EN_MESSAGES["live_data.status.not_monitoring"], "Not monitoring");
+assert.equal(ZH_TW_MESSAGES["live_data.status.not_monitoring"], "未監看");
+assert.equal(EN_MESSAGES["live_data.status.no_resource"], "No hardware resource is selected.");
+assert.equal(ZH_TW_MESSAGES["live_data.status.no_resource"], "未選取硬體資源。");
 assert.equal(ZH_TW_MESSAGES["form.field.max_errors"], "錯誤數上限");
 assert.equal(
   ZH_TW_MESSAGES["form.description.snapshot.max_errors"],

@@ -486,6 +486,8 @@ def test_static_cached_live_presentation_refresh_has_no_operational_side_effects
     refresh = extract_js_function(app_js, "refreshLiveDataPresentation")
 
     assert "state.livePanel" in refresh
+    assert 't("live_data.status.not_monitoring")' in refresh
+    assert 't("live_data.status.no_resource")' in refresh
     assert "renderChannelCard" in refresh
     assert "drawTrend()" in refresh
     for forbidden in (
@@ -499,6 +501,97 @@ def test_static_cached_live_presentation_refresh_has_no_operational_side_effects
         "state.liveJobId =",
     ):
         assert forbidden not in refresh
+
+
+def test_static_no_resource_live_state_refreshes_locale_without_monitor_side_effects():
+    assertions = r"""
+const strictAssert = require("node:assert/strict");
+let fetchCalls = 0;
+let eventSourceConstructions = 0;
+let eventSourceCloses = 0;
+let monitorOperations = 0;
+let previewOperations = 0;
+let reloads = 0;
+let staticRefreshes = 0;
+let trendDraws = 0;
+const presentations = [];
+
+globalThis.fetch = () => { fetchCalls += 1; };
+globalThis.EventSource = class {
+  constructor() { eventSourceConstructions += 1; }
+  close() { eventSourceCloses += 1; }
+};
+globalThis.location = { reload() { reloads += 1; } };
+
+applyStaticTranslations = () => { staticRefreshes += 1; };
+webuiLocaleUi.renderLanguageButton = () => {};
+refreshDeviceResourcePresentation = () => {};
+refreshCommandPresentation = () => {};
+refreshSelectedCommandGuardPresentation = () => {};
+webuiWorkflows.refreshWorkflowPresentation = () => {};
+refreshWorkflowOperationalPresentation = () => {};
+refreshBasicControlsPresentation = () => {};
+refreshResultPresentation = () => {};
+renderChannelCard = () => {};
+drawTrend = () => { trendDraws += 1; };
+setLiveState = (text, stateClass, title) => {
+  presentations.push({ text, stateClass, title });
+};
+startLive = () => { monitorOperations += 1; };
+stopLive = () => { monitorOperations += 1; };
+toggleLiveMonitor = () => { monitorOperations += 1; };
+stopLivePreviewSnapshot = () => { previewOperations += 1; };
+refreshSelectedResourcePreview = () => { previewOperations += 1; };
+
+const channels = [];
+state.livePanel = {
+  timestamp: 123,
+  resource: "",
+  model: null,
+  model_id: null,
+  stale: false,
+  status: "ok",
+  message: "",
+  channels,
+};
+const panelIdentity = state.livePanel;
+
+setLocale("en");
+refreshLocalizedPresentation();
+setLocale("zh-TW");
+refreshLocalizedPresentation();
+setLocale("en");
+refreshLocalizedPresentation();
+
+strictAssert.deepEqual(presentations, [
+  {
+    text: "Not monitoring",
+    stateClass: "state-idle",
+    title: "No hardware resource is selected.",
+  },
+  {
+    text: "未監看",
+    stateClass: "state-idle",
+    title: "未選取硬體資源。",
+  },
+  {
+    text: "Not monitoring",
+    stateClass: "state-idle",
+    title: "No hardware resource is selected.",
+  },
+]);
+strictAssert.equal(state.livePanel, panelIdentity);
+strictAssert.equal(state.livePanel.channels, channels);
+strictAssert.equal(staticRefreshes, 3);
+strictAssert.equal(trendDraws, 3);
+strictAssert.equal(fetchCalls, 0);
+strictAssert.equal(eventSourceConstructions, 0);
+strictAssert.equal(eventSourceCloses, 0);
+strictAssert.equal(monitorOperations, 0);
+strictAssert.equal(previewOperations, 0);
+strictAssert.equal(reloads, 0);
+"""
+    run_frontend_javascript_assertions(assertions)
 
 
 def test_static_basic_command_submission_reuses_existing_jobs():
