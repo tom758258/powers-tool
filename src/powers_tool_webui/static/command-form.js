@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 const SET_PARTIAL_GUIDANCE = "Set accepts Voltage, Current, or both. Blank fields are left unchanged.";
 
 export function createCheckboxField(input, text, classNames = []) {
@@ -14,12 +16,14 @@ export function renderCommandGuidance(command, parameters, triggerControlGuardRe
   const guidance = document.getElementById("command-guidance");
   if (!guidance) return;
   const messages = {
-    "trigger-step": "Immediate starts from INIT, so Fire now is unavailable. For BUS, Wait complete requires Fire now in the same command and waits for the instrument-wide operation-complete event.",
-    "trigger-list": "Wait complete with Leave configured off writes back the pre-run Trigger settings and LIST table after completion. The running LIST may be briefly visible; select Leave configured to retain the new LIST table and Trigger settings.",
-    "trigger-fire": "Sends global *TRG to every armed BUS trigger on the instrument. Abort target channel does not limit Fire or Wait; it is used only if Wait complete times out or is interrupted."
+    "trigger-step": t("command.guidance.trigger_step"),
+    "trigger-list": t("command.guidance.trigger_list"),
+    "trigger-fire": t("command.guidance.trigger_fire")
   };
   const guard = triggerControlGuardReason(command, parameters) || triggerFireWaitGuardReason(command, parameters);
   const text = [guard, messages[command]].filter(Boolean).join(" ");
+  guidance.dataset.command = command;
+  guidance.dataset.rawGuard = guard || "";
   guidance.textContent = text;
   guidance.hidden = !text;
 }
@@ -210,7 +214,7 @@ function renderCommands() {
     const button = document.createElement("button");
     button.className = `category-button${state.activeCategory === category ? " active" : ""}`;
     button.type = "button";
-    button.textContent = commandCatalog.COMMAND_CATEGORY_LABELS[category];
+    button.textContent = commandCatalog.commandCategoryLabel(category);
     button.addEventListener("click", () => {
       state.activeCategory = category;
       renderCommands();
@@ -227,7 +231,12 @@ function renderCommands() {
       const button = document.createElement("button");
       button.className = `command-button${state.selected === name ? " active" : ""}`;
       button.disabled = Boolean(effectiveMeta.disabled || state.workflowControl.phase !== "idle");
-      button.innerHTML = `<span>${commandDisplayName(name)}</span><small>${effectiveMeta.disabled_reason || effectiveMeta.live_support_status || ""}</small>`;
+      button.title = commandCatalog.commandDescription(name, effectiveMeta.description || "");
+      const title = document.createElement("span");
+      title.textContent = commandDisplayName(name);
+      const status = document.createElement("small");
+      status.textContent = effectiveMeta.disabled_reason || effectiveMeta.live_support_status || "";
+      button.append(title, status);
       button.addEventListener("click", () => selectCommand(name));
       list.appendChild(button);
     });
@@ -278,6 +287,7 @@ function renderForm(command) {
         item.textContent = param.parser === "intList"
           ? rearPinDisplayName(option)
           : pulseTimingDisplayName(command, option);
+        item.dataset.i18nOption = option;
         if (param.name === "channel" && isNumericChannel(option) && !isChannelSupported(option)) {
           item.disabled = true;
           item.title = channelUnsupportedReason(option);
@@ -291,6 +301,7 @@ function renderForm(command) {
       input.type = param.type;
     }
     input.id = `param-${param.name}`;
+    input.dataset.i18nParam = param.name;
     if (param.value !== undefined) input.value = param.value;
     applyParameterConstraint(input, param.name);
     applyElectricalRatingConstraint(input, param.name);
@@ -307,6 +318,7 @@ function renderForm(command) {
     const label = param.type === "checkbox"
       ? createCheckboxField(input, param.label)
       : document.createElement("label");
+    label.dataset.i18nParam = param.name;
     if (param.type !== "checkbox") {
       label.textContent = param.label;
       label.appendChild(input);
@@ -343,6 +355,106 @@ function renderForm(command) {
   if (TRIGGER_COMMANDS.has(command)) appendCommandNotes(form, command, PARAMS[command] || [], commandMeta);
   updatePulseChildVisibility(command);
   refreshLoopCompleteOption(command);
+  refreshCommandFormPresentation();
+}
+
+function refreshCommandFormPresentation() {
+  const command = state.selected;
+  if (!command) return;
+  refreshCommandGuidancePresentation();
+  if (["ramp-list", "trigger-list", "snapshot", "restore-from-snapshot", "sequence"].includes(command)) return;
+  const form = document.getElementById("command-form");
+  if (!form || typeof form.querySelectorAll !== "function") return;
+  const params = new Map((PARAMS[command] || []).map((param) => [param.name, param]));
+  form.querySelectorAll("label[data-i18n-param]").forEach((label) => {
+    const param = params.get(label.dataset.i18nParam);
+    if (!param) return;
+    const text = t(`form.field.${param.name}`, undefined, param.label);
+    const checkboxText = label.querySelector(".checkbox-label-text");
+    if (checkboxText) checkboxText.textContent = text;
+    else if (label.firstChild?.nodeType === 3) label.firstChild.textContent = text;
+    const description = label.querySelector(".field-description:not(.set-field-guidance)");
+    if (description) description.textContent = t(`form.description.${command.replaceAll("-", "_")}.${param.name}`, undefined, param.description);
+    if (param.compactHelp) {
+      const compact = t(`form.description.${command.replaceAll("-", "_")}.${param.name}`, undefined, param.description);
+      label.title = compact;
+      const input = label.querySelector(`#param-${param.name}`);
+      if (input) {
+        input.title = compact;
+        input.setAttribute("aria-label", t(`form.aria.${command.replaceAll("-", "_")}.${param.name}`, undefined, param.ariaLabel));
+      }
+      const help = label.querySelector(".visually-hidden");
+      if (help) help.textContent = compact;
+    }
+  });
+  form.querySelectorAll("option[data-i18n-option]").forEach((option) => {
+    const optionKey = optionTranslationKey(option.dataset.i18nOption);
+    if (optionKey) option.textContent = t(optionKey, undefined, option.textContent);
+  });
+  const setGuidance = form.querySelector?.(".set-field-guidance");
+  if (setGuidance) setGuidance.textContent = t("form.guidance.set_partial", undefined, SET_PARTIAL_GUIDANCE);
+  const notes = form.querySelector?.(".command-notes");
+  if (notes) {
+    const title = notes.querySelector("strong");
+    if (title) title.textContent = t("command.notes.heading");
+    const summary = notes.querySelector("p");
+    if (summary) summary.textContent = commandCatalog.commandDescription(command, commandMeta(command).description || "");
+    notes.querySelectorAll("dt").forEach((term, index) => {
+      const param = (PARAMS[command] || []).filter((item) => item.description)[index];
+      if (param) term.textContent = t(`form.field.${param.name}`, undefined, param.label);
+    });
+    notes.querySelectorAll("dd").forEach((detail, index) => {
+      const param = (PARAMS[command] || []).filter((item) => item.description)[index];
+      if (param) detail.textContent = t(`form.description.${command.replaceAll("-", "_")}.${param.name}`, undefined, param.description);
+    });
+  }
+}
+
+function optionTranslationKey(value) {
+  const keys = {
+    "": "none",
+    "1": "pin_1",
+    "2": "pin_2",
+    "3": "pin_3",
+    "1,2": "pins_1_2",
+    "1,3": "pins_1_3",
+    "2,3": "pins_2_3",
+    "1,2,3": "all",
+    all: "all",
+    bus: "bus",
+    immediate: "immediate",
+    positive: "positive",
+    negative: "negative",
+    on: "on",
+    off: "off",
+    step: "step",
+    segment: "segment",
+    loop: "loop",
+    "setting-change": "setting_change",
+    "cc-transition": "cc_transition"
+  };
+  return Object.hasOwn(keys, value) ? `form.option.${keys[value]}` : null;
+}
+
+function refreshCommandPresentation() {
+  renderCommands();
+  const selected = document.getElementById("selected-command");
+  if (selected && state.selected) selected.textContent = commandDisplayName(state.selected);
+  refreshCommandFormPresentation();
+}
+
+function refreshCommandGuidancePresentation() {
+  const guidance = document.getElementById("command-guidance");
+  if (!guidance) return;
+  const keys = {
+    "trigger-step": "command.guidance.trigger_step",
+    "trigger-list": "command.guidance.trigger_list",
+    "trigger-fire": "command.guidance.trigger_fire"
+  };
+  const maintained = keys[guidance.dataset.command] ? t(keys[guidance.dataset.command]) : "";
+  const text = [guidance.dataset.rawGuard, maintained].filter(Boolean).join(" ");
+  guidance.textContent = text;
+  guidance.hidden = !text;
 }
 
 function updatePulseChildVisibility(command) {
@@ -650,9 +762,9 @@ function commandDisplayName(name) {
     snapshot: "Create snapshot", "restore-from-snapshot": "Restore snapshot", "protection-set": "Set protection",
     clear: "Clear Status / Errors", capabilities: "Get capabilities", identify: "Read device information", error: "Read errors"
   };
-  if (overrides[name]) return overrides[name];
+  if (overrides[name]) return commandCatalog.commandDisplayName(name, overrides[name]);
   const spaced = name.replace(/-/g, " ");
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  return commandCatalog.commandDisplayName(name, spaced.charAt(0).toUpperCase() + spaced.slice(1));
 }
 
 function parseRearPins(value) {
@@ -682,6 +794,8 @@ function optionDisplayName(value) {
     renderCommands,
     selectCommand,
     renderForm,
+    refreshCommandFormPresentation,
+    refreshCommandPresentation,
     updatePulseChildVisibility,
     runtimePayload,
     serialOptionsPayload,

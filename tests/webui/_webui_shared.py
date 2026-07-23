@@ -201,12 +201,21 @@ def run_frontend_javascript_assertions(
         {"sourceName": name, "source": read_static_javascript(name)}
         for name in source_names
     ]
+    english_messages = {
+        key: json.loads(f'"{value}"')
+        for key, value in re.findall(
+            r'^  "([a-z][a-z0-9_.]+)": "((?:[^"\\]|\\.)*)",?$',
+            read_static_javascript("locale_en.js"),
+            re.MULTILINE,
+        )
+    }
     runner = f"""
 const vm = require("node:vm");
 const bootstrapSource = {json.dumps(FRONTEND_JAVASCRIPT_BOOTSTRAP + bootstrap)};
 const productionScripts = {json.dumps(production_scripts)};
 const assertionsSource = {json.dumps(assertions)};
 const afterSourceAssertions = {json.dumps(after_source_assertions or {})};
+const englishMessages = {json.dumps(english_messages)};
 const sandbox = {{
       console,
       require,
@@ -217,6 +226,12 @@ const sandbox = {{
   clearInterval
 }};
 const context = vm.createContext(sandbox);
+sandbox.__webuiTranslate = (key, params, rawFallback) => {{
+  let message = Object.hasOwn(englishMessages, key) ? englishMessages[key] : (rawFallback ?? key);
+  return message.replace(/\\{{([A-Za-z_][A-Za-z0-9_]*)\\}}/g, (placeholder, name) =>
+    params && Object.hasOwn(params, name) ? String(params[name]) : placeholder
+  );
+}};
 
 function runScript(source, filename) {{
   return new vm.Script(source, {{ filename }}).runInContext(context);
@@ -247,14 +262,14 @@ globalThis.__webuiApi = {{ fetchJson }};`;
 globalThis.__webuiState = {{ createInitialState }};`;
   }}
   if (filename === "device-resource.js") {{
-    return `(function() {{\n${{source.replace(/^export function /gm, "function ")}}\nglobalThis.__webuiDevice = {{ physicalModelDisplayName, planningIdentitySummary, liveResourceSummary, resourceLabel, createDeviceResourceController }};\n}})();`;
+    return `(function() {{\n${{source.replace('import {{ t }} from "./i18n.js";', 'const t = globalThis.__webuiTranslate;').replace(/^export function /gm, "function ")}}\nglobalThis.__webuiDevice = {{ physicalModelDisplayName, planningIdentitySummary, liveResourceSummary, resourceLabel, createDeviceResourceController }};\n}})();`;
   }}
   if (filename === "command-catalog.js") {{
-    return source.replace(/^export const /gm, "const ") + `
-globalThis.__webuiCommandCatalog = {{ COMMAND_CATEGORIES, COMMAND_CATEGORY_LABELS }};`;
+    return source.replace('import {{ t }} from "./i18n.js";', 'const t = globalThis.__webuiTranslate;').replace(/^export (?:const|function) /gm, (match) => match.replace("export ", "")) + `
+globalThis.__webuiCommandCatalog = {{ COMMAND_CATEGORIES, COMMAND_CATEGORY_LABELS, commandCategoryLabel, commandMessageKey, commandDisplayName, commandDescription }};`;
   }}
   if (filename === "command-form.js") {{
-    return source.replace(/^export function /gm, "function ") + `
+    return source.replace('import {{ t }} from "./i18n.js";', '').replace(/^export function /gm, "function ") + `
     globalThis.__webuiCommandForm = {{ createCheckboxField, renderCommandGuidance, appendFieldDescription, configureCompactCheckboxHelp, appendSetGuidance, appendCommandNotes, setOutputParams, applyOutputParams, smokeOutputParams, triggerWaitParams, triggerStepParams, triggerListParams, createCommandController }};`;
   }}
   if (filename === "results.js") {{
@@ -295,7 +310,7 @@ globalThis.__webuiRestoreDocument = {{ validateRestoreSnapshot, normalizeRestore
 globalThis.__webuiBasicControls = {{ createBasicControls }};`;
   }}
   if (filename === "command-support.js") {{
-    return source.replace(/^export function /gm, "function ") + `
+    return source.replace('import {{ t }} from "./i18n.js";', '').replace(/^export function /gm, "function ") + `
 globalThis.__webuiCommandSupport = {{ createCommandSupport }};`;
   }}
   if (filename === "workflows.js") {{

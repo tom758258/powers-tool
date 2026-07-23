@@ -394,12 +394,30 @@ P3 and P4.
 
 ### P3: Device, Resource, Execution, And Command Surfaces
 
-Localize Device/Resource summaries, dynamic execution-mode badges,
-mode-specific help, identity labels, the command catalog, and command forms.
-First replace English `textContent` state inference with raw state, add missing
-raw scan/health presentation cache, preserve selection/input, and separate
-presentation updates from state-changing render paths. Locale refresh must not
-call `updateExecutionModeUi()` directly.
+P3 is complete. Device/Resource summaries, resource scan presentation,
+known server/device health states, dynamic execution-mode badges and help,
+identity labels and selector framing, command categories, maintained command
+names and descriptions, and ordinary parameter-driven command forms now use
+the production catalogs. Form localization covers labels, maintained
+descriptions, compact help, ARIA labels, maintained option display text,
+guidance, and command notes while preserving command IDs, parameter names,
+option values, model/profile/resource values, and payloads.
+
+Resource scan presentation now uses explicit raw `not_scanned`, `scanning`,
+`results`, `empty`, and `failed` state instead of option text. The latest raw
+health readiness, hardware-lock, active-job, and failure detail are cached for
+presentation-only redraw without a health request. Execution, Device/Resource,
+health, command catalog, and ordinary command-form presentation have focused
+refresh functions that do not call the state-changing execution-mode path,
+select a command, rebuild the current ordinary form, submit/fetch a Job, or
+touch EventSource state.
+
+P3 intentionally does not localize specialized workflow editors, Basic
+controls, Job History, Workspace Result content, Result Detail content, Live
+Data, workflow operational status, or general backend/client result wrappers;
+those remain P4. Locale selection, browser-language detection, persistence,
+`<html lang>` switching, and the centralized whole-page refresh controller
+remain P5.
 
 ### P4: Workflows And Dynamic Operational Surfaces
 

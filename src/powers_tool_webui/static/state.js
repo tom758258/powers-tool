@@ -24,6 +24,8 @@ export function createInitialState({
     resourceModels: {},
     resourceDisplayModels: {},
     resourceChannelModels: {},
+    resourceScan: { status: "not_scanned", resources: [], detail: "" },
+    health: { status: "not_loaded", readiness: null, hardwareLocked: null, activeJob: null, detail: "" },
     activeCategory: "output",
     selected: null,
     workspaceResults: {},

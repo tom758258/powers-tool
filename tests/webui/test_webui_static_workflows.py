@@ -702,7 +702,8 @@ def test_static_command_keys_are_used_for_selection_and_submission():
     render_commands = command_form_js[command_form_js.index("function renderCommands()"):command_form_js.index("function selectCommand")]
 
     assert "Object.entries(state.commands)" in render_commands
-    assert "<span>${commandDisplayName(name)}</span>" in render_commands
+    assert 'title.textContent = commandDisplayName(name);' in render_commands
+    assert "button.append(title, status);" in render_commands
     assert "button.addEventListener(\"click\", () => selectCommand(name));" in render_commands
     assert "command: state.selected" in app_js
     assert "renderForm(name);" in command_form_js
@@ -1230,9 +1231,8 @@ def test_static_trigger_guidance_explains_global_fire_and_wait_semantics():
 
     assert 'id="command-guidance"' in index_html
     assert index_html.index('id="command-guidance"') < index_html.index('id="command-form"')
-    assert "global *TRG" in guidance
-    assert "instrument-wide operation-complete event" in guidance
-    assert "Abort target channel does not limit Fire or Wait" in guidance
+    assert "command.guidance.trigger_fire" in guidance
+    assert "command.guidance.trigger_step" in guidance
     assert "Wait complete requires an Abort target channel." in fire_guard
     assert ".command-guidance {" in styles_css
     command_guidance_css = styles_css[styles_css.index(".command-guidance {"):styles_css.index(".trigger-list-editor {")]
@@ -1289,7 +1289,6 @@ def test_static_trigger_list_documents_restore_and_pulse_pin_guard():
     guidance = extract_js_function(read_static_javascript("command-form.js"), "renderCommandGuidance")
     guard = extract_js_function(app_js, "triggerControlGuardReason")
 
-    assert "writes back the pre-run Trigger settings and LIST table" in guidance
-    assert "select Leave configured to retain the new LIST table" in guidance
+    assert "command.guidance.trigger_list" in guidance
     assert "BOST/EOST pulses require LIST output pins." in guard
 

@@ -1,28 +1,33 @@
-export function physicalModelDisplayName(physicalModels, modelId) {
+import { t } from "./i18n.js";
+
+export function physicalModelDisplayName(physicalModels, modelId, translate = t) {
   const canonicalModelId = String(modelId || "").trim();
-  if (!canonicalModelId) return "Unknown model";
+  if (!canonicalModelId) return translate("device.model.unknown");
   const metadata = physicalModels.find((model) => model?.model_id === canonicalModelId);
   return metadata?.display_name || metadata?.model_name || canonicalModelId;
 }
 
-export function planningIdentitySummary({ executionMode, planningProfiles, physicalModels }, identity) {
-  if (!identity) return executionMode === "simulate" ? "Planning model: not selected" : "Planning target: not selected";
+export function planningIdentitySummary({ executionMode, planningProfiles, physicalModels }, identity, translate = t) {
+  if (!identity) return translate(executionMode === "simulate" ? "device.planning_model.none" : "device.planning_target.none");
   if (identity.startsWith("profile:")) {
     const profileId = identity.slice("profile:".length);
     const profile = planningProfiles?.[profileId];
-    return `Planning profile: ${profile?.display_name || profile?.model_name || profileId}`;
+    return translate("device.planning_profile.value", { profile: profile?.display_name || profile?.model_name || profileId });
   }
-  return `Planning model: ${physicalModelDisplayName(physicalModels, identity)}`;
+  return translate("device.planning_model.value", { model: physicalModelDisplayName(physicalModels, identity, translate) });
 }
 
-export function liveResourceSummary(resourceDisplayModels, resource, select) {
-  if (!resource) return "not scanned";
+export function liveResourceSummary(resourceDisplayModels, resource, scanState, translate = t) {
   const detected = resourceDisplayModels[resource] || null;
-  if (detected) return `live ${detected}`;
-  const selectedLiveResource = Boolean(select.value.trim() && select.value.trim() === resource);
-  if (selectedLiveResource) return "live selected";
-  const firstOption = select.options[0]?.textContent?.trim() || "";
-  return firstOption === "No live resources found" ? "no live resources" : "not scanned";
+  if (detected) return translate("resource.status.live_model", { model: detected });
+  if (scanState?.status === "failed") return translate("resource.status.failed", undefined, scanState.detail);
+  if (scanState?.status === "results") {
+    return scanState.resources.includes(resource)
+      ? translate("resource.status.live_selected")
+      : translate("resource.status.results", { count: scanState.resources.length });
+  }
+  if (scanState?.status === "empty") return translate("resource.status.empty");
+  return translate("resource.status.not_scanned");
 }
 
 export function resourceLabel(resource, name) {
@@ -76,18 +81,9 @@ function setDeviceResourceExpanded(expanded) {
 }
 
 function updateDeviceResourceSummary() {
-  const summary = document.getElementById("device-resource-summary");
   const resource = document.getElementById("resource").value.trim();
   const clearedExactSupport = clearStaleResourceLiveSupport(resource);
-  const select = document.getElementById("resource-select");
-  const presentation = buildDeviceResourceSummary(resource, select);
-  summary.textContent = presentation.text;
-  summary.title = presentation.title;
-  const detected = detectedCommandModelForResource(resource);
-  const expected = selectedExpectedModel();
-  if (expected && resourceModelDetectionRecorded(resource) && detected !== expected) {
-    summary.title = "Selected expected model does not match the last scanned model. Live commands will fail before setup/write SCPI.";
-  }
+  refreshDeviceResourceSummaryPresentation();
   if (clearedExactSupport) {
     syncBasicFromLivePanel(state.livePanel);
     if (state.selected) selectCommand(state.selected);
@@ -95,13 +91,27 @@ function updateDeviceResourceSummary() {
   }
 }
 
+function refreshDeviceResourceSummaryPresentation() {
+  const summary = document.getElementById("device-resource-summary");
+  const resource = document.getElementById("resource").value.trim();
+  const select = document.getElementById("resource-select");
+  const presentation = buildDeviceResourceSummary(resource, select);
+  summary.textContent = presentation.text;
+  summary.title = presentation.title;
+  const detected = detectedCommandModelForResource(resource);
+  const expected = selectedExpectedModel();
+  if (expected && resourceModelDetectionRecorded(resource) && detected !== expected) {
+    summary.title = t("device.expected_mismatch");
+  }
+}
+
 function buildDeviceResourceSummary(resource, select) {
   if (isNoHardwareMode()) {
-    const mode = state.executionMode === "simulate" ? "Simulate mode" : "Dry-run mode";
+    const mode = t(state.executionMode === "simulate" ? "execution_mode.summary.simulate" : "execution_mode.summary.dry_run");
     const planning = planningIdentitySummary(selectedPlanningIdentity());
     const realContext = resource
-      ? `Real VISA resource preserved, not used: ${resource}`
-      : "Real VISA resource not used";
+      ? t("resource.real.preserved", { resource })
+      : t("resource.real.not_used");
     const text = [mode, planning, realContext].join(" / ");
     return { text, title: text };
   }
@@ -109,15 +119,15 @@ function buildDeviceResourceSummary(resource, select) {
   const canonicalModel = actualCurrentResourceModel();
   const reportedModel = detectedResourceDisplayModel(resource);
   const detection = canonicalModel
-    ? `Detected model: ${physicalModelDisplayName(canonicalModel)}`
+    ? t("device.detected_model", { model: physicalModelDisplayName(canonicalModel) })
     : reportedModel
-      ? `Reported model: ${reportedModel} (canonical identity unresolved)`
-      : `Detection status: ${liveResourceSummary(resource, select)}`;
+      ? t("device.reported_model", { model: reportedModel })
+      : t("device.detection_status", { status: liveResourceSummary(resource, select) });
   const text = [
-    "Real mode",
-    `VISA resource: ${resource || "not selected"}`,
+    t("execution_mode.summary.real"),
+    t("resource.visa_summary", { resource: resource || t("common.not_selected") }),
     detection,
-    `Expected Model guard: ${expectedModelSummary()}`,
+    t("device.expected_guard", { guard: expectedModelSummary() }),
     exactSupportContextSummary(resource)
   ].join(" / ");
   return { text, title: text };
@@ -128,12 +138,14 @@ function planningIdentitySummary(identity) {
 }
 
 function liveResourceSummary(resource, select) {
-  return devicePresentation.liveResourceSummary(state.resourceDisplayModels, resource, select);
+  return devicePresentation.liveResourceSummary(state.resourceDisplayModels, resource, state.resourceScan, t);
 }
 
 function expectedModelSummary() {
   const expected = selectedExpectedModel();
-  return expected ? `Require ${physicalModelDisplayName(expected)}` : "Auto-detect";
+  return expected
+    ? t("device.expected.require", { model: physicalModelDisplayName(expected) })
+    : t("device.expected.auto_detect");
 }
 
 function selectedExpectedModel() {
@@ -184,8 +196,6 @@ function updateExecutionModeUi({ renderCommands: shouldRenderCommands = true } =
   });
   const badge = document.getElementById("execution-mode-badge");
   const checkbox = document.getElementById("real-write-enabled");
-  const help = document.getElementById("execution-mode-help");
-  const label = document.getElementById("identity-model-label");
   const resourceControls = ["resource", "resource-select", "scan", "live-start", "serial-baud-rate", "serial-data-bits", "serial-parity", "serial-stop-bits", "serial-flow-control", "serial-read-termination", "serial-write-termination", "serial-remote", "serial-local-on-close"];
   resourceControls.forEach((id) => {
     const control = document.getElementById(id);
@@ -197,16 +207,13 @@ function updateExecutionModeUi({ renderCommands: shouldRenderCommands = true } =
     checkbox.disabled = noHardware || !valueOrNull("resource");
     checkbox.parentElement.hidden = noHardware;
   }
-  if (label) label.firstChild.textContent = noHardware ? (state.executionMode === "simulate" ? "Simulation model" : "Planning target") : "Expected model";
-  if (help) help.textContent = noHardware
-    ? (state.executionMode === "simulate" ? "Select a canonical physical model. Simulation never opens VISA hardware." : "Select a physical model or a planning profile. Dry-run never opens VISA hardware.")
-    : "Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one.";
+  refreshExecutionModePresentation();
   if (badge) {
     badge.className = "execution-mode-badge";
-    if (state.executionMode === "simulate") { badge.textContent = "Simulate"; badge.classList.add("simulate"); }
-    else if (state.executionMode === "dry-run") { badge.textContent = "Dry-run"; badge.classList.add("dry-run"); }
-    else if (hasRealWriteAuthorization()) { badge.textContent = "Real · Writes enabled"; badge.classList.add("real-enabled"); }
-    else { badge.textContent = "Real · Writes locked"; badge.classList.add("real-locked"); }
+    if (state.executionMode === "simulate") badge.classList.add("simulate");
+    else if (state.executionMode === "dry-run") badge.classList.add("dry-run");
+    else if (hasRealWriteAuthorization()) badge.classList.add("real-enabled");
+    else badge.classList.add("real-locked");
   }
   populateIdentitySelector();
   updateDeviceResourceSummary();
@@ -214,26 +221,44 @@ function updateExecutionModeUi({ renderCommands: shouldRenderCommands = true } =
   syncBasicFromLivePanel(state.livePanel);
 }
 
+function refreshExecutionModePresentation() {
+  const noHardware = isNoHardwareMode();
+  const badge = document.getElementById("execution-mode-badge");
+  const help = document.getElementById("execution-mode-help");
+  const label = document.getElementById("identity-model-label");
+  if (label?.firstChild) label.firstChild.textContent = t(noHardware
+    ? (state.executionMode === "simulate" ? "device.identity.simulation_model" : "device.identity.planning_target")
+    : "device.identity.expected_model");
+  if (help) help.textContent = t(noHardware
+    ? (state.executionMode === "simulate" ? "execution_mode.help.simulate" : "execution_mode.help.dry_run")
+    : "execution_mode.help.real");
+  if (badge) badge.textContent = t(state.executionMode === "simulate"
+    ? "execution_mode.badge.simulate"
+    : state.executionMode === "dry-run"
+      ? "execution_mode.badge.dry_run"
+      : hasRealWriteAuthorization() ? "execution_mode.badge.real_enabled" : "execution_mode.badge.real_locked");
+}
+
 function populateIdentitySelector() {
   const select = document.getElementById("expected-model-id");
   if (!select || !state.physicalModels.length) return;
   select.replaceChildren();
   if (state.executionMode === "real") {
-    select.add(new Option("Auto-detect", ""));
+    select.add(new Option(t("device.expected.auto_detect"), ""));
     state.physicalModels.forEach((model) => select.add(new Option(model.display_name || model.model_name, model.model_id)));
     const expected = state.realIdentityCache.expectedModelId;
     select.value = state.physicalModels.some((model) => model.model_id === expected) ? expected : "";
   } else if (state.executionMode === "simulate") {
-    select.add(new Option("Select simulation model", ""));
+    select.add(new Option(t("device.identity.select_simulation_model"), ""));
     state.physicalModels.forEach((model) => select.add(new Option(model.display_name || model.model_name, model.model_id)));
     const planned = state.planningIdentityCache.simulate;
     select.value = state.physicalModels.some((model) => model.model_id === planned) ? planned : "";
   } else {
-    select.add(new Option("Select planning target", ""));
-    const physical = document.createElement("optgroup"); physical.label = "Physical models";
+    select.add(new Option(t("device.identity.select_planning_target"), ""));
+    const physical = document.createElement("optgroup"); physical.label = t("device.identity.physical_models");
     state.physicalModels.forEach((model) => physical.append(new Option(model.display_name || model.model_name, model.model_id)));
     select.append(physical);
-    const profiles = document.createElement("optgroup"); profiles.label = "Planning profiles";
+    const profiles = document.createElement("optgroup"); profiles.label = t("device.identity.planning_profiles");
     Object.values(state.planningProfiles || {}).forEach((profile) => {
       const profileId = profile.profile_id || profile.planning_profile_id;
       if (profileId) profiles.append(new Option(profile.display_name || profile.model_name || profileId, `profile:${profileId}`));
@@ -415,30 +440,82 @@ function updateLiveMonitorButton(monitoring, disabled = false) {
 async function refreshHealth() {
   try {
     const health = await fetchJson("/api/health");
+    state.health = {
+      status: "loaded",
+      readiness: health.status,
+      hardwareLocked: Boolean(health.hardware_locked),
+      activeJob: health.active_job || null,
+      detail: ""
+    };
     const serverReady = health.status === "ok";
     const deviceIdle = serverReady && !health.hardware_locked;
-    setStateIndicator(
-      "server-state",
-      serverReady ? "Ready" : "Error",
-      serverReady ? "state-ok" : "state-error",
-      serverReady ? "WebUI API is reachable." : `WebUI health status: ${health.status}`
-    );
-    setStateIndicator(
-      "device-state",
-      serverReady ? (deviceIdle ? "Ready" : "Busy") : "Unknown",
-      serverReady ? (deviceIdle ? "state-ok" : "state-warning") : "state-idle",
-      deviceIdle
-        ? "Command path can accept real hardware jobs."
-        : serverReady
-          ? `Hardware lock is held by job ${health.active_job || "unknown"}.`
-          : "Command state is unavailable while WebUI health is not ready."
-    );
+    refreshHealthPresentation();
     return { serverReady, deviceIdle };
   } catch (error) {
-    setStateIndicator("server-state", "Error", "state-error", error.message || String(error));
-    setStateIndicator("device-state", "Unknown", "state-idle", "Command state is unavailable while WebUI health cannot be reached.");
+    state.health = {
+      status: "failed",
+      readiness: null,
+      hardwareLocked: null,
+      activeJob: null,
+      detail: error.message || String(error)
+    };
+    refreshHealthPresentation();
     renderBlankLivePanel("error", error.message || String(error));
     return { serverReady: false, deviceIdle: false, error };
+  }
+}
+
+function refreshHealthPresentation() {
+  const health = state.health;
+  const failed = health?.status === "failed";
+  const ready = health?.status === "loaded" && health.readiness === "ok";
+  const idle = ready && !health.hardwareLocked;
+  setStateIndicator(
+    "server-state",
+    t(ready ? "health.status.ready" : "health.status.error"),
+    ready ? "state-ok" : "state-error",
+    failed
+      ? health.detail
+      : ready
+        ? t("health.server.reachable")
+        : t("health.server.status", { status: health?.readiness || t("health.status.unknown") })
+  );
+  setStateIndicator(
+    "device-state",
+    t(ready ? (idle ? "health.status.ready" : "health.status.busy") : "health.status.unknown"),
+    ready ? (idle ? "state-ok" : "state-warning") : "state-idle",
+    idle
+      ? t("health.device.idle")
+      : ready
+        ? t("health.device.busy", { job: health.activeJob || t("health.status.unknown") })
+        : t(failed ? "health.device.unreachable" : "health.device.unavailable")
+  );
+}
+
+function refreshDeviceResourcePresentation() {
+  refreshExecutionModePresentation();
+  refreshDeviceResourceSummaryPresentation();
+  refreshHealthPresentation();
+  const select = document.getElementById("resource-select");
+  if (select?.options?.length === 1 && !select.options[0].value) {
+    select.options[0].textContent = t(state.resourceScan?.status === "empty"
+      ? "resource.scan.empty"
+      : state.resourceScan?.status === "failed"
+        ? "resource.scan.failed"
+        : "resource.scan.waiting");
+  }
+  const identity = document.getElementById("expected-model-id");
+  if (identity?.options?.length) {
+    identity.options[0].textContent = t(state.executionMode === "real"
+      ? "device.expected.auto_detect"
+      : state.executionMode === "simulate"
+        ? "device.identity.select_simulation_model"
+        : "device.identity.select_planning_target");
+    for (const group of identity.querySelectorAll?.("optgroup") || []) {
+      group.label = t(group === identity.querySelector("optgroup")
+        ? "device.identity.physical_models"
+        : "device.identity.planning_profiles");
+    }
   }
 }
 
@@ -467,6 +544,7 @@ function setStateIndicator(elementId, text, stateClass = "state-idle", title = "
     setDeviceOptionsExpanded,
     setDeviceResourceExpanded,
     updateDeviceResourceSummary,
+    refreshDeviceResourceSummaryPresentation,
     buildDeviceResourceSummary,
     planningIdentitySummary,
     liveResourceSummary,
@@ -479,6 +557,8 @@ function setStateIndicator(elementId, text, stateClass = "state-idle", title = "
     clearRealWriteAuthorization,
     hasRealWriteAuthorization,
     updateExecutionModeUi,
+    refreshExecutionModePresentation,
+    refreshDeviceResourcePresentation,
     populateIdentitySelector,
     handleExecutionModeChange,
     stopRealLiveJobsAndWait,
@@ -497,6 +577,7 @@ function setStateIndicator(elementId, text, stateClass = "state-idle", title = "
     handleExpectedModelChanged,
     updateLiveMonitorButton,
     refreshHealth,
+    refreshHealthPresentation,
     setStateIndicator
   };
 }

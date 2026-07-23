@@ -390,3 +390,31 @@ def test_static_html_p2_bindings_have_catalog_parity_and_preserve_contracts() ->
     assert 'aria-controls="device-resource-body"' in html
     assert 'aria-expanded="true"' in html
     assert 'aria-expanded="false"' in html
+
+
+def test_p3_maintained_catalog_messages_are_complete() -> None:
+    en_source = (STATIC_DIR / "locale_en.js").read_text(encoding="utf-8")
+    zh_tw_source = (STATIC_DIR / "locale_zh_tw.js").read_text(encoding="utf-8")
+    en_keys = set(re.findall(r'^  "([a-z][a-z0-9_.]+)":', en_source, re.MULTILINE))
+    zh_tw_keys = set(re.findall(r'^  "([a-z][a-z0-9_.]+)":', zh_tw_source, re.MULTILINE))
+    required = {
+        "device.detected_model",
+        "device.expected.auto_detect",
+        "device.identity.simulation_model",
+        "execution_mode.badge.real_locked",
+        "execution_mode.help.dry_run",
+        "health.device.busy",
+        "health.server.reachable",
+        "resource.scan.empty",
+        "resource.status.not_scanned",
+        "command.category.output",
+        "command.name.output_on",
+        "command.description.trigger_fire",
+        "command.notes.heading",
+        "form.field.channel",
+        "form.guidance.set_partial",
+        "form.option.positive",
+    }
+
+    assert en_keys == zh_tw_keys
+    assert required <= en_keys

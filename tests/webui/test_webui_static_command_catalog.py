@@ -28,3 +28,24 @@ strictAssert.equal("PowersToolWebUI" in globalThis, false);
 """,
         ("command-catalog.js",),
     )
+
+
+def test_command_catalog_localizes_presentation_without_changing_ids() -> None:
+    run_webui_module_assertions(
+        r"""
+const i18n = await import(new URL("./i18n.js", moduleUrls["command-catalog.js"]));
+const catalog = globalThis.webuiCommandCatalog;
+const ids = [...catalog.COMMAND_CATEGORIES];
+strictAssert.equal(catalog.commandCategoryLabel("output"), "Output");
+strictAssert.equal(catalog.commandDisplayName("output-on", "Output on"), "Output on");
+strictAssert.equal(catalog.commandDescription("trigger-fire", "raw"), "Send *TRG to an already armed BUS trigger");
+i18n.setLocale("zh-TW");
+strictAssert.equal(catalog.commandCategoryLabel("output"), "輸出");
+strictAssert.equal(catalog.commandDisplayName("output-on", "Output on"), "開啟輸出");
+strictAssert.equal(catalog.commandDescription("trigger-fire", "raw"), "將 *TRG 傳送至已準備的 BUS 觸發");
+strictAssert.equal(catalog.commandDisplayName("backend-new-command", "Backend New Command"), "Backend New Command");
+strictAssert.deepEqual(catalog.COMMAND_CATEGORIES, ids);
+i18n.setLocale("en");
+""",
+        ("command-catalog.js",),
+    )

@@ -83,7 +83,7 @@ var {
   detectedChannelModelForResource, selectedCommandModel, selectedChannelModel,
   actualCurrentResourceModel, e3646aGlobalOutputCapability, basicOutputPresentation,
   selectedElectricalRatingModel, handleExpectedModelChanged, updateLiveMonitorButton,
-  refreshHealth, setStateIndicator
+  refreshHealth, refreshHealthPresentation, refreshDeviceResourcePresentation, setStateIndicator
 } = deviceResourceController;
 const E3646A_GLOBAL_OUTPUT_DESCRIPTION = "E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable.";
 const E3646A_CAPABILITY_ERROR = "E3646A output controls are disabled because global-output capability metadata is missing or inconsistent.";
@@ -227,6 +227,8 @@ var {
   renderCommands,
   selectCommand,
   renderForm,
+  refreshCommandFormPresentation,
+  refreshCommandPresentation,
   updatePulseChildVisibility,
   runtimePayload,
   serialOptionsPayload,
@@ -285,6 +287,7 @@ const jobEventController = webuiJobTransport.createJobEventController({
   refreshSnapshotFormIfVisible: (...args) => refreshSnapshotFormIfVisible(...args),
   renderJobDetail: (...args) => renderJobDetail(...args),
   populateResourceSelect: (...args) => populateResourceSelect(...args),
+  captureResourceScanFailure: (...args) => captureResourceScanFailure(...args),
   refreshHealth: (...args) => refreshHealth(...args),
   startLivePreviewSnapshot: (...args) => startLivePreviewSnapshot(...args),
   shouldRefreshLiveAfterCommand: (...args) => shouldRefreshLiveAfterCommand(...args),
@@ -530,6 +533,7 @@ async function scanResources() {
     renderClientResult("Scan Device", "failed", "Scan Device is available only in Real hardware mode.", { error: "Real mode required" });
     return;
   }
+  state.resourceScan = { status: "scanning", resources: [], detail: "" };
   try {
     const payload = {
       command: "list-resources",
@@ -540,6 +544,8 @@ async function scanResources() {
     addHistory(response.job_id, "list-resources", "accepted", "Scan Device");
     subscribeToJob(response.job_id, "/api/events");
   } catch (error) {
+    state.resourceScan = { status: "failed", resources: [], detail: error.message || String(error) };
+    updateDeviceResourceSummary();
     console.error("Scan resources failed", error);
     renderClientResult("Scan Device", "failed", error.message || String(error), {
       error: "Scan resources failed",
@@ -1000,6 +1006,7 @@ function populateResourceSelect(resources) {
   select.innerHTML = "";
   updateResourceModels(resources);
   if (!Array.isArray(resources) || resources.length === 0) {
+    state.resourceScan = { status: "empty", resources: [], detail: "" };
     const option = document.createElement("option");
     option.value = "";
     option.textContent = "No live resources found";
@@ -1016,6 +1023,11 @@ function populateResourceSelect(resources) {
     option.textContent = resourceLabel(resource, name);
     select.appendChild(option);
   });
+  state.resourceScan = {
+    status: "results",
+    resources: Array.from(select.options, (option) => option.value).filter(Boolean),
+    detail: ""
+  };
 
   if (select.options.length > 0) {
     select.selectedIndex = 0;
@@ -1026,6 +1038,15 @@ function populateResourceSelect(resources) {
   syncBasicFromLivePanel(state.livePanel);
   if (state.selected) selectCommand(state.selected);
   else renderCommands();
+}
+
+function captureResourceScanFailure(detail) {
+  state.resourceScan = {
+    status: "failed",
+    resources: [],
+    detail: String(detail || "Resource scan failed")
+  };
+  updateDeviceResourceSummary();
 }
 
 function resourceLabel(resource, name) {

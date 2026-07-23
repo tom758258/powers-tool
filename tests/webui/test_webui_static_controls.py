@@ -693,6 +693,16 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
             return descendants(this).find((node) => node !== this && node.classList.contains(selector.slice(1))) || null;
           }
 
+          querySelectorAll(selector) {
+            if (selector === "label[data-i18n-param]") {
+              return descendants(this).filter((node) => node.tagName === "LABEL" && node.dataset.i18nParam);
+            }
+            if (selector === "option[data-i18n-option]") {
+              return descendants(this).filter((node) => node.tagName === "OPTION" && node.dataset.i18nOption !== undefined);
+            }
+            return [];
+          }
+
           remove() {
             if (!this.parentNode) return;
             this.parentNode.children = this.parentNode.children.filter((child) => child !== this);
@@ -796,6 +806,20 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         rampLoopEnabled.checked = false;
         rampLoopEnabled.listeners.change.forEach((listener) => listener());
         strictAssert.equal(byId(commandForm, "param-loop_count"), undefined);
+        strictAssert.equal(rampTiming.value, "");
+        strictAssert.equal(rampParts.input.listeners.change.length, 1);
+        strictAssert.equal(rampParts.input.listeners.input.length, 1);
+
+        const rampStart = byId(commandForm, "param-start_voltage");
+        rampStart.value = "0.375";
+        rampParts.input.checked = true;
+        const formIdentity = commandForm;
+        const selectedBeforeRefresh = state.selected;
+        refreshCommandFormPresentation();
+        strictAssert.equal(document.getElementById("command-form"), formIdentity);
+        strictAssert.equal(state.selected, selectedBeforeRefresh);
+        strictAssert.equal(rampStart.value, "0.375");
+        strictAssert.equal(rampParts.input.checked, true);
         strictAssert.equal(rampTiming.value, "");
         strictAssert.equal(rampParts.input.listeners.change.length, 1);
         strictAssert.equal(rampParts.input.listeners.input.length, 1);

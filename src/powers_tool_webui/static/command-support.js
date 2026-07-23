@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 export function createCommandSupport({
   state,
   defaultChannels,
@@ -117,20 +119,20 @@ function commandDisabledReason(support, model) {
 }
 
 function exactSupportContextSummary(resource) {
-  if (!resource) return "Connection scope not evaluated";
+  if (!resource) return t("support.scope.not_evaluated");
   const liveSupport = currentExactLiveSupport();
-  if (!liveSupport) return "Connection scope not evaluated";
+  if (!liveSupport) return t("support.scope.not_evaluated");
   return liveSupportSummary(liveSupport);
 }
 
 function liveSupportSummary(liveSupport) {
-  if (!liveSupport || liveSupport.evaluated !== true) return "Connection scope not evaluated";
+  if (!liveSupport || liveSupport.evaluated !== true) return t("support.scope.not_evaluated");
   const commands = Object.values(liveSupport.commands || {});
   const validated = commands.filter((entry) => entry.product_open === true && !entry.policy_exempt).length;
   const pending = commands.filter((entry) => ["transport_pending", "feature_pending"].includes(entry.exact_scope_validation_status)).length;
   const unavailable = commands.filter((entry) => !entry.policy_exempt && !entry.offline_only && entry.product_open !== true && !["transport_pending", "feature_pending"].includes(entry.exact_scope_validation_status)).length;
   const scope = `${transportScopeLabel(liveSupport.transport_scope)} / ${backendScopeLabel(liveSupport.backend_scope)}`;
-  return `${scope}: ${validated} validated, ${pending} pending, ${unavailable} unavailable`;
+  return t("support.scope.summary", { scope, validated, pending, unavailable });
 }
 
 function transportScopeLabel(scope) {

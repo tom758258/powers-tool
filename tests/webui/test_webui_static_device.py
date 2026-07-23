@@ -25,13 +25,65 @@ strictAssert.equal(device.physicalModelDisplayName(models, "keysight-e36312a"), 
 strictAssert.equal(device.physicalModelDisplayName(models, ""), "Unknown model");
 strictAssert.equal(device.planningIdentitySummary({ executionMode: "simulate", planningProfiles: {}, physicalModels: models }, ""), "Planning model: not selected");
 strictAssert.equal(device.planningIdentitySummary({ executionMode: "dry-run", planningProfiles: { generic: { display_name: "Generic SCPI" } }, physicalModels: models }, "profile:generic"), "Planning profile: Generic SCPI");
-strictAssert.equal(device.liveResourceSummary({}, "USB0::A", { value: "USB0::A", options: [] }), "live selected");
-strictAssert.equal(device.liveResourceSummary({}, "USB0::A", { value: "", options: [{ textContent: "No live resources found" }] }), "no live resources");
+strictAssert.equal(device.liveResourceSummary({}, "USB0::A", { status: "not_scanned", resources: [], detail: "" }), "not scanned");
+strictAssert.equal(device.liveResourceSummary({}, "USB0::A", { status: "results", resources: ["USB0::A"], detail: "" }), "live selected");
+strictAssert.equal(device.liveResourceSummary({}, "USB0::A", { status: "empty", resources: [], detail: "" }), "no live resources");
+strictAssert.equal(device.liveResourceSummary({}, "USB0::A", { status: "failed", resources: [], detail: "raw VISA failure" }), "resource scan failed");
+strictAssert.equal(device.liveResourceSummary({ "USB0::A": "E36312A" }, "USB0::A", { status: "results", resources: ["USB0::A"] }), "live E36312A");
 strictAssert.equal(device.resourceLabel({ idn: { manufacturer: "Keysight", model: "E36312A" } }, "USB0::A"), "USB0::A - Keysight - E36312A");
 strictAssert.equal("PowersToolWebUI" in globalThis, false);
 """,
         ("device-resource.js",),
     )
+
+
+def test_live_resource_summary_does_not_read_option_text() -> None:
+    device_js = read_static_javascript("device-resource.js")
+
+    assert "textContent" not in device_js[device_js.index("export function liveResourceSummary"):device_js.index("export function resourceLabel")]
+    assert '"No live resources found"' not in device_js
+
+
+def test_device_resource_presentation_supports_both_locales_and_preserves_values() -> None:
+    run_webui_module_assertions(
+        r"""
+const i18n = await import(new URL("./i18n.js", moduleUrls["device-resource.js"]));
+const device = globalThis.webuiDevice;
+const state = {
+  executionMode: "simulate",
+  planningProfiles: { "generic-scpi": { display_name: "Generic SCPI" } },
+  physicalModels: [{ model_id: "keysight-e36312a", display_name: "Keysight E36312A" }]
+};
+const scan = { status: "results", resources: ["USB0::RAW::INSTR"], detail: "" };
+strictAssert.equal(device.planningIdentitySummary(state, "keysight-e36312a"), "Planning model: Keysight E36312A");
+strictAssert.equal(device.liveResourceSummary({}, "USB0::RAW::INSTR", scan), "live selected");
+i18n.setLocale("zh-TW");
+strictAssert.equal(device.planningIdentitySummary(state, "keysight-e36312a"), "規劃型號：Keysight E36312A");
+strictAssert.equal(device.planningIdentitySummary({ ...state, executionMode: "dry-run" }, "profile:generic-scpi"), "規劃設定檔：Generic SCPI");
+strictAssert.equal(device.liveResourceSummary({}, "USB0::RAW::INSTR", scan), "已選取即時資源");
+strictAssert.deepEqual(scan, { status: "results", resources: ["USB0::RAW::INSTR"], detail: "" });
+i18n.setLocale("en");
+""",
+        ("device-resource.js",),
+    )
+
+
+def test_presentation_refreshes_do_not_enter_state_changing_paths() -> None:
+    device_js = read_static_javascript("device-resource.js")
+    command_js = read_static_javascript("command-form.js")
+    device_refresh = device_js[
+        device_js.index("function refreshDeviceResourcePresentation()"):
+        device_js.index("function setStateIndicator(")
+    ]
+    command_refresh = command_js[
+        command_js.index("function refreshCommandPresentation()"):
+        command_js.index("function updatePulseChildVisibility(")
+    ]
+
+    for forbidden in ("fetchJson(", "updateExecutionModeUi(", "populateIdentitySelector(", "selectCommand("):
+        assert forbidden not in device_refresh
+    for forbidden in ("fetchJson(", "selectCommand(", "renderForm(", "new EventSource"):
+        assert forbidden not in command_refresh
 
 
 def test_device_controller_native_module_owns_state_and_e3646a_constants() -> None:
@@ -82,11 +134,13 @@ const state = {
   basicActionStates: {},
   workflowControl: { phase: "idle" }
 };
+let fetchCalls = 0;
 const capability = { output_control_scope: "global", channels: [1, 2] };
 const controller = webuiDevice.createDeviceResourceController({
   state,
   devicePresentation: webuiDevice,
   executionContext: { isNoHardwareExecutionMode: (mode) => mode !== "real" },
+  fetchJson: async () => { fetchCalls += 1; throw new Error("presentation refresh fetched"); },
   valueOrNull: (id) => id === "expected-model-id" ? state.planningIdentityCache.simulate : null,
   channelCapabilityForModel: (model) => model === "keysight-e3646a" ? capability : null
 });
@@ -96,6 +150,12 @@ strictAssert.equal(indicator.classList.contains("state-ok"), true);
 strictAssert.equal(indicator.classList.contains("state-warning"), false);
 strictAssert.equal(indicator.querySelector(".state-text").textContent, "Ready");
 strictAssert.equal(indicator.title, "Ready title");
+state.health = { status: "loaded", readiness: "ok", hardwareLocked: true, activeJob: "job-raw-42", detail: "" };
+controller.refreshHealthPresentation();
+strictAssert.equal(element("server-state").querySelector(".state-text").textContent, "Ready");
+strictAssert.equal(element("device-state").querySelector(".state-text").textContent, "Busy");
+strictAssert.match(element("device-state").title, /job-raw-42/);
+strictAssert.equal(fetchCalls, 0);
 strictAssert.deepEqual(controller.e3646aGlobalOutputCapability(), capability);
 strictAssert.equal(controller.basicOutputPresentation().mode, "e3646a-global");
 state.planningIdentityCache.simulate = "keysight-e36312a";

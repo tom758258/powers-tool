@@ -115,8 +115,15 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert 'id="real-write-enabled"' in html
     assert "Simulate" in html
     execution_mode_ui = extract_js_function(app_js, "updateExecutionModeUi")
-    for text in ("Real · Writes locked", "Real · Writes enabled", "Simulate", "Dry-run"):
-        assert text in execution_mode_ui
+    assert "refreshExecutionModePresentation();" in execution_mode_ui
+    execution_presentation = extract_js_function(app_js, "refreshExecutionModePresentation")
+    for key in (
+        "execution_mode.badge.real_locked",
+        "execution_mode.badge.real_enabled",
+        "execution_mode.badge.simulate",
+        "execution_mode.badge.dry_run",
+    ):
+        assert key in execution_presentation
     for class_name in ("real-locked", "real-enabled", "simulate", "dry-run"):
         assert f'badge.classList.add("{class_name}")' in execution_mode_ui
     assert ".device-resource-title-row" in styles_css
@@ -184,12 +191,12 @@ def test_static_device_resource_summary_uses_model_wording():
     builder = extract_js_function(app_js, "buildDeviceResourceSummary")
 
     assert "Manual" not in summary
-    assert "buildDeviceResourceSummary(resource, select)" in summary
-    assert "Real mode" in builder
-    assert "Simulate mode" in builder
-    assert "Dry-run mode" in builder
-    assert "Expected Model guard" in builder
-    assert "preserved, not used" in builder
+    assert "refreshDeviceResourceSummaryPresentation();" in summary
+    assert "execution_mode.summary.real" in builder
+    assert "execution_mode.summary.simulate" in builder
+    assert "execution_mode.summary.dry_run" in builder
+    assert "device.expected_guard" in builder
+    assert "resource.real.preserved" in builder
     assert "actualCurrentResourceModel()" in builder
     assert "exactSupportContextSummary(resource)" in builder
     assert "resourceDisplayModels: {}" in state_js
@@ -577,11 +584,14 @@ def test_static_state_indicators_show_webui_command_and_live_state():
     for hook in ('class="state-dot"', 'class="state-text"', 'class="state-indicator'):
         assert hook in index_html
 
-    assert 'setStateIndicator("server-state"' in refresh_health
-    assert 'serverReady ? "Ready" : "Error"' in refresh_health
-    assert 'setStateIndicator("device-state"' in refresh_health
-    assert 'serverReady ? (deviceIdle ? "Ready" : "Busy") : "Unknown"' in refresh_health
-    assert 'serverReady ? (deviceIdle ? "state-ok" : "state-warning") : "state-idle"' in refresh_health
+    assert "state.health =" in refresh_health
+    assert "refreshHealthPresentation();" in refresh_health
+    health_presentation = extract_js_function(app_js, "refreshHealthPresentation")
+    assert '"server-state"' in health_presentation
+    assert '"device-state"' in health_presentation
+    assert "health.status.ready" in health_presentation
+    assert "health.status.busy" in health_presentation
+    assert "health.status.unknown" in health_presentation
 
     assert 'setLiveState("Refreshing once...", "state-warning"' in preview
     assert 'setLiveState("Refresh blocked", "state-error"' in preview
