@@ -27,33 +27,70 @@ function commandMeta(name) {
   const meta = state.commands[name] || {};
   if (isNoHardwareMode()) {
     const identity = selectedPlanningIdentity();
-    if (!identity) return { ...meta, disabled: true, disabled_reason: "Select a planning identity before running this command.", live_support_status: "Planning identity is required." };
+    if (!identity) return {
+      ...meta,
+      disabled: true,
+      disabled_reason: t("support.reason.select_planning_identity"),
+      live_support_status: t("support.status.planning_identity_required")
+    };
     if (identity.startsWith("profile:")) {
       const profile = state.planningProfiles?.[identity.slice("profile:".length)];
       const support = profile?.command_support?.[name];
-      if (!support || support.dry_run !== true) return { ...meta, disabled: true, disabled_reason: "This planning profile does not support the selected command." };
-      return { ...meta, live_support_status: "Dry-run planning profile", requires_confirm: false };
+      if (!support || support.dry_run !== true) {
+        return {
+          ...meta,
+          disabled: true,
+          disabled_reason: t("support.reason.planning_profile_unsupported")
+        };
+      }
+      return {
+        ...meta,
+        live_support_status: t("support.status.dry_run_planning_profile"),
+        requires_confirm: false
+      };
     }
     const support = state.commandSupportByModel?.[identity]?.[name];
     const supported = state.executionMode === "simulate" ? support?.simulate : support?.dry_run;
-    if (supported !== true) return { ...meta, disabled: true, disabled_reason: `${physicalModelDisplayName(identity)} does not support this command in ${state.executionMode}.` };
-    return { ...meta, live_support_status: state.executionMode === "simulate" ? "Simulation supported" : "Dry-run supported", requires_confirm: false };
+    if (supported !== true) {
+      return {
+        ...meta,
+        disabled: true,
+        disabled_reason: t("support.reason.model_mode_unsupported", {
+          model: physicalModelDisplayName(identity),
+          mode: state.executionMode
+        })
+      };
+    }
+    return {
+      ...meta,
+      live_support_status: t(state.executionMode === "simulate"
+        ? "support.status.simulation_supported"
+        : "support.status.dry_run_supported"),
+      requires_confirm: false
+    };
   }
   const support = selectedCommandSupport(name);
   const modelSupport = selectedModelLiveSupport(name);
   let effective = { ...meta };
   if (support?.real === false || (modelSupport && !modelSupport.profile_supported && !modelSupport.policy_exempt)) {
+    const unsupportedModel = modelSupport?.profile_validation_status === "not_supported_by_model";
     effective = {
       ...effective,
       disabled: true,
-      disabled_reason: modelSupport?.disabled_reason || meta.disabled_reason || commandDisabledReason(support, selectedCommandModel())
+      disabled_reason: unsupportedModel
+        ? t("support.status.not_supported_by_model", {
+          model: physicalModelDisplayName(selectedCommandModel())
+        })
+        : modelSupport?.disabled_reason
+          || meta.disabled_reason
+          || commandDisabledReason(support, selectedCommandModel())
     };
   }
   const exactSupport = currentExactLiveSupport();
   if (!exactSupport) {
     effective.live_support_status = modelSupport?.policy_exempt
-      ? modelSupport.support_reason
-      : "Connection scope not evaluated";
+      ? localizedKnownSupportReason(modelSupport.support_reason)
+      : t("support.scope.not_evaluated");
     return effective;
   }
   const exactCommand = exactSupport.commands?.[name];
@@ -61,8 +98,8 @@ function commandMeta(name) {
     return {
       ...effective,
       disabled: true,
-      disabled_reason: "Live support metadata is missing for this command.",
-      live_support_status: "Live support metadata is missing for this command."
+      disabled_reason: t("support.reason.missing_live_metadata"),
+      live_support_status: t("support.reason.missing_live_metadata")
     };
   }
   effective.live_support_status = exactCommandSupportText(exactCommand, exactSupport);
@@ -75,22 +112,25 @@ function commandMeta(name) {
 
 function exactCommandSupportText(commandSupport, liveSupport) {
   if (commandSupport.offline_only) {
-    return "Offline utility; live exact scope is not applicable.";
+    return t("support.status.offline_utility");
   }
   if (commandSupport.policy_exempt) {
-    return "Identity/status diagnostic; exact model feature scope is not required.";
+    return t("support.status.identity_diagnostic");
   }
   const scope = `${transportScopeLabel(liveSupport.transport_scope)} / ${backendScopeLabel(liveSupport.backend_scope)}`;
   if (commandSupport.exact_scope_validation_status === "live_validated_full_suite") {
-    return `Live validated: ${scope}`;
+    return t("support.status.live_validated", { scope });
   }
   if (["transport_pending", "feature_pending"].includes(commandSupport.exact_scope_validation_status)) {
-    return `Pending live validation: ${scope}`;
+    return t("support.status.pending_live_validation", { scope });
   }
   if (commandSupport.profile_validation_status === "not_supported_by_model") {
-    return `Not supported by ${liveSupport.display_name || liveSupport.model_name || liveSupport.model_id}`;
+    return t("support.status.not_supported_by_model", {
+      model: liveSupport.display_name || liveSupport.model_name || liveSupport.model_id
+    });
   }
-  return commandSupport.disabled_reason || `No product-open live scope is registered for ${scope}`;
+  return localizedKnownSupportReason(commandSupport.disabled_reason)
+    || t("support.status.no_product_open_scope", { scope });
 }
 
 function selectedCommandSupport(name) {
@@ -113,9 +153,18 @@ function supportedModelKey(model) {
 function commandDisabledReason(support, model) {
   const validation = support?.hardware_validation;
   const displayModel = physicalModelDisplayName(model);
-  if (validation === "planning_only") return `Planning only on ${displayModel}`;
-  if (validation === "not_supported_by_model") return `Not supported on ${displayModel}`;
-  return `Unavailable on ${displayModel}`;
+  if (validation === "planning_only") return t("support.reason.planning_only", { model: displayModel });
+  if (validation === "not_supported_by_model") return t("support.reason.not_supported", { model: displayModel });
+  return t("support.reason.unavailable", { model: displayModel });
+}
+
+function localizedKnownSupportReason(reason) {
+  const keys = {
+    "Offline utility; live exact scope is not applicable.": "support.status.offline_utility",
+    "Identity/status diagnostic; exact model feature scope is not required.": "support.status.identity_diagnostic",
+    "Live support metadata is missing for this command.": "support.reason.missing_live_metadata"
+  };
+  return keys[reason] ? t(keys[reason]) : reason;
 }
 
 function exactSupportContextSummary(resource) {
@@ -161,7 +210,12 @@ function isNumericChannel(channel) {
 function channelUnsupportedReason(channel) {
   if (isChannelSupported(channel)) return "";
   const model = currentChannelCapabilityModel();
-  return model ? `${physicalModelDisplayName(model)} does not support channel ${channel}` : "";
+  return model
+    ? t("support.reason.channel_unsupported", {
+      model: physicalModelDisplayName(model),
+      channel
+    })
+    : "";
 }
 
 function channelCapabilityForCurrentModel() {

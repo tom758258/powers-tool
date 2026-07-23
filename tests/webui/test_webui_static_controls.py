@@ -551,11 +551,16 @@ def test_static_basic_command_error_state_contract():
 def test_static_command_panel_exposes_description():
     index_html, app_js, _styles_css = read_static_texts()
     update_selected = extract_js_function(app_js, "updateSelectedCommandState")
+    command_form_js = read_static_javascript("command-form.js")
+    refresh_description = extract_js_function(command_form_js, "refreshSelectedCommandDescription")
 
     assert 'id="selected-command"' in index_html
     assert 'id="command-description"' in index_html
-    assert "commandDescription.textContent = descriptionText;" in update_selected
-    assert "commandDescription.title = descriptionText;" in update_selected
+    assert "commandDescription.dataset.presentationParts = JSON.stringify([" in update_selected
+    assert "refreshSelectedCommandDescription();" in update_selected
+    assert "commandCatalog.commandDescription(state.selected, meta.description || \"\")" in refresh_description
+    assert "description.textContent = text;" in refresh_description
+    assert "description.title = text;" in refresh_description
 
 
 def test_static_commands_use_category_navigation():
@@ -768,8 +773,24 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
           }
 
           querySelector(selector) {
-            if (!selector.startsWith(".")) return null;
-            return descendants(this).find((node) => node !== this && node.classList.contains(selector.slice(1))) || null;
+            if (selector === ".field-description:not(.set-field-guidance)") {
+              return descendants(this).find(
+                (node) => node !== this
+                  && node.classList.contains("field-description")
+                  && !node.classList.contains("set-field-guidance")
+              ) || null;
+            }
+            if (selector.startsWith(".")) {
+              return descendants(this).find(
+                (node) => node !== this && node.classList.contains(selector.slice(1))
+              ) || null;
+            }
+            if (selector.startsWith("#")) {
+              return descendants(this).find((node) => node.id === selector.slice(1)) || null;
+            }
+            return descendants(this).find(
+              (node) => node !== this && node.tagName === selector.toUpperCase()
+            ) || null;
           }
 
           querySelectorAll(selector) {
@@ -782,13 +803,16 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
             if (selector === "[data-i18n-loop]") {
               return descendants(this).filter((node) => node.dataset.i18nLoop);
             }
-                if (selector === "[data-workflow-i18n]") {
-                  return descendants(this).filter((node) => node.dataset.workflowI18n);
-                }
-                if (selector === "[data-workflow-compact-help-description]") {
-                  return descendants(this).filter((node) => node.dataset.workflowCompactHelpDescription);
-                }
-                return [];
+            if (selector === "[data-workflow-i18n]") {
+              return descendants(this).filter((node) => node.dataset.workflowI18n);
+            }
+            if (selector === "[data-workflow-compact-help-description]") {
+              return descendants(this).filter((node) => node.dataset.workflowCompactHelpDescription);
+            }
+            if (["dt", "dd"].includes(selector)) {
+              return descendants(this).filter((node) => node.tagName === selector.toUpperCase());
+            }
+            return [];
           }
 
           remove() {
@@ -966,6 +990,53 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(descendants(commandForm).filter((node) => node.id === "ramp-enable-output-help").length, 1);
         strictAssert.equal(byClass(commandForm, "output-behavior").length, 0);
 
+        state.selected = "safe-off";
+        renderForm("safe-off");
+        const safeOffDescription = byClass(commandForm, "field-description")[0];
+        strictAssert.equal(
+          safeOffDescription.textContent,
+          "Disables the selected output, or every available output when set to all, then reads back each output state. Voltage/current setpoints and protection settings are not changed."
+        );
+        setLocale("zh-TW");
+        refreshCommandFormPresentation();
+        strictAssert.equal(
+          safeOffDescription.textContent,
+          "關閉所選輸出；選取全部時關閉所有可用輸出，然後讀回各輸出狀態。不會變更電壓／電流設定值或保護設定。"
+        );
+        setLocale("en");
+
+        for (const command of ["error", "cycle-output", "smoke-output"]) {
+          state.selected = command;
+          renderForm(command);
+          strictAssert.equal(state.selected, command);
+        }
+
+        state.selected = "snapshot";
+        renderForm("snapshot");
+        const snapshotMaxErrors = byId(commandForm, "param-max_errors");
+        const snapshotMaxErrorsLabel = snapshotMaxErrors.parentNode;
+        const snapshotDescription = byClass(snapshotMaxErrorsLabel, "field-description")[0];
+        snapshotMaxErrors.value = "37";
+        const snapshotInputIdentity = snapshotMaxErrors;
+        strictAssert.equal(snapshotMaxErrorsLabel.textContent, "Max errors");
+        strictAssert.equal(
+          snapshotDescription.textContent,
+          "Limits how many times the snapshot reads the instrument error queue. Reading stops early when the instrument reports no error. Each reported error is removed from the instrument queue."
+        );
+        setLocale("zh-TW");
+        webuiWorkflows.refreshWorkflowPresentation(commandForm);
+        strictAssert.equal(byId(commandForm, "param-max_errors"), snapshotInputIdentity);
+        strictAssert.equal(snapshotMaxErrors.value, "37");
+        strictAssert.equal(snapshotMaxErrorsLabel.textContent, "錯誤數上限");
+        strictAssert.equal(
+          snapshotDescription.textContent,
+          "限制快照讀取儀器錯誤佇列的次數。儀器回報無錯誤時會提早停止；每筆已回報的錯誤都會從儀器佇列中移除。"
+        );
+        setLocale("en");
+        webuiWorkflows.refreshWorkflowPresentation(commandForm);
+        strictAssert.equal(snapshotMaxErrors.value, "37");
+        strictAssert.equal(snapshotMaxErrorsLabel.textContent, "Max errors");
+
         state.selected = "trigger-step";
         renderForm("trigger-step");
         const triggerVoltage = byId(commandForm, "param-voltage");
@@ -985,6 +1056,16 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.deepEqual(triggerChannel.children.map((option) => option.value), ["1", "2", "3"]);
         strictAssert.deepEqual(triggerSource.children.map((option) => option.textContent), ["BUS", "Immediate"]);
         strictAssert.deepEqual(triggerSource.children.map((option) => option.value), sourceValues);
+        const triggerNotes = byClass(commandForm, "command-notes")[0];
+        strictAssert.equal(triggerNotes.querySelector("strong").textContent, "指令附註");
+        strictAssert.equal(
+          triggerNotes.querySelector("p").textContent,
+          "設定 STEP 瞬態觸發並選擇是否觸發"
+        );
+        strictAssert.equal(
+          triggerNotes.querySelectorAll("dd")[0].textContent,
+          "僅限 E36312A。設定並準備 STEP 瞬態。預設不會觸發；省略電壓或電流時會保留目前設定值。"
+        );
         const triggerPayload = parameterPayload();
         strictAssert.equal(triggerPayload.voltage, 1.25);
         strictAssert.equal(triggerPayload.current, 0.2);

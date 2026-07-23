@@ -28,11 +28,17 @@ export function renderCommandGuidance(command, parameters, triggerControlGuardRe
   guidance.hidden = !text;
 }
 
-export function appendFieldDescription(label, param) {
+export function appendFieldDescription(label, param, translationKey = null) {
   if (!param.description) return;
   const description = document.createElement("small");
   description.className = "field-description";
-  description.textContent = param.description;
+  description.textContent = translationKey
+    ? t(translationKey, undefined, param.description)
+    : param.description;
+  if (translationKey) {
+    description.dataset.workflowI18n = translationKey;
+    description.dataset.workflowI18nFallback = param.description;
+  }
   label.appendChild(description);
 }
 
@@ -467,6 +473,21 @@ function refreshCommandPresentation() {
   const selected = document.getElementById("selected-command");
   if (selected && state.selected) selected.textContent = commandDisplayName(state.selected);
   refreshCommandFormPresentation();
+  refreshSelectedCommandDescription();
+}
+
+function refreshSelectedCommandDescription() {
+  const description = document.getElementById("command-description");
+  if (!description || !state.selected) return;
+  const meta = commandMeta(state.selected);
+  const rawParts = JSON.parse(description.dataset.presentationParts || "[]");
+  const text = [
+    commandCatalog.commandDescription(state.selected, meta.description || ""),
+    meta.live_support_status,
+    ...rawParts
+  ].filter(Boolean).join(" ");
+  description.textContent = text;
+  description.title = text;
 }
 
 function refreshCommandGuidancePresentation() {
@@ -834,6 +855,7 @@ function optionDisplayName(value) {
     renderForm,
     refreshCommandFormPresentation,
     refreshCommandPresentation,
+    refreshSelectedCommandDescription,
     updatePulseChildVisibility,
     runtimePayload,
     serialOptionsPayload,

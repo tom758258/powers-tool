@@ -447,6 +447,8 @@ def test_static_ui_exposes_advanced_serial_controls():
 def test_static_command_forms_do_not_repeat_real_write_authorization_warning() -> None:
     index_html, app_js, styles_css = read_static_texts()
     update_selected = extract_js_function(app_js, "updateSelectedCommandState")
+    command_form_js = read_static_javascript("command-form.js")
+    refresh_description = extract_js_function(command_form_js, "refreshSelectedCommandDescription")
     runtime_block = extract_js_function(app_js, "runtimePayload")
     submit_selected = extract_js_function(app_js, "runSelected")
     submit_basic = extract_js_function(app_js, "submitBasicJob")
@@ -456,7 +458,7 @@ def test_static_command_forms_do_not_repeat_real_write_authorization_warning() -
     assert "confirm-banner" not in styles_css
     assert "Enable real hardware writes in Device options before running this command." not in app_js
     assert "webuiCommandForm.renderCommandGuidance(state.selected, parameters, triggerControlGuardReason, triggerFireWaitGuardReason);" in update_selected
-    assert "meta.live_support_status" in update_selected
+    assert "meta.live_support_status" in refresh_description
     assert "confirm: hasRealWriteAuthorization()" in runtime_block
     assert 'meta.requires_confirm && state.executionMode === "real" && !payload.runtime.confirm' in submit_selected
     assert 'meta.requires_confirm && state.executionMode === "real" && !payload.runtime.confirm' in submit_basic

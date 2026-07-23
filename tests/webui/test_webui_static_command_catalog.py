@@ -46,6 +46,8 @@ strictAssert.equal(catalog.commandDisplayName("output-on", "Output on"), "開啟
 strictAssert.equal(catalog.commandDescription("trigger-fire", "raw"), "將 *TRG 傳送至已準備的 BUS 觸發");
 strictAssert.equal(catalog.commandDisplayName("ramp", "Ramp"), "單段逐步輸出");
 strictAssert.equal(catalog.commandDisplayName("ramp-list", "Ramp list"), "多段逐步輸出");
+strictAssert.equal(catalog.commandDisplayName("cycle-output", "Cycle output"), "短暫開啟輸出");
+strictAssert.equal(catalog.commandDisplayName("smoke-output", "Smoke output"), "輸出測試");
 strictAssert.equal(
   catalog.commandDescription("ramp", "raw"),
   "依起始電壓、終止電壓與步進量，逐步調整指定通道的輸出。"
@@ -57,6 +59,7 @@ strictAssert.equal(
 strictAssert.equal(catalog.commandDisplayName("sequence", "Sequence"), "序列");
 strictAssert.equal(catalog.commandDisplayName("trigger-step", "Trigger step"), "STEP 觸發");
 strictAssert.equal(catalog.commandDisplayName("backend-new-command", "Backend New Command"), "Backend New Command");
+strictAssert.equal(catalog.commandDescription("backend-new-command", "Raw API description"), "Raw API description");
 strictAssert.equal(catalog.commandSourceDisplayName("output-on", "Output on"), "Output on");
 strictAssert.equal(i18n.getLocale(), "zh-TW");
 strictAssert.deepEqual(catalog.COMMAND_CATEGORIES, ids);
@@ -96,6 +99,7 @@ const elements = new Map([
   ["command-list", new FakeElement()],
   ["selected-command", new FakeElement()],
   ["command-form", new FakeElement("form")],
+  ["command-description", new FakeElement()],
 ]);
 globalThis.document = {
   createElement: (tagName) => new FakeElement(tagName),
@@ -105,7 +109,10 @@ const workflowIds = ["smoke-output", "sequence", "ramp-list", "cycle-output", "r
 const state = {
   selected: "ramp-list",
   activeCategory: "workflow",
-  commands: Object.fromEntries(workflowIds.map((id) => [id, { category: "workflow" }])),
+  commands: Object.fromEntries(workflowIds.map((id) => [id, {
+    category: "workflow",
+    description: id === "cycle-output" ? "Cycle output on then off" : `Raw ${id}`
+  }])),
   workflowControl: { phase: "idle" },
 };
 const catalog = globalThis.webuiCommandCatalog;
@@ -125,6 +132,10 @@ i18n.setLocale("en");
 controller.renderCommands();
 strictAssert.deepEqual(commandIds(), expectedIds);
 strictAssert.deepEqual(commandLabels(), ["Cycle output", "Ramp", "Ramp list", "Sequence", "Smoke output"]);
+strictAssert.equal(
+  elements.get("command-list").children[0].title,
+  "Cycle output on then off"
+);
 const categoryIds = [...catalog.COMMAND_CATEGORIES];
 
 const form = elements.get("command-form");
@@ -137,8 +148,61 @@ controller.refreshCommandPresentation();
 strictAssert.deepEqual(commandIds(), expectedIds);
 strictAssert.deepEqual(
   commandLabels(),
-  ["循環切換輸出", "單段逐步輸出", "多段逐步輸出", "序列", "輸出基本診斷"],
+  ["短暫開啟輸出", "單段逐步輸出", "多段逐步輸出", "序列", "輸出測試"],
 );
+strictAssert.equal(
+  elements.get("command-list").children[0].title,
+  "開啟指定通道，維持設定時間後自動關閉。"
+);
+state.selected = "cycle-output";
+elements.get("command-description").dataset.presentationParts = JSON.stringify([
+  "Backend raw guard"
+]);
+controller.refreshSelectedCommandDescription();
+strictAssert.equal(
+  elements.get("command-description").textContent,
+  "開啟指定通道，維持設定時間後自動關閉。 Backend raw guard"
+);
+strictAssert.equal(
+  elements.get("command-description").title,
+  elements.get("command-description").textContent
+);
+strictAssert.equal(
+  elements.get("command-description").textContent.startsWith(
+    elements.get("command-list").children[0].title
+  ),
+  true
+);
+for (const [command, expected] of [
+  ["error", "讀取並移除儀器錯誤佇列項目"],
+  ["cycle-output", "開啟指定通道，維持設定時間後自動關閉。"],
+  ["smoke-output", "設定電壓與電流、短暫開啟並量測輸出，最後關閉輸出並確認狀態。"],
+  ["snapshot", "建立硬體快照"],
+  ["ramp", "依起始電壓、終止電壓與步進量，逐步調整指定通道的輸出。"],
+  ["ramp-list", "依序執行多個逐步輸出區段，各區段可設定通道、電壓範圍、步進量與時間。"],
+]) {
+  state.commands[command] ||= {};
+  state.commands[command].description = `Raw API description for ${command}`;
+  state.selected = command;
+  elements.get("command-description").dataset.presentationParts = "[]";
+  controller.refreshSelectedCommandDescription();
+  strictAssert.equal(elements.get("command-description").textContent, expected);
+}
+state.commands["backend-new-command"] = {
+  category: "workflow",
+  description: "Raw API description"
+};
+state.selected = "backend-new-command";
+elements.get("command-description").dataset.presentationParts = "[]";
+controller.refreshSelectedCommandDescription();
+strictAssert.equal(elements.get("command-description").textContent, "Raw API description");
+state.selected = "ramp-list";
+i18n.setLocale("en");
+state.selected = "cycle-output";
+controller.refreshSelectedCommandDescription();
+strictAssert.equal(elements.get("command-description").textContent, "Cycle output on then off");
+i18n.setLocale("zh-TW");
+state.selected = "ramp-list";
 strictAssert.equal(state.selected, "ramp-list");
 strictAssert.equal(state.activeCategory, "workflow");
 strictAssert.equal(form.children[0], formIdentity);

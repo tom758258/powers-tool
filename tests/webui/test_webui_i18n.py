@@ -239,6 +239,72 @@ for (const catalog of [EN_MESSAGES, ZH_TW_MESSAGES]) {
     assert.equal(message.length > 0, true);
   }
 }
+const maintainedCommandDescriptions = [
+  "apply", "capabilities", "clear", "clear_protection", "cycle_output", "doctor",
+  "error", "hardware_report", "identify", "list_resources", "log", "measure",
+  "measure_all", "output_off", "output_on", "output_state", "protection_set",
+  "protection_status", "ramp", "ramp_list", "readback", "read_status",
+  "restore_from_snapshot", "safe_off", "safety_inspect", "sequence", "set",
+  "smoke_output", "snapshot", "snapshot_diff", "trigger_abort", "trigger_fire",
+  "trigger_list", "trigger_pulse", "trigger_status", "trigger_step", "validate_readonly",
+  "verify",
+];
+for (const command of maintainedCommandDescriptions) {
+  for (const catalog of [EN_MESSAGES, ZH_TW_MESSAGES]) {
+    assert.equal(typeof catalog[`command.description.${command}`], "string", command);
+    assert.equal(catalog[`command.description.${command}`].length > 0, true, command);
+  }
+}
+assert.deepEqual(
+  Object.keys(EN_MESSAGES)
+    .filter((key) => key.startsWith("command.description."))
+    .map((key) => key.slice("command.description.".length))
+    .sort(),
+  [...maintainedCommandDescriptions].sort()
+);
+const maintainedFieldDescriptions = [
+  "form.description.ramp.enable_output",
+  "form.description.safe_off.channel",
+  "form.description.sequence.trigger_pulse.leave_trigger_configured",
+  "form.description.snapshot.max_errors",
+  "form.description.trigger_abort.channel",
+  "form.description.trigger_abort.max_errors",
+  "form.description.trigger_fire.channel",
+  "form.description.trigger_fire.poll_ms",
+  "form.description.trigger_fire.wait_complete",
+  "form.description.trigger_fire.wait_timeout_ms",
+  "form.description.trigger_list.channel",
+  "form.description.trigger_list.completion_pulse_pins",
+  "form.description.trigger_list.count",
+  "form.description.trigger_list.current_list",
+  "form.description.trigger_list.dwell_list",
+  "form.description.trigger_list.exclusive_pins",
+  "form.description.trigger_list.fire",
+  "form.description.trigger_list.leave_trigger_configured",
+  "form.description.trigger_list.poll_ms",
+  "form.description.trigger_list.source",
+  "form.description.trigger_list.voltage_list",
+  "form.description.trigger_list.wait_complete",
+  "form.description.trigger_list.wait_timeout_ms",
+  "form.description.trigger_pulse.exclusive_pins",
+  "form.description.trigger_pulse.pins",
+  "form.description.trigger_status.channel",
+  "form.description.trigger_step.channel",
+  "form.description.trigger_step.fire",
+  "form.description.trigger_step.leave_trigger_configured",
+  "form.description.trigger_step.poll_ms",
+  "form.description.trigger_step.source",
+  "form.description.trigger_step.wait_complete",
+  "form.description.trigger_step.wait_timeout_ms",
+];
+for (const key of maintainedFieldDescriptions) {
+  assert.equal(typeof EN_MESSAGES[key], "string", key);
+  assert.equal(typeof ZH_TW_MESSAGES[key], "string", key);
+}
+assert.deepEqual(
+  Object.keys(EN_MESSAGES).filter((key) => key.startsWith("form.description.")).sort(),
+  [...maintainedFieldDescriptions].sort()
+);
 assert.equal(EN_MESSAGES["app.document_title"], "Powers Tool WebUI");
 assert.equal(ZH_TW_MESSAGES["app.brand"], "Powers Tool");
 assert.equal(ZH_TW_MESSAGES["resource.visa_resource"], "VISA 資源");
@@ -249,6 +315,8 @@ assert.equal(ZH_TW_MESSAGES["execution_mode.busy_title"], "作業正在提交、
 assert.equal(ZH_TW_MESSAGES["command.heading"], "指令");
 assert.equal(ZH_TW_MESSAGES["command.name.ramp"], "單段逐步輸出");
 assert.equal(ZH_TW_MESSAGES["command.name.ramp_list"], "多段逐步輸出");
+assert.equal(ZH_TW_MESSAGES["command.name.cycle_output"], "短暫開啟輸出");
+assert.equal(ZH_TW_MESSAGES["command.name.smoke_output"], "輸出測試");
 assert.equal(
   ZH_TW_MESSAGES["command.description.ramp"],
   "依起始電壓、終止電壓與步進量，逐步調整指定通道的輸出。"
@@ -257,16 +325,37 @@ assert.equal(
   ZH_TW_MESSAGES["command.description.ramp_list"],
   "依序執行多個逐步輸出區段，各區段可設定通道、電壓範圍、步進量與時間。"
 );
+assert.equal(
+  ZH_TW_MESSAGES["command.description.cycle_output"],
+  "開啟指定通道，維持設定時間後自動關閉。"
+);
+assert.equal(
+  ZH_TW_MESSAGES["command.description.smoke_output"],
+  "設定電壓與電流、短暫開啟並量測輸出，最後關閉輸出並確認狀態。"
+);
 assert.equal(ZH_TW_MESSAGES["workflow.action.add_ramp_segment"], "新增逐步輸出區段");
 assert.equal(ZH_TW_MESSAGES["workflow.ramp_segment"], "逐步輸出區段 {index}");
 assert.equal(ZH_TW_MESSAGES["command.name.sequence"], "序列");
 assert.equal(ZH_TW_MESSAGES["command.name.trigger_step"], "STEP 觸發");
 assert.equal(EN_MESSAGES["command.name.ramp"], "Ramp");
 assert.equal(EN_MESSAGES["command.name.ramp_list"], "Ramp list");
+assert.equal(EN_MESSAGES["command.name.cycle_output"], "Cycle output");
+assert.equal(EN_MESSAGES["command.name.smoke_output"], "Smoke output");
 assert.equal(EN_MESSAGES["workflow.action.add_ramp_segment"], "Add Ramp Segment");
 assert.equal(EN_MESSAGES["workflow.ramp_segment"], "Ramp Segment {index}");
 assert.equal(ZH_TW_MESSAGES["form.option.segment"], "逐步輸出完成");
 assert.equal(EN_MESSAGES["form.option.segment"], "Ramp complete");
+assert.equal(ZH_TW_MESSAGES["support.scope.not_evaluated"], "尚未評估連線支援範圍");
+assert.equal(EN_MESSAGES["support.scope.not_evaluated"], "Connection scope not evaluated");
+assert.equal(ZH_TW_MESSAGES["form.field.max_errors"], "錯誤數上限");
+assert.equal(
+  ZH_TW_MESSAGES["form.description.snapshot.max_errors"],
+  "限制快照讀取儀器錯誤佇列的次數。儀器回報無錯誤時會提早停止；每筆已回報的錯誤都會從儀器佇列中移除。"
+);
+assert.equal(
+  EN_MESSAGES["form.description.snapshot.max_errors"],
+  "Limits how many times the snapshot reads the instrument error queue. Reading stops early when the instrument reports no error. Each reported error is removed from the instrument queue."
+);
 assert.equal(ZH_TW_MESSAGES["basic_controls.heading"], "基本指令");
 assert.equal(ZH_TW_MESSAGES["health.device.busy"], "硬體鎖定由作業 {job} 持有。");
 assert.match(ZH_TW_MESSAGES["form.description.ramp.enable_output"], /實機硬體/);

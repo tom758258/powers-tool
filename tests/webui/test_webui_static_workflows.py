@@ -1308,9 +1308,9 @@ def test_static_frontend_consumes_exact_live_support_without_exposing_validation
     assert "exactCommand.policy_exempt" in command_meta
     assert "commandSupport.offline_only" in command_support_js
     assert "Offline utility; live exact scope is not applicable." in command_support_js
-    assert "Connection scope not evaluated" in command_meta
-    assert "Pending live validation:" in command_support_js
-    assert "No product-open live scope is registered" in command_support_js
+    assert 't("support.scope.not_evaluated")' in command_meta
+    assert '"support.status.pending_live_validation"' in command_support_js
+    assert '"support.status.no_product_open_scope"' in command_support_js
     assert "Identity/status diagnostic; exact model feature scope is not required." in command_support_js
     assert "state.resourceLiveSupport" not in model_changed
     assert 'const setMeta = commandMeta("set");' in render_basic
@@ -1578,7 +1578,8 @@ def test_static_sequence_trigger_pulse_leave_configured_documents_restore_semant
     assert 'name: "leave_trigger_configured"' in definitions
     assert "It does not keep a trigger armed." in definitions
     assert "may affect later Sequence steps or other BUS triggers" in definitions
-    assert "webuiCommandForm.appendFieldDescription(label, definition);" in sequence_fields
+    assert "webuiCommandForm.appendFieldDescription(" in sequence_fields
+    assert "`form.description.sequence.${step.action.replaceAll(\"-\", \"_\")}.${definition.name}`" in sequence_fields
     assert ".sequence-step-fields .checkbox-field" not in styles_css
     assert ".form-grid .checkbox-field .field-description" in styles_css
 

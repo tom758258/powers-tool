@@ -637,14 +637,18 @@ function renderSnapshotForm(form) {
 
   (PARAMS["snapshot"] || []).forEach((param) => {
     const label = document.createElement("label");
-    workflowText(label, `workflow.field.${param.name}`, param.label);
+    workflowText(label, `form.field.${param.name}`, param.label);
     const input = document.createElement("input");
     input.type = param.type;
     input.id = `param-${param.name}`;
     if (param.value !== undefined) input.value = param.value;
     input.addEventListener("change", updateSelectedCommandState);
     label.appendChild(input);
-    webuiCommandForm.appendFieldDescription(label, param);
+    webuiCommandForm.appendFieldDescription(
+      label,
+      param,
+      `form.description.snapshot.${param.name}`
+    );
     editor.appendChild(label);
   });
 
@@ -1116,7 +1120,11 @@ function sequenceStepFields(step, index, card, title, summary) {
       workflowText(label, `workflow.field.${definition.name}`, definition.label);
       label.appendChild(input);
     }
-    webuiCommandForm.appendFieldDescription(label, definition);
+    webuiCommandForm.appendFieldDescription(
+      label,
+      definition,
+      `form.description.sequence.${step.action.replaceAll("-", "_")}.${definition.name}`
+    );
     fields.appendChild(label);
   });
   return fields;

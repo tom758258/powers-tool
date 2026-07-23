@@ -167,9 +167,11 @@ def test_static_snapshot_max_errors_documents_destructive_queue_reads():
 
     assert 'snapshot: [{' in app_js
     assert 'name: "max_errors"' in app_js
-    assert "webuiCommandForm.appendFieldDescription(label, param);" in render_snapshot
+    assert "webuiCommandForm.appendFieldDescription(" in render_snapshot
+    assert "`form.description.snapshot.${param.name}`" in render_snapshot
     assert 'description.className = "field-description";' in append_description
-    assert "description.textContent = param.description;" in append_description
+    assert "t(translationKey, undefined, param.description)" in append_description
+    assert "description.dataset.workflowI18n = translationKey;" in append_description
 
 
 def test_static_safe_off_channel_documents_behavior():

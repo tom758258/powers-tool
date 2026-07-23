@@ -228,6 +228,7 @@ var {
   renderForm,
   refreshCommandFormPresentation,
   refreshCommandPresentation,
+  refreshSelectedCommandDescription,
   updatePulseChildVisibility,
   runtimePayload,
   serialOptionsPayload,
@@ -1592,9 +1593,14 @@ function updateSelectedCommandState() {
   const tripWarning = tripContextWarning(state.selected);
   const runButton = document.getElementById("run");
   const commandDescription = document.getElementById("command-description");
-  const descriptionText = [meta.description, meta.live_support_status, channelGuard, ratingGuard, setGuard, tripGuard || tripWarning].filter(Boolean).join(" ");
-  commandDescription.textContent = descriptionText;
-  commandDescription.title = descriptionText;
+  commandDescription.dataset.presentationParts = JSON.stringify([
+    channelGuard,
+    ratingGuard,
+    setGuard,
+    tripGuard || tripWarning,
+    workflowPulseGuard
+  ].filter(Boolean));
+  refreshSelectedCommandDescription();
   webuiCommandForm.renderCommandGuidance(state.selected, parameters, triggerControlGuardReason, triggerFireWaitGuardReason);
   if (state.workflowControl.phase !== "idle") {
     runButton.disabled = state.workflowControl.phase !== "active";
@@ -1612,7 +1618,6 @@ function updateSelectedCommandState() {
   if (["sequence", "ramp-list"].includes(state.selected)) {
     updateWorkflowDocumentValidity(state.selected, runButton);
   }
-  if (workflowPulseGuard) commandDescription.textContent = [descriptionText, workflowPulseGuard].filter(Boolean).join(" ");
 }
 
 function updateWorkflowDocumentValidity(command, runButton = null) {
