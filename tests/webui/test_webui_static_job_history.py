@@ -136,11 +136,11 @@ webuiApi.fetchJson = async () => ({ job_id: "scan-job" });
   strictAssert.equal(historyNode.children[0].children[4].textContent, "Command failed - driver_timeout");
   setLocale("zh-TW");
   renderHistory();
-  strictAssert.equal(historyNode.children[0].children[4].textContent, "命令失敗 - driver_timeout");
+  strictAssert.equal(historyNode.children[0].children[4].textContent, "指令失敗 - driver_timeout");
   unknownCodeJob.error = "VISA <raw> detail";
   renderHistory();
   strictAssert.equal(historyNode.children[0].children[4].textContent, "VISA <raw> detail");
-  strictAssert.equal(webuiResults.jobSummary({ status: "failed" }), "命令失敗");
+  strictAssert.equal(webuiResults.jobSummary({ status: "failed" }), "指令失敗");
   setLocale("en");
   const cleanupFailedJob = {
     status: "failed",

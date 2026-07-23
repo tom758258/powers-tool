@@ -1156,7 +1156,7 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(rampListLoopCount.value, "1.5");
         strictAssert.equal(rerenderedTiming.value, "loop");
         strictAssert.equal(invalidEnableParts.label.querySelector(".checkbox-label-text").textContent, "啟用各通道");
-        strictAssert.equal(invalidEnableParts.label.title, "各通道只會在第一個安全區段設定值寫入並驗證後啟用。正常完成後輸出會維持 ON。停止工作流程會關閉儀器的所有輸出。實體硬體仍需確認。");
+        strictAssert.equal(invalidEnableParts.label.title, "各通道只會在第一個安全區段設定值寫入並驗證後啟用。正常完成後輸出會維持 ON。停止工作流程會關閉儀器的所有輸出。實機硬體仍需確認。");
         strictAssert.equal(invalidEnableParts.input.title, invalidEnableParts.label.title);
         strictAssert.equal(invalidEnableParts.input.getAttribute("aria-label"), "在各通道的第一個區段啟用通道");
         strictAssert.equal(invalidEnableParts.help.textContent, invalidEnableParts.label.title);

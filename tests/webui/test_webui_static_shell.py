@@ -66,17 +66,32 @@ state.realWriteAuthorization = { resource: "RAW::RESOURCE" };
 state.selected = "ramp";
 state.activeCategory = "workflow";
 state.rampListSegments = [{ channel: 1, voltage: 1.25, current: 0.1, dwell: 0.5 }];
+state.rampListEnableOutput = true;
 state.rampListLoopEnabled = true;
 state.rampListLoopCountDraft = "invalid draft";
+state.rampListCompletionPulse = { enabled: true, pins: "1,3", timing: "loop" };
+state.triggerListActiveChannel = 2;
 state.triggerListControls = { source: "bus", wait_complete: true };
+state.triggerListChannels = { 1: { voltage: "1.5", current: "0.1" }, 2: { voltage: "invalid draft" } };
 state.sequenceSteps = [{ action: "wait", seconds: 2 }];
+state.sequenceLoopEnabled = true;
+state.sequenceLoopCountDraft = "invalid sequence draft";
+state.sequenceExpanded = new Set([0]);
 state.latestSnapshotDocument = { schema_version: 1, model_id: "keysight-e36312a" };
+state.loadedSnapshotDocument = { schema_version: 2, kind: "powers-tool-snapshot", raw: "VISA <raw> detail" };
+state.loadedSnapshotFilename = "RAW.snapshot.json";
+state.restoreChannel = "all";
+state.restoreOutputState = true;
+state.restorePlanPreview = { steps: [{ command: "set", channel: 1 }] };
+state.restorePlanPreviewStatus = "finished";
 state.jobs = [{ jobId: "job-raw", command: "ramp", status: "failed", summary: { rawFallback: "VISA <raw> detail" } }];
 state.workspaceResults = { raw: { command: "ramp", result: { unit: "V", value: 1.25 } } };
 state.liveJobId = "live-job";
 state.livePanel = { status: "ok", resource: "RAW::RESOURCE", channels: [{ channel: 1, voltage: 1.25 }] };
 state.samples = [{ timestamp: 1, data: state.livePanel }];
-const commandInput = { value: "draft", checked: true };
+state.resultCollapsed = false;
+state.jobResultCollapsed = true;
+const commandInput = { value: "draft", checked: true, selectValue: "all", parameterName: "channel" };
 const resultJson = '{"raw":"VISA <raw> detail"}';
 const before = JSON.stringify({
   executionMode: state.executionMode,
@@ -86,22 +101,43 @@ const before = JSON.stringify({
   selected: state.selected,
   activeCategory: state.activeCategory,
   rampListSegments: state.rampListSegments,
+  rampListEnableOutput: state.rampListEnableOutput,
   rampListLoopEnabled: state.rampListLoopEnabled,
   rampListLoopCountDraft: state.rampListLoopCountDraft,
+  rampListCompletionPulse: state.rampListCompletionPulse,
+  triggerListActiveChannel: state.triggerListActiveChannel,
   triggerListControls: state.triggerListControls,
+  triggerListChannels: state.triggerListChannels,
   sequenceSteps: state.sequenceSteps,
+  sequenceLoopEnabled: state.sequenceLoopEnabled,
+  sequenceLoopCountDraft: state.sequenceLoopCountDraft,
+  sequenceExpanded: [...state.sequenceExpanded],
   latestSnapshotDocument: state.latestSnapshotDocument,
+  loadedSnapshotDocument: state.loadedSnapshotDocument,
+  loadedSnapshotFilename: state.loadedSnapshotFilename,
+  restoreChannel: state.restoreChannel,
+  restoreOutputState: state.restoreOutputState,
+  restorePlanPreview: state.restorePlanPreview,
+  restorePlanPreviewStatus: state.restorePlanPreviewStatus,
   jobs: state.jobs,
   workspaceResults: state.workspaceResults,
   liveJobId: state.liveJobId,
   livePanel: state.livePanel,
   samples: state.samples,
+  resultCollapsed: state.resultCollapsed,
+  jobResultCollapsed: state.jobResultCollapsed,
   commandInput,
   resultJson,
 });
 const identities = {
   realIdentityCache: state.realIdentityCache,
   rampListSegments: state.rampListSegments,
+  rampListCompletionPulse: state.rampListCompletionPulse,
+  triggerListChannels: state.triggerListChannels,
+  sequenceSteps: state.sequenceSteps,
+  sequenceExpanded: state.sequenceExpanded,
+  loadedSnapshotDocument: state.loadedSnapshotDocument,
+  restorePlanPreview: state.restorePlanPreview,
   jobs: state.jobs,
   workspaceResults: state.workspaceResults,
   livePanel: state.livePanel,
@@ -121,16 +157,31 @@ const after = JSON.stringify({
   selected: state.selected,
   activeCategory: state.activeCategory,
   rampListSegments: state.rampListSegments,
+  rampListEnableOutput: state.rampListEnableOutput,
   rampListLoopEnabled: state.rampListLoopEnabled,
   rampListLoopCountDraft: state.rampListLoopCountDraft,
+  rampListCompletionPulse: state.rampListCompletionPulse,
+  triggerListActiveChannel: state.triggerListActiveChannel,
   triggerListControls: state.triggerListControls,
+  triggerListChannels: state.triggerListChannels,
   sequenceSteps: state.sequenceSteps,
+  sequenceLoopEnabled: state.sequenceLoopEnabled,
+  sequenceLoopCountDraft: state.sequenceLoopCountDraft,
+  sequenceExpanded: [...state.sequenceExpanded],
   latestSnapshotDocument: state.latestSnapshotDocument,
+  loadedSnapshotDocument: state.loadedSnapshotDocument,
+  loadedSnapshotFilename: state.loadedSnapshotFilename,
+  restoreChannel: state.restoreChannel,
+  restoreOutputState: state.restoreOutputState,
+  restorePlanPreview: state.restorePlanPreview,
+  restorePlanPreviewStatus: state.restorePlanPreviewStatus,
   jobs: state.jobs,
   workspaceResults: state.workspaceResults,
   liveJobId: state.liveJobId,
   livePanel: state.livePanel,
   samples: state.samples,
+  resultCollapsed: state.resultCollapsed,
+  jobResultCollapsed: state.jobResultCollapsed,
   commandInput,
   resultJson,
 });

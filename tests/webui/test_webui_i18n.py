@@ -245,6 +245,12 @@ assert.equal(ZH_TW_MESSAGES["resource.visa_resource"], "VISA 資源");
 assert.equal(ZH_TW_MESSAGES["execution_mode.option.real"], "實機（Real）");
 assert.equal(ZH_TW_MESSAGES["execution_mode.option.simulate"], "模擬（Simulate）");
 assert.equal(ZH_TW_MESSAGES["execution_mode.option.dry_run"], "Dry-run（規劃）");
+assert.equal(ZH_TW_MESSAGES["command.heading"], "指令");
+assert.equal(ZH_TW_MESSAGES["basic_controls.heading"], "基本指令");
+assert.equal(ZH_TW_MESSAGES["health.device.busy"], "硬體鎖定由作業 {job} 持有。");
+assert.match(ZH_TW_MESSAGES["form.description.ramp.enable_output"], /實機硬體/);
+assert.match(ZH_TW_MESSAGES["live_data.help.monitor"], /即時資料監看/);
+assert.doesNotMatch(ZH_TW_MESSAGES["basic_controls.error.e3646a_capability"], /capability metadata/);
 
 assert.equal(i18n.getLocale(), "en");
 assert.equal(i18n.setLocale("zh-TW"), "zh-TW");

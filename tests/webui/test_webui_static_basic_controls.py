@@ -115,9 +115,9 @@ strictAssert.equal(pendingIdentity.awaitingReadback, true);
 strictAssert.equal(pendingIdentity.status, "pending");
 
 basic.setBasicActionState("set:1", "success", { key: "basic_controls.status.completed" });
-strictAssert.equal(setButton.title, "基本命令已完成。");
+strictAssert.equal(setButton.title, "基本指令已完成。");
 basic.refreshBasicControlsPresentation();
-strictAssert.equal(setButton.title, "基本命令已完成。");
+strictAssert.equal(setButton.title, "基本指令已完成。");
 basic.setBasicActionState("set:1", "error", "VISA <raw> detail");
 basic.refreshBasicControlsPresentation();
 strictAssert.equal(setButton.title, "VISA <raw> detail");

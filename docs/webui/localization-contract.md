@@ -472,14 +472,41 @@ samples, machine values, and raw diagnostics while prohibiting requests, Job or
 workflow actions, EventSource changes, acquisition, sample append, and reload.
 Result panel toggle accessibility is recalculated from canonical collapsed state
 after static translations are applied.
-P6 still owns terminology review, complete regression, and distribution QA.
+P6 still owns terminology review, complete localization regression, and
+documentation closeout.
 
-### P6: Terminology, Regression, And Distribution QA
+### P6: Terminology, Regression, And Documentation Closeout
 
-Review ordinary Traditional Chinese wording for Taiwan usage, naturalness, and
-consistency; refinements must not change machine contracts or technical tokens.
-Run complete localization and WebUI regression coverage, text hygiene, package
-inspection, standalone native-module validation, and documentation review.
+Completed. The final terminology review aligns maintained Traditional Chinese
+presentation with the decisions above: Command uses `指令`, Job uses `作業`,
+Real hardware uses `實機硬體`, and Live Data monitoring uses `監看`. Technical
+tokens such as Real, Simulate, Dry-run, VISA, SCPI, BUS, LIST, ON/OFF, model
+IDs, units, and raw diagnostic detail remain unchanged. Browser-owned
+capability metadata presentation no longer leaves an unnecessary English phrase
+in the Traditional Chinese message.
+
+The final repeated-switch regression extends the P5 protected-state snapshot
+across ordinary command values, execution and identity state, Ramp List,
+Trigger List, Sequence, Snapshot/Restore, Job History, Workspace Result, Result
+Detail panel state, and cached Live Data. It continues to require zero reloads,
+requests, EventSource lifecycle changes, Job/workflow actions, acquisition, or
+sample append while presentation text and accessibility attributes are
+retranslated.
+
+The maintained locales remain `en` and `zh-TW`; English remains the complete
+fallback locale. Initial locale selection, persistence, runtime switching, and
+the presentation-only boundary are defined in Sections 2, 6, and 9. Browser
+presentation is translated, while command and parameter names, option and API
+values, workflow/JSON fields, exported data, and unknown backend, Core, VISA,
+SCPI, instrument, support, validation, file, and cleanup diagnostics remain
+canonical or verbatim.
+
+No-hardware P6 validation on 2026-07-23 included 56 focused localization,
+switching, DOM, and native-module tests plus the complete 362-test
+`tests/webui` suite, JavaScript syntax checking, and text/diff hygiene.
+Localization P1 through P6 is complete, but this completion does not establish
+release readiness or publication approval. Package, standalone, release, and
+hardware validation remain separate workflows and were not performed for P6.
 
 This split follows Powers ownership: execution modes and independent identity
 slots require focused P3 work, while Job History, workflow editors, Basic
