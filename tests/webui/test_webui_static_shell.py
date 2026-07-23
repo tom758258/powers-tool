@@ -163,6 +163,116 @@ strictAssert.deepEqual(calls, Array(4).fill([
         assert forbidden not in refresh
 
 
+def test_job_result_panel_accessibility_refreshes_from_canonical_collapsed_state():
+    assertions = r"""
+const strictAssert = require("node:assert/strict");
+function classList() {
+  const values = new Set();
+  return {
+    toggle(name, enabled) {
+      if (enabled) values.add(name);
+      else values.delete(name);
+    },
+    contains(name) { return values.has(name); },
+  };
+}
+function panelElement() {
+  return { classList: classList() };
+}
+function buttonElement() {
+  return {
+    textContent: "",
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+  };
+}
+
+const jobPanel = panelElement();
+const jobButton = buttonElement();
+const resultPanel = panelElement();
+const resultButton = buttonElement();
+const elements = new Map([
+  ["job-result-panel", jobPanel],
+  ["job-result-toggle", jobButton],
+  ["result-panel", resultPanel],
+  ["result-toggle", resultButton],
+]);
+document.getElementById = (id) => elements.get(id);
+
+let renderHistoryCalls = 0;
+let renderWorkspaceCalls = 0;
+let fetchCalls = 0;
+let eventSourceConstructions = 0;
+let eventSourceCloses = 0;
+let jobActions = 0;
+let reloads = 0;
+renderHistory = () => { renderHistoryCalls += 1; };
+renderWorkspaceSummary = () => { renderWorkspaceCalls += 1; };
+clearJobResults = () => { jobActions += 1; };
+globalThis.fetch = () => { fetchCalls += 1; };
+globalThis.EventSource = class {
+  constructor() { eventSourceConstructions += 1; }
+  close() { eventSourceCloses += 1; }
+};
+globalThis.location = { reload() { reloads += 1; } };
+
+const rawJob = {
+  jobId: "job-raw",
+  command: "ramp",
+  status: "failed",
+  presentationJob: { error: "VISA <raw> detail" },
+};
+state.jobs = [rawJob];
+const jobsIdentity = state.jobs;
+state.resultCollapsed = false;
+
+function assertJobPanel(collapsed, locale, text, expanded, label) {
+  state.jobResultCollapsed = collapsed;
+  setLocale(locale);
+  refreshResultPresentation();
+  strictAssert.equal(state.jobResultCollapsed, collapsed);
+  strictAssert.equal(jobButton.textContent, text);
+  strictAssert.equal(jobButton.attributes["aria-expanded"], expanded);
+  strictAssert.equal(jobButton.attributes["aria-label"], label);
+  strictAssert.equal(jobPanel.classList.contains("collapsed"), collapsed);
+  strictAssert.equal(state.jobs, jobsIdentity);
+  strictAssert.equal(state.jobs[0], rawJob);
+  strictAssert.equal(rawJob.presentationJob.error, "VISA <raw> detail");
+}
+
+assertJobPanel(true, "en", "+", "false", "Expand job result");
+assertJobPanel(true, "zh-TW", "+", "false", "展開作業結果");
+assertJobPanel(false, "en", "-", "true", "Collapse job result");
+assertJobPanel(false, "zh-TW", "-", "true", "收合作業結果");
+
+state.jobResultCollapsed = true;
+toggleJobResultPanel();
+strictAssert.equal(state.jobResultCollapsed, false);
+strictAssert.equal(jobButton.textContent, "-");
+strictAssert.equal(jobButton.attributes["aria-expanded"], "true");
+strictAssert.equal(jobButton.attributes["aria-label"], "收合作業結果");
+
+strictAssert.equal(renderHistoryCalls, 4);
+strictAssert.equal(renderWorkspaceCalls, 4);
+strictAssert.equal(fetchCalls, 0);
+strictAssert.equal(eventSourceConstructions, 0);
+strictAssert.equal(eventSourceCloses, 0);
+strictAssert.equal(jobActions, 0);
+strictAssert.equal(reloads, 0);
+"""
+    run_frontend_javascript_assertions(assertions)
+
+    _index_html, app_js, _styles_css = read_static_texts()
+    sync = extract_js_function(app_js, "syncJobResultPanelState")
+    toggle = extract_js_function(app_js, "toggleJobResultPanel")
+    refresh = extract_js_function(app_js, "refreshResultPresentation")
+    assert "state.jobResultCollapsed" in sync
+    assert "syncJobResultPanelState();" in toggle
+    assert "syncJobResultPanelState();" in refresh
+    for forbidden in ("fetch", "EventSource", "clearJobResults", "state.jobs =", "location.reload"):
+        assert forbidden not in sync
+
+
 def test_import_smoke():
     """Verify WebUI runtime is importable."""
     from powers_tool_webui.app import app

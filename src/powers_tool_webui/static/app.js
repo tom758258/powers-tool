@@ -1207,6 +1207,10 @@ function syncResultPanelState() {
 
 function toggleJobResultPanel() {
   state.jobResultCollapsed = !state.jobResultCollapsed;
+  syncJobResultPanelState();
+}
+
+function syncJobResultPanelState() {
   const panel = document.getElementById("job-result-panel");
   const button = document.getElementById("job-result-toggle");
   panel.classList.toggle("collapsed", state.jobResultCollapsed);
@@ -1432,6 +1436,7 @@ function refreshLiveDataPresentation() {
 
 function refreshResultPresentation() {
   syncResultPanelState();
+  syncJobResultPanelState();
   renderHistory();
   renderWorkspaceSummary();
 }

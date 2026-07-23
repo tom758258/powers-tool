@@ -470,6 +470,8 @@ result, Result Detail surroundings, and cached Live Data refresh paths. Repeated
 switching tests preserve browser state, drafts, semantic/raw result data,
 samples, machine values, and raw diagnostics while prohibiting requests, Job or
 workflow actions, EventSource changes, acquisition, sample append, and reload.
+Result panel toggle accessibility is recalculated from canonical collapsed state
+after static translations are applied.
 P6 still owns terminology review, complete regression, and distribution QA.
 
 ### P6: Terminology, Regression, And Distribution QA
