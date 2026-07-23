@@ -56,7 +56,16 @@ def test_workflow_factory_wiring_omits_unused_dependencies() -> None:
     ):
         assert retained in workflow_wiring
         assert retained in workflow_signature
-    for retained in ("webuiRestoreDocument", "webuiSequenceDocument", "restoreSnapshotParameters", "submitJob", "subscribeToJob"):
+    for retained in (
+        "rearPinOptions",
+        "webuiRestoreDocument",
+        "webuiSequenceDocument",
+        "applyParameterConstraint",
+        "updateWorkflowDocumentValidity",
+        "restoreSnapshotParameters",
+        "submitJob",
+        "subscribeToJob",
+    ):
         assert retained in artifact_wiring
         assert retained in artifact_signature
 
@@ -317,6 +326,227 @@ strictAssert.deepEqual(
             "trigger-list.js",
             "workflows.js",
         ),
+    )
+
+
+def test_sequence_renderer_rebuilds_from_canonical_draft_without_missing_dependencies() -> None:
+    run_webui_module_assertions(
+        r"""
+class FakeClassList {
+  constructor(owner) { this.owner = owner; }
+  values() { return new Set(this.owner.className.split(/\s+/).filter(Boolean)); }
+  add(...names) {
+    const values = this.values();
+    names.forEach((name) => values.add(name));
+    this.owner.className = [...values].join(" ");
+  }
+  remove(...names) {
+    const values = this.values();
+    names.forEach((name) => values.delete(name));
+    this.owner.className = [...values].join(" ");
+  }
+  contains(name) { return this.values().has(name); }
+}
+
+class FakeElement {
+  constructor(tagName) {
+    this.tagName = tagName.toUpperCase();
+    this.children = [];
+    this.parentNode = null;
+    this.dataset = {};
+    this.className = "";
+    this.classList = new FakeClassList(this);
+    this.listeners = {};
+    this.attributes = {};
+    this.textContent = "";
+    this.value = "";
+    this.checked = false;
+    this.disabled = false;
+    this.hidden = false;
+    this.id = "";
+    this.type = "";
+  }
+  appendChild(child) {
+    this.children.push(child);
+    child.parentNode = this;
+    return child;
+  }
+  append(...children) { children.forEach((child) => this.appendChild(child)); }
+  addEventListener(type, listener) {
+    if (!this.listeners[type]) this.listeners[type] = [];
+    this.listeners[type].push(listener);
+  }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  querySelector(selector) {
+    if (selector === ".checkbox-label-text") {
+      return descendants(this).find((node) => node.classList.contains("checkbox-label-text"));
+    }
+    if (selector === ".sequence-step-error") {
+      return descendants(this).find((node) => node.classList.contains("sequence-step-error"));
+    }
+    if (selector === ".visually-hidden") {
+      return descendants(this).find((node) => node.classList.contains("visually-hidden"));
+    }
+    if (selector === "input") return descendants(this).find((node) => node.tagName === "INPUT");
+    return undefined;
+  }
+  querySelectorAll(selector) {
+    if (selector === "[data-workflow-i18n]") {
+      return descendants(this).filter((node) => node.dataset.workflowI18n);
+    }
+    if (selector === "[data-i18n-loop]") {
+      return descendants(this).filter((node) => node.dataset.i18nLoop);
+    }
+    return [];
+  }
+  replaceWith(replacement) {
+    const index = this.parentNode.children.indexOf(this);
+    this.parentNode.children[index] = replacement;
+    replacement.parentNode = this.parentNode;
+    this.parentNode = null;
+  }
+  remove() {
+    if (!this.parentNode) return;
+    this.parentNode.children = this.parentNode.children.filter((child) => child !== this);
+    this.parentNode = null;
+  }
+  set innerHTML(value) {
+    strictAssert.equal(value, "");
+    this.children = [];
+  }
+}
+
+const descendants = (root) => [root, ...root.children.flatMap((child) => descendants(child))];
+const commandForm = new FakeElement("form");
+globalThis.document = {
+  createElement: (tagName) => new FakeElement(tagName),
+  getElementById: (id) => id === "command-form" ? commandForm : null,
+};
+
+const createCheckboxField = (input, text) => {
+  const label = new FakeElement("label");
+  const visible = new FakeElement("span");
+  visible.className = "checkbox-label-text";
+  visible.textContent = text;
+  label.append(input, visible);
+  return label;
+};
+const state = {
+  commands: { sequence: { max_steps: 250 } },
+  sequenceSteps: [{ action: "wait", seconds: 0 }],
+  sequenceExpanded: new Set(),
+  sequenceLoopEnabled: false,
+  sequenceLoopCountDraft: "2",
+  sequenceFilename: "",
+};
+const stepsIdentity = state.sequenceSteps;
+const validityCalls = [];
+let selectedUpdates = 0;
+let artifact;
+const renderLoopControl = () => new FakeElement("div");
+const renderForm = (command) => {
+  strictAssert.equal(command, "sequence");
+  commandForm.innerHTML = "";
+  artifact.renderSequenceForm(commandForm);
+};
+artifact = globalThis.webuiWorkflows.createArtifactAndSequenceWorkflows({
+  state,
+  rearPinOptions: ["1", "2", "3", "1,2", "1,3", "2,3", "1,2,3"],
+  webuiCommandForm: {
+    createCheckboxField,
+    appendFieldDescription() {},
+  },
+  webuiSequenceDocument: {},
+  renderForm,
+  updateSelectedCommandState: () => { selectedUpdates += 1; },
+  optionDisplayName: (value) => String(value),
+  rearPinDisplayName: (value) => String(value),
+  parseRearPins: (value) => String(value).split(",").map(Number),
+  renderLoopControl,
+  applyWorkflowPulseControlState() {},
+  applyParameterConstraint(input, name) {
+    input.dataset.parameterConstraint = name;
+  },
+  updateWorkflowDocumentValidity: (command) => validityCalls.push(command),
+});
+
+strictAssert.doesNotThrow(() => renderForm("sequence"));
+strictAssert.equal(commandForm.children.length, 1);
+strictAssert.equal(state.sequenceSteps, stepsIdentity);
+strictAssert.equal(state.sequenceSteps.length, 1);
+strictAssert.deepEqual(validityCalls, ["sequence"]);
+
+let editor = commandForm.children[0];
+let cards = descendants(editor).filter((node) => node.classList.contains("sequence-step-card"));
+strictAssert.equal(cards.length, 1);
+let toggle = cards[0].children[0].children[0];
+strictAssert.equal(toggle.textContent, "Expand");
+strictAssert.equal(toggle.listeners.click.length, 1);
+strictAssert.doesNotThrow(() => toggle.listeners.click[0]());
+
+editor = commandForm.children[0];
+cards = descendants(editor).filter((node) => node.classList.contains("sequence-step-card"));
+strictAssert.equal(cards.length, 1);
+strictAssert.equal(state.sequenceSteps, stepsIdentity);
+let secondsInput = descendants(cards[0]).find((node) => node.dataset.sequenceField === "seconds");
+strictAssert.ok(secondsInput);
+secondsInput.value = "2.5";
+secondsInput.listeners.input[0]();
+strictAssert.equal(state.sequenceSteps[0].seconds, 2.5);
+
+let toolbar = descendants(editor).find((node) => node.classList.contains("sequence-toolbar"));
+const addButton = toolbar.children[2];
+strictAssert.equal(addButton.textContent, "Add Step");
+strictAssert.equal(addButton.disabled, false);
+strictAssert.equal(addButton.listeners.click.length, 1);
+addButton.listeners.click[0]();
+
+editor = commandForm.children[0];
+cards = descendants(editor).filter((node) => node.classList.contains("sequence-step-card"));
+strictAssert.equal(cards.length, 2);
+strictAssert.equal(state.sequenceSteps, stepsIdentity);
+strictAssert.equal(state.sequenceSteps[0].seconds, 2.5);
+strictAssert.deepEqual(state.sequenceSteps[1], { action: "wait", seconds: 0 });
+const firstActions = cards[0].children[0].children[3].children;
+const secondActions = cards[1].children[0].children[3].children;
+strictAssert.deepEqual(firstActions.map((button) => button.disabled), [true, false, false]);
+strictAssert.deepEqual(secondActions.map((button) => button.disabled), [false, true, false]);
+
+toggle = cards[1].children[0].children[0];
+toggle.listeners.click[0]();
+editor = commandForm.children[0];
+cards = descendants(editor).filter((node) => node.classList.contains("sequence-step-card"));
+const secondFields = descendants(cards[1]).find((node) => node.classList.contains("sequence-step-fields"));
+const actionSelect = secondFields.children[0].children[0];
+actionSelect.value = "apply";
+strictAssert.doesNotThrow(() => actionSelect.listeners.change[0]());
+
+cards = descendants(commandForm.children[0]).filter((node) => node.classList.contains("sequence-step-card"));
+for (const [name, value] of [["channel", "2"], ["voltage", "3.3"], ["current", "0.4"]]) {
+  const input = descendants(cards[1]).find((node) => node.dataset.sequenceField === name);
+  input.value = value;
+  input.listeners.input[0]();
+}
+const noOutput = descendants(cards[1]).find((node) => node.dataset.sequenceField === "no_output");
+noOutput.checked = true;
+noOutput.listeners.change[0]();
+strictAssert.deepEqual(state.sequenceSteps[1], {
+  action: "apply", channel: 2, voltage: 3.3, current: 0.4, no_output: true
+});
+const draftBeforeLocale = JSON.stringify(state.sequenceSteps);
+
+const i18n = await import(new URL("./i18n.js", moduleUrls["workflows.js"]));
+for (const locale of ["zh-TW", "en", "zh-TW", "en"]) {
+  i18n.setLocale(locale);
+  globalThis.webuiWorkflows.refreshWorkflowPresentation(commandForm);
+  strictAssert.equal(JSON.stringify(state.sequenceSteps), draftBeforeLocale);
+  strictAssert.equal(state.sequenceSteps, stepsIdentity);
+  strictAssert.equal(descendants(commandForm).filter((node) => node.classList.contains("sequence-step-card")).length, 2);
+}
+strictAssert.equal(selectedUpdates > 0, true);
+strictAssert.equal(validityCalls.length >= 4, true);
+""",
+        ("workflows.js",),
     )
 
 
@@ -1017,7 +1247,7 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         strictAssert.equal(identity.value, "profile:generic-scpi");
         strictAssert.equal(writeCheckbox.checked, false);
         strictAssert.equal(state.realWriteAuthorization, null);
-        strictAssert.deepEqual(formLimits.at(-1), { mode: "dry-run", max: "100", title: "Generic voltage guidance" });
+        strictAssert.deepEqual(formLimits.at(-1), { mode: "dry-run", max: "100", title: "Finite non-negative voltage setpoint." });
         strictAssert.equal(workspaceViews.at(-1).context.executionMode, "dry-run");
         strictAssert.equal(workspaceViews.at(-1).marker, null, "Dry-run must not show the Simulate result");
 

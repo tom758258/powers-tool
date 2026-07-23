@@ -650,7 +650,9 @@ def test_frontend_planning_electrical_constraints_restore_base_values() -> None:
 
         state.executionMode = "simulate";
         state.parameterConstraints = {
-          voltage: { min: 0, max: 100, step: 0.1, description: "Generic voltage guidance" }
+          voltage: { min: 0, max: 100, step: 0.1, description: "Finite non-negative voltage setpoint." },
+          stop_voltage: { min: 0, step: "any", description: "Finite non-negative final voltage." },
+          future_value: { min: 0, step: "any", description: "Future backend constraint." }
         };
         state.electricalRatingsByModel = {
           "keysight-e36312a": { channels: [{ channel: 1, max_voltage: 6, max_current: 5 }] },
@@ -672,7 +674,7 @@ def test_frontend_planning_electrical_constraints_restore_base_values() -> None:
         strictAssert.equal(input.min, "0");
         strictAssert.equal(input.max, "100");
         strictAssert.equal(input.step, "0.1");
-        strictAssert.equal(input.title, "Generic voltage guidance");
+        strictAssert.equal(input.title, "Finite non-negative voltage setpoint.");
         strictAssert.equal(input.dataset.electricalBaseConstraints, undefined);
 
         identity.value = "keysight-e3646a";
@@ -685,7 +687,35 @@ def test_frontend_planning_electrical_constraints_restore_base_values() -> None:
         strictAssert.equal(input.min, "0");
         strictAssert.equal(input.max, "100");
         strictAssert.equal(input.step, "0.1");
-        strictAssert.equal(input.title, "Generic voltage guidance");
+        strictAssert.equal(input.title, "Finite non-negative voltage setpoint.");
+
+        const stopVoltage = new FakeInput();
+        applyParameterConstraint(stopVoltage, "stop_voltage");
+        strictAssert.equal(stopVoltage.title, "Finite non-negative final voltage.");
+        const future = new FakeInput();
+        applyParameterConstraint(future, "future_value");
+        strictAssert.equal(future.title, "Future backend constraint.");
+
+        setLocale("zh-TW");
+        const root = {
+          querySelectorAll(selector) {
+            strictAssert.equal(selector, "[data-parameter-constraint]");
+            return [input, stopVoltage, future];
+          }
+        };
+        refreshParameterConstraintPresentation(root);
+        strictAssert.equal(input.title, "有限且非負的電壓設定值。");
+        strictAssert.equal(stopVoltage.title, "有限且非負的終止電壓。");
+        strictAssert.equal(future.title, "Future backend constraint.");
+
+        identity.value = "keysight-e36312a";
+        refreshInputElectricalConstraints(input, "voltage");
+        strictAssert.equal(input.title, "官方獨立通道直流輸出額定值：最大 6 V。");
+        setLocale("en");
+        refreshParameterConstraintPresentation(root);
+        strictAssert.equal(input.title, "Official independent-channel DC output rating: maximum 6 V.");
+        strictAssert.equal(stopVoltage.title, "Finite non-negative final voltage.");
+        strictAssert.equal(future.title, "Future backend constraint.");
         """
     )
     run_frontend_javascript_assertions(assertions)

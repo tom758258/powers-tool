@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from powers_tool_core.parameter_constraints import parameter_constraints_metadata
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = REPO_ROOT / "src" / "powers_tool_webui" / "static"
@@ -874,3 +876,19 @@ def test_p3_maintained_catalog_messages_are_complete() -> None:
 
     assert en_keys == zh_tw_keys
     assert required <= en_keys
+
+
+def test_parameter_constraint_tooltip_catalog_covers_current_metadata_inventory() -> None:
+    en_source = (STATIC_DIR / "locale_en.js").read_text(encoding="utf-8")
+    zh_tw_source = (STATIC_DIR / "locale_zh_tw.js").read_text(encoding="utf-8")
+    expected = {
+        f"form.constraint.{name}"
+        for name in parameter_constraints_metadata()
+    } | {"form.constraint.electrical_rating"}
+    en_keys = set(re.findall(r'^  "(form\.constraint\.[a-z0-9_]+)":', en_source, re.MULTILINE))
+    zh_tw_keys = set(re.findall(r'^  "(form\.constraint\.[a-z0-9_]+)":', zh_tw_source, re.MULTILINE))
+
+    assert en_keys == expected
+    assert zh_tw_keys == expected
+    assert '"form.constraint.stop_voltage": "Finite non-negative final voltage."' in en_source
+    assert '"form.constraint.stop_voltage": "有限且非負的終止電壓。"' in zh_tw_source

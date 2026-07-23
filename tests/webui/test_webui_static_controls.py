@@ -679,6 +679,75 @@ def test_static_commands_use_category_navigation():
     assert '(meta.category || "discovery") === state.activeCategory' in render_commands
 
 
+def test_advanced_commands_toggle_preserves_selected_workflow_dom_and_state() -> None:
+    run_frontend_javascript_assertions(
+        r"""
+        const strictAssert = require("node:assert/strict");
+        const classNames = new Set();
+        const panel = {
+          hidden: false,
+          classList: {
+            toggle(name, enabled) {
+              if (enabled) classNames.add(name);
+              else classNames.delete(name);
+            }
+          }
+        };
+        const button = {
+          textContent: "",
+          attributes: {},
+          listeners: { click: [() => {}] },
+          setAttribute(name, value) { this.attributes[name] = value; }
+        };
+        const sequenceEditor = { marker: "sequence-editor" };
+        const commandForm = { children: [sequenceEditor] };
+        const latestResult = { marker: "latest-result" };
+        const elements = new Map([
+          ["advanced-commands", panel],
+          ["advanced-command-toggle", button],
+          ["command-form", commandForm],
+          ["workspace-summary-content", latestResult],
+        ]);
+        document.getElementById = (id) => elements.get(id) || null;
+
+        state.selected = "sequence";
+        state.activeCategory = "workflow";
+        state.commands = { ramp: {}, "ramp-list": {}, sequence: {}, "smoke-output": {} };
+        state.sequenceSteps = [
+          { action: "wait", seconds: 2.5 },
+          { action: "apply", channel: 2, voltage: 3.3, current: 0.4, no_output: true },
+        ];
+        const stepsIdentity = state.sequenceSteps;
+        const draft = JSON.stringify(state.sequenceSteps);
+        const formIdentity = document.getElementById("command-form");
+        const editorIdentity = commandForm.children[0];
+        const resultIdentity = document.getElementById("workspace-summary-content");
+        const commandOrder = Object.keys(state.commands);
+        const listenerCount = button.listeners.click.length;
+
+        for (const [expanded, locale] of [
+          [false, "en"], [true, "en"], [false, "zh-TW"], [true, "zh-TW"],
+          [false, "zh-TW"], [true, "zh-TW"], [false, "en"], [true, "en"],
+        ]) {
+          setLocale(locale);
+          setAdvancedCommandsExpanded(expanded);
+          strictAssert.equal(panel.hidden, !expanded);
+          strictAssert.equal(button.attributes["aria-expanded"], String(expanded));
+          strictAssert.equal(document.getElementById("command-form"), formIdentity);
+          strictAssert.equal(commandForm.children[0], editorIdentity);
+          strictAssert.equal(document.getElementById("workspace-summary-content"), resultIdentity);
+          strictAssert.equal(state.selected, "sequence");
+          strictAssert.equal(state.activeCategory, "workflow");
+          strictAssert.equal(state.sequenceSteps, stepsIdentity);
+          strictAssert.equal(JSON.stringify(state.sequenceSteps), draft);
+          strictAssert.deepEqual(Object.keys(state.commands), commandOrder);
+          strictAssert.equal(button.listeners.click.length, listenerCount);
+        }
+        setLocale("en");
+        """
+    )
+
+
 def test_static_command_category_column_width_and_responsive_contract():
     _index_html, _app_js, styles_css = read_static_texts()
     locale_en_js = read_static_javascript("locale_en.js")

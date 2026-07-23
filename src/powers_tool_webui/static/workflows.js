@@ -576,6 +576,7 @@ async function saveTriggerListWorkspace() {
 export function createArtifactAndSequenceWorkflows({
   state,
   params: PARAMS,
+  rearPinOptions: REAR_PIN_OPTIONS,
   webuiCommandForm,
   webuiSnapshotDocument,
   webuiRestoreDocument,
@@ -594,6 +595,8 @@ export function createArtifactAndSequenceWorkflows({
   parseRearPins,
   renderLoopControl,
   applyWorkflowPulseControlState,
+  applyParameterConstraint,
+  updateWorkflowDocumentValidity,
   runtimePayload,
   restoreSnapshotParameters,
   submitJob,

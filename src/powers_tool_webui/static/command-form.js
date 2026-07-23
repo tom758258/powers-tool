@@ -374,6 +374,7 @@ function refreshCommandFormPresentation() {
   const command = state.selected;
   if (!command) return;
   refreshCommandGuidancePresentation();
+  refreshParameterConstraintPresentation();
   if (["ramp-list", "trigger-list", "snapshot", "restore-from-snapshot", "sequence"].includes(command)) return;
   const form = document.getElementById("command-form");
   if (!form || typeof form.querySelectorAll !== "function") return;
@@ -642,7 +643,15 @@ function applyParameterConstraint(input, name) {
     parameterName: name
   }).parameter;
   if (!parameter) return;
-  Object.entries(parameter.attributes).forEach(([attribute, value]) => { input[attribute] = value; });
+  Object.entries(parameter.attributes).forEach(([attribute, value]) => {
+    input[attribute] = attribute === "title"
+      ? parameterConstraintTitle(name, value)
+      : value;
+  });
+  if (parameter.attributes.title) {
+    input.dataset.parameterConstraint = name;
+    input.dataset.parameterConstraintFallback = parameter.attributes.title;
+  }
   if (parameter.exclusiveMin !== undefined) input.dataset.exclusiveMin = parameter.exclusiveMin;
 }
 
@@ -654,7 +663,43 @@ function applyElectricalRatingConstraint(input, name) {
   input.dataset.electricalBaseConstraints = JSON.stringify(Object.fromEntries(
     electricalConstraintAttributes.map((attribute) => [attribute, input.hasAttribute(attribute) ? input.getAttribute(attribute) : null])
   ));
-  Object.entries(constraint.override.attributes).forEach(([attribute, value]) => input.setAttribute(attribute, value));
+  Object.entries(constraint.override.attributes).forEach(([attribute, value]) => {
+    input.setAttribute(
+      attribute,
+      attribute === "title"
+        ? electricalRatingConstraintTitle(name, constraint.override.attributes.max, value)
+        : value
+    );
+  });
+}
+
+function parameterConstraintTitle(name, rawFallback = "") {
+  return t(`form.constraint.${name}`, undefined, rawFallback);
+}
+
+function electricalRatingConstraintTitle(name, limit, rawFallback = "") {
+  return t("form.constraint.electrical_rating", {
+    limit,
+    unit: name === "current" ? "A" : "V"
+  }, rawFallback);
+}
+
+function refreshParameterConstraintPresentation(root = document) {
+  root.querySelectorAll?.("[data-parameter-constraint]").forEach((input) => {
+    const name = input.dataset.parameterConstraint;
+    const rawFallback = input.dataset.parameterConstraintFallback || input.title;
+    const serializedBase = input.dataset.electricalBaseConstraints;
+    if (!serializedBase) {
+      input.title = parameterConstraintTitle(name, rawFallback);
+      return;
+    }
+    const base = JSON.parse(serializedBase);
+    if (base.title !== null && base.title !== undefined) {
+      base.title = parameterConstraintTitle(name, rawFallback);
+      input.dataset.electricalBaseConstraints = JSON.stringify(base);
+    }
+    input.title = electricalRatingConstraintTitle(name, input.max, input.title);
+  });
 }
 
 function restoreBaseElectricalConstraints(input) {
@@ -863,6 +908,7 @@ function optionDisplayName(value) {
     parameterPayload,
     enforcePulseFormRules,
     applyParameterConstraint,
+    refreshParameterConstraintPresentation,
     applyElectricalRatingConstraint,
     restoreBaseElectricalConstraints,
     refreshInputElectricalConstraints,
