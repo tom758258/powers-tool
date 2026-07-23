@@ -18,7 +18,7 @@ export function rampSegmentDefinitions() {
     { name: "stop_voltage", label: "Stop voltage(V)" },
     { name: "step_voltage", label: "Step voltage(V)" },
     { name: "delay_ms", label: "Wait between steps (ms)" },
-    { name: "hold_ms", label: "Wait after segment (ms)" }
+    { name: "hold_ms", label: "Wait after final step (ms)" }
   ];
 }
 

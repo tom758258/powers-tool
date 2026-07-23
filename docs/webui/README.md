@@ -373,7 +373,7 @@ It loads v2/v3 as one execution and saves strict v4 with explicit
 `enable_output` and `loop_count`, including 1. The editor supports up to 10
 ordered segments and full-list trip guarding before submission.
 For Ramp and each Ramp List segment, `Wait between steps (ms)` applies only
-after a non-final voltage step. Ramp List `Wait after segment (ms)` applies
+after a non-final voltage step. Ramp List `Wait after final step (ms)` applies
 after the final voltage step and before that segment completes.
 Sequence uses collapsed step cards with JSON Load/Save and supports up to 250
 steps in the WebUI. It loads v1 as one execution and always saves/runs strict

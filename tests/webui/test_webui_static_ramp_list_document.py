@@ -23,7 +23,7 @@ strictAssert.deepEqual(ramp.defaultRampSegment(), { channel: 1, current: 0.1, st
 strictAssert.deepEqual(ramp.rampSegmentDefinitions().map((definition) => definition.name), ["channel", "current", "start_voltage", "stop_voltage", "step_voltage", "delay_ms", "hold_ms"]);
 strictAssert.deepEqual(ramp.rampSegmentDefinitions().slice(-2), [
   { name: "delay_ms", label: "Wait between steps (ms)" },
-  { name: "hold_ms", label: "Wait after segment (ms)" },
+  { name: "hold_ms", label: "Wait after final step (ms)" },
 ]);
 strictAssert.equal(ramp.effectiveEnabledLoopCount(false, "99"), 1);
 strictAssert.equal(ramp.effectiveEnabledLoopCount(true, "2"), 2);

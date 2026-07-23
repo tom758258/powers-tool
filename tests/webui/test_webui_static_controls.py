@@ -1361,7 +1361,7 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(applyChannel.children[0].value, "all");
         setLocale("en");
 
-        const rampListHelp = "If a channel's OUTPUT is OFF, the workflow automatically enables it the first time the channel is used, after the safe setpoint is written and verified. OUTPUT remains ON after normal completion. Stop uses the existing safe shutdown flow. Real hardware still requires confirmation.";
+        const rampListHelp = "On first use of each channel, the workflow writes the first safe setpoint, enables OUTPUT, and verifies that OUTPUT is ON. OUTPUT remains ON after normal completion. Stop uses the existing safe shutdown flow. Real hardware still requires confirmation.";
         state.selected = "ramp-list";
         state.rampListEnableOutput = true;
         renderForm("ramp-list");
@@ -1375,7 +1375,7 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         const rampListHold = descendants(editor).find((node) => node.dataset.rampField === "hold_ms");
         strictAssert.equal(rampListDelay.parentNode.textContent, "Wait between steps (ms)");
         strictAssert.equal(rampListDelay.title, "Wait after each non-final voltage step before writing the next step.");
-        strictAssert.equal(rampListHold.parentNode.textContent, "Wait after segment (ms)");
+        strictAssert.equal(rampListHold.parentNode.textContent, "Wait after final step (ms)");
         strictAssert.equal(rampListHold.title, "Wait after the final voltage step before the Ramp List segment completes.");
         const rampListDelayValue = rampListDelay.value;
         const rampListHoldValue = rampListHold.value;
@@ -1396,7 +1396,7 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(rampListHold.value, rampListHoldValue);
         strictAssert.equal(rampListDelay.parentNode.textContent, "步進間等待 (ms)");
         strictAssert.equal(rampListDelay.title, "每次寫入非最後一個電壓步驟後，等待指定時間再寫入下一步。");
-        strictAssert.equal(rampListHold.parentNode.textContent, "區段結束後等待 (ms)");
+        strictAssert.equal(rampListHold.parentNode.textContent, "最後一步後等待 (ms)");
         strictAssert.equal(rampListHold.title, "完成逐步輸出區段的最後一個電壓步驟後，等待指定時間，再完成該區段。");
         strictAssert.deepEqual(p4RampListTiming.children.map((option) => option.value), rampListTimingValues);
         strictAssert.deepEqual(p4RampListTiming.children.map((option) => option.textContent), ["無", "每個步驟", "逐步輸出區段完成", "迴圈完成"]);
@@ -1406,7 +1406,7 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(loadRampListButton.textContent, "Load Ramp List");
         strictAssert.equal(rampListDelay.parentNode.textContent, "Wait between steps (ms)");
         strictAssert.equal(rampListDelay.title, "Wait after each non-final voltage step before writing the next step.");
-        strictAssert.equal(rampListHold.parentNode.textContent, "Wait after segment (ms)");
+        strictAssert.equal(rampListHold.parentNode.textContent, "Wait after final step (ms)");
         strictAssert.equal(rampListHold.title, "Wait after the final voltage step before the Ramp List segment completes.");
         const rampListParts = assertCompactControl(
           editor,
@@ -1493,13 +1493,14 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         strictAssert.equal(rampListLoopCount.value, "1.5");
         strictAssert.equal(rerenderedTiming.value, "loop");
         strictAssert.equal(invalidEnableParts.label.querySelector(".checkbox-label-text").textContent, "自動啟用各通道輸出");
-        strictAssert.equal(invalidEnableParts.label.title, "若通道的 OUTPUT 原本為 OFF，工作流程會在該通道第一次使用且安全設定值已寫入並驗證後，自動啟用 OUTPUT。正常完成後 OUTPUT 維持 ON；Stop 仍依現有安全關閉流程處理。實機硬體仍需確認。");
+        strictAssert.equal(invalidEnableParts.label.title, "各通道第一次使用時，工作流程會先寫入第一個安全設定值，再啟用 OUTPUT 並驗證輸出已開啟。正常完成後 OUTPUT 維持 ON；Stop 仍依現有安全關閉流程處理。實機硬體仍需確認。");
         strictAssert.equal(invalidEnableParts.input.title, invalidEnableParts.label.title);
         strictAssert.equal(invalidEnableParts.input.getAttribute("aria-label"), "各通道第一次使用時自動啟用輸出");
         strictAssert.equal(invalidEnableParts.help.textContent, invalidEnableParts.label.title);
         setLocale("en");
         webuiWorkflows.refreshWorkflowPresentation(rerenderedEditor);
         strictAssert.equal(invalidEnableParts.input.getAttribute("aria-label"), "Auto-enable output for each channel on first use");
+        strictAssert.equal(invalidEnableParts.help.textContent, rampListHelp);
         rampListLoopCount.value = "3";
         rampListLoopCount.listeners.input.forEach((listener) => listener());
         strictAssert.equal(rerenderedTiming.value, "loop");

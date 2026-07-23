@@ -377,12 +377,20 @@ assert.equal(EN_MESSAGES["form.field.delay_ms"], "Wait between steps (ms)");
 assert.equal(ZH_TW_MESSAGES["form.field.delay_ms"], "步進間等待 (ms)");
 assert.equal(EN_MESSAGES["workflow.field.delay_ms"], "Wait between steps (ms)");
 assert.equal(ZH_TW_MESSAGES["workflow.field.delay_ms"], "步進間等待 (ms)");
-assert.equal(EN_MESSAGES["workflow.field.hold_ms"], "Wait after segment (ms)");
-assert.equal(ZH_TW_MESSAGES["workflow.field.hold_ms"], "區段結束後等待 (ms)");
+assert.equal(EN_MESSAGES["workflow.field.hold_ms"], "Wait after final step (ms)");
+assert.equal(ZH_TW_MESSAGES["workflow.field.hold_ms"], "最後一步後等待 (ms)");
 assert.equal(EN_MESSAGES["workflow.field.enable_each_channel"], "Auto-enable output for each channel");
 assert.equal(ZH_TW_MESSAGES["workflow.field.enable_each_channel"], "自動啟用各通道輸出");
 assert.equal(EN_MESSAGES["ramp_list.aria.enable_each_channel"], "Auto-enable output for each channel on first use");
 assert.equal(ZH_TW_MESSAGES["ramp_list.aria.enable_each_channel"], "各通道第一次使用時自動啟用輸出");
+assert.equal(
+  EN_MESSAGES["ramp_list.help.enable_each_channel"],
+  "On first use of each channel, the workflow writes the first safe setpoint, enables OUTPUT, and verifies that OUTPUT is ON. OUTPUT remains ON after normal completion. Stop uses the existing safe shutdown flow. Real hardware still requires confirmation."
+);
+assert.equal(
+  ZH_TW_MESSAGES["ramp_list.help.enable_each_channel"],
+  "各通道第一次使用時，工作流程會先寫入第一個安全設定值，再啟用 OUTPUT 並驗證輸出已開啟。正常完成後 OUTPUT 維持 ON；Stop 仍依現有安全關閉流程處理。實機硬體仍需確認。"
+);
 assert.equal(ZH_TW_MESSAGES["form.option.segment"], "逐步輸出完成");
 assert.equal(EN_MESSAGES["form.option.segment"], "Ramp complete");
 assert.equal(ZH_TW_MESSAGES["support.scope.not_evaluated"], "尚未評估連線支援範圍");
