@@ -130,6 +130,9 @@ class FakeElement {
     if (selector === "[data-workflow-compact-help-description]") {
       return descendants(this).filter((node) => node.dataset.workflowCompactHelpDescription);
     }
+    if (selector === "[data-parameter-constraint]") {
+      return descendants(this).filter((node) => node.dataset.parameterConstraint);
+    }
     return [];
   }
   set innerHTML(value) {
@@ -161,6 +164,11 @@ const state = {
   activeCategory: "workflow",
   commands: { "ramp-list": { category: "workflow" } },
   workflowControl: { phase: "idle" },
+  parameterConstraints: {
+    start_voltage: { min: 0, step: "any", description: "Finite non-negative starting voltage." },
+    stop_voltage: { min: 0, step: "any", description: "Finite non-negative final voltage." },
+  },
+  electricalRatingsByModel: {},
   rampListSegments: [{
     channel: 2,
     start_voltage: 1.25,
@@ -180,6 +188,7 @@ const validityCalls = [];
 let selectedUpdateCount = 0;
 let renderFormFromController;
 let updateRampListPulseFromController;
+let applyParameterConstraintFromController;
 
 const loopControl = ({ prefix }) => {
   const wrapper = new FakeElement("div");
@@ -206,6 +215,7 @@ const workflows = globalThis.webuiWorkflows.createWorkflows({
   applyParameterConstraint: (input, name) => {
     constrainedFields.push(name);
     input.dataset.constraintApplied = name;
+    applyParameterConstraintFromController(input, name);
   },
   updateWorkflowDocumentValidity: (command) => validityCalls.push(command),
   updateRampListPulse: (...args) => updateRampListPulseFromController(...args),
@@ -213,6 +223,7 @@ const workflows = globalThis.webuiWorkflows.createWorkflows({
 const controller = globalThis.webuiCommandForm.createCommandController({
   state,
   commandCatalog: globalThis.webuiCommandCatalog,
+  electrical: globalThis.webuiElectrical,
   commandMeta: (name) => state.commands[name] || {},
   renderWorkspaceSummary: () => {},
   prefillClearProtectionChannel: () => {},
@@ -221,6 +232,7 @@ const controller = globalThis.webuiCommandForm.createCommandController({
 });
 renderFormFromController = controller.renderForm;
 updateRampListPulseFromController = controller.updateRampListPulse;
+applyParameterConstraintFromController = controller.applyParameterConstraint;
 
 strictAssert.doesNotThrow(() => controller.selectCommand("ramp-list"));
 strictAssert.equal(state.selected, "ramp-list");
@@ -285,11 +297,67 @@ timingInput.value = "";
 strictAssert.doesNotThrow(() => timingInput.listeners.change[0]());
 strictAssert.equal(state.rampListCompletionPulse, null);
 strictAssert.equal(selectedUpdateCount - selectedUpdatesBeforePulse, 4);
+const stopVoltageInput = descendants(commandForm).find((node) => node.dataset.rampField === "stop_voltage");
+const startVoltageInput = descendants(commandForm).find((node) => node.dataset.rampField === "start_voltage");
+strictAssert.equal(stopVoltageInput.title, "Finite non-negative final voltage.");
+const stopVoltagePresentationState = {
+  value: stopVoltageInput.value,
+  min: stopVoltageInput.min,
+  max: stopVoltageInput.max,
+  step: stopVoltageInput.step,
+  required: stopVoltageInput.required,
+  disabled: stopVoltageInput.disabled,
+  listeners: Object.fromEntries(
+    Object.entries(stopVoltageInput.listeners).map(([name, listeners]) => [name, listeners.length]),
+  ),
+};
 
 const i18n = await import(new URL("./i18n.js", moduleUrls["command-catalog.js"]));
 i18n.setLocale("zh-TW");
 let localizedEditor = commandForm.children[0];
 globalThis.webuiWorkflows.refreshWorkflowPresentation(localizedEditor);
+controller.refreshParameterConstraintPresentation(localizedEditor);
+strictAssert.equal(
+  descendants(localizedEditor).find((node) => node.dataset.rampField === "stop_voltage"),
+  stopVoltageInput,
+);
+strictAssert.equal(stopVoltageInput.title, "停止電壓必須為有限值且不得小於 0。");
+strictAssert.equal(startVoltageInput.title, "有限且非負的起始電壓。");
+strictAssert.deepEqual({
+  value: stopVoltageInput.value,
+  min: stopVoltageInput.min,
+  max: stopVoltageInput.max,
+  step: stopVoltageInput.step,
+  required: stopVoltageInput.required,
+  disabled: stopVoltageInput.disabled,
+  listeners: Object.fromEntries(
+    Object.entries(stopVoltageInput.listeners).map(([name, listeners]) => [name, listeners.length]),
+  ),
+}, stopVoltagePresentationState);
+strictAssert.equal(state.rampListSegments, originalSegments);
+i18n.setLocale("en");
+globalThis.webuiWorkflows.refreshWorkflowPresentation(localizedEditor);
+controller.refreshParameterConstraintPresentation(localizedEditor);
+strictAssert.equal(
+  descendants(localizedEditor).find((node) => node.dataset.rampField === "stop_voltage"),
+  stopVoltageInput,
+);
+strictAssert.equal(stopVoltageInput.title, "Finite non-negative final voltage.");
+strictAssert.deepEqual({
+  value: stopVoltageInput.value,
+  min: stopVoltageInput.min,
+  max: stopVoltageInput.max,
+  step: stopVoltageInput.step,
+  required: stopVoltageInput.required,
+  disabled: stopVoltageInput.disabled,
+  listeners: Object.fromEntries(
+    Object.entries(stopVoltageInput.listeners).map(([name, listeners]) => [name, listeners.length]),
+  ),
+}, stopVoltagePresentationState);
+strictAssert.equal(state.rampListSegments, originalSegments);
+i18n.setLocale("zh-TW");
+globalThis.webuiWorkflows.refreshWorkflowPresentation(localizedEditor);
+controller.refreshParameterConstraintPresentation(localizedEditor);
 let localizedToolbar = descendants(localizedEditor).find((node) => node.classList.contains("ramp-list-toolbar"));
 strictAssert.deepEqual(
   localizedToolbar.children.map((button) => button.textContent),
@@ -310,6 +378,7 @@ strictAssert.deepEqual(
 );
 i18n.setLocale("en");
 globalThis.webuiWorkflows.refreshWorkflowPresentation(localizedEditor);
+controller.refreshParameterConstraintPresentation(localizedEditor);
 localizedToolbar = descendants(localizedEditor).find((node) => node.classList.contains("ramp-list-toolbar"));
 strictAssert.equal(localizedToolbar.children[2].textContent, "Add Ramp Segment");
 strictAssert.deepEqual(
@@ -322,6 +391,7 @@ strictAssert.deepEqual(
         (
             "command-catalog.js",
             "command-form.js",
+            "electrical.js",
             "ramp-list.js",
             "trigger-list.js",
             "workflows.js",

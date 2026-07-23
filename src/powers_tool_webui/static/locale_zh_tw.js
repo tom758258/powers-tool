@@ -137,7 +137,7 @@ export const ZH_TW_MESSAGES = Object.freeze({
   "form.constraint.settle_ms": "選擇性驗證前的非負等待時間。",
   "form.constraint.start_voltage": "有限且非負的起始電壓。",
   "form.constraint.step_voltage": "有限且為正值的電壓步進量。",
-  "form.constraint.stop_voltage": "有限且非負的終止電壓。",
+  "form.constraint.stop_voltage": "停止電壓必須為有限值且不得小於 0。",
   "form.constraint.voltage": "有限且非負的電壓設定值。",
   "form.constraint.wait_timeout_ms": "正值的觸發等待逾時時間。",
   "form.description.ramp.enable_output": "只有在寫入並驗證第一個安全設定值後才會啟用輸出。正常完成後輸出會維持開啟。停止工作流程會關閉儀器的所有輸出。實機硬體仍需確認。",

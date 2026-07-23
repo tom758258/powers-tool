@@ -705,7 +705,7 @@ def test_frontend_planning_electrical_constraints_restore_base_values() -> None:
         };
         refreshParameterConstraintPresentation(root);
         strictAssert.equal(input.title, "有限且非負的電壓設定值。");
-        strictAssert.equal(stopVoltage.title, "有限且非負的終止電壓。");
+        strictAssert.equal(stopVoltage.title, "停止電壓必須為有限值且不得小於 0。");
         strictAssert.equal(future.title, "Future backend constraint.");
 
         identity.value = "keysight-e36312a";

@@ -891,4 +891,4 @@ def test_parameter_constraint_tooltip_catalog_covers_current_metadata_inventory(
     assert en_keys == expected
     assert zh_tw_keys == expected
     assert '"form.constraint.stop_voltage": "Finite non-negative final voltage."' in en_source
-    assert '"form.constraint.stop_voltage": "有限且非負的終止電壓。"' in zh_tw_source
+    assert '"form.constraint.stop_voltage": "停止電壓必須為有限值且不得小於 0。"' in zh_tw_source
