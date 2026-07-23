@@ -679,6 +679,30 @@ def test_static_commands_use_category_navigation():
     assert '(meta.category || "discovery") === state.activeCategory' in render_commands
 
 
+def test_static_command_category_column_width_and_responsive_contract():
+    _index_html, _app_js, styles_css = read_static_texts()
+    locale_en_js = read_static_javascript("locale_en.js")
+
+    desktop_browser = styles_css[
+        styles_css.index(".command-browser {"):styles_css.index(".command-categories {")
+    ]
+    assert "grid-template-columns: 175px minmax(0, 1fr);" in desktop_browser
+    assert "grid-template-columns: 155px minmax(0, 1fr);" not in desktop_browser
+
+    responsive = styles_css[styles_css.index("@media (max-width: 1100px) {"):]
+    responsive_browser = responsive[
+        responsive.index(".command-browser {"):responsive.index(".command-categories {")
+    ]
+    responsive_categories = responsive[
+        responsive.index(".command-categories {"):responsive.index(".category-button {")
+    ]
+    assert "grid-template-columns: 1fr;" in responsive_browser
+    assert "flex-direction: row;" in responsive_categories
+    assert "overflow-x: auto;" in responsive_categories
+    assert ".category-button { min-width: 140px; }" in responsive
+    assert '"command.category.discovery": "Advanced Diagnostics"' in locale_en_js
+
+
 def test_result_panel_is_collapsible():
     index_html, app_js, _styles_css = read_static_texts()
     state_js = read_static_javascript("state.js")

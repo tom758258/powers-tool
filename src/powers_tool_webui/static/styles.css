@@ -553,7 +553,7 @@ button.utility-icon-button:hover {
 /* ─── Command Browser ────────────────────────────────────────────────────── */
 .command-browser {
   display: grid;
-  grid-template-columns: 155px minmax(0, 1fr);
+  grid-template-columns: 175px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
