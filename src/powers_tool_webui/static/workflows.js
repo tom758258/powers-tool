@@ -1,3 +1,41 @@
+import { t } from "./i18n.js";
+
+export function refreshWorkflowPresentation(root = document) {
+  root.querySelectorAll?.("[data-workflow-i18n]").forEach((node) => {
+    const params = node.dataset.workflowI18nParams ? JSON.parse(node.dataset.workflowI18nParams) : undefined;
+    const text = t(node.dataset.workflowI18n, params, node.dataset.workflowI18nFallback);
+    const checkboxText = node.querySelector?.(".checkbox-label-text");
+    if (checkboxText) checkboxText.textContent = text;
+    else if (node.firstChild?.nodeType === 3) node.firstChild.textContent = text;
+    else node.textContent = text;
+  });
+  root.querySelectorAll?.("[data-i18n-loop]").forEach((node) => {
+    node.textContent = t(node.dataset.i18nLoop, undefined, node.textContent);
+  });
+}
+
+function workflowText(node, key, fallback, params) {
+  node.dataset.workflowI18n = key;
+  node.dataset.workflowI18nFallback = fallback;
+  if (params) node.dataset.workflowI18nParams = JSON.stringify(params);
+  node.textContent = t(key, params, fallback);
+  return node;
+}
+
+function optionKey(value, rearPins = false, timing = false) {
+  const rear = { "": "none", "1": "pin_1", "2": "pin_2", "3": "pin_3", "1,2": "pins_1_2", "1,3": "pins_1_3", "2,3": "pins_2_3", "1,2,3": "all" };
+  const common = { "": "none", all: "all", bus: "bus", immediate: "immediate", positive: "positive", negative: "negative", step: "step", segment: "segment", loop: "loop" };
+  const name = (rearPins ? rear : common)[value];
+  return name ? `form.option.${name}` : null;
+}
+
+function localizedOption(option, value, fallback, rearPins = false) {
+  const key = optionKey(value, rearPins);
+  option.value = value;
+  if (key) workflowText(option, key, fallback);
+  else option.textContent = fallback;
+}
+
 export function createWorkflows({
   state,
   optionalRearPinOptions: OPTIONAL_REAR_PIN_OPTIONS,
@@ -40,11 +78,11 @@ function renderTriggerListForm(form) {
   editor.className = "trigger-list-editor";
   const toolbar = document.createElement("div");
   toolbar.className = "trigger-list-toolbar";
-  [["Load Trigger List", loadTriggerListWorkspace], ["Save Trigger List", saveTriggerListWorkspace], ["Add Step", addTriggerListStep]].forEach(([text, handler]) => {
+  [["workflow.action.load_trigger_list", "Load Trigger List", loadTriggerListWorkspace], ["workflow.action.save_trigger_list", "Save Trigger List", saveTriggerListWorkspace], ["workflow.action.add_step", "Add Step", addTriggerListStep]].forEach(([key, text, handler]) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
-    button.textContent = text;
+    workflowText(button, key, text);
     button.disabled = text === "Add Step" && activeTriggerListDraft().steps.length >= 100;
     button.addEventListener("click", handler);
     toolbar.appendChild(button);
@@ -57,7 +95,7 @@ function renderTriggerListForm(form) {
     button.type = "button";
     button.className = `secondary${state.triggerListActiveChannel === channel ? " active" : ""}`;
     button.dataset.triggerListChannel = String(channel);
-    button.textContent = `Channel ${channel}`;
+    workflowText(button, "workflow.channel", `Channel ${channel}`, { channel });
     button.addEventListener("click", () => {
       state.triggerListActiveChannel = channel;
       renderForm("trigger-list");
@@ -72,7 +110,19 @@ function renderTriggerListForm(form) {
   editor.appendChild(controls);
   const table = document.createElement("table");
   table.className = "trigger-list-table";
-  table.innerHTML = "<thead><tr><th>Step</th><th>Voltage (V)</th><th>Current (A)</th><th>Dwell (s)</th><th>BOST</th><th>EOST</th><th>Actions</th></tr></thead>";
+  const head = document.createElement("thead");
+  const headingRow = document.createElement("tr");
+  [
+    ["workflow.field.step", "Step"],
+    ["workflow.field.voltage", "Voltage (V)"],
+    ["workflow.field.current", "Current (A)"],
+    ["workflow.field.dwell", "Dwell (s)"],
+    ["workflow.field.bost", "BOST"],
+    ["workflow.field.eost", "EOST"],
+    ["workflow.field.actions", "Actions"]
+  ].forEach(([key, text]) => headingRow.appendChild(workflowText(document.createElement("th"), key, text)));
+  head.appendChild(headingRow);
+  table.appendChild(head);
   const body = document.createElement("tbody");
   activeTriggerListDraft().steps.forEach((step, index) => body.appendChild(triggerListStepRow(step, index)));
   table.appendChild(body);
@@ -96,8 +146,7 @@ function triggerListControlField(definition) {
   if (definition.type === "select") {
     definition.options.forEach((value) => {
       const option = document.createElement("option");
-      option.value = value;
-      option.textContent = definition.name === "trigger_output_pins" ? rearPinDisplayName(value) : optionDisplayName(value);
+      localizedOption(option, value, definition.name === "trigger_output_pins" ? rearPinDisplayName(value) : optionDisplayName(value), definition.name === "trigger_output_pins");
       input.appendChild(option);
     });
   } else input.type = definition.type;
@@ -114,8 +163,12 @@ function triggerListControlField(definition) {
   const label = definition.type === "checkbox"
     ? webuiCommandForm.createCheckboxField(input, definition.label)
     : document.createElement("label");
+  label.dataset.workflowI18n = `workflow.field.${definition.name}`;
+  label.dataset.workflowI18nFallback = definition.label;
+  const checkboxText = label.querySelector?.(".checkbox-label-text");
+  if (checkboxText) checkboxText.textContent = t(`workflow.field.${definition.name}`, undefined, definition.label);
   if (definition.type !== "checkbox") {
-    label.textContent = definition.label;
+    workflowText(label, `workflow.field.${definition.name}`, definition.label);
     label.appendChild(input);
   }
   return label;
@@ -141,11 +194,11 @@ function triggerListStepRow(step, index) {
     row.appendChild(cell);
   });
   const actions = document.createElement("td");
-  [["Up", -1, index === 0], ["Down", 1, index === activeTriggerListDraft().steps.length - 1], ["Remove", 0, activeTriggerListDraft().steps.length === 1]].forEach(([text, offset, disabled]) => {
+  [["common.up", "Up", -1, index === 0], ["common.down", "Down", 1, index === activeTriggerListDraft().steps.length - 1], ["common.remove", "Remove", 0, activeTriggerListDraft().steps.length === 1]].forEach(([key, text, offset, disabled]) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
-    button.textContent = text;
+    workflowText(button, key, text);
     button.disabled = disabled;
     button.addEventListener("click", () => offset === 0 ? removeTriggerListStep(index) : moveTriggerListStep(index, offset));
     actions.appendChild(button);
@@ -193,14 +246,14 @@ function renderRampListForm(form) {
   const toolbar = document.createElement("div");
   toolbar.className = "ramp-list-toolbar";
   [
-    ["Load Ramp List", loadRampList],
-    ["Save Ramp List", saveRampList],
-    ["Add Ramp Segment", addRampSegment]
-  ].forEach(([text, handler]) => {
+    ["workflow.action.load_ramp_list", "Load Ramp List", loadRampList],
+    ["workflow.action.save_ramp_list", "Save Ramp List", saveRampList],
+    ["workflow.action.add_ramp_segment", "Add Ramp Segment", addRampSegment]
+  ].forEach(([key, text, handler]) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
-    button.textContent = text;
+    workflowText(button, key, text);
     if (text === "Save Ramp List") button.id = "save-ramp-list";
     button.disabled = text === "Add Ramp Segment" && state.rampListSegments.length >= 10;
     button.addEventListener("click", handler);
@@ -216,6 +269,9 @@ function renderRampListForm(form) {
     updateSelectedCommandState();
   });
   const enableLabel = webuiCommandForm.createCheckboxField(enableInput, "Enable each channel", ["ramp-list-enable-output-field"]);
+  enableLabel.dataset.workflowI18n = "workflow.field.enable_each_channel";
+  enableLabel.dataset.workflowI18nFallback = "Enable each channel";
+  enableLabel.querySelector(".checkbox-label-text").textContent = t("workflow.field.enable_each_channel");
   webuiCommandForm.configureCompactCheckboxHelp(enableLabel, enableInput, {
     ariaLabel: "Enable each channel at its first segment",
     helpId: "ramp-list-enable-output-help",
@@ -228,6 +284,9 @@ function renderRampListForm(form) {
     countDraft: state.rampListLoopCountDraft,
     onEnabled: (value) => { state.rampListLoopEnabled = value; },
     onDraft: (value) => { state.rampListLoopCountDraft = value; },
+    translate: t,
+    enabledTranslationKey: "form.field.loop_enabled",
+    countTranslationKey: "form.field.loop_count",
     onDisable: () => {
       if (state.rampListCompletionPulse?.timing === "loop") {
         state.rampListCompletionPulse = null;
@@ -243,15 +302,18 @@ function renderRampListForm(form) {
     { name: "polarity", label: "Polarity", type: "select", options: ["positive", "negative"] }
   ].forEach((definition) => {
     const label = document.createElement("label");
-    label.textContent = definition.label;
+    workflowText(label, `workflow.field.${definition.name}`, definition.label);
     const input = document.createElement(definition.type === "select" ? "select" : "input");
     if (definition.type === "select") {
       definition.options.forEach((value) => {
         const option = document.createElement("option");
-        option.value = value;
-        option.textContent = definition.name === "pins"
-          ? rearPinDisplayName(value)
-          : pulseTimingDisplayName("ramp-list", value);
+        const fallback = definition.name === "pins" ? rearPinDisplayName(value) : pulseTimingDisplayName("ramp-list", value);
+        if (definition.name === "timing" && value === "segment") {
+          option.value = value;
+          workflowText(option, "form.option.segment_complete", fallback);
+        } else {
+          localizedOption(option, value, fallback, definition.name === "pins");
+        }
         if (definition.name === "timing" && value === "loop" && !(effectiveRampListLoopCount() >= 2)) {
           option.disabled = true;
         }
@@ -286,18 +348,18 @@ function rampSegmentCard(segment, index) {
   const head = document.createElement("div");
   head.className = "ramp-segment-head";
   const title = document.createElement("strong");
-  title.textContent = `Ramp Segment ${index + 1}`;
+  workflowText(title, "workflow.ramp_segment", `Ramp Segment ${index + 1}`, { index: index + 1 });
   const actions = document.createElement("div");
   actions.className = "ramp-segment-actions";
   [
-    ["Up", () => moveRampSegment(index, -1), index === 0],
-    ["Down", () => moveRampSegment(index, 1), index === state.rampListSegments.length - 1],
-    ["Remove", () => removeRampSegment(index), state.rampListSegments.length === 1]
-  ].forEach(([text, handler, disabled]) => {
+    ["common.up", "Up", () => moveRampSegment(index, -1), index === 0],
+    ["common.down", "Down", () => moveRampSegment(index, 1), index === state.rampListSegments.length - 1],
+    ["common.remove", "Remove", () => removeRampSegment(index), state.rampListSegments.length === 1]
+  ].forEach(([key, text, handler, disabled]) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
-    button.textContent = text;
+    workflowText(button, key, text);
     button.disabled = disabled;
     button.addEventListener("click", handler);
     actions.appendChild(button);
@@ -308,7 +370,7 @@ function rampSegmentCard(segment, index) {
   fields.className = "ramp-segment-fields";
   rampSegmentDefinitions().forEach((definition) => {
     const label = document.createElement("label");
-    label.textContent = definition.label;
+    workflowText(label, `workflow.field.${definition.name}`, definition.label);
     const input = document.createElement(definition.name === "channel" ? "select" : "input");
     if (definition.name === "channel") {
       ["1", "2", "3"].forEach((value) => {
@@ -527,7 +589,7 @@ function renderSnapshotForm(form) {
   saveBtn.type = "button";
   saveBtn.className = "secondary";
   saveBtn.id = "btn-save-snapshot";
-  saveBtn.textContent = "Save Snapshot";
+  workflowText(saveBtn, "workflow.action.save_snapshot", "Save Snapshot");
   saveBtn.disabled = !state.latestSnapshotDocument;
   saveBtn.addEventListener("click", saveSnapshot);
   toolbar.appendChild(saveBtn);
@@ -543,19 +605,19 @@ function renderSnapshotForm(form) {
     const meta = state.latestSnapshotMetadata;
     const timeStr = meta && meta.savedAt ? new Date(meta.savedAt).toLocaleTimeString() : "";
     if (inProgress) {
-      statusNote.textContent = `Previous successful snapshot available while a new snapshot is running. (${meta?.model || "unknown"}, ${timeStr})`;
+      workflowText(statusNote, "snapshot.status.previous_available", "Previous successful snapshot available while a new snapshot is running. ({model}, {time})", { model: meta?.model || t("status.unknown"), time: timeStr });
     } else {
-      statusNote.textContent = `Latest successful snapshot available (${meta?.model || "unknown"}, ${timeStr})`;
+      workflowText(statusNote, "snapshot.status.latest_available", "Latest successful snapshot available ({model}, {time})", { model: meta?.model || t("status.unknown"), time: timeStr });
     }
   } else {
-    statusNote.textContent = inProgress ? "Snapshot in progress..." : "No successful snapshot captured in this session.";
+    workflowText(statusNote, inProgress ? "snapshot.status.in_progress" : "snapshot.status.none", inProgress ? "Snapshot in progress..." : "No successful snapshot captured in this session.");
   }
   toolbar.appendChild(statusNote);
   editor.appendChild(toolbar);
 
   (PARAMS["snapshot"] || []).forEach((param) => {
     const label = document.createElement("label");
-    label.textContent = param.label;
+    workflowText(label, `workflow.field.${param.name}`, param.label);
     const input = document.createElement("input");
     input.type = param.type;
     input.id = `param-${param.name}`;
@@ -636,22 +698,25 @@ function renderRestoreForm(form) {
   loadBtn.type = "button";
   loadBtn.className = "secondary";
   loadBtn.id = "btn-load-snapshot";
-  loadBtn.textContent = "Load Snapshot";
+  workflowText(loadBtn, "workflow.action.load_snapshot", "Load Snapshot");
   loadBtn.addEventListener("click", loadRestoreSnapshot);
   toolbar.appendChild(loadBtn);
 
   const fileStatus = document.createElement("span");
   fileStatus.id = "restore-file-status";
   fileStatus.className = "artifact-file-status";
-  fileStatus.textContent = state.loadedSnapshotFilename
-    ? `Loaded file: ${state.loadedSnapshotFilename}`
-    : "No snapshot loaded";
+  workflowText(
+    fileStatus,
+    state.loadedSnapshotFilename ? "restore.status.loaded_file" : "restore.status.no_snapshot",
+    state.loadedSnapshotFilename ? "Loaded file: {filename}" : "No snapshot loaded",
+    state.loadedSnapshotFilename ? { filename: state.loadedSnapshotFilename } : undefined
+  );
   toolbar.appendChild(fileStatus);
   editor.appendChild(toolbar);
 
   // Channel Select
   const channelLabel = document.createElement("label");
-  channelLabel.textContent = "Channel";
+  workflowText(channelLabel, "workflow.field.channel", "Channel");
   const channelSelect = document.createElement("select");
   channelSelect.id = "param-channel";
   ["all", "1", "2", "3"].forEach((ch) => {
@@ -682,27 +747,30 @@ function renderRestoreForm(form) {
     updateSelectedCommandState();
   });
   const restoreStateLabel = webuiCommandForm.createCheckboxField(restoreStateCheck, "Restore previous output ON/OFF state");
+  restoreStateLabel.dataset.workflowI18n = "restore.field.restore_output_state";
+  restoreStateLabel.dataset.workflowI18nFallback = "Restore previous output ON/OFF state";
+  restoreStateLabel.querySelector(".checkbox-label-text").textContent = t("restore.field.restore_output_state");
   editor.appendChild(restoreStateLabel);
 
   const warningNote = document.createElement("div");
   warningNote.style.color = "var(--muted)";
   warningNote.style.fontSize = "0.9em";
   warningNote.style.marginBottom = "8px";
-  warningNote.textContent = "When enabled, channels that were ON in the snapshot may be turned ON after restoring settings.";
+  workflowText(warningNote, "restore.warning.output_state", "When enabled, channels that were ON in the snapshot may be turned ON after restoring settings.");
   editor.appendChild(warningNote);
 
   const previewPlanBtn = document.createElement("button");
   previewPlanBtn.type = "button";
   previewPlanBtn.className = "secondary";
   previewPlanBtn.id = "btn-preview-restore-plan";
-  previewPlanBtn.textContent = "Preview restore plan";
+  workflowText(previewPlanBtn, "restore.action.preview_plan", "Preview restore plan");
   previewPlanBtn.disabled = !isLoadedRestoreSnapshotValid() || state.restorePlanPreviewStatus === "running";
   previewPlanBtn.addEventListener("click", previewRestorePlan);
   editor.appendChild(previewPlanBtn);
 
   const planExplanation = document.createElement("p");
   planExplanation.className = "restore-plan-explanation";
-  planExplanation.textContent = "Shows the exact restore steps without opening VISA, locking hardware, or changing the instrument.";
+  workflowText(planExplanation, "restore.help.preview_plan", "Shows the exact restore steps without opening VISA, locking hardware, or changing the instrument.");
   editor.appendChild(planExplanation);
 
   const planPreview = document.createElement("div");
@@ -782,22 +850,22 @@ async function previewRestorePlan() {
 
 function renderRestorePlanPreview(container) {
   if (state.restorePlanPreviewStatus === "running") {
-    container.textContent = "Generating restore plan...";
+    workflowText(container, "restore.status.generating_plan", "Generating restore plan...");
     return;
   }
   if (state.restorePlanPreviewStatus === "failed") {
-    container.textContent = `Could not generate restore plan: ${state.restorePlanPreview?.error || "Unknown error"}`;
+    workflowText(container, "restore.status.plan_failed", "Could not generate restore plan: {detail}", { detail: state.restorePlanPreview?.error || t("status.unknown") });
     return;
   }
   const plan = state.restorePlanPreview?.plan;
   if (!plan || !Array.isArray(plan.steps)) {
-    container.textContent = "No restore plan generated yet.";
+    workflowText(container, "restore.status.no_plan", "No restore plan generated yet.");
     return;
   }
   const heading = document.createElement("strong");
-  heading.textContent = `Restore plan: ${plan.steps.length} steps (preview only)`;
+  workflowText(heading, "restore.status.plan_steps", "Restore plan: {count} steps (preview only)", { count: plan.steps.length });
   const safety = document.createElement("p");
-  safety.textContent = "No VISA connection was opened and no instrument settings were changed.";
+  workflowText(safety, "restore.help.preview_safe", "No VISA connection was opened and no instrument settings were changed.");
   const list = document.createElement("ol");
   plan.steps.forEach((step) => {
     const item = document.createElement("li");
@@ -840,14 +908,14 @@ function renderSequenceForm(form) {
   const toolbar = document.createElement("div");
   toolbar.className = "sequence-toolbar";
   [
-    ["Load Sequence", loadSequenceFile],
-    ["Save Sequence", saveSequenceFile],
-    ["Add Step", addSequenceStep]
-  ].forEach(([text, handler]) => {
+    ["workflow.action.load_sequence", "Load Sequence", loadSequenceFile],
+    ["workflow.action.save_sequence", "Save Sequence", saveSequenceFile],
+    ["workflow.action.add_step", "Add Step", addSequenceStep]
+  ].forEach(([key, text, handler]) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
-    button.textContent = text;
+    workflowText(button, key, text);
     if (text === "Save Sequence") button.id = "save-sequence";
     button.disabled = text === "Add Step" && state.sequenceSteps.length >= sequenceMaxSteps();
     button.addEventListener("click", handler);
@@ -869,7 +937,10 @@ function renderSequenceForm(form) {
     loopEnabled: state.sequenceLoopEnabled,
     countDraft: state.sequenceLoopCountDraft,
     onEnabled: (value) => { state.sequenceLoopEnabled = value; },
-    onDraft: (value) => { state.sequenceLoopCountDraft = value; }
+    onDraft: (value) => { state.sequenceLoopCountDraft = value; },
+    translate: t,
+    enabledTranslationKey: "form.field.loop_enabled",
+    countTranslationKey: "form.field.loop_count"
   }));
   state.sequenceSteps.forEach((step, index) => editor.appendChild(sequenceStepCard(step, index)));
   form.appendChild(editor);
@@ -927,28 +998,28 @@ function sequenceStepCard(step, index) {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "secondary";
-  toggle.textContent = state.sequenceExpanded.has(index) ? "Collapse" : "Expand";
+  workflowText(toggle, state.sequenceExpanded.has(index) ? "common.collapse" : "common.expand", state.sequenceExpanded.has(index) ? "Collapse" : "Expand");
   toggle.addEventListener("click", () => {
     if (state.sequenceExpanded.has(index)) state.sequenceExpanded.delete(index);
     else state.sequenceExpanded.add(index);
     renderForm("sequence");
   });
   const title = document.createElement("strong");
-  title.textContent = `Step ${index + 1}: ${step.action}`;
+  workflowText(title, "sequence.step_title", `Step ${index + 1}: ${step.action}`, { index: index + 1, action: step.action });
   const summary = document.createElement("span");
   summary.className = "sequence-step-summary";
   summary.textContent = sequenceStepSummary(step);
   const actions = document.createElement("div");
   actions.className = "sequence-step-actions";
   [
-    ["Up", () => moveSequenceStep(index, -1), index === 0],
-    ["Down", () => moveSequenceStep(index, 1), index === state.sequenceSteps.length - 1],
-    ["Remove", () => removeSequenceStep(index), state.sequenceSteps.length === 1]
-  ].forEach(([text, handler, disabled]) => {
+    ["common.up", "Up", () => moveSequenceStep(index, -1), index === 0],
+    ["common.down", "Down", () => moveSequenceStep(index, 1), index === state.sequenceSteps.length - 1],
+    ["common.remove", "Remove", () => removeSequenceStep(index), state.sequenceSteps.length === 1]
+  ].forEach(([key, text, handler, disabled]) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
-    button.textContent = text;
+    workflowText(button, key, text);
     button.disabled = disabled;
     button.addEventListener("click", handler);
     actions.appendChild(button);
@@ -966,12 +1037,12 @@ function sequenceStepFields(step, index, card, title, summary) {
   const fields = document.createElement("div");
   fields.className = "sequence-step-fields";
   const actionLabel = document.createElement("label");
-  actionLabel.textContent = "Action";
+  workflowText(actionLabel, "workflow.field.action", "Action");
   const actionSelect = document.createElement("select");
   SEQUENCE_ACTIONS.forEach((action) => {
     const option = document.createElement("option");
     option.value = action;
-    option.textContent = optionDisplayName(action);
+    workflowText(option, `sequence.action.${action.replaceAll("-", "_")}`, optionDisplayName(action));
     actionSelect.appendChild(option);
   });
   actionSelect.value = step.action;
@@ -988,8 +1059,7 @@ function sequenceStepFields(step, index, card, title, summary) {
     if (definition.type === "select") {
       definition.options.forEach((value) => {
         const option = document.createElement("option");
-        option.value = value;
-        option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);
+        localizedOption(option, value, definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value), definition.name === "pins");
         input.appendChild(option);
       });
     } else {
@@ -1005,7 +1075,7 @@ function sequenceStepFields(step, index, card, title, summary) {
     input.addEventListener("input", () => {
       step[definition.name] = sequenceFieldValue(definition, input);
       summary.textContent = sequenceStepSummary(step);
-      title.textContent = `Step ${index + 1}: ${step.action}`;
+      workflowText(title, "sequence.step_title", `Step ${index + 1}: ${step.action}`, { index: index + 1, action: step.action });
       renderSequenceStepError(card, step, index);
       updateSelectedCommandState();
     });
@@ -1018,8 +1088,12 @@ function sequenceStepFields(step, index, card, title, summary) {
     const label = definition.type === "checkbox"
       ? webuiCommandForm.createCheckboxField(input, definition.label)
       : document.createElement("label");
+    label.dataset.workflowI18n = `workflow.field.${definition.name}`;
+    label.dataset.workflowI18nFallback = definition.label;
+    const checkboxText = label.querySelector?.(".checkbox-label-text");
+    if (checkboxText) checkboxText.textContent = t(`workflow.field.${definition.name}`, undefined, definition.label);
     if (definition.type !== "checkbox") {
-      label.textContent = definition.label;
+      workflowText(label, `workflow.field.${definition.name}`, definition.label);
       label.appendChild(input);
     }
     webuiCommandForm.appendFieldDescription(label, definition);

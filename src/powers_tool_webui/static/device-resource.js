@@ -456,7 +456,7 @@ function updateLiveMonitorButton(monitoring, disabled = false) {
   const button = document.getElementById("live-start");
   if (!button) return;
   button.disabled = disabled;
-  button.textContent = monitoring ? "Stop Monitor" : "Start Monitor";
+  button.textContent = t(monitoring ? "live_data.action.stop_monitor" : "live_data.action.start_monitor");
   button.setAttribute("aria-pressed", String(monitoring));
   button.classList.toggle("on", monitoring);
   button.classList.toggle("off", !monitoring);
@@ -488,6 +488,12 @@ async function refreshHealth() {
     renderBlankLivePanel("error", error.message || String(error));
     return { serverReady: false, deviceIdle: false, error };
   }
+}
+
+function refreshLiveMonitorPresentation() {
+  const button = document.getElementById("live-start");
+  if (!button) return;
+  updateLiveMonitorButton(Boolean(state.liveJobId || state.liveEvents), button.disabled);
 }
 
 function refreshHealthPresentation() {
@@ -607,6 +613,7 @@ function setStateIndicator(elementId, text, stateClass = "state-idle", title = "
     selectedElectricalRatingModel,
     handleExpectedModelChanged,
     updateLiveMonitorButton,
+    refreshLiveMonitorPresentation,
     refreshHealth,
     refreshHealthPresentation,
     setStateIndicator

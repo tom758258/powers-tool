@@ -27,7 +27,7 @@ def test_static_json_artifact_file_helpers_have_cancel_and_accept_contracts():
     assert 'return [...extensions, "application/json"].join(",");' in build_accept
     assert 'input.addEventListener("cancel", abort);' in choose_json
     assert 'window.addEventListener("focus", onWindowFocus, { once: true });' in choose_json
-    assert 'abortError("File selection cancelled.")' in choose_json
+    assert 'abortError(t("file.status.selection_cancelled"))' in choose_json
     assert "document.body.appendChild(link);" in save_json
     assert "window.setTimeout(() => URL.revokeObjectURL(url), 0);" in save_json
 
@@ -126,7 +126,7 @@ def test_static_restore_plan_preview_reuses_dry_run_job():
     update_selected = extract_js_function(app_js, "updateSelectedCommandState")
 
     assert 'previewPlanBtn.id = "btn-preview-restore-plan";' in render_restore
-    assert "previewPlanBtn.textContent =" in render_restore
+    assert 'workflowText(previewPlanBtn, "restore.action.preview_plan"' in render_restore
     assert 'previewPlanBtn.disabled = !isLoadedRestoreSnapshotValid() || state.restorePlanPreviewStatus === "running";' in render_restore
     assert "Loaded snapshot JSON" not in render_restore
     assert "Snapshot JSON Preview" not in render_restore
@@ -208,6 +208,7 @@ def test_static_sequence_json_artifact_flow_contracts():
     assert "{ document: validatedSequenceDocument }" in app_js
     assert "param-document" not in app_js
     assert "option.value = action;" in sequence_fields
-    assert "option.textContent = optionDisplayName(action);" in sequence_fields
-    assert "option.value = value;" in sequence_fields
-    assert 'option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);' in sequence_fields
+    assert 'workflowText(option, `sequence.action.${action.replaceAll("-", "_")}`, optionDisplayName(action));' in sequence_fields
+    assert "localizedOption(option, value" in sequence_fields
+    assert "option.value = value;" in extract_js_function(workflows_js, "localizedOption")
+    assert 'localizedOption(option, value, definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value), definition.name === "pins");' in sequence_fields

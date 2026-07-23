@@ -1,17 +1,19 @@
+import { t } from "./i18n.js";
+
 export function jobSummary(job, event = null) {
   const status = job?.status || event?.type;
-  if (status === "failed" && (job?.error_code || event?.data?.code) === "cleanup_failed") return "Failed  cleanup_failed";
-  if (status === "failed") return job?.error || event?.data?.error || "Command failed";
-  if (status === "cancelled") return "Cancelled";
+  if (status === "failed" && (job?.error_code || event?.data?.code) === "cleanup_failed") return t("job.summary.cleanup_failed");
+  if (status === "failed") return job?.error || event?.data?.error || t("job.summary.failed");
+  if (status === "cancelled") return t("status.cancelled");
   if (status !== "finished") return statusSummary(status);
   return successfulJobSummary(job);
 }
 
 export function eventSummary(event) {
-  if (event?.type === "cancel_requested") return "Waiting for safe-off and cleanup";
-  if (event?.type === "failed" && event.data?.code === "cleanup_failed") return "Failed  cleanup_failed";
-  if (event?.type === "failed") return event.data?.error || "Command failed";
-  if (event?.type === "cancelled") return "Cancelled";
+  if (event?.type === "cancel_requested") return t("job.summary.waiting_cleanup");
+  if (event?.type === "failed" && event.data?.code === "cleanup_failed") return t("job.summary.cleanup_failed");
+  if (event?.type === "failed") return event.data?.error || t("job.summary.failed");
+  if (event?.type === "cancelled") return t("status.cancelled");
   return statusSummary(event?.type);
 }
 
@@ -29,15 +31,15 @@ export function successfulJobSummary(job) {
   if (command === "safety inspect") return safetyInspectSummary(result);
   if (Array.isArray(result.resources)) {
     const count = result.resources.length;
-    return `${count} resource${count === 1 ? "" : "s"} found`;
+    return t(count === 1 ? "result.summary.resource_one" : "result.summary.resource_many", { count });
   }
-  if (runtime.dry_run || result.dry_run || result.plan) return "Plan generated";
+  if (runtime.dry_run || result.dry_run || result.plan) return t("result.summary.plan_generated");
   const resource = result.resource || result;
   const model = resource?.idn?.model || result.driver?.model;
   if (resource?.name || model || result.command_support || result.driver) {
-    return model ? `Connected to ${model}` : "Connected to resource";
+    return model ? t("result.summary.connected_model", { model }) : t("result.summary.connected_resource");
   }
-  return "Command completed successfully";
+  return t("job.summary.completed");
 }
 
 export function capabilitiesSummary(result) {
@@ -46,46 +48,46 @@ export function capabilitiesSummary(result) {
   const driver = result.driver?.class;
   if (resource?.name || model || driver) {
     return compactParts([
-      model ? `Connected to ${model}` : "Connected to resource",
+      model ? t("result.summary.connected_model", { model }) : t("result.summary.connected_resource"),
       driver
     ]).join(" - ");
   }
   if (result.models && typeof result.models === "object") {
     const count = Object.keys(result.models).length;
-    return `${count} available model${count === 1 ? "" : "s"}`;
+    return t(count === 1 ? "result.summary.model_one" : "result.summary.model_many", { count });
   }
-  return "Command completed successfully";
+  return t("job.summary.completed");
 }
 
 export function identifySummary(result) {
   const idn = result.idn || result.resource?.idn || {};
   const parts = compactParts([
     idn.model,
-    idn.serial ? `serial ${idn.serial}` : "",
-    idn.firmware ? `firmware ${idn.firmware}` : ""
+    idn.serial ? t("result.summary.serial", { serial: idn.serial }) : "",
+    idn.firmware ? t("result.summary.firmware", { firmware: idn.firmware }) : ""
   ]);
-  return parts.length ? parts.join(" - ") : "Identification read";
+  return parts.length ? parts.join(" - ") : t("result.summary.identification_read");
 }
 
 export function verifySummary(result) {
   const resource = result.resource || {};
   const model = resource.idn?.model;
-  if (model && resource.name) return `Reachable ${model} at ${resource.name}`;
-  if (model) return `Reachable ${model}`;
-  if (resource.name) return `Reachable resource ${resource.name}`;
-  return "Resource reachable";
+  if (model && resource.name) return t("result.summary.reachable_model_resource", { model, resource: resource.name });
+  if (model) return t("result.summary.reachable_model", { model });
+  if (resource.name) return t("result.summary.reachable_resource", { resource: resource.name });
+  return t("result.summary.resource_reachable");
 }
 
 export function readStatusSummary(result) {
   const outputText = outputStatesSummary(result.outputs);
-  return compactParts([outputText, errorQueueSummary(result, "")]).join(" - ") || "Status read";
+  return compactParts([outputText, errorQueueSummary(result, "")]).join(" - ") || t("result.summary.status_read");
 }
 
 export function readbackSummary(result) {
   const channels = Array.isArray(result.channels) ? result.channels : [];
   const count = channels.length;
   return compactParts([
-    `${count} channel${count === 1 ? "" : "s"}`,
+    t(count === 1 ? "result.summary.channel_one" : "result.summary.channel_many", { count }),
     setpointSummary(channels)
   ]).join(" - ");
 }
@@ -98,15 +100,15 @@ export function snapshotSummary(result) {
   const tripped = protection.over_voltage_tripped === true || protection.over_current_tripped === true;
   return compactParts([
     model,
-    `${channelCount} channel${channelCount === 1 ? "" : "s"}`,
-    outputCount ? `${outputCount} output${outputCount === 1 ? "" : "s"}` : "",
-    `protection ${tripped ? "tripped" : "OK"}`,
+    t(channelCount === 1 ? "result.summary.channel_one" : "result.summary.channel_many", { count: channelCount }),
+    outputCount ? t(outputCount === 1 ? "result.summary.output_one" : "result.summary.output_many", { count: outputCount }) : "",
+    t(tripped ? "result.summary.protection_tripped" : "result.summary.protection_ok"),
     errorQueueSummary(result, "")
   ]).join(" - ");
 }
 
 export function safetyInspectSummary(result) {
-  return result.safety_config_loaded ? "Safety config loaded" : "Safety config not loaded";
+  return t(result.safety_config_loaded ? "result.summary.safety_loaded" : "result.summary.safety_not_loaded");
 }
 
 export function outputStatesSummary(outputs) {
@@ -134,9 +136,13 @@ export function formatSetpointValue(value) {
 
 export function errorQueueSummary(result, noun = "instrument") {
   const errors = Array.isArray(result.errors) ? result.errors : [];
-  const label = noun ? `${noun} ` : "";
-  if (errors.length === 0) return `No ${label}errors`;
-  return `${errors.length} ${label}error${errors.length === 1 ? "" : "s"}`;
+  if (errors.length === 0) return t(noun ? "result.summary.no_instrument_errors" : "result.summary.no_errors");
+  return t(
+    noun
+      ? errors.length === 1 ? "result.summary.instrument_error_one" : "result.summary.instrument_error_many"
+      : errors.length === 1 ? "result.summary.error_one" : "result.summary.error_many",
+    { count: errors.length }
+  );
 }
 
 export function compactParts(parts) {
@@ -144,24 +150,19 @@ export function compactParts(parts) {
 }
 
 export function statusSummary(status) {
-  if (status === "accepted") return "Accepted";
-  if (status === "started") return "Started";
-  if (status === "progress" || status === "running") return "Running";
-  if (status === "cancel_requested") return "Waiting for safe-off and cleanup";
-  if (status === "cancelled") return "Cancelled";
-  if (status === "failed" || status === "error") return "Command failed";
-  if (status === "finished") return "Command completed successfully";
-  return status || "Pending";
+  const known = status === "progress" ? "running" : status === "error" ? "failed" : status;
+  if (["accepted", "started", "running", "cancel_requested", "cancelled", "failed", "finished"].includes(known)) {
+    return t(`job.summary.${known}`);
+  }
+  return status || t("status.pending");
 }
 
 export function statusLabel(status) {
-  if (status === "finished") return "Success";
-  if (status === "failed" || status === "error") return "Failed";
-  if (status === "cancelled") return "Cancelled";
-  if (status === "progress" || status === "running") return "Running";
-  if (status === "started") return "Started";
-  if (status === "accepted") return "Accepted";
-  return status || "Pending";
+  const known = status === "finished" ? "success" : status === "error" ? "failed" : status === "progress" ? "running" : status;
+  if (["success", "failed", "cancelled", "running", "started", "accepted"].includes(known)) {
+    return t(`status.${known}`);
+  }
+  return status || t("status.pending");
 }
 
 export function statusClass(status) {
@@ -193,19 +194,19 @@ export function renderWorkspaceJob(container, job, context, helpers) {
   if (job.command === "trigger-list") {
     const trigger = job.result.trigger || {};
     appendWorkspaceFields(container, [
-      ["Command", helpers.commandDisplayName(job.command)],
-      ["Channel", trigger.channel ?? "--"],
-      ["Steps", job.result.steps ?? "--"],
-      ["Completed", trigger.completed === true ? "Yes" : "No"],
-      ["Previous LIST restored", trigger.restored === true ? "Yes" : trigger.restored === false ? "No" : "--"]
+      ["workspace.field.command", helpers.commandDisplayName(job.command)],
+      ["workspace.field.channel", trigger.channel ?? "--"],
+      ["workspace.field.steps", job.result.steps ?? "--"],
+      ["workspace.field.completed", booleanDisplay(trigger.completed)],
+      ["workspace.field.previous_list_restored", booleanDisplay(trigger.restored)]
     ]);
     return;
   }
   appendWorkspaceFields(container, [
-    ["Command", helpers.commandDisplayName(job.command)],
-    ["Execution mode", context.executionMode],
-    ["Resource", context.executionMode === "real" ? context.resource || "No resource selected" : "Not used"],
-    ["Summary", helpers.successfulJobSummary(job)]
+    ["workspace.field.command", helpers.commandDisplayName(job.command)],
+    ["workspace.field.execution_mode", context.executionMode],
+    ["workspace.field.resource", context.executionMode === "real" ? context.resource || t("workspace.value.no_resource") : t("workspace.value.not_used")],
+    ["workspace.field.summary", helpers.successfulJobSummary(job)]
   ]);
 }
 
@@ -216,38 +217,38 @@ export function renderCapabilitiesWorkspaceSummary(container, result, helpers) {
     const support = result.command_support || {};
     const liveSupport = result.live_support || {};
     appendWorkspaceFields(container, [
-      ["Model", model || "--"],
-      ["Resource", resource.name || "--"],
-      ["Transport", helpers.transportScopeLabel(liveSupport.transport_scope)],
-      ["Backend", helpers.backendScopeLabel(liveSupport.backend_scope)],
-      ["Product live support", helpers.liveSupportSummary(liveSupport)],
-      ["Output channels", channelList(result.channels)],
-      ["Measurement channels", channelList(result.measure_channels?.real)],
-      ["Output", featureAvailability(support, ["set", "apply", "output-on", "output-off"])],
-      ["Protection", featureAvailability(support, ["protection-set", "clear-protection", "protection-status"])],
-      ["Trigger", featureAvailability(support, ["trigger-status", "trigger-step", "trigger-list", "trigger-fire"])]
+      ["workspace.field.model", model || "--"],
+      ["workspace.field.resource", resource.name || "--"],
+      ["workspace.field.transport", helpers.transportScopeLabel(liveSupport.transport_scope)],
+      ["workspace.field.backend", helpers.backendScopeLabel(liveSupport.backend_scope)],
+      ["workspace.field.product_live_support", helpers.liveSupportSummary(liveSupport)],
+      ["workspace.field.output_channels", channelList(result.channels)],
+      ["workspace.field.measurement_channels", channelList(result.measure_channels?.real)],
+      ["workspace.field.output", featureAvailability(support, ["set", "apply", "output-on", "output-off"])],
+      ["workspace.field.protection", featureAvailability(support, ["protection-set", "clear-protection", "protection-status"])],
+      ["workspace.field.trigger", featureAvailability(support, ["trigger-status", "trigger-step", "trigger-list", "trigger-fire"])]
     ]);
     return;
   }
   const models = result.models || {};
   const fields = Object.entries(models).map(([name, details]) => [
     name,
-    `${Array.isArray(details.channels) ? details.channels.length : 0} channels (${channelList(details.channels)})`
+    t("workspace.value.model_channels", { count: Array.isArray(details.channels) ? details.channels.length : 0, channels: channelList(details.channels) })
   ]);
-  appendWorkspaceFields(container, fields.length ? fields : [["Supported models", "--"]]);
+  appendWorkspaceFields(container, fields.length ? fields : [["workspace.field.supported_models", "--"]]);
 }
 
 export function renderIdentifyWorkspaceSummary(container, result) {
   const idn = result.idn || result.resource?.idn || {};
   const resource = typeof result.resource === "string" ? result.resource : result.resource?.name;
   appendWorkspaceFields(container, [
-    ["Manufacturer", idn.manufacturer || "--"],
-    ["Model", idn.model || "--"],
-    ["Serial number", idn.serial || "--"],
-    ["Firmware", idn.firmware || "--"],
-    ["Installed options", result.options || "--"],
-    ["SCPI version", result.scpi_version || "--"],
-    ["Resource", resource || "--"]
+    ["workspace.field.manufacturer", idn.manufacturer || "--"],
+    ["workspace.field.model", idn.model || "--"],
+    ["workspace.field.serial_number", idn.serial || "--"],
+    ["workspace.field.firmware", idn.firmware || "--"],
+    ["workspace.field.installed_options", result.options || "--"],
+    ["workspace.field.scpi_version", result.scpi_version || "--"],
+    ["workspace.field.resource", resource || "--"]
   ]);
 }
 
@@ -255,17 +256,17 @@ export function renderTriggerStatusWorkspaceSummary(container, result, formatNum
   const pins = Array.isArray(result.digital_pins) ? result.digital_pins : [];
   const channels = Array.isArray(result.channels) ? result.channels : [];
   const fields = [
-    ["Trigger output BUS", result.trigger_output_bus_enabled === true ? "Enabled" : result.trigger_output_bus_enabled === false ? "Disabled" : "--"],
-    ["Rear pins", pins.length ? pins.map((pin) => `P${pin.pin} ${pin.function}/${pin.polarity}`).join(", ") : "--"]
+    ["workspace.field.trigger_output_bus", enabledDisplay(result.trigger_output_bus_enabled)],
+    ["workspace.field.rear_pins", pins.length ? pins.map((pin) => `P${pin.pin} ${pin.function}/${pin.polarity}`).join(", ") : "--"]
   ];
   channels.forEach((channel) => {
     const trigger = channel.trigger || {};
     const list = channel.list || {};
     const steps = Array.isArray(list.voltage) ? list.voltage.length : 0;
     fields.push(
-      [`CH${channel.channel} trigger`, `${trigger.source || "--"}; V ${trigger.voltage_mode || "--"}; I ${trigger.current_mode || "--"}`],
-      [`CH${channel.channel} triggered level`, `${formatNum(trigger.triggered_voltage)} V / ${formatNum(trigger.triggered_current)} A`],
-      [`CH${channel.channel} LIST`, `${steps} step${steps === 1 ? "" : "s"}; count ${list.count ?? "--"}; ${list.step_mode || "--"}; terminate last ${list.terminate_last === true ? "on" : list.terminate_last === false ? "off" : "--"}`]
+      [t("workspace.field.channel_trigger", { channel: channel.channel }), `${trigger.source || "--"}; V ${trigger.voltage_mode || "--"}; I ${trigger.current_mode || "--"}`],
+      [t("workspace.field.channel_triggered_level", { channel: channel.channel }), `${formatNum(trigger.triggered_voltage)} V / ${formatNum(trigger.triggered_current)} A`],
+      [t("workspace.field.channel_list", { channel: channel.channel }), t("workspace.value.list_summary", { steps, count: list.count ?? "--", mode: list.step_mode || "--", terminate: onOffDisplay(list.terminate_last) })]
     );
   });
   appendWorkspaceFields(container, fields);
@@ -276,7 +277,7 @@ export function appendWorkspaceFields(container, fields) {
     const field = document.createElement("div");
     field.className = "workspace-summary-field";
     const label = document.createElement("small");
-    label.textContent = labelText;
+    label.textContent = labelText.startsWith?.("workspace.") ? t(labelText) : labelText;
     const value = document.createElement("span");
     value.textContent = String(valueText);
     field.append(value, label);
@@ -289,5 +290,17 @@ export function channelList(channels) {
 }
 
 export function featureAvailability(support, commands) {
-  return commands.some((command) => support[command]?.real === true) ? "Available" : "Unavailable";
+  return t(commands.some((command) => support[command]?.real === true) ? "status.available" : "status.unavailable");
+}
+
+function booleanDisplay(value) {
+  return value === true ? t("common.yes") : value === false ? t("common.no") : "--";
+}
+
+function enabledDisplay(value) {
+  return value === true ? t("status.enabled") : value === false ? t("status.disabled") : "--";
+}
+
+function onOffDisplay(value) {
+  return value === true ? t("status.on") : value === false ? t("status.off") : "--";
 }

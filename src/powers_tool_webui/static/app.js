@@ -18,6 +18,7 @@ import * as webuiBasicControls from "./basic-controls.js";
 import * as webuiCommandSupport from "./command-support.js";
 import * as webuiWorkflows from "./workflows.js";
 import { applyStaticTranslations } from "./dom_i18n.js";
+import { t } from "./i18n.js";
 
 const state = webuiState.createInitialState({
   rampListSegments: [defaultRampSegment()],
@@ -82,7 +83,7 @@ var {
   resourceModelDetectionRecorded, detectedCommandModelForResource,
   detectedChannelModelForResource, selectedCommandModel, selectedChannelModel,
   actualCurrentResourceModel, e3646aGlobalOutputCapability, basicOutputPresentation,
-  selectedElectricalRatingModel, handleExpectedModelChanged, updateLiveMonitorButton,
+  selectedElectricalRatingModel, handleExpectedModelChanged, updateLiveMonitorButton, refreshLiveMonitorPresentation,
   refreshHealth, refreshHealthPresentation, refreshDeviceResourcePresentation, setStateIndicator
 } = deviceResourceController;
 const E3646A_GLOBAL_OUTPUT_DESCRIPTION = "E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable.";
@@ -847,7 +848,7 @@ async function reconcileWorkflowJob(jobId, originalError = null) {
     const job = await webuiApi.fetchJson(`/api/jobs/${encodeURIComponent(jobId)}`);
     if (["finished", "failed", "cancelled"].includes(job.status)) {
       const code = job.error_code ? `  ${job.error_code}` : "";
-      updateJobResult(jobId, job.status, job.status === "failed" ? `Failed${code}` : webuiResults.statusLabel(job.status));
+      updateJobResult(jobId, job.status, job.status === "failed" ? `Failed${code}` : webuiResults.statusLabel(job.status), job);
       setWorkflowControl("idle");
       return;
     }
@@ -894,7 +895,7 @@ function captureLatestSnapshotDocument(job) {
 async function renderJobDetail(jobId, event) {
   try {
     const job = await webuiApi.fetchJson(`/api/jobs/${encodeURIComponent(jobId)}`);
-    updateJobResult(job.job_id, job.status, webuiResults.jobSummary(job, event));
+    updateJobResult(job.job_id, job.status, webuiResults.jobSummary(job, event), job);
     renderResult({
       job_id: job.job_id,
       command: job.command,
@@ -956,13 +957,13 @@ function renderWorkspaceSummary() {
   if (!container) return;
   container.innerHTML = "";
   if (!state.selected) {
-    webuiResults.renderWorkspaceEmpty(container, "Choose a command to view its latest successful result.");
+    webuiResults.renderWorkspaceEmpty(container, t("workspace.empty.choose_command"));
     return;
   }
   const context = currentWorkspaceResultContext(state.selected);
   const job = webuiContext.findWorkspaceResult(state.workspaceResults, context);
   if (!job) {
-    webuiResults.renderWorkspaceEmpty(container, "Run this command to see its latest successful result for the active execution context.");
+    webuiResults.renderWorkspaceEmpty(container, t("workspace.empty.run_command"));
     return;
   }
   webuiResults.renderWorkspaceJob(container, job, context, {
@@ -1198,7 +1199,7 @@ function syncResultPanelState() {
   const button = document.getElementById("result-toggle");
   panel.classList.toggle("collapsed", state.resultCollapsed);
   button.textContent = state.resultCollapsed ? "+" : "-";
-  button.setAttribute("aria-label", state.resultCollapsed ? "Expand result" : "Collapse result");
+  button.setAttribute("aria-label", t(state.resultCollapsed ? "accessibility.expand_result_detail" : "accessibility.collapse_result_detail"));
   button.setAttribute("aria-expanded", String(!state.resultCollapsed));
 }
 
@@ -1208,7 +1209,7 @@ function toggleJobResultPanel() {
   const button = document.getElementById("job-result-toggle");
   panel.classList.toggle("collapsed", state.jobResultCollapsed);
   button.textContent = state.jobResultCollapsed ? "+" : "-";
-  button.setAttribute("aria-label", state.jobResultCollapsed ? "Expand job result" : "Collapse job result");
+  button.setAttribute("aria-label", t(state.jobResultCollapsed ? "accessibility.expand_job_result" : "accessibility.collapse_job_result"));
   button.setAttribute("aria-expanded", String(!state.jobResultCollapsed));
 }
 
@@ -1403,8 +1404,23 @@ let {
   liveSetpointsMatchBasicInputs,
   nearlyEqual,
   basicStatusText,
-  setBasicStatus
+  setBasicStatus,
+  refreshBasicControlsPresentation
 } = basicControls;
+
+function refreshLiveDataPresentation() {
+  const panel = state.livePanel;
+  if (!panel) return;
+  setLiveState(liveStateText(panel.status, panel.timestamp, panel.message, panel.stale), liveStateClass(panel.status, panel.stale), panel.message);
+  panel.channels.forEach((channel) => renderChannelCard(channel, panel));
+  drawTrend();
+}
+
+function refreshResultPresentation() {
+  syncResultPanelState();
+  renderHistory();
+  renderWorkspaceSummary();
+}
 function renderLivePanel(data) {
   const previous = state.livePanel;
   const resource = data.resource || previous?.resource || "";
@@ -1481,86 +1497,13 @@ function mergeLiveChannel(previous, incoming, preservePreviousValues) {
 }
 
 function renderChannelCard(channel, sample) {
-  const card = document.querySelector(`[data-channel-card="${channel.channel}"]`);
-  if (!card) return;
-  const unsupported = channelUnsupportedReason(channel.channel);
-  if (unsupported) {
-    card.className = "live-card unsupported";
-    card.setAttribute("aria-disabled", "true");
-    card.title = unsupported;
-    card.innerHTML = `
-    <div class="live-card-head">
-      <strong>CH${channel.channel}</strong>
-      <span class="status-badge status-indicator output-status unknown">
-        <span class="indicator-dot" aria-hidden="true"></span>
-        <span class="indicator-text">Unsupported</span>
-      </span>
-    </div>
-    <div class="live-output-section">
-      <div class="live-measured">
-        <div><span>N/A</span><small>OUT V</small></div>
-        <div><span>N/A</span><small>OUT A</small></div>
-      </div>
-    </div>
-    <div class="live-control-section">
-      <div class="live-setpoints">
-        <div><span>N/A</span><small>SET V</small></div>
-        <div><span>N/A</span><small>SET A</small></div>
-      </div>
-      <div class="live-protection-section">
-        <div class="live-protection-badges">
-          <span class="protection-badge status-indicator unknown">
-            <span class="indicator-dot" aria-hidden="true"></span>
-            <span class="indicator-text">Unsupported</span>
-          </span>
-        </div>
-      </div>
-    </div>
-  `;
-    return;
-  }
-  card.setAttribute("aria-disabled", "false");
-  card.title = "";
-  const outputClass = channel.output_enabled === true ? "on" : channel.output_enabled === false ? "off" : "unknown";
-  const outputText = channel.output_enabled === true ? "ON" : channel.output_enabled === false ? "OFF" : "--";
-  const protectionClass = channel.protection_tripped === true ? "protection-tripped" : "";
-  card.className = `live-card ${sample.stale ? "stale" : ""} ${sample.status === "error" ? "error" : ""} ${protectionClass}`;
-  card.innerHTML = `
-    <div class="live-card-head">
-      <strong>CH${channel.channel}</strong>
-      <span class="status-badge status-indicator output-status ${outputClass}">
-        <span class="indicator-dot" aria-hidden="true"></span>
-        <span class="indicator-text">OUT ${outputText}</span>
-      </span>
-    </div>
-    <div class="live-output-section">
-      <div class="live-measured">
-        <div><span>${formatNum(channel.measured_voltage)}</span><small>OUT V</small></div>
-        <div><span>${formatNum(channel.measured_current)}</span><small>OUT A</small></div>
-      </div>
-    </div>
-    <div class="live-control-section">
-      <div class="live-setpoints">
-        <div><span>${formatNum(channel.set_voltage)}</span><small>SET V</small></div>
-        <div><span>${formatNum(channel.set_current)}</span><small>SET A</small></div>
-      </div>
-      <div class="live-protection-section">
-        <div class="live-protection-badges">
-          ${protectionBadge("OVP", channel.over_voltage_tripped)}
-          ${protectionBadge("OCP", channel.over_current_tripped)}
-        </div>
-        <div class="protection-settings">
-          <div><span>${formatProtectionVoltage(channel.over_voltage_protection_level)}</span><small>OVP</small></div>
-          <div><span>${formatProtectionState(channel.over_current_protection_enabled)}</span><small>OCP</small></div>
-        </div>
-      </div>
-    </div>
-    ${channel.protection_tripped === true && !sample.stale
-      ? `<button type="button" class="clear-protection-shortcut" data-clear-protection-channel="${channel.channel}">Clear Protection</button>`
-      : ""}
-  `;
-  const shortcut = card.querySelector("[data-clear-protection-channel]");
-  if (shortcut) shortcut.addEventListener("click", () => openClearProtection(channel.channel));
+  webuiLiveData.renderChannelCard(channel, sample, {
+    channelUnsupportedReason,
+    formatNum,
+    formatProtectionVoltage,
+    formatProtectionState,
+    openClearProtection
+  });
 }
 
 function protectionBadge(label, tripped) {
@@ -1843,6 +1786,7 @@ function addHistory(jobId, command, status, label = command) {
 
 function updateHistory(jobId, status) {
   webuiJobTransport.updateHistory(state, jobId, status, {
+    commandDisplayName,
     statusSummary: webuiResults.statusSummary,
     statusClass: webuiResults.statusClass,
     statusLabel: webuiResults.statusLabel,
@@ -1850,17 +1794,19 @@ function updateHistory(jobId, status) {
   });
 }
 
-function updateJobResult(jobId, status, summary) {
+function updateJobResult(jobId, status, summary, presentationJob = null) {
   webuiJobTransport.updateJobResult(state, jobId, status, summary, {
+    commandDisplayName,
     statusSummary: webuiResults.statusSummary,
     statusClass: webuiResults.statusClass,
     statusLabel: webuiResults.statusLabel,
+    jobSummary: webuiResults.jobSummary,
     updateExecutionModeUi
-  });
+  }, presentationJob);
 }
 
 function renderHistory() {
-  webuiJobTransport.renderHistory(state, webuiResults);
+  webuiJobTransport.renderHistory(state, { ...webuiResults, commandDisplayName });
 }
 
 function closeEventSource(name) {

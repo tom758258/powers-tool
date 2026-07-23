@@ -137,29 +137,29 @@
     <!-- 1. Live Data -->
     <section class="live-data-section">
       <div class="section-head">
-        <strong>Live Data</strong>
+        <strong data-i18n="live_data.heading">Live Data</strong>
         <div class="button-row">
-          <button id="live-start" class="monitor-toggle off" type="button" aria-pressed="false">Start Monitor</button>
+          <button id="live-start" class="monitor-toggle off" type="button" aria-pressed="false" data-i18n="live_data.action.start_monitor">Start Monitor</button>
         </div>
       </div>
-      <div class="live-data-note">Live Data monitor updates every 5 seconds while hardware I/O is idle. Successful real hardware commands refresh this panel once after completion.</div>
+      <div class="live-data-note" data-i18n="live_data.help.monitor">Live Data monitor updates every 5 seconds while hardware I/O is idle. Successful real hardware commands refresh this panel once after completion.</div>
       <div class="live-state-row" aria-live="polite">
         <div class="live-state-field">
-          <span>WebUI State:</span>
+          <span data-i18n="live_data.label.webui_state">WebUI State:</span>
           <strong id="server-state" class="state-indicator state-warning">
             <span class="state-dot" aria-hidden="true"></span>
             <span class="state-text">Checking</span>
           </strong>
         </div>
         <div class="live-state-field">
-          <span>Command State:</span>
+          <span data-i18n="live_data.label.command_state">Command State:</span>
           <strong id="device-state" class="state-indicator state-idle">
             <span class="state-dot" aria-hidden="true"></span>
             <span class="state-text">Unknown</span>
           </strong>
         </div>
         <div class="live-state-field">
-          <span>Live State:</span>
+          <span data-i18n="live_data.label.live_state">Live State:</span>
           <strong id="live-state" class="state-indicator live-indicator state-idle">
             <span class="state-dot" aria-hidden="true"></span>
             <span class="state-text">Not monitoring</span>
@@ -175,7 +175,7 @@
 
     <section id="basic-command" class="basic-command-section">
       <div class="section-head">
-        <strong>Basic command</strong>
+        <strong data-i18n="basic_controls.heading">Basic command</strong>
         <div class="button-row">
           <span id="basic-output-all-header-slot" class="basic-output-all-slot">
             <button id="basic-output-all" class="basic-toggle off" type="button" data-basic-all-output>ALL ON</button>
@@ -183,9 +183,9 @@
           <button id="advanced-command-toggle" class="secondary advanced-command-button" type="button" aria-controls="advanced-commands" aria-expanded="false">Show more commands</button>
         </div>
       </div>
-      <div id="basic-command-status" class="basic-command-status" aria-live="polite">Live Data remains the source of instrument state.</div>
+      <div id="basic-command-status" class="basic-command-status" aria-live="polite" data-i18n="basic_controls.status.live_source">Live Data remains the source of instrument state.</div>
       <div id="basic-output-capability-status" class="basic-output-capability-status" role="status" hidden></div>
-      <span id="e3646a-global-output-description" class="visually-hidden">E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable.</span>
+      <span id="e3646a-global-output-description" class="visually-hidden" data-i18n="basic_controls.help.e3646a_global_output">E3646A uses global output control. Enabling or disabling output switches CH1 and CH2 together; voltage and current setpoints remain independently adjustable.</span>
       <div class="basic-channel-grid">
         <div class="basic-channel-card" data-basic-channel="1">
           <div class="basic-channel-head">
@@ -242,7 +242,7 @@
         </div>
       </div>
       <div id="basic-e3646a-output-row" class="basic-e3646a-output-row" hidden>
-        <strong>All-channel output</strong>
+        <strong data-i18n="basic_controls.label.all_channel_output">All-channel output</strong>
         <span id="basic-output-all-global-slot" class="basic-output-all-slot"></span>
       </div>
     </section>

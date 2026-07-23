@@ -593,10 +593,10 @@ def test_static_state_indicators_show_webui_command_and_live_state():
     assert "health.status.busy" in health_presentation
     assert "health.status.unknown" in health_presentation
 
-    assert 'setLiveState("Refreshing once...", "state-warning"' in preview
-    assert 'setLiveState("Refresh blocked", "state-error"' in preview
-    assert 'setLiveState("Not monitoring", "state-idle"' in stop_live
-    assert "button.textContent = monitoring ?" in monitor_button
+    assert 'setLiveState(t("live_data.status.refreshing_once"), "state-warning"' in preview
+    assert 'setLiveState(t("live_data.status.refresh_blocked"), "state-error"' in preview
+    assert 'setLiveState(t("live_data.status.not_monitoring"), "state-idle"' in stop_live
+    assert 'button.textContent = t(monitoring ? "live_data.action.stop_monitor" : "live_data.action.start_monitor");' in monitor_button
     assert 'button.setAttribute("aria-pressed", String(monitoring));' in monitor_button
     assert 'button.classList.toggle("on", monitoring);' in monitor_button
 
@@ -631,7 +631,7 @@ def test_static_finished_real_command_refreshes_live_snapshot():
     assert "!state.liveEvents" not in refresh
     assert "state.liveEvents" not in preview
     assert 'closeEventSource("liveEvents")' not in preview
-    assert 'setLiveState("Refreshing once...", "state-warning"' in preview
+    assert 'setLiveState(t("live_data.status.refreshing_once"), "state-warning"' in preview
     assert "handledFreshSample" in preview
     assert "handledFirstSample" not in preview
     assert "renderLivePanel(sample);" in preview
@@ -690,7 +690,7 @@ def test_static_live_data_uses_three_channel_panel_contract():
         "stale",
         "error",
     ):
-        assert field in app_js
+        assert field in app_js or field in live_data_js
 
 
 def test_static_live_data_exposes_start_control():
@@ -750,8 +750,8 @@ def test_static_basic_output_buttons_label_on_and_use_lit_state():
     all_button = extract_js_function(basic_controls_js, "renderBasicAllOutputButton")
 
     assert "All OFF" not in index_html
-    assert 'button.textContent = "ON";' in output_button
-    assert 'button.textContent = "ALL ON";' in all_button
+    assert 'button.textContent = t("basic_controls.output.on_control");' in output_button
+    assert 'button.textContent = t("basic_controls.output.all_on_control");' in all_button
     assert 'button.textContent = enabled ? "ON" : "OFF";' not in output_button
     assert 'button.textContent = allOn ? "All ON" : "All OFF";' not in all_button
     assert 'button.classList.toggle("on", enabled);' in output_button

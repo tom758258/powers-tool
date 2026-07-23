@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 export function buildNativeJsonPickerAccept() {
   return { "application/json": [".json"] };
 }
@@ -44,7 +46,7 @@ export function chooseJsonFile(accept) {
       cleanup();
       callback(value);
     };
-    const abort = () => settle(reject, abortError("File selection cancelled."));
+    const abort = () => settle(reject, abortError(t("file.status.selection_cancelled")));
     const onWindowFocus = () => {
       window.clearTimeout(focusTimer);
       focusTimer = window.setTimeout(() => {

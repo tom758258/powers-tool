@@ -799,12 +799,15 @@ function pinsSelectValue(value) { return parseRearPins(value).join(","); }
 
 function rearPinDisplayName(value) {
   const labels = { "1": "Pin 1", "2": "Pin 2", "3": "Pin 3", "1,2": "Pins 1 + 2", "1,3": "Pins 1 + 3", "2,3": "Pins 2 + 3", "1,2,3": "All" };
-  return value === "" ? "None" : labels[value] || value;
+  const fallback = value === "" ? "None" : labels[value] || value;
+  const key = optionTranslationKey("pins", value);
+  return key ? t(key, undefined, fallback) : fallback;
 }
 
 function optionDisplayName(value) {
   const overrides = { "cc-transition": "CC transition" };
-  if (value === "") return "None";
+  const key = optionTranslationKey("", value);
+  if (key) return t(key, undefined, value === "" ? "None" : overrides[value] || value);
   if (overrides[value]) return overrides[value];
   const spaced = value.replace(/-/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);

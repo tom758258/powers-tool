@@ -54,13 +54,12 @@ export function createJobEventController({ state, fetchJson, closeEventSource, u
 }
 
 export function addHistory(state, jobId, command, status, label, helpers) {
-  const displayLabel = helpers.commandDisplayName(label);
   state.jobs.unshift({
     jobId,
     command,
-    label: displayLabel,
+    label,
     status,
-    summary: helpers.statusSummary(status)
+    summary: null
   });
   state.jobs = state.jobs.slice(0, 20);
   renderHistory(state, helpers);
@@ -71,17 +70,18 @@ export function updateHistory(state, jobId, status, helpers) {
   const job = state.jobs.find((item) => item.jobId === jobId);
   if (job) {
     job.status = status;
-    job.summary = helpers.statusSummary(status);
+    job.summary = null;
   }
   renderHistory(state, helpers);
   helpers.updateExecutionModeUi();
 }
 
-export function updateJobResult(state, jobId, status, summary, helpers) {
+export function updateJobResult(state, jobId, status, summary, helpers, presentationJob = null) {
   const job = state.jobs.find((item) => item.jobId === jobId);
   if (!job) return;
   job.status = status;
-  job.summary = summary || helpers.statusSummary(status);
+  job.summary = summary || null;
+  job.presentationJob = presentationJob;
   renderHistory(state, helpers);
   helpers.updateExecutionModeUi();
 }
@@ -93,13 +93,15 @@ export function renderHistory(state, helpers) {
     const item = document.createElement("div");
     item.className = "history-item";
     const label = document.createElement("strong");
-    label.textContent = job.label;
+    label.textContent = helpers.commandDisplayName(job.command);
     const badge = document.createElement("span");
     badge.className = `result-status ${helpers.statusClass(job.status)}`;
     badge.textContent = helpers.statusLabel(job.status);
     const summary = document.createElement("span");
     summary.className = "result-summary";
-    summary.textContent = job.summary || helpers.statusSummary(job.status);
+    summary.textContent = job.presentationJob && helpers.jobSummary
+      ? helpers.jobSummary(job.presentationJob)
+      : job.summary || helpers.statusSummary(job.status);
     item.append(label, " - ", badge, " - ", summary);
     history.appendChild(item);
   });

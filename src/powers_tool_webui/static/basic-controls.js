@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 export function createBasicControls({
   state,
   defaultChannels,
@@ -21,8 +23,10 @@ function basicActionKey(action, channel) {
 
 function basicActionDisplayName(actionKey) {
   const [kind, target] = actionKey.split(":");
-  const action = kind === "set" ? "Set" : "Output";
-  return target === "all" ? `Basic All ${action}` : `Basic CH${target} ${action}`;
+  const action = t(kind === "set" ? "basic_controls.action.set" : "basic_controls.action.output");
+  return target === "all"
+    ? t("basic_controls.action_name.all", { action })
+    : t("basic_controls.action_name.channel", { channel: target, action });
 }
 
 function basicLiveChannel(channel) {
@@ -63,7 +67,7 @@ function basicAllOutputsOn() {
 function setBasicActionState(actionKey, status, message = "", context = {}) {
   state.basicActionStates[actionKey] = { ...context, status, message };
   renderBasicActionState(actionKey);
-  setBasicStatus(status === "pending" ? message || "Basic command running..." : message || basicStatusText(status));
+  setBasicStatus(status === "pending" ? message || t("basic_controls.status.running") : message || basicStatusText(status));
 }
 
 function clearBasicActionState(actionKey) {
@@ -121,11 +125,15 @@ function updateBasicActionFromJob(jobId, event, job) {
   if (event.type === "finished" && job?.status === "finished") {
     if (action.command === "set") {
       clearBasicInputDirty(action.parameters.channel);
-      setBasicActionState(action.actionKey, "success", "Basic command completed.", action);
+      setBasicActionState(action.actionKey, "success", t("basic_controls.status.completed"), action);
     } else if (typeof action.desiredOutput === "boolean" && state.executionMode === "real") {
-      setBasicActionState(action.actionKey, "pending", "Waiting for Live Data readback.", { ...action, awaitingReadback: true });
+      setBasicActionState(action.actionKey, "pending", t("basic_controls.status.waiting_readback"), { ...action, awaitingReadback: true });
     } else {
-      setBasicActionState(action.actionKey, "success", state.executionMode === "simulate" ? "Simulation completed." : state.executionMode === "dry-run" ? "Plan generated." : "Basic command completed.", action);
+      setBasicActionState(action.actionKey, "success", state.executionMode === "simulate"
+        ? t("basic_controls.status.simulation_completed")
+        : state.executionMode === "dry-run"
+          ? t("result.summary.plan_generated")
+          : t("basic_controls.status.completed"), action);
     }
   } else {
     const detail = job?.error || event.data?.error || eventSummary(event);
@@ -171,7 +179,7 @@ function renderBasicOutputButton(channel, liveChannel, fresh) {
   if (!button) return;
   const unsupported = channelUnsupportedReason(channel);
   const enabled = fresh && liveChannel?.output_enabled === true;
-  button.textContent = "ON";
+  button.textContent = t("basic_controls.output.on_control");
   button.classList.toggle("on", enabled);
   button.classList.toggle("off", !enabled);
   button.setAttribute("aria-pressed", String(enabled));
@@ -188,28 +196,28 @@ function renderBasicAllOutputButton(channels) {
   if (presentation.mode === "e3646a-global") {
     const globalState = e3646aGlobalOutputState(presentation);
     button.textContent = globalState === "on"
-      ? "Turn outputs off"
+      ? t("basic_controls.output.turn_off")
       : globalState === "off"
-        ? "Turn outputs on"
-        : "Output state unknown";
+        ? t("basic_controls.output.turn_on")
+        : t("basic_controls.output.unknown");
     button.classList.toggle("on", globalState === "on");
     button.classList.toggle("off", globalState === "off");
     button.classList.toggle("unknown", globalState === "unknown");
     button.setAttribute("aria-pressed", globalState === "on" ? "true" : globalState === "off" ? "false" : "mixed");
-    button.setAttribute("aria-label", `All-channel output: ${button.textContent}`);
+    button.setAttribute("aria-label", t("basic_controls.aria.all_channel_output", { state: button.textContent }));
     button.disabled = globalState === "unknown";
-    button.title = globalState === "unknown" ? "Fresh synchronized CH1 and CH2 output readback is required." : outputAllControlTitle(globalState === "on");
+    button.title = globalState === "unknown" ? t("basic_controls.help.synchronized_readback") : outputAllControlTitle(globalState === "on");
     applyBasicOutputPresentation();
     return;
   }
   const supported = supportedChannelsForCurrentModel();
   const allOn = supported.length > 0 && supported.every((channel) => channels.find((item) => Number(item.channel) === channel)?.output_enabled === true);
-  button.textContent = "ALL ON";
+  button.textContent = t("basic_controls.output.all_on_control");
   button.classList.toggle("on", allOn);
   button.classList.toggle("off", !allOn);
   button.classList.remove("unknown");
   button.setAttribute("aria-pressed", String(allOn));
-  button.setAttribute("aria-label", `All outputs ${allOn ? "on" : "not all on"}`);
+  button.setAttribute("aria-label", t(allOn ? "basic_controls.aria.all_outputs_on" : "basic_controls.aria.not_all_outputs_on"));
   button.title = outputAllControlTitle(allOn);
   applyBasicOutputPresentation();
 }
@@ -232,9 +240,13 @@ function applyBasicPerChannelOutputPresentation(channel, button, presentation = 
     status.classList.remove("on", "off", "unknown");
     if (readOnly) {
       const outputState = basicChannelOutputState(channel);
-      status.textContent = outputState.toUpperCase();
+      status.textContent = outputState === "on"
+        ? t("status.on")
+        : outputState === "off"
+          ? t("status.off")
+          : t("basic_controls.output.unknown_status");
       status.classList.add(outputState);
-      status.setAttribute("aria-label", `CH${channel} output status ${status.textContent}`);
+      status.setAttribute("aria-label", t("basic_controls.aria.channel_output_status", { channel, status: status.textContent }));
     }
   }
   if (info) {
@@ -249,7 +261,7 @@ function applyBasicAllOutputPresentation(button, presentation = basicOutputPrese
     button.title = e3646aCapabilityError;
   } else if (presentation.mode === "e3646a-global" && e3646aGlobalOutputState(presentation) === "unknown") {
     button.disabled = true;
-    button.title = "Fresh synchronized CH1 and CH2 output readback is required.";
+    button.title = t("basic_controls.help.synchronized_readback");
   }
 }
 
@@ -304,9 +316,9 @@ function renderBasicOutputControlState(target) {
   if (unsupported) {
     button.title = unsupported;
   } else if (lockAction) {
-    button.title = lockAction.message || "Waiting for Live Data readback.";
+    button.title = lockAction.message || t("basic_controls.status.waiting_readback");
   } else if (commandMetaForState.disabled) {
-    button.title = commandMetaForState.disabled_reason || "This output action is unavailable for the exact live scope.";
+    button.title = commandMetaForState.disabled_reason || t("basic_controls.error.output_unavailable");
   } else if (ownAction?.message) {
     button.title = ownAction.message;
   } else {
@@ -341,7 +353,7 @@ function clearResolvedBasicErrors(channel, liveChannel, fresh) {
   }
   const outputAction = state.basicActionStates[outputKey];
   if (outputAction?.status === "pending" && outputAction.awaitingReadback === true && typeof outputAction.desiredOutput === "boolean" && liveChannel.output_enabled === outputAction.desiredOutput) {
-    setBasicActionState(outputKey, "success", "Basic command completed.", outputAction);
+    setBasicActionState(outputKey, "success", t("basic_controls.status.completed"), outputAction);
   } else if (outputAction?.status === "error" && typeof outputAction.desiredOutput === "boolean" && liveChannel.output_enabled === outputAction.desiredOutput) {
     clearBasicActionState(outputKey);
   }
@@ -356,7 +368,7 @@ function clearResolvedBasicErrors(channel, liveChannel, fresh) {
         ? false
         : supportedChannelsForCurrentModel().every((item) => channels.find((entry) => Number(entry.channel) === item)?.output_enabled === allAction.desiredOutput);
     if (allMatched && allAction.status === "pending" && allAction.awaitingReadback === true) {
-      setBasicActionState(basicActionKey("output", "all"), "success", "Basic command completed.", allAction);
+      setBasicActionState(basicActionKey("output", "all"), "success", t("basic_controls.status.completed"), allAction);
     } else if (allMatched && allAction.status === "error") {
       clearBasicActionState(basicActionKey("output", "all"));
     }
@@ -377,14 +389,29 @@ function nearlyEqual(left, right) {
 }
 
 function basicStatusText(status) {
-  if (status === "success") return "Basic command completed.";
-  if (status === "error") return "Basic command failed. See Result Detail.";
-  return "Live Data remains the source of instrument state.";
+  if (status === "success") return t("basic_controls.status.completed");
+  if (status === "error") return t("basic_controls.status.failed");
+  return t("basic_controls.status.live_source");
 }
 
 function setBasicStatus(text) {
   const status = document.getElementById("basic-command-status");
-  if (status) status.textContent = text || "Live Data remains the source of instrument state.";
+  if (status) status.textContent = text || t("basic_controls.status.live_source");
+}
+
+function refreshBasicControlsPresentation() {
+  const panel = state.livePanel;
+  const resource = valueOrNull("resource");
+  const fresh = Boolean(panel && !panel.stale && resource && panel.resource === resource);
+  defaultChannels.forEach((channel) => {
+    const liveChannel = fresh ? (panel.channels || []).find((item) => Number(item.channel) === channel) : null;
+    renderBasicOutputButton(channel, liveChannel, fresh);
+  });
+  renderBasicAllOutputButton(fresh ? panel.channels || [] : []);
+  renderBasicOutputActionStates();
+  applyBasicOutputPresentation();
+  const active = Object.values(state.basicActionStates).find((action) => action?.message);
+  setBasicStatus(active?.message || basicStatusText(active?.status));
 }
 
 
@@ -415,6 +442,7 @@ function setBasicStatus(text) {
     liveSetpointsMatchBasicInputs,
     nearlyEqual,
     basicStatusText,
-    setBasicStatus
+    setBasicStatus,
+    refreshBasicControlsPresentation
   };
 }

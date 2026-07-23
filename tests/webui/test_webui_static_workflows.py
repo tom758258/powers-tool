@@ -286,7 +286,7 @@ def test_static_job_result_summary_contract():
 
     render_job_detail = app_js[app_js.index("async function renderJobDetail"):app_js.index("function shouldRefreshLiveAfterCommand")]
 
-    assert "updateJobResult(job.job_id, job.status, webuiResults.jobSummary(job, event));" in render_job_detail
+    assert "updateJobResult(job.job_id, job.status, webuiResults.jobSummary(job, event), job);" in render_job_detail
     assert "renderResult({" in render_job_detail
     assert 'if (command === "capabilities") return capabilitiesSummary(result);' in result_summary_js
     assert 'if (command === "identify") return identifySummary(result);' in result_summary_js
@@ -320,8 +320,8 @@ def test_static_workspace_summary_keeps_latest_success_by_complete_execution_con
     assert "state.workspaceResults[entry.key] = entry.job;" in capture
     assert "currentWorkspaceResultContext(state.selected)" in render
     assert "findWorkspaceResult(state.workspaceResults, context)" in render
-    assert '"Choose a command to view its latest successful result."' in render
-    assert '"Run this command to see its latest successful result for the active execution context."' in render
+    assert 't("workspace.empty.choose_command")' in render
+    assert 't("workspace.empty.run_command")' in render
     assert "webuiResults.renderWorkspaceJob(container, job, context, {" in render
     assert "renderCapabilitiesWorkspaceSummary(container, job.result, helpers);" in workspace_js
     assert "renderIdentifyWorkspaceSummary(container, job.result);" in workspace_js
@@ -984,10 +984,11 @@ def test_static_channel_capability_guards_use_metadata():
 def test_static_basic_and_live_disable_unsupported_channels():
     _index_html, app_js, _styles_css = read_static_texts()
     basic_controls_js = read_static_javascript("basic-controls.js")
+    live_data_js = read_static_javascript("live-data.js")
 
     run_set = extract_js_function(app_js, "runBasicSet")
     run_output = extract_js_function(app_js, "runBasicOutput")
-    render_live = extract_js_function(app_js, "renderChannelCard")
+    render_live = extract_js_function(live_data_js, "renderChannelCard")
     render_basic = extract_js_function(basic_controls_js, "renderBasicChannelActionState")
     all_on = extract_js_function(basic_controls_js, "basicAllOutputsOn")
     clear_errors = extract_js_function(basic_controls_js, "clearResolvedBasicErrors")
@@ -998,7 +999,8 @@ def test_static_basic_and_live_disable_unsupported_channels():
     assert 'failBasicAction(basicActionKey("output", channel), "Unsupported channel"' in run_output
     assert 'card.className = "live-card unsupported";' in render_live
     assert 'card.setAttribute("aria-disabled", "true");' in render_live
-    assert "<span>N/A</span><small>OUT V</small>" in render_live
+    assert 'measuredVoltage: "N/A"' in render_live
+    assert 'measuredCurrent: "N/A"' in render_live
     assert "Unsupported" in render_live
     assert 'card.classList.toggle("unsupported", Boolean(unsupported));' in render_basic
     assert 'card.setAttribute("aria-disabled", String(Boolean(unsupported)));' in render_basic
@@ -1040,11 +1042,12 @@ def test_static_trip_guard_and_clear_protection_recovery_contract():
     assert "setAdvancedCommandsExpanded(true);" in app_js
     assert 'state.activeCategory = "protection";' in app_js
     assert 'selectCommand("clear-protection");' in app_js
-    assert 'data-clear-protection-channel="${channel.channel}"' in app_js
+    assert "clear.dataset.clearProtectionChannel = String(channel.channel);" in live_data_js
     assert 'workspace.scrollIntoView({ behavior: "smooth", block: "nearest" });' in app_js
     assert "focusTarget.focus({ preventScroll: true });" in app_js
     assert 'input.value = channels.length === 1 ? String(channels[0]) : "";' in app_js
-    assert 'const stateText = tripped === true ? "TRIP" : tripped === false ? "CLEAR" : "--";' in live_data_js
+    assert 't("live_data.protection.trip")' in live_data_js
+    assert 't("live_data.protection.clear")' in live_data_js
 
 
 def test_static_channel_confirmation_and_job_detail_contracts():

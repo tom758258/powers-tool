@@ -351,6 +351,18 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         strictAssert.equal(globalSlot.children.filter((node) => node === allButton).length, 1);
         strictAssert.equal(allButton.listeners.click.length, 1);
         strictAssert.equal(allButton.listeners.click[0], originalListener);
+        const allButtonIdentity = allButton;
+        const livePanelIdentity = state.livePanel;
+        setLocale("zh-TW");
+        refreshBasicControlsPresentation();
+        strictAssert.equal(allButton, allButtonIdentity);
+        strictAssert.equal(state.livePanel, livePanelIdentity);
+        strictAssert.equal(allButton.textContent, "關閉輸出");
+        strictAssert.equal(allButton.listeners.click.length, 1);
+        strictAssert.equal(allButton.listeners.click[0], originalListener);
+        setLocale("en");
+        refreshBasicControlsPresentation();
+        strictAssert.equal(allButton.textContent, "Turn outputs off");
 
         state.channelCapabilitiesByModel["keysight-e3646a"] = {
           channels: [1, 2],
@@ -411,27 +423,45 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
 def test_static_live_channel_status_uses_led_indicators():
     _index_html, app_js, styles_css = read_static_texts()
     live_data_js = read_static_javascript("live-data.js")
-    render_channel = extract_js_function(app_js, "renderChannelCard")
-    normal_render_channel = render_channel[render_channel.index("const outputClass"):]
+    render_channel = extract_js_function(live_data_js, "renderChannelCard")
+    replace_card = extract_js_function(live_data_js, "replaceCardContent")
     protection_badge = extract_js_function(live_data_js, "protectionBadge")
 
-    assert 'class="status-badge status-indicator output-status ${outputClass}"' in normal_render_channel
-    assert 'class="indicator-dot"' in normal_render_channel
-    assert "OUT ${outputText}" in normal_render_channel
-    assert '<div class="live-status-badges">' not in normal_render_channel
-    assert '<div class="live-control-section">' in normal_render_channel
-    assert '<div class="live-protection-section">' in normal_render_channel
-    assert '<div class="live-protection-badges">' in normal_render_channel
-    assert '${protectionBadge("OVP", channel.over_voltage_tripped)}' in normal_render_channel
-    assert '${protectionBadge("OCP", channel.over_current_tripped)}' in normal_render_channel
-    assert normal_render_channel.index('class="status-badge status-indicator output-status ${outputClass}"') < normal_render_channel.index('<div class="live-control-section">')
-    assert render_channel.index('<div class="live-protection-badges">') < render_channel.index('${protectionBadge("OVP", channel.over_voltage_tripped)}')
-    assert 'class="protection-badge status-indicator ${stateClass}"' in protection_badge
-    assert "${label} ${stateText}" in protection_badge
+    assert "innerHTML" not in render_channel
+    assert "innerHTML" not in replace_card
+    assert "replaceCardContent(card, channel" in render_channel
+    assert "`status-badge status-indicator output-status ${presentation.outputClass}`" in replace_card
+    assert 'element("div", "live-control-section")' in replace_card
+    assert 'element("div", "live-protection-section")' in replace_card
+    assert 'element("div", "live-protection-badges")' in replace_card
+    assert 'protectionBadge("OVP", presentation.overVoltageTripped)' in replace_card
+    assert 'protectionBadge("OCP", presentation.overCurrentTripped)' in replace_card
+    assert 'element("span", `protection-badge status-indicator ${stateClass}`)' in protection_badge
+    assert 'element("span", "indicator-text", `${label} ${stateText}`)' in protection_badge
     assert ".output-status .indicator-dot" in styles_css
     assert ".output-status.off" in styles_css
     assert ".live-control-section" in styles_css
     assert ".live-protection-section" in styles_css
+
+
+def test_static_cached_live_presentation_refresh_has_no_operational_side_effects():
+    _index_html, app_js, _styles_css = read_static_texts()
+    refresh = extract_js_function(app_js, "refreshLiveDataPresentation")
+
+    assert "state.livePanel" in refresh
+    assert "renderChannelCard" in refresh
+    assert "drawTrend()" in refresh
+    for forbidden in (
+        "fetch",
+        "EventSource",
+        "state.samples.push",
+        "state.samples =",
+        "startLive",
+        "stopLive",
+        "closeEventSource",
+        "state.liveJobId =",
+    ):
+        assert forbidden not in refresh
 
 
 def test_static_basic_command_submission_reuses_existing_jobs():
@@ -573,7 +603,7 @@ def test_static_ramp_list_editor_contract():
     assert "document.completion_pulse" in ramp_list_js
     assert '"trigger-pulse": [channel()' in workflows_js
     assert 'const REAR_PIN_OPTIONS = ["1", "2", "3", "1,2", "1,3", "2,3", "1,2,3"];' in app_js
-    assert 'option.textContent = definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value);' in workflows_js
+    assert 'localizedOption(option, value, definition.name === "pins" ? rearPinDisplayName(value) : optionDisplayName(value), definition.name === "pins");' in workflows_js
     assert 'definition.name === "timing" && value === "step" && stepPulseBlocked' not in app_js
     assert "rampListStepPulseBlocked()" not in app_js
     assert ".ramp-list-pulse-hint { grid-column: 1 / -1; }" in styles_css
@@ -714,6 +744,9 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
             }
             if (selector === "[data-i18n-loop]") {
               return descendants(this).filter((node) => node.dataset.i18nLoop);
+            }
+            if (selector === "[data-workflow-i18n]") {
+              return descendants(this).filter((node) => node.dataset.workflowI18n);
             }
             return [];
           }
@@ -988,6 +1021,24 @@ def test_static_compact_output_enable_layout_and_accessibility_contracts():
         renderForm("ramp-list");
         const editor = commandForm.children[0];
         const toolbar = byClass(editor, "ramp-list-toolbar")[0];
+        const loadRampListButton = toolbar.children[0];
+        const p4RampListTiming = byId(editor, "ramp-list-pulse-timing");
+        const rampListTimingValues = p4RampListTiming.children.map((option) => option.value);
+        const rampDraftInput = descendants(editor).find((node) => node.dataset.rampField === "start_voltage");
+        rampDraftInput.value = "invalid draft";
+        const rampDraftIdentity = rampDraftInput;
+        setLocale("zh-TW");
+        webuiWorkflows.refreshWorkflowPresentation(editor);
+        strictAssert.equal(commandForm.children[0], editor);
+        strictAssert.equal(toolbar.children[0], loadRampListButton);
+        strictAssert.equal(loadRampListButton.textContent, "載入斜坡清單");
+        strictAssert.equal(rampDraftInput, rampDraftIdentity);
+        strictAssert.equal(rampDraftInput.value, "invalid draft");
+        strictAssert.deepEqual(p4RampListTiming.children.map((option) => option.value), rampListTimingValues);
+        strictAssert.deepEqual(p4RampListTiming.children.map((option) => option.textContent), ["無", "每個步驟", "區段完成", "迴圈完成"]);
+        setLocale("en");
+        webuiWorkflows.refreshWorkflowPresentation(editor);
+        strictAssert.equal(loadRampListButton.textContent, "Load Ramp List");
         const rampListParts = assertCompactControl(
           editor,
           "ramp-list-enable-output",

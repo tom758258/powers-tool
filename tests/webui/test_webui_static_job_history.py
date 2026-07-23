@@ -36,7 +36,7 @@ const helpers = {
   updateExecutionModeUi: () => calls.push("mode")
 };
 history.addHistory(state, "job-1", "set", "accepted", "Set", helpers);
-strictAssert.deepEqual(state.jobs, [{ jobId: "job-1", command: "set", label: "Label Set", status: "accepted", summary: "Summary accepted" }]);
+strictAssert.deepEqual(state.jobs, [{ jobId: "job-1", command: "set", label: "Set", status: "accepted", summary: null }]);
 history.updateHistory(state, "job-1", "started", helpers);
 strictAssert.equal(state.jobs[0].status, "started");
 history.updateJobResult(state, "job-1", "finished", "Done", helpers);
@@ -97,6 +97,22 @@ webuiApi.fetchJson = async () => ({ job_id: "scan-job" });
   updateJobResult("scan-job", "finished", "Scan complete");
   strictAssert.equal(state.jobs[0].summary, "Scan complete");
   strictAssert.equal(historyNode.children[0].children[2].textContent, "Success");
+
+  addHistory("locale-job", "set", "accepted", "set");
+  const rawLocaleJob = state.jobs[0];
+  setLocale("zh-TW");
+  renderHistory();
+  strictAssert.equal(state.jobs[0], rawLocaleJob);
+  strictAssert.equal(state.jobs[0].command, "set");
+  strictAssert.equal(state.jobs[0].status, "accepted");
+  strictAssert.equal(historyNode.children[0].children[0].textContent, "設定");
+  strictAssert.equal(historyNode.children[0].children[2].textContent, "已接受");
+  strictAssert.equal(historyNode.children[0].children[4].textContent, "已接受");
+  updateJobResult("locale-job", "failed", "VISA <raw> detail");
+  setLocale("en");
+  renderHistory();
+  strictAssert.equal(historyNode.children[0].children[4].textContent, "VISA <raw> detail");
+  strictAssert.equal(historyNode.children[0].children[0].textContent, "Set");
 
   renderClientResult("Scan Device", "failed", "Client failure", { error: "detail survives" });
   strictAssert.equal(state.jobs[0].summary, "Client failure");

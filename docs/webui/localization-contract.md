@@ -427,11 +427,22 @@ remain P5.
 
 ### P4: Workflows And Dynamic Operational Surfaces
 
-Localize workflow editors, Basic controls, Job History, Workspace Result, Result
-Detail surroundings, Live Data, known status/support/error wrappers, and chart
-presentation. Add semantic `{key, params, rawFallback}` data for re-translatable
-history/summaries, preserve raw diagnostics, and replace unsafe `innerHTML`
-presentation paths with explicit text nodes.
+Completed. Workflow editors, Basic controls, Job History, Workspace Result,
+Result Detail surroundings, Live Data, and their known browser-owned
+status/support/error presentation use the production catalogs. Surface-local
+refresh paths update existing editor/control DOM or redraw cached presentation
+without dispatching operations. History retains raw Job identity, command,
+status, and result data so command labels and known summaries are produced at
+render time; workspace summaries likewise render from cached raw results.
+Live Data channel cards and protection presentation use explicit DOM nodes and
+`textContent`, including cached-sample redraws.
+
+Workflow documents, command and option values, Job IDs, model/resource values,
+units, serialized Result Detail JSON, exported artifacts, and unknown backend,
+Core, VISA, SCPI, instrument, HTTP, support, validation, and file-parse detail
+remain raw. P4 does not add locale selection, browser-language detection,
+persistence, `<html lang>` switching, or a centralized whole-page refresh
+controller; those remain P5.
 
 ### P5: Locale UI And State-Preserving Runtime Switching
 

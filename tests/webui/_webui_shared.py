@@ -286,7 +286,7 @@ globalThis.__webuiCommandCatalog = {{ COMMAND_CATEGORIES, COMMAND_CATEGORY_LABEL
     globalThis.__webuiCommandForm = {{ createCheckboxField, renderCommandGuidance, appendFieldDescription, configureCompactCheckboxHelp, appendSetGuidance, appendCommandNotes, setOutputParams, applyOutputParams, smokeOutputParams, triggerWaitParams, triggerStepParams, triggerListParams, createCommandController }};`;
   }}
   if (filename === "results.js") {{
-    return source.replace(/^export function /gm, "function ") + `
+    return source.replace('import {{ t }} from "./i18n.js";', '').replace(/^export function /gm, "function ") + `
  globalThis.__webuiResults = {{ jobSummary, eventSummary, successfulJobSummary, capabilitiesSummary, identifySummary, verifySummary, readStatusSummary, readbackSummary, snapshotSummary, safetyInspectSummary, outputStatesSummary, setpointSummary, formatSetpointValue, errorQueueSummary, compactParts, statusSummary, statusLabel, statusClass, renderWorkspaceEmpty, renderWorkspaceJob, renderCapabilitiesWorkspaceSummary, renderIdentifyWorkspaceSummary, renderTriggerStatusWorkspaceSummary, appendWorkspaceFields, channelList, featureAvailability }};`;
   }}
   if (filename === "jobs.js") {{
@@ -294,11 +294,11 @@ globalThis.__webuiCommandCatalog = {{ COMMAND_CATEGORIES, COMMAND_CATEGORY_LABEL
 globalThis.__webuiJobTransport = {{ submitJob, openJobEvents, createJobEventController, addHistory, updateHistory, updateJobResult, renderHistory }};`;
   }}
   if (filename === "live-data.js") {{
-    return source.replace(/^export function /gm, "function ") + `
+    return source.replace('import {{ t }} from "./i18n.js";', '').replace(/^export function /gm, "function ") + `
     globalThis.__webuiLiveData = {{ liveStateText, liveStateClass, blankLiveChannels, mergeLiveChannels, mergeLiveChannel, normalizeMeasurements, renderChannelCard, protectionBadge, createLiveDataController }};`;
   }}
-  if (filename === "json-files.js") {{
-    return source.replace(/^export (?:async )?function /gm, (match) => match.replace("export ", "")) + `
+      if (filename === "json-files.js") {{
+        return source.replace('import {{ t }} from "./i18n.js";', '').replace(/^export (?:async )?function /gm, (match) => match.replace("export ", "")) + `
 globalThis.__webuiJsonFiles = {{ buildNativeJsonPickerAccept, openJsonFile, buildJsonFileAccept, chooseJsonFile, saveJsonFile, abortError, isAbortError }};`;
   }}
   if (filename === "ramp-list.js") {{
@@ -319,7 +319,7 @@ globalThis.__webuiSnapshotDocument = {{ snapshotSuggestedName, validateSnapshotD
 globalThis.__webuiRestoreDocument = {{ validateRestoreSnapshot, normalizeRestoreChannel, restoreSnapshotParameters }};`;
   }}
   if (filename === "basic-controls.js") {{
-    return source.replace(/^export function /gm, "function ") + `
+    return source.replace('import {{ t }} from "./i18n.js";', '').replace(/^export function /gm, "function ") + `
 globalThis.__webuiBasicControls = {{ createBasicControls }};`;
   }}
   if (filename === "command-support.js") {{
@@ -327,7 +327,7 @@ globalThis.__webuiBasicControls = {{ createBasicControls }};`;
 globalThis.__webuiCommandSupport = {{ createCommandSupport }};`;
   }}
   if (filename === "workflows.js") {{
-    return `(function() {{\n${{source.replace(/^export function /gm, "function ")}}\nglobalThis.__webuiWorkflows = {{ createWorkflows, createArtifactAndSequenceWorkflows }};\n}})();`;
+    return `(function() {{\n${{source.replace('import {{ t }} from "./i18n.js";', 'const t = globalThis.__webuiTranslate;').replace(/^export function /gm, "function ")}}\nglobalThis.__webuiWorkflows = {{ refreshWorkflowPresentation, createWorkflows, createArtifactAndSequenceWorkflows }};\n}})();`;
   }}
   if (filename === "app.js") {{
     return source
@@ -411,10 +411,14 @@ globalThis.__webuiCommandSupport = {{ createCommandSupport }};`;
                 'import * as webuiWorkflows from "./workflows.js";',
                 'var webuiWorkflows = globalThis.__webuiWorkflows;'
           )
-          .replace(
-                'import {{ applyStaticTranslations }} from "./dom_i18n.js";',
-                'var applyStaticTranslations = () => 0;'
-          );
+              .replace(
+                    'import {{ applyStaticTranslations }} from "./dom_i18n.js";',
+                    'var applyStaticTranslations = () => 0;'
+              )
+              .replace(
+                    'import {{ t }} from "./i18n.js";',
+                    ''
+              );
   }}
   return source;
 }}
