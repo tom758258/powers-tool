@@ -208,7 +208,7 @@ export const ZH_TW_MESSAGES = Object.freeze({
   "execution_mode.badge.real_enabled": "Real · 已啟用寫入",
   "execution_mode.badge.real_locked": "Real · 寫入已鎖定",
   "execution_mode.badge.simulate": "Simulate · 模擬",
-  "execution_mode.busy_title": "工作正在提交、執行或停止時無法變更執行模式。",
+  "execution_mode.busy_title": "作業正在提交、執行或停止時無法變更執行模式。",
   "execution_mode.help.dry_run": "選取實體型號或規劃設定檔。Dry-run 絕不會開啟 VISA 硬體。",
   "execution_mode.help.real": "自動偵測會使用已連線儀器的 IDN。只有需要指定特定型號時才選取型號。",
   "execution_mode.help.simulate": "選取標準實體型號。模擬模式絕不會開啟 VISA 硬體。",

@@ -190,7 +190,7 @@ strictAssert.equal(radios[0].title, "Execution mode cannot change while a job is
 strictAssert.deepEqual(radios.map((radio) => radio.disabled), disabledBeforeBusyRefresh);
 i18n.setLocale("zh-TW");
 controller.refreshExecutionModePresentation();
-strictAssert.equal(radios[0].title, "工作正在提交、執行或停止時無法變更執行模式。");
+strictAssert.equal(radios[0].title, "作業正在提交、執行或停止時無法變更執行模式。");
 strictAssert.deepEqual(radios.map((radio) => radio.disabled), disabledBeforeBusyRefresh);
 state.health = { status: "not_loaded", readiness: null, hardwareLocked: null, activeJob: null, detail: "" };
 controller.refreshHealthPresentation();

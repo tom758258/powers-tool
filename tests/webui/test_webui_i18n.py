@@ -245,6 +245,7 @@ assert.equal(ZH_TW_MESSAGES["resource.visa_resource"], "VISA 資源");
 assert.equal(ZH_TW_MESSAGES["execution_mode.option.real"], "實機（Real）");
 assert.equal(ZH_TW_MESSAGES["execution_mode.option.simulate"], "模擬（Simulate）");
 assert.equal(ZH_TW_MESSAGES["execution_mode.option.dry_run"], "Dry-run（規劃）");
+assert.equal(ZH_TW_MESSAGES["execution_mode.busy_title"], "作業正在提交、執行或停止時無法變更執行模式。");
 assert.equal(ZH_TW_MESSAGES["command.heading"], "指令");
 assert.equal(ZH_TW_MESSAGES["basic_controls.heading"], "基本指令");
 assert.equal(ZH_TW_MESSAGES["health.device.busy"], "硬體鎖定由作業 {job} 持有。");
