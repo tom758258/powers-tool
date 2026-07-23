@@ -72,7 +72,8 @@ export function createWorkflows({
   pulseTimingDisplayName,
   pinsSelectValue,
   applyParameterConstraint,
-  updateWorkflowDocumentValidity
+  updateWorkflowDocumentValidity,
+  updateRampListPulse
 }) {
 function defaultTriggerListStep() {
   return webuiTriggerListDocument.defaultTriggerListStep();

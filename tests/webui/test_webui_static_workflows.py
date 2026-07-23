@@ -52,6 +52,7 @@ def test_workflow_factory_wiring_omits_unused_dependencies() -> None:
         "pinsSelectValue",
         "applyParameterConstraint",
         "updateWorkflowDocumentValidity",
+        "updateRampListPulse",
     ):
         assert retained in workflow_wiring
         assert retained in workflow_signature
@@ -159,7 +160,9 @@ const state = {
 const originalSegments = state.rampListSegments;
 const constrainedFields = [];
 const validityCalls = [];
+let selectedUpdateCount = 0;
 let renderFormFromController;
+let updateRampListPulseFromController;
 
 const loopControl = ({ prefix }) => {
   const wrapper = new FakeElement("div");
@@ -172,7 +175,7 @@ const loopControl = ({ prefix }) => {
 };
 const workflows = globalThis.webuiWorkflows.createWorkflows({
   state,
-  rearPinOptions: ["1", "2", "3"],
+  rearPinOptions: ["1", "2", "3", "2,3"],
   webuiCommandForm: globalThis.webuiCommandForm,
   webuiRampListDocument: globalThis.webuiRampListDocument,
   renderForm: (...args) => renderFormFromController(...args),
@@ -188,6 +191,7 @@ const workflows = globalThis.webuiWorkflows.createWorkflows({
     input.dataset.constraintApplied = name;
   },
   updateWorkflowDocumentValidity: (command) => validityCalls.push(command),
+  updateRampListPulse: (...args) => updateRampListPulseFromController(...args),
 });
 const controller = globalThis.webuiCommandForm.createCommandController({
   state,
@@ -195,10 +199,11 @@ const controller = globalThis.webuiCommandForm.createCommandController({
   commandMeta: (name) => state.commands[name] || {},
   renderWorkspaceSummary: () => {},
   prefillClearProtectionChannel: () => {},
-  updateSelectedCommandState: () => {},
+  updateSelectedCommandState: () => { selectedUpdateCount += 1; },
   renderRampListForm: workflows.renderRampListForm,
 });
 renderFormFromController = controller.renderForm;
+updateRampListPulseFromController = controller.updateRampListPulse;
 
 strictAssert.doesNotThrow(() => controller.selectCommand("ramp-list"));
 strictAssert.equal(state.selected, "ramp-list");
@@ -225,6 +230,44 @@ controller.renderForm("ramp-list");
 strictAssert.equal(state.rampListSegments, originalSegments);
 strictAssert.equal(state.rampListSegments[0].start_voltage, 1.25);
 strictAssert.deepEqual(validityCalls, ["ramp-list", "ramp-list"]);
+
+const pulseInput = (name) => descendants(commandForm).find(
+  (node) => node.id === `ramp-list-pulse-${name}`
+);
+const selectedUpdatesBeforePulse = selectedUpdateCount;
+strictAssert.equal(state.rampListCompletionPulse, null);
+let timingInput = pulseInput("timing");
+timingInput.value = "segment";
+strictAssert.doesNotThrow(() => timingInput.listeners.change[0]());
+strictAssert.deepEqual(state.rampListCompletionPulse, {
+  timing: "segment",
+  pins: [1],
+  polarity: "positive",
+});
+
+const pinsInput = pulseInput("pins");
+pinsInput.value = "2,3";
+strictAssert.doesNotThrow(() => pinsInput.listeners.change[0]());
+strictAssert.deepEqual(state.rampListCompletionPulse, {
+  timing: "segment",
+  pins: [2, 3],
+  polarity: "positive",
+});
+
+const polarityInput = pulseInput("polarity");
+polarityInput.value = "negative";
+strictAssert.doesNotThrow(() => polarityInput.listeners.change[0]());
+strictAssert.deepEqual(state.rampListCompletionPulse, {
+  timing: "segment",
+  pins: [2, 3],
+  polarity: "negative",
+});
+
+timingInput = pulseInput("timing");
+timingInput.value = "";
+strictAssert.doesNotThrow(() => timingInput.listeners.change[0]());
+strictAssert.equal(state.rampListCompletionPulse, null);
+strictAssert.equal(selectedUpdateCount - selectedUpdatesBeforePulse, 4);
 """,
         (
             "command-catalog.js",

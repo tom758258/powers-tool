@@ -431,7 +431,8 @@ const workflows = webuiWorkflows.createWorkflows({
   pulseTimingDisplayName: (...args) => pulseTimingDisplayName(...args),
   pinsSelectValue: (...args) => pinsSelectValue(...args),
   applyParameterConstraint: (...args) => applyParameterConstraint(...args),
-  updateWorkflowDocumentValidity: (...args) => updateWorkflowDocumentValidity(...args)
+  updateWorkflowDocumentValidity: (...args) => updateWorkflowDocumentValidity(...args),
+  updateRampListPulse: (...args) => updateRampListPulse(...args)
 });
 
 var {
