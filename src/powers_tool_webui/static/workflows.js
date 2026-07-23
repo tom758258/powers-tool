@@ -286,9 +286,9 @@ function renderRampListForm(form) {
     state.rampListEnableOutput = enableInput.checked;
     updateSelectedCommandState();
   });
-  const enableLabel = webuiCommandForm.createCheckboxField(enableInput, "Enable each channel", ["ramp-list-enable-output-field"]);
+  const enableLabel = webuiCommandForm.createCheckboxField(enableInput, "Auto-enable output for each channel", ["ramp-list-enable-output-field"]);
   enableLabel.dataset.workflowI18n = "workflow.field.enable_each_channel";
-  enableLabel.dataset.workflowI18nFallback = "Enable each channel";
+  enableLabel.dataset.workflowI18nFallback = "Auto-enable output for each channel";
   enableLabel.querySelector(".checkbox-label-text").textContent = t("workflow.field.enable_each_channel");
   webuiCommandForm.configureCompactCheckboxHelp(enableLabel, enableInput, {
     ariaLabel: t("ramp_list.aria.enable_each_channel"),

@@ -373,6 +373,16 @@ assert.equal(EN_MESSAGES["command.name.cycle_output"], "Cycle output");
 assert.equal(EN_MESSAGES["command.name.smoke_output"], "Smoke output");
 assert.equal(EN_MESSAGES["workflow.action.add_ramp_segment"], "Add Ramp Segment");
 assert.equal(EN_MESSAGES["workflow.ramp_segment"], "Ramp Segment {index}");
+assert.equal(EN_MESSAGES["form.field.delay_ms"], "Wait between steps (ms)");
+assert.equal(ZH_TW_MESSAGES["form.field.delay_ms"], "步進間等待 (ms)");
+assert.equal(EN_MESSAGES["workflow.field.delay_ms"], "Wait between steps (ms)");
+assert.equal(ZH_TW_MESSAGES["workflow.field.delay_ms"], "步進間等待 (ms)");
+assert.equal(EN_MESSAGES["workflow.field.hold_ms"], "Wait after segment (ms)");
+assert.equal(ZH_TW_MESSAGES["workflow.field.hold_ms"], "區段結束後等待 (ms)");
+assert.equal(EN_MESSAGES["workflow.field.enable_each_channel"], "Auto-enable output for each channel");
+assert.equal(ZH_TW_MESSAGES["workflow.field.enable_each_channel"], "自動啟用各通道輸出");
+assert.equal(EN_MESSAGES["ramp_list.aria.enable_each_channel"], "Auto-enable output for each channel on first use");
+assert.equal(ZH_TW_MESSAGES["ramp_list.aria.enable_each_channel"], "各通道第一次使用時自動啟用輸出");
 assert.equal(ZH_TW_MESSAGES["form.option.segment"], "逐步輸出完成");
 assert.equal(EN_MESSAGES["form.option.segment"], "Ramp complete");
 assert.equal(ZH_TW_MESSAGES["support.scope.not_evaluated"], "尚未評估連線支援範圍");
@@ -890,5 +900,21 @@ def test_parameter_constraint_tooltip_catalog_covers_current_metadata_inventory(
 
     assert en_keys == expected
     assert zh_tw_keys == expected
+    assert (
+        '"form.constraint.delay_ms": "Wait after each non-final voltage step before writing the next step."'
+        in en_source
+    )
+    assert (
+        '"form.constraint.delay_ms": "每次寫入非最後一個電壓步驟後，等待指定時間再寫入下一步。"'
+        in zh_tw_source
+    )
+    assert (
+        '"form.constraint.hold_ms": "Wait after the final voltage step before the Ramp List segment completes."'
+        in en_source
+    )
+    assert (
+        '"form.constraint.hold_ms": "完成逐步輸出區段的最後一個電壓步驟後，等待指定時間，再完成該區段。"'
+        in zh_tw_source
+    )
     assert '"form.constraint.stop_voltage": "Finite non-negative final voltage."' in en_source
     assert '"form.constraint.stop_voltage": "停止電壓必須為有限值且不得小於 0。"' in zh_tw_source

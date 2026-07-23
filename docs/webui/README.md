@@ -372,6 +372,9 @@ Ramp List uses a dedicated segment-card editor with versioned JSON Load/Save.
 It loads v2/v3 as one execution and saves strict v4 with explicit
 `enable_output` and `loop_count`, including 1. The editor supports up to 10
 ordered segments and full-list trip guarding before submission.
+For Ramp and each Ramp List segment, `Wait between steps (ms)` applies only
+after a non-final voltage step. Ramp List `Wait after segment (ms)` applies
+after the final voltage step and before that segment completes.
 Sequence uses collapsed step cards with JSON Load/Save and supports up to 250
 steps in the WebUI. It loads v1 as one execution and always saves/runs strict
 v2 as `{"version": 2, "loop_count": N, "steps": [...]}`. It never serializes
@@ -387,10 +390,11 @@ None, Every step, Segment complete, or Loop complete. Sequence retains only
 its per-Step Trigger pulse action.
 
 Ramp places Enable output first, then Enable loop, Channel/Current, Ramp
-setpoints, and Pulse timing. Ramp List places Enable loop between Enable each
-channel and Pulse timing. Sequence places Enable loop between its toolbar and
-Step 1; Create snapshot has no Loop state. Loop count is conditionally created
-inline only when enabled, defaults to 2, and accepts integers 2 through 255.
+setpoints, and Pulse timing. Ramp List places Enable loop between Auto-enable
+output for each channel and Pulse timing. Sequence places Enable loop between
+its toolbar and Step 1; Create snapshot has no Loop state. Loop count is
+conditionally created inline only when enabled, defaults to 2, and accepts
+integers 2 through 255.
 Turning Loop off removes the field, makes the effective value 1, and resets a
 selected Loop-complete pulse to None. The Loop-complete option is disabled
 while Loop is off. An invalid enabled Loop count remains visible across editor

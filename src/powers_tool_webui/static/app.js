@@ -124,7 +124,7 @@ const PARAMS = {
     { name: "start_voltage", type: "number", label: "Start voltage(V)", value: 0 },
     { name: "stop_voltage", type: "number", label: "Stop voltage(V)", value: 1 },
     { name: "step_voltage", type: "number", label: "Step voltage(V)", value: 0.1 },
-    { name: "delay_ms", type: "number", label: "Delay(ms)", value: 0 },
+    { name: "delay_ms", type: "number", label: "Wait between steps (ms)", value: 0 },
     { name: "completion_pulse_timing", type: "select", label: "Pulse timing", options: ["", "step", "segment", "loop"], value: "" },
     { name: "completion_pulse_pins", type: "select", label: "Rear pins", options: REAR_PIN_OPTIONS, value: "1", parser: "intList", pulseChild: true },
     { name: "completion_pulse_polarity", type: "select", label: "Polarity", options: ["positive", "negative"], value: "positive", pulseChild: true }
