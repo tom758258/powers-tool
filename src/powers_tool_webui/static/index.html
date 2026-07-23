@@ -58,9 +58,9 @@
                     <option value="">Auto-detect</option>
                   </select>
                 </label>
-                <p id="identity-model-help" class="model-profile-help">Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one. In live mode, the detected IDN model remains the runtime driver.</p>
+                <p id="identity-model-help" class="model-profile-help" data-i18n="device.identity_model_help">Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one. In live mode, the detected IDN model remains the runtime driver.</p>
               </div>
-              <label id="real-write-authorization" class="real-write-authorization"><input id="real-write-enabled" type="checkbox"> Enable real hardware writes for this resource</label>
+              <label id="real-write-authorization" class="real-write-authorization"><input id="real-write-enabled" type="checkbox"> <span data-i18n="device.enable_real_hardware_writes">Enable real hardware writes for this resource</span></label>
               <p class="device-options-help" data-i18n="serial.help">Optional ASRL/serial overrides. Usually needed only for RS-232 instruments such as E3646A.</p>
               <div class="serial-grid">
                 <label><span data-i18n="serial.baud_rate">Baud rate</span>

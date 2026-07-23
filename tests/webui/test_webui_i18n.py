@@ -666,6 +666,154 @@ process.stdout.write(JSON.stringify({ ok: true }));
     assert completed.stdout == '{"ok":true}'
 
 
+@pytest.mark.skipif(NODE is None, reason="Node.js is required for ES-module runtime tests")
+def test_device_options_static_translations_preserve_controls_and_state() -> None:
+    script = r"""
+import assert from "node:assert/strict";
+
+const [domI18nUrl, i18nUrl] = process.argv.slice(1);
+const { applyStaticTranslations } = await import(domI18nUrl);
+const i18n = await import(i18nUrl);
+
+class FakeElement {
+  constructor(attributes = {}, textContent = "") {
+    this.attributes = { ...attributes };
+    this.textContent = textContent;
+    this.value = "";
+    this.checked = false;
+    this.hidden = false;
+    this.listeners = [];
+  }
+
+  getAttribute(name) {
+    return Object.hasOwn(this.attributes, name) ? this.attributes[name] : null;
+  }
+
+  setAttribute(name, value) {
+    this.attributes[name] = value;
+  }
+
+  addEventListener(type, listener) {
+    this.listeners.push({ type, listener });
+  }
+}
+
+const identityHelp = new FakeElement(
+  { "data-i18n": "device.identity_model_help" },
+  "Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one. In live mode, the detected IDN model remains the runtime driver."
+);
+const writeText = new FakeElement(
+  { "data-i18n": "device.enable_real_hardware_writes" },
+  "Enable real hardware writes for this resource"
+);
+const expectedModel = new FakeElement();
+expectedModel.value = "keysight-e36312a";
+const writeCheckbox = new FakeElement();
+writeCheckbox.checked = true;
+const deviceOptionsPanel = new FakeElement();
+deviceOptionsPanel.hidden = false;
+const resource = new FakeElement();
+resource.value = "USB0::TEST::INSTR";
+const executionMode = new FakeElement();
+executionMode.value = "real";
+executionMode.checked = true;
+const authorization = { resource: resource.value, enabled: true };
+
+for (const control of [expectedModel, writeCheckbox, resource, executionMode]) {
+  control.addEventListener("change", () => {});
+}
+const identities = {
+  expectedModel,
+  writeCheckbox,
+  deviceOptionsPanel,
+  resource,
+  executionMode,
+  authorization,
+};
+const listenerCounts = [expectedModel, writeCheckbox, resource, executionMode]
+  .map((control) => control.listeners.length);
+const root = {
+  querySelectorAll(selector) {
+    assert.equal(
+      selector,
+      "[data-i18n],[data-i18n-placeholder],[data-i18n-title],[data-i18n-aria-label]"
+    );
+    return [identityHelp, writeText];
+  },
+};
+
+function assertPreserved() {
+  assert.equal(identities.expectedModel, expectedModel);
+  assert.equal(identities.writeCheckbox, writeCheckbox);
+  assert.equal(identities.deviceOptionsPanel, deviceOptionsPanel);
+  assert.equal(identities.resource, resource);
+  assert.equal(identities.executionMode, executionMode);
+  assert.equal(identities.authorization, authorization);
+  assert.equal(expectedModel.value, "keysight-e36312a");
+  assert.equal(writeCheckbox.checked, true);
+  assert.equal(deviceOptionsPanel.hidden, false);
+  assert.equal(resource.value, "USB0::TEST::INSTR");
+  assert.equal(executionMode.value, "real");
+  assert.equal(executionMode.checked, true);
+  assert.deepEqual(
+    [expectedModel, writeCheckbox, resource, executionMode]
+      .map((control) => control.listeners.length),
+    listenerCounts
+  );
+}
+
+assert.equal(i18n.getLocale(), "en");
+assert.equal(applyStaticTranslations(root), 2);
+assert.equal(
+  identityHelp.textContent,
+  "Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one. In live mode, the detected IDN model remains the runtime driver."
+);
+assert.equal(writeText.textContent, "Enable real hardware writes for this resource");
+assertPreserved();
+
+i18n.setLocale("zh-TW");
+assert.equal(applyStaticTranslations(root), 2);
+assert.equal(
+  identityHelp.textContent,
+  "自動偵測會使用已連線儀器的 IDN。只有在需要指定特定型號時才選取型號；在實機模式下，偵測到的 IDN 型號仍作為執行時驅動依據。"
+);
+assert.equal(writeText.textContent, "允許此資源執行真實硬體寫入");
+assertPreserved();
+
+i18n.setLocale("en");
+assert.equal(applyStaticTranslations(root), 2);
+assert.equal(
+  identityHelp.textContent,
+  "Auto-detect uses the connected instrument IDN. Select a model only when you want to require a specific one. In live mode, the detected IDN model remains the runtime driver."
+);
+assert.equal(writeText.textContent, "Enable real hardware writes for this resource");
+assertPreserved();
+
+process.stdout.write(JSON.stringify({ ok: true }));
+"""
+    completed = subprocess.run(
+        [
+            NODE,
+            "--input-type=module",
+            "--eval",
+            script,
+            (STATIC_DIR / "dom_i18n.js").resolve().as_uri(),
+            (STATIC_DIR / "i18n.js").resolve().as_uri(),
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert completed.returncode == 0, (
+        f"Node device-options i18n contract failed\nstdout:\n{completed.stdout}"
+        f"\nstderr:\n{completed.stderr}"
+    )
+    assert completed.stdout == '{"ok":true}'
+
+
 def test_static_html_p2_bindings_have_catalog_parity_and_preserve_contracts() -> None:
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     en_source = (STATIC_DIR / "locale_en.js").read_text(encoding="utf-8")

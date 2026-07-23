@@ -389,6 +389,9 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert "Auto-detect uses the connected instrument IDN" in html
     assert "Select a model only when you want to require a specific one" in html
     assert "detected IDN model remains the runtime driver" in html
+    identity_help_tag = static_tag_with_id(html, "identity-model-help")
+    assert 'data-i18n="device.identity_model_help"' in identity_help_tag
+    assert html.count('id="identity-model-help"') == 1
     assert 'option value="keysight-' not in html
     assert "renderExpectedModelOptions" in app_js
     assert 'model.model_id' in app_js
@@ -413,7 +416,17 @@ def test_static_ui_exposes_advanced_serial_controls():
     badge_start = title_row.index('id="execution-mode-badge"')
     assert 'id="device-resource-title"' in title_row
     assert title_end < badge_start
-    assert 'id="real-write-enabled"' in html
+    assert html.count('id="real-write-authorization"') == 1
+    assert html.count('id="real-write-enabled"') == 1
+    real_write_label = html[
+        html.index('<label id="real-write-authorization"'):
+        html.index("</label>", html.index('<label id="real-write-authorization"')) + len("</label>")
+    ]
+    assert '<input id="real-write-enabled" type="checkbox">' in real_write_label
+    assert real_write_label.count('data-i18n="device.enable_real_hardware_writes"') == 1
+    assert real_write_label.index('id="real-write-enabled"') < real_write_label.index(
+        'data-i18n="device.enable_real_hardware_writes"'
+    )
     assert "Simulate" in html
     execution_mode_ui = extract_js_function(app_js, "updateExecutionModeUi")
     assert "refreshExecutionModePresentation();" in execution_mode_ui
