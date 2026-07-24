@@ -49,11 +49,29 @@ def test_basic_controls_refresh_uses_explicit_current_action_and_preserves_set_t
         r"""
 const { setLocale } = await import(moduleUrls["i18n.js"]);
 const statusNode = { textContent: "" };
-const setButton = {
-  disabled: false,
-  title: "",
-  classList: { toggle() {} }
+const createButton = () => {
+  const classes = new Set(["basic-toggle", "off"]);
+  return {
+    disabled: false,
+    hidden: false,
+    title: "",
+    textContent: "",
+    attributes: {},
+    classList: {
+      toggle(name, force) {
+        const enabled = force === undefined ? !classes.has(name) : Boolean(force);
+        if (enabled) classes.add(name); else classes.delete(name);
+        return enabled;
+      },
+      remove(...names) { names.forEach((name) => classes.delete(name)); },
+      contains(name) { return classes.has(name); }
+    },
+    setAttribute(name, value) { this.attributes[name] = String(value); }
+  };
 };
+const setButton = createButton();
+const outputButtons = Object.fromEntries([1, 2, 3].map((channel) => [channel, createButton()]));
+const allButton = createButton();
 const card = {
   title: "",
   classList: { toggle() {} },
@@ -69,11 +87,22 @@ globalThis.document = {
   querySelector(selector) {
     if (selector === '[data-basic-channel="1"]') return card;
     if (selector === '[data-basic-set="1"]') return setButton;
+    if (selector === "[data-basic-all-output]") return allButton;
+    const outputMatch = selector.match(/^\[data-basic-output="(\d)"\]$/);
+    if (outputMatch) return outputButtons[Number(outputMatch[1])];
     return null;
   }
 };
 const state = {
-  livePanel: null,
+  livePanel: {
+    resource: "RESOURCE",
+    stale: false,
+    channels: [
+      { channel: 1, output_enabled: true },
+      { channel: 2, output_enabled: false },
+      { channel: 3, output_enabled: true }
+    ]
+  },
   basicActionStates: {},
   basicJobActions: {},
   basicStatusActionKey: null,
@@ -81,10 +110,10 @@ const state = {
 };
 const basic = globalThis.webuiBasicControls.createBasicControls({
   state,
-  defaultChannels: [1],
-  valueOrNull: () => null,
-  basicOutputPresentation: () => ({ mode: "normal", capability: { channels: [1] } }),
-  supportedChannelsForCurrentModel: () => [1],
+  defaultChannels: [1, 2, 3],
+  valueOrNull: () => "RESOURCE",
+  basicOutputPresentation: () => ({ mode: "normal", capability: { channels: [1, 2, 3] } }),
+  supportedChannelsForCurrentModel: () => [1, 2, 3],
   channelUnsupportedReason: () => "",
   commandMeta: () => ({ disabled: false, live_support_status: "raw support" }),
   outputControlTitle: () => "",
@@ -115,6 +144,7 @@ strictAssert.equal(pendingIdentity.awaitingReadback, true);
 strictAssert.equal(pendingIdentity.status, "pending");
 
 basic.setBasicActionState("set:1", "success", { key: "basic_controls.status.completed" });
+strictAssert.equal(setButton.classList.contains("basic-action-success"), true);
 strictAssert.equal(setButton.title, "基本指令已完成。");
 basic.refreshBasicControlsPresentation();
 strictAssert.equal(setButton.title, "基本指令已完成。");
@@ -127,6 +157,35 @@ strictAssert.equal(state.basicStatusActionKey, null);
 strictAssert.equal(statusNode.textContent, "即時資料仍是儀器狀態的依據。");
 strictAssert.equal(state.basicActionStates["output:2"], pendingIdentity);
 setLocale("en");
+
+basic.setBasicActionState("output:1", "success", { key: "basic_controls.status.completed" });
+basic.refreshBasicControlsPresentation();
+strictAssert.equal(outputButtons[1].classList.contains("on"), true);
+strictAssert.equal(outputButtons[1].classList.contains("basic-action-success"), false);
+strictAssert.equal(outputButtons[1].textContent, "Turn off");
+
+state.livePanel.channels[0].output_enabled = false;
+basic.refreshBasicControlsPresentation();
+strictAssert.equal(outputButtons[1].classList.contains("off"), true);
+strictAssert.equal(outputButtons[1].classList.contains("basic-action-success"), false);
+strictAssert.equal(outputButtons[1].textContent, "Turn on");
+
+basic.clearBasicActionState("output:2");
+basic.setBasicActionState("output:all", "success", { key: "basic_controls.status.completed" });
+basic.refreshBasicControlsPresentation();
+strictAssert.equal(allButton.classList.contains("basic-action-success"), false);
+strictAssert.deepEqual(
+  [1, 2, 3].map((channel) => outputButtons[channel].classList.contains("basic-action-success")),
+  [false, false, false]
+);
+strictAssert.deepEqual(
+  [1, 2, 3].map((channel) => outputButtons[channel].classList.contains("on")),
+  [false, false, true]
+);
+strictAssert.deepEqual(
+  [1, 2, 3].map((channel) => outputButtons[channel].classList.contains("off")),
+  [true, true, false]
+);
 """,
         ("basic-controls.js", "i18n.js"),
     )

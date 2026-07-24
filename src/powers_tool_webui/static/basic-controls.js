@@ -324,7 +324,7 @@ function renderBasicOutputControlState(target) {
   const commandMetaForState = commandMeta(enabled ? "output-off" : "output-on");
   button.disabled = Boolean(unsupported || lockAction || commandMetaForState.disabled);
   button.classList.toggle("basic-action-pending", Boolean(lockAction));
-  button.classList.toggle("basic-action-success", !lockAction && ownAction?.status === "success");
+  button.classList.remove("basic-action-success");
   button.classList.toggle("basic-action-error", !lockAction && ownAction?.status === "error");
   if (unsupported) {
     button.title = unsupported;
