@@ -149,6 +149,9 @@ for (const name of expectedIds) {
   strictAssert.equal(commandButton(name).children[1].textContent, "");
   strictAssert.equal(commandButton(name).disabled, false);
 }
+state.selected = "cycle-output";
+controller.refreshSelectedCommandDescription();
+strictAssert.equal(elements.get("command-description").textContent, "Cycle output on then off");
 state.commands.ramp.disabled = true;
 state.commands.ramp.disabled_reason = "Pending live validation: ASRL / system VISA";
 state.commands["smoke-output"].live_support_status = "Connection scope not evaluated";
@@ -157,6 +160,19 @@ strictAssert.equal(commandButton("ramp").children[1].textContent, "Pending live 
 strictAssert.equal(commandButton("ramp").disabled, true);
 strictAssert.equal(commandButton("smoke-output").children[1].textContent, "Connection scope not evaluated");
 strictAssert.equal(commandButton("smoke-output").disabled, false);
+state.selected = "ramp";
+controller.refreshSelectedCommandDescription();
+strictAssert.equal(
+  elements.get("command-description").textContent,
+  "Ramp voltage Pending live validation: ASRL / system VISA"
+);
+state.selected = "smoke-output";
+controller.refreshSelectedCommandDescription();
+strictAssert.equal(
+  elements.get("command-description").textContent,
+  "Run guarded output diagnostic Connection scope not evaluated"
+);
+state.selected = "ramp-list";
 for (const name of expectedIds) {
   delete state.commands[name].live_support_status;
 }

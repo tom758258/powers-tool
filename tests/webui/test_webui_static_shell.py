@@ -472,7 +472,8 @@ def test_static_command_forms_do_not_repeat_real_write_authorization_warning() -
     assert "confirm-banner" not in styles_css
     assert "Enable real hardware writes in Device options before running this command." not in app_js
     assert "webuiCommandForm.renderCommandGuidance(state.selected, parameters, triggerControlGuardReason, triggerFireWaitGuardReason);" in update_selected
-    assert "meta.live_support_status" in refresh_description
+    assert "commandStatusText(meta)" in refresh_description
+    assert "meta.live_support_status" not in refresh_description
     assert "confirm: hasRealWriteAuthorization()" in runtime_block
     assert 'meta.requires_confirm && state.executionMode === "real" && !payload.runtime.confirm' in submit_selected
     assert 'meta.requires_confirm && state.executionMode === "real" && !payload.runtime.confirm' in submit_basic

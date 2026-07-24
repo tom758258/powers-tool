@@ -492,7 +492,7 @@ function refreshSelectedCommandDescription(presentationParts = []) {
   const meta = commandMeta(state.selected);
   const text = [
     commandCatalog.commandDescription(state.selected, meta.description || ""),
-    meta.live_support_status,
+    commandStatusText(meta),
     ...presentationParts
   ].filter(Boolean).join(" ");
   description.textContent = text;
