@@ -1442,6 +1442,7 @@ async function refreshSelectedResourcePreview(resource) {
     return;
   }
   const healthState = await refreshHealth();
+  if (resource !== valueOrNull("resource")) return;
   await startLivePreviewSnapshot(healthState, resource);
 }
 

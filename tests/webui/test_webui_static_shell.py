@@ -896,7 +896,7 @@ def test_static_top_bar_uses_live_resource_defaults():
     assert "safety_config: null" in app_js
 
 
-def test_static_resource_selection_refreshes_live_preview():
+def test_static_resource_selection_refreshes_selected_context():
     index_html, app_js, _styles_css = read_static_texts()
     sync_selected = extract_js_function(app_js, "syncSelectedResource")
     refresh_preview = extract_js_function(app_js, "refreshSelectedResourcePreview")
@@ -909,7 +909,7 @@ def test_static_resource_selection_refreshes_live_preview():
     assert "const previous = input.value;" in sync_selected
     assert "const value = document.getElementById(\"resource-select\").value;" in sync_selected
     assert "input.value = value;" in sync_selected
-    assert "if (value !== previous) await refreshSelectedResourcePreview(value);" in sync_selected
+    assert "if (value !== previous) await refreshSelectedResourceContext(value);" in sync_selected
 
     assert "webuiApi.fetchJson(\"/api/live\"" not in refresh_preview
     assert "stopLivePreviewSnapshot();" in refresh_preview
@@ -920,10 +920,14 @@ def test_static_resource_selection_refreshes_live_preview():
         't("live_data.status.no_resource"));'
     ) in refresh_preview
     assert "const healthState = await refreshHealth();" in refresh_preview
+    assert 'if (resource !== valueOrNull("resource")) return;' in refresh_preview
     assert "await startLivePreviewSnapshot(healthState, resource);" in refresh_preview
     assert refresh_preview.index("stopLivePreviewSnapshot();") < refresh_preview.index("renderBlankLivePanel();")
     assert refresh_preview.index("renderBlankLivePanel();") < refresh_preview.index("const healthState = await refreshHealth();")
     assert refresh_preview.index("const healthState = await refreshHealth();") < refresh_preview.index(
+        'if (resource !== valueOrNull("resource")) return;'
+    )
+    assert refresh_preview.index('if (resource !== valueOrNull("resource")) return;') < refresh_preview.index(
         "await startLivePreviewSnapshot(healthState, resource);"
     )
 

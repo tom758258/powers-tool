@@ -42,7 +42,10 @@ export function createJobEventController({ state, fetchJson, closeEventSource, u
     let healthState = null;
     if (event.type === "finished" && jobCommand(jobId) === "list-resources") await populateResourceSelect(event.data?.result?.resources || []);
     if (event.type === "failed" && jobCommand(jobId) === "list-resources") captureResourceScanFailure?.(event.data?.error || event.data?.detail || "Resource scan failed");
-    else if (shouldRefreshLiveAfterCommand(event, job)) { healthState = await refreshHealth(); startLivePreviewSnapshot(healthState, job.runtime.resource); }
+    else if (shouldRefreshLiveAfterCommand(event, job)) {
+      healthState = await refreshHealth();
+      if (shouldRefreshLiveAfterCommand(event, job)) startLivePreviewSnapshot(healthState, job.runtime.resource);
+    }
     if (event.type === "finished" && job) { captureLatestSnapshotDocument(job); captureWorkspaceResult(job); }
     if (jobCommand(jobId) === "snapshot") refreshSnapshotFormIfVisible(jobId);
     if (state.basicJobActions[jobId]) updateBasicActionFromJob(jobId, event, job);

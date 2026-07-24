@@ -1054,6 +1054,83 @@ def test_frontend_workspace_capture_keeps_helper_and_lifecycle_boundaries() -> N
     run_frontend_javascript_assertions(assertions)
 
 
+def test_frontend_stale_resource_preview_is_suppressed_after_health_refresh() -> None:
+    assertions = textwrap.dedent(
+        r"""
+        const strictAssert = require("node:assert/strict");
+        (async () => {
+        let activeResource = "RESOURCE-A";
+        document.getElementById = (id) => id === "resource" ? { value: activeResource } : null;
+        isNoHardwareMode = () => false;
+        stopLivePreviewSnapshot = () => {};
+        renderBlankLivePanel = () => {};
+
+        let resolveDirectHealth;
+        refreshHealth = () => new Promise((resolve) => { resolveDirectHealth = resolve; });
+        const directPreviews = [];
+        startLivePreviewSnapshot = async (_health, resource) => directPreviews.push(resource);
+
+        const directRefresh = refreshSelectedResourcePreview("RESOURCE-A");
+        await Promise.resolve();
+        activeResource = "RESOURCE-B";
+        resolveDirectHealth({ hardware_busy: false });
+        await directRefresh;
+        strictAssert.deepEqual(directPreviews, []);
+
+        activeResource = "RESOURCE-A";
+        let resolveTerminalHealth;
+        const terminalPreviews = [];
+        const job = {
+          status: "finished",
+          command: "identify",
+          runtime: { resource: "RESOURCE-A", simulate: false, dry_run: false }
+        };
+        const controller = webuiJobTransport.createJobEventController({
+          state: {
+            workflowControl: { jobId: null, phase: "idle" },
+            basicJobActions: {},
+            selected: null
+          },
+          fetchJson: async () => ({}),
+          closeEventSource: () => {},
+          updateHistory: () => {},
+          setWorkflowControl: () => {},
+          updateJobResult: () => {},
+          jobCommand: () => "identify",
+          refreshSnapshotFormIfVisible: () => {},
+          renderJobDetail: async () => job,
+          populateResourceSelect: async () => {},
+          captureResourceScanFailure: () => {},
+          refreshHealth: () => new Promise((resolve) => { resolveTerminalHealth = resolve; }),
+          startLivePreviewSnapshot: (_health, resource) => terminalPreviews.push(resource),
+          shouldRefreshLiveAfterCommand,
+          captureLatestSnapshotDocument: () => {},
+          captureWorkspaceResult: () => {},
+          updateBasicActionFromJob: () => {},
+          updateResourceModelFromJob: () => {},
+          finishResourceLiveSupportEvaluation: async () => {},
+          jobLabel: () => "",
+          captureRestorePlanPreview: () => {},
+          renderForm: () => {},
+          updateSelectedCommandState: () => {},
+          reconcileWorkflowJob: () => {}
+        });
+
+        const terminalRefresh = controller.handleJobEvent("job-a", { type: "finished", data: {} });
+        await Promise.resolve();
+        activeResource = "RESOURCE-B";
+        resolveTerminalHealth({ hardware_busy: false });
+        await terminalRefresh;
+        strictAssert.deepEqual(terminalPreviews, []);
+        })().catch((error) => {
+          console.error(error);
+          process.exitCode = 1;
+        });
+        """
+    )
+    run_frontend_javascript_assertions(assertions)
+
+
 def test_frontend_resource_single_flight_and_execution_mode_context_refresh() -> None:
     assertions = textwrap.dedent(
         r"""
