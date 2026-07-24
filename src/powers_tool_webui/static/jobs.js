@@ -17,7 +17,7 @@ export function openJobEvents({ jobId, baseUrl, closeEvents, onEvent, onError, e
   return events;
 }
 
-export function createJobEventController({ state, fetchJson, closeEventSource, updateHistory, setWorkflowControl, updateJobResult, jobCommand, refreshSnapshotFormIfVisible, renderJobDetail, populateResourceSelect, captureResourceScanFailure, refreshHealth, startLivePreviewSnapshot, shouldRefreshLiveAfterCommand, captureLatestSnapshotDocument, captureWorkspaceResult, updateBasicActionFromJob, updateResourceModelFromJob, jobLabel, captureRestorePlanPreview, renderForm, updateSelectedCommandState, reconcileWorkflowJob }) {
+export function createJobEventController({ state, fetchJson, closeEventSource, updateHistory, setWorkflowControl, updateJobResult, jobCommand, refreshSnapshotFormIfVisible, renderJobDetail, populateResourceSelect, captureResourceScanFailure, refreshHealth, startLivePreviewSnapshot, shouldRefreshLiveAfterCommand, captureLatestSnapshotDocument, captureWorkspaceResult, updateBasicActionFromJob, updateResourceModelFromJob, finishResourceLiveSupportEvaluation, jobLabel, captureRestorePlanPreview, renderForm, updateSelectedCommandState, reconcileWorkflowJob }) {
   function subscribeToJob(jobId, baseUrl) {
     state.events = openJobEvents({
       jobId, baseUrl, closeEvents: () => closeEventSource("events"), onEvent: handleJobEvent,
@@ -32,6 +32,7 @@ export function createJobEventController({ state, fetchJson, closeEventSource, u
     }
     if (jobCommand(jobId) === "snapshot" && ["accepted", "started", "progress"].includes(event.type)) refreshSnapshotFormIfVisible(jobId);
     if (!["finished", "failed", "cancelled"].includes(event.type)) return;
+    closeEventSource("events");
     const job = await renderJobDetail(jobId, event);
     if (state.workflowControl.jobId === jobId && job && ["finished", "failed", "cancelled"].includes(job.status)) {
       if (job.status === "failed" && job.error_code === "cleanup_failed") updateJobResult(jobId, "failed", { key: "job.summary.cleanup_failed" });
@@ -39,15 +40,15 @@ export function createJobEventController({ state, fetchJson, closeEventSource, u
       setWorkflowControl("idle");
     }
     let healthState = null;
-    if (event.type === "finished" && jobCommand(jobId) === "list-resources") { populateResourceSelect(event.data?.result?.resources || []); healthState = await refreshHealth(); startLivePreviewSnapshot(healthState); }
+    if (event.type === "finished" && jobCommand(jobId) === "list-resources") await populateResourceSelect(event.data?.result?.resources || []);
     if (event.type === "failed" && jobCommand(jobId) === "list-resources") captureResourceScanFailure?.(event.data?.error || event.data?.detail || "Resource scan failed");
     else if (shouldRefreshLiveAfterCommand(event, job)) { healthState = await refreshHealth(); startLivePreviewSnapshot(healthState, job.runtime.resource); }
     if (event.type === "finished" && job) { captureLatestSnapshotDocument(job); captureWorkspaceResult(job); }
     if (jobCommand(jobId) === "snapshot") refreshSnapshotFormIfVisible(jobId);
     if (state.basicJobActions[jobId]) updateBasicActionFromJob(jobId, event, job);
     if (event.type === "finished") updateResourceModelFromJob(job);
+    finishResourceLiveSupportEvaluation?.(jobId);
     if (jobLabel(jobId) === "Restore plan preview") { captureRestorePlanPreview(job); if (state.selected === "restore-from-snapshot") { renderForm("restore-from-snapshot"); updateSelectedCommandState(); } }
-    closeEventSource("events");
     if (!healthState) refreshHealth();
   }
   return { subscribeToJob, handleJobEvent };

@@ -85,6 +85,38 @@ state.liveSupportByModel["model-a"] = {
 strictAssert.equal(support.commandMeta("set").live_support_status, "尚未評估連線支援範圍");
 strictAssert.equal(support.commandMeta("set").disabled, undefined);
 state.resourceLiveSupportContext = { resource: "RESOURCE-A" };
+state.resourceLiveSupport = {
+  evaluated: false,
+  reported_model: "UNKNOWN-PSU",
+  reason: "The reported manufacturer and model do not resolve to active exact live-support metadata.",
+  commands: {}
+};
+const unresolved = support.commandMeta("set");
+strictAssert.equal(unresolved.disabled, true);
+strictAssert.equal(
+  unresolved.live_support_status,
+  "已偵測到 UNKNOWN-PSU，但無法解析此資源的 Product-open 實機支援範圍。"
+);
+strictAssert.equal(unresolved.disabled_reason, unresolved.live_support_status);
+strictAssert.equal(support.exactSupportContextSummary("RESOURCE-A"), unresolved.live_support_status);
+strictAssert.doesNotMatch(unresolved.live_support_status, /尚未評估/);
+state.resourceLiveSupport = {
+  evaluated: false,
+  reported_model: null,
+  reason: "The reported manufacturer and model do not resolve to active exact live-support metadata.",
+  commands: {}
+};
+strictAssert.equal(
+  support.commandMeta("set").live_support_status,
+  "無法解析此資源的 Product-open 實機支援範圍。"
+);
+state.resourceLiveSupport = {
+  evaluated: false,
+  reported_model: null,
+  reason: "Future backend reason",
+  commands: {}
+};
+strictAssert.equal(support.commandMeta("set").live_support_status, "Future backend reason");
 state.resourceLiveSupport = { evaluated: true, commands: {} };
 const missingMetadata = support.commandMeta("set");
 strictAssert.equal(missingMetadata.disabled, true);

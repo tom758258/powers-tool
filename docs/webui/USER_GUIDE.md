@@ -94,8 +94,12 @@ Do not guess a resource when more than one instrument may be connected.
 enabled. It is intended to show resources that currently answer, not stale VISA
 cache entries.
 
-Selecting a resource copies it into the `VISA resource` input. You may also
-type a known operator-provided VISA resource manually.
+The first valid scan result is selected automatically and copied into the
+`VISA resource` input. That automatic selection runs one read-only identity
+job to evaluate exact Product live support. Selecting a different live
+resource runs the same evaluation again. The evaluation does not enable
+output, change instrument settings, or require real-write authorization. You
+may also type a known operator-provided VISA resource manually.
 
 Device options include execution mode and, in Real mode, `Expected model`. Leave it on `Auto-detect` for normal
 live use. Auto-detect uses the connected instrument IDN. When `Require
@@ -112,23 +116,20 @@ rejected by the WebUI backend and Core. Auto-detect may still use detected
 live model metadata when available, but frontend state never overrides the
 Core IDN-selected live driver.
 
-After a successful `Get capabilities` run on a Product-open scope, or a
-successful `Read device information` diagnostic for the selected real
-resource, the Device / Resource summary also shows the detected
-transport/backend scope and compact Product live-support counts. The identity
-diagnostic can show that commands are pending, but it does not enable them.
-Changing the resource clears that exact context until capabilities or identity
-are read again. Changing `Expected model` updates planning guidance only; it
-does not rewrite the detected model or connection scope. The WebUI uses the
-normal Product policy and the default system-VISA backend; it does not provide
-a backend selector or validation mode. Pending metadata is shown only when the
-actual runtime transport/backend matches a registered pending scope.
+After the read-only identity evaluation succeeds on a Product-open scope, the
+Device / Resource summary shows the detected transport/backend scope and
+compact Product live-support counts. The diagnostic can show that commands are
+pending, but it does not enable them. Changing `Expected model` updates
+planning guidance only; it does not rewrite the detected model or connection
+scope. The WebUI uses the normal Product policy and the default system-VISA
+backend; it does not provide a backend selector or validation mode. Pending
+metadata is shown only when the actual runtime transport/backend matches a
+registered pending scope.
 
-If device information identifies an unknown or de-scoped model, the diagnostic
-can still succeed, but live-support status remains unevaluated and no command
-is opened. The neutral result clears any older exact context for that resource.
-Normal model-aware live commands remain fail closed, and an `Expected model`
-mismatch still fails the diagnostic.
+If identity succeeds for an unknown or de-scoped instrument, the WebUI shows
+that no Product-open live scope could be resolved instead of showing an
+unevaluated state. Normal model-aware live commands remain disabled, and an
+`Expected model` mismatch still fails the diagnostic.
 
 If no live resource appears, check instrument power, cabling, VISA driver
 visibility, and whether another program is holding the instrument.

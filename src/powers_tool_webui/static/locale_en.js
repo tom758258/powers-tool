@@ -321,6 +321,8 @@ export const EN_MESSAGES = Object.freeze({
   "serial.stop_bits": "Stop bits",
   "serial.write_termination": "Write termination",
   "support.scope.not_evaluated": "Connection scope not evaluated",
+  "support.scope.unresolved": "No Product-open live scope could be resolved for this resource.",
+  "support.scope.unresolved_model": "Detected {model}, but no Product-open live scope could be resolved for this resource.",
   "support.scope.summary": "{scope}: {validated} validated, {pending} pending, {unavailable} unavailable",
   "support.reason.channel_unsupported": "{model} does not support channel {channel}",
   "support.reason.missing_live_metadata": "Live support metadata is missing for this command.",

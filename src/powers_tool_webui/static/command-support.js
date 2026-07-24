@@ -12,9 +12,14 @@ export function createCommandSupport({
   selectedChannelModel
 }) {
 function currentExactLiveSupport() {
+  const liveSupport = currentResourceLiveSupport();
+  return liveSupport?.evaluated === true ? liveSupport : null;
+}
+
+function currentResourceLiveSupport() {
   const resource = valueOrNull("resource");
   if (!resource || state.resourceLiveSupportContext?.resource !== resource) return null;
-  return state.resourceLiveSupport?.evaluated === true ? state.resourceLiveSupport : null;
+  return state.resourceLiveSupport;
 }
 
 function selectedModelLiveSupport(name) {
@@ -84,6 +89,16 @@ function commandMeta(name) {
         : modelSupport?.disabled_reason
           || meta.disabled_reason
           || commandDisabledReason(support, selectedCommandModel())
+    };
+  }
+  const resourceSupport = currentResourceLiveSupport();
+  if (resourceSupport?.evaluated === false) {
+    const unavailable = unresolvedLiveSupportText(resourceSupport);
+    return {
+      ...effective,
+      disabled: true,
+      disabled_reason: unavailable,
+      live_support_status: unavailable
     };
   }
   const exactSupport = currentExactLiveSupport();
@@ -184,19 +199,36 @@ function localizedKnownSupportReason(reason) {
 
 function exactSupportContextSummary(resource) {
   if (!resource) return t("support.scope.not_evaluated");
+  const resourceSupport = currentResourceLiveSupport();
+  if (resourceSupport?.evaluated === false) return unresolvedLiveSupportText(resourceSupport);
   const liveSupport = currentExactLiveSupport();
   if (!liveSupport) return t("support.scope.not_evaluated");
   return liveSupportSummary(liveSupport);
 }
 
 function liveSupportSummary(liveSupport) {
-  if (!liveSupport || liveSupport.evaluated !== true) return t("support.scope.not_evaluated");
+  if (!liveSupport) return t("support.scope.not_evaluated");
+  if (liveSupport.evaluated === false) return unresolvedLiveSupportText(liveSupport);
   const commands = Object.values(liveSupport.commands || {});
   const validated = commands.filter((entry) => entry.product_open === true && !entry.policy_exempt).length;
   const pending = commands.filter((entry) => ["transport_pending", "feature_pending"].includes(entry.exact_scope_validation_status)).length;
   const unavailable = commands.filter((entry) => !entry.policy_exempt && !entry.offline_only && entry.product_open !== true && !["transport_pending", "feature_pending"].includes(entry.exact_scope_validation_status)).length;
   const scope = `${transportScopeLabel(liveSupport.transport_scope)} / ${backendScopeLabel(liveSupport.backend_scope)}`;
   return t("support.scope.summary", { scope, validated, pending, unavailable });
+}
+
+function unresolvedLiveSupportText(liveSupport) {
+  const knownReasons = new Set([
+    "The reported manufacturer and model do not resolve to active exact live-support metadata."
+  ]);
+  const reason = typeof liveSupport?.reason === "string" ? liveSupport.reason.trim() : "";
+  if (reason && !knownReasons.has(reason)) return reason;
+  const model = typeof liveSupport?.reported_model === "string"
+    ? liveSupport.reported_model.trim()
+    : "";
+  return model
+    ? t("support.scope.unresolved_model", { model })
+    : t("support.scope.unresolved");
 }
 
 function transportScopeLabel(scope) {

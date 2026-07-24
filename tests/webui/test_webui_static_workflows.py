@@ -1230,7 +1230,17 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
           const context = currentWorkspaceResultContext(state.selected);
           workspaceViews.push({ context, marker: webuiContext.findWorkspaceResult(state.workspaceResults, context)?.marker || null });
         };
-        refreshSelectedResourcePreview = async () => {};
+        const supportEvaluations = [];
+        const evaluationHistory = [];
+        const evaluationSubscriptions = [];
+        const previewResources = [];
+        submitJob = async (payload) => {
+          supportEvaluations.push(payload);
+          return { job_id: `support-${supportEvaluations.length}` };
+        };
+        addHistory = (...args) => evaluationHistory.push(args);
+        subscribeToJob = (...args) => evaluationSubscriptions.push(args);
+        refreshSelectedResourcePreview = async (resource) => previewResources.push(resource);
 
         updateExecutionModeUi({ renderCommands: false, resetAuthorization: true });
         const writeCheckbox = elements.get("real-write-enabled");
@@ -1257,7 +1267,9 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         strictAssert.equal(writeCheckbox.checked, false);
         strictAssert.equal(state.realWriteAuthorization, null);
 
-        populateResourceSelect([{
+        elements.get("serial-remote").checked = true;
+        elements.get("serial-local-on-close").checked = true;
+        await populateResourceSelect([{
           name: "RESOURCE-SCAN",
           model_id: "keysight-e3646a",
           idn: { manufacturer: "Keysight", model: "E3646A" }
@@ -1265,6 +1277,17 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         strictAssert.equal(elements.get("resource").value, "RESOURCE-SCAN");
         strictAssert.equal(writeCheckbox.checked, true);
         strictAssert.equal(state.realWriteAuthorization, realAuthorizationContext());
+        strictAssert.equal(supportEvaluations.length, 1);
+        strictAssert.equal(supportEvaluations[0].command, "identify");
+        strictAssert.equal(supportEvaluations[0].runtime.resource, "RESOURCE-SCAN");
+        strictAssert.equal(supportEvaluations[0].runtime.confirm, false);
+        strictAssert.equal("serial_remote" in supportEvaluations[0].runtime, false);
+        strictAssert.equal("serial_local_on_close" in supportEvaluations[0].runtime, false);
+        strictAssert.deepEqual(supportEvaluations[0].parameters, {});
+        strictAssert.deepEqual(evaluationHistory[0].slice(1, 4), ["identify", "accepted", "Read device information"]);
+        strictAssert.deepEqual(evaluationSubscriptions[0], ["support-1", "/api/events"]);
+        await refreshSelectedResourceContext("RESOURCE-SCAN");
+        strictAssert.equal(supportEvaluations.length, 1, "pending support evaluation must not be submitted twice");
 
         elements.get("resource-select").value = "RESOURCE-SELECTED";
         state.resourceModels["RESOURCE-SELECTED"] = "keysight-e36312a";
@@ -1275,6 +1298,26 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
           expected_model_id: "keysight-e36312a",
           connected_model_id: "keysight-e36312a"
         });
+        strictAssert.equal(supportEvaluations.length, 2);
+        strictAssert.equal(supportEvaluations[1].command, "identify");
+        strictAssert.equal(supportEvaluations[1].runtime.resource, "RESOURCE-SELECTED");
+        strictAssert.equal(supportEvaluations[1].runtime.confirm, false);
+        const unsupportedSupport = { evaluated: false, reported_model: "UNKNOWN-PSU", commands: {} };
+        state.resourceLiveSupport = null;
+        state.resourceLiveSupportContext = null;
+        strictAssert.equal(
+          captureResourceLiveSupport({ result: { live_support: unsupportedSupport } }, "RESOURCE-OLD"),
+          false
+        );
+        strictAssert.equal(state.resourceLiveSupport, null, "stale resource result must be ignored");
+        strictAssert.equal(
+          captureResourceLiveSupport({ result: { live_support: unsupportedSupport } }, "RESOURCE-SELECTED"),
+          true
+        );
+        strictAssert.strictEqual(state.resourceLiveSupport, unsupportedSupport);
+        await refreshSelectedResourceContext("RESOURCE-SELECTED");
+        strictAssert.equal(supportEvaluations.length, 2, "matching support context must be reused");
+        strictAssert.deepEqual(previewResources, ["RESOURCE-SELECTED"]);
 
         elements.get("resource").value = "RESOURCE-TYPED";
         state.resourceModels["RESOURCE-TYPED"] = "keysight-e3646a";
@@ -1591,12 +1634,9 @@ def test_static_frontend_consumes_exact_live_support_without_exposing_validation
     assert "state.liveSupportByModel = payload.live_support_by_model_id || {};" in load_commands
     assert '["capabilities", "identify", "verify"].includes(job.command)' in capture_workspace
     assert "captureResourceLiveSupport(job, resource);" in capture_workspace
-    assert "liveSupport.evaluated !== true" in capture_support
-    unevaluated_branch = capture_support[:capture_support.index("state.resourceLiveSupport = liveSupport;")]
-    assert "state.resourceLiveSupportContext?.resource === resource" in unevaluated_branch
-    assert "state.resourceLiveSupport = null;" in unevaluated_branch
-    assert "state.resourceLiveSupportContext = null;" in unevaluated_branch
-    assert unevaluated_branch.index("state.resourceLiveSupport = null;") < unevaluated_branch.rindex("return false;")
+    assert 'resource !== valueOrNull("resource")' in capture_support
+    assert "liveSupport.evaluated" not in capture_support
+    assert "state.resourceLiveSupport = liveSupport;" in capture_support
     assert "model_id: liveSupport.model_id || null" in capture_support
     assert "transport_scope: liveSupport.transport_scope" in capture_support
     assert "backend_scope: liveSupport.backend_scope" in capture_support
@@ -1971,4 +2011,3 @@ def test_static_trigger_list_documents_restore_and_pulse_pin_guard():
 
     assert "command.guidance.trigger_list" in guidance
     assert 't("command.guard.trigger_list_pulse_requires_pins")' in guard
-

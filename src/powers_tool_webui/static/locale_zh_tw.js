@@ -321,6 +321,8 @@ export const ZH_TW_MESSAGES = Object.freeze({
   "serial.stop_bits": "停止位元",
   "serial.write_termination": "寫入終止字元",
   "support.scope.not_evaluated": "尚未評估連線支援範圍",
+  "support.scope.unresolved": "無法解析此資源的 Product-open 實機支援範圍。",
+  "support.scope.unresolved_model": "已偵測到 {model}，但無法解析此資源的 Product-open 實機支援範圍。",
   "support.scope.summary": "{scope}：{validated} 項已驗證、{pending} 項待驗證、{unavailable} 項不可用",
   "support.reason.channel_unsupported": "{model} 不支援通道 {channel}",
   "support.reason.missing_live_metadata": "缺少此指令的實機支援中繼資料。",

@@ -49,6 +49,7 @@ const TRIGGER_COMMANDS = new Set([
 ]);
 const DEFAULT_CHANNELS = [1, 2, 3];
 const REAR_TRIGGER_PULSE_MODEL_ID = "keysight-e36312a";
+let pendingResourceLiveSupport = null;
 
 const deviceResourceController = webuiDevice.createDeviceResourceController({
   state,
@@ -296,6 +297,7 @@ const jobEventController = webuiJobTransport.createJobEventController({
   captureWorkspaceResult: (...args) => captureWorkspaceResult(...args),
   updateBasicActionFromJob: (...args) => updateBasicActionFromJob(...args),
   updateResourceModelFromJob: (...args) => updateResourceModelFromJob(...args),
+  finishResourceLiveSupportEvaluation: (...args) => finishResourceLiveSupportEvaluation(...args),
   jobLabel: (...args) => jobLabel(...args),
   captureRestorePlanPreview: (...args) => captureRestorePlanPreview(...args),
   renderForm: (...args) => renderForm(...args),
@@ -1011,7 +1013,7 @@ function jobLabel(jobId) {
   return state.jobs.find((item) => item.jobId === jobId)?.label || null;
 }
 
-function populateResourceSelect(resources) {
+async function populateResourceSelect(resources) {
   const select = document.getElementById("resource-select");
   const input = document.getElementById("resource");
   const previous = input.value;
@@ -1035,6 +1037,15 @@ function populateResourceSelect(resources) {
     option.textContent = resourceLabel(resource, name);
     select.appendChild(option);
   });
+  if (select.options.length === 0) {
+    state.resourceScan = { status: "empty", resources: [], detail: "" };
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No live resources found";
+    select.appendChild(option);
+    updateExecutionModeUi({ renderCommands: false });
+    return;
+  }
   state.resourceScan = {
     status: "results",
     resources: Array.from(select.options, (option) => option.value).filter(Boolean),
@@ -1052,6 +1063,7 @@ function populateResourceSelect(resources) {
   refreshBasicInputConstraints();
   if (state.selected) selectCommand(state.selected);
   else renderCommands();
+  await refreshSelectedResourceContext(input.value);
 }
 
 function captureResourceScanFailure(detail) {
@@ -1080,7 +1092,53 @@ async function syncSelectedResource() {
   renderWorkspaceSummary();
   if (state.selected) selectCommand(state.selected);
   else renderCommands();
-  if (value !== previous) await refreshSelectedResourcePreview(value);
+  if (value !== previous) await refreshSelectedResourceContext(value);
+}
+
+async function refreshSelectedResourceContext(resource) {
+  if (isNoHardwareMode() || !resource) return;
+  clearStaleResourceLiveSupport(resource);
+  const hasLiveSupport = state.resourceLiveSupportContext?.resource === resource
+    && Boolean(state.resourceLiveSupport);
+  if (hasLiveSupport) {
+    await refreshSelectedResourcePreview(resource);
+    return;
+  }
+  await evaluateResourceLiveSupport(resource);
+}
+
+async function evaluateResourceLiveSupport(resource) {
+  if (pendingResourceLiveSupport?.resource === resource) return;
+  const pending = { resource, jobId: null };
+  pendingResourceLiveSupport = pending;
+  const runtime = { ...runtimePayload(), resource, confirm: false };
+  delete runtime.serial_remote;
+  delete runtime.serial_local_on_close;
+  const payload = {
+    command: "identify",
+    runtime,
+    parameters: {}
+  };
+  try {
+    const response = await submitJob(payload);
+    addHistory(response.job_id, "identify", "accepted", "Read device information");
+    if (pendingResourceLiveSupport !== pending || valueOrNull("resource") !== resource) return;
+    pending.jobId = response.job_id;
+    subscribeToJob(response.job_id, "/api/events");
+  } catch (error) {
+    if (pendingResourceLiveSupport === pending) pendingResourceLiveSupport = null;
+    renderClientResult("identify", "failed", error.message || String(error), {
+      error: "Support evaluation failed",
+      detail: error.message || String(error),
+      resource
+    });
+  }
+}
+
+function finishResourceLiveSupportEvaluation(jobId) {
+  if (pendingResourceLiveSupport?.jobId !== jobId) return false;
+  pendingResourceLiveSupport = null;
+  return true;
 }
 
 function updateResourceModels(resources) {
@@ -1132,13 +1190,7 @@ function updateResourceModel(resource, modelId, reportedModel = null) {
 
 function captureResourceLiveSupport(job, resource) {
   const liveSupport = job?.result?.live_support;
-  if (!resource || !liveSupport || liveSupport.evaluated !== true) {
-    if (state.resourceLiveSupportContext?.resource === resource) {
-      state.resourceLiveSupport = null;
-      state.resourceLiveSupportContext = null;
-    }
-    return false;
-  }
+  if (!resource || resource !== valueOrNull("resource") || !liveSupport) return false;
   state.resourceLiveSupport = liveSupport;
   state.resourceLiveSupportContext = {
     resource,
