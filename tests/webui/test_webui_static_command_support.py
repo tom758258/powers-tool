@@ -17,7 +17,10 @@ def test_command_support_module_preserves_planning_and_channel_guards() -> None:
         r"""
 const state = {
   executionMode: "simulate",
-  commands: { set: { description: "Set output" } },
+  commands: {
+    set: { description: "Set output" },
+    identify: { description: "Read device information" }
+  },
   planningProfiles: {},
   commandSupportByModel: { "model-a": { set: { simulate: true } } },
   channelCapabilitiesByModel: { "model-a": { channels: [1, 2], output_control_scope: "per_channel" } },
@@ -28,13 +31,14 @@ const state = {
 const i18n = await import(new URL("./i18n.js", moduleUrls["command-support.js"]));
 let noHardware = true;
 let planningIdentity = "model-a";
+let selectedCommandModelId = "model-a";
 const support = globalThis.webuiCommandSupport.createCommandSupport({
   state,
   defaultChannels: [1, 2, 3],
   isNoHardwareMode: () => noHardware,
   selectedPlanningIdentity: () => planningIdentity,
   physicalModelDisplayName: (model) => model,
-  selectedCommandModel: () => "model-a",
+  selectedCommandModel: () => selectedCommandModelId,
   valueOrNull: () => "RESOURCE-A",
   detectedCommandModelForResource: () => "model-a",
   selectedChannelModel: () => "model-a"
@@ -80,7 +84,24 @@ strictAssert.equal(
 noHardware = false;
 state.executionMode = "real";
 state.liveSupportByModel["model-a"] = {
-  commands: { set: { profile_supported: true, policy_exempt: false } }
+  commands: {
+    set: { profile_supported: true, policy_exempt: false },
+    identify: {
+      profile_supported: true,
+      policy_exempt: true,
+      support_reason: "Identity/status diagnostic; exact model feature scope is not required."
+    }
+  }
+};
+state.liveSupportByModel["model-b"] = {
+  commands: {
+    set: { profile_supported: true, policy_exempt: false },
+    identify: {
+      profile_supported: true,
+      policy_exempt: true,
+      support_reason: "Identity/status diagnostic; exact model feature scope is not required."
+    }
+  }
 };
 strictAssert.equal(support.commandMeta("set").live_support_status, "尚未評估連線支援範圍");
 strictAssert.equal(support.commandMeta("set").disabled, undefined);
@@ -91,6 +112,7 @@ state.resourceLiveSupport = {
   reason: "The reported manufacturer and model do not resolve to active exact live-support metadata.",
   commands: {}
 };
+selectedCommandModelId = null;
 const unresolved = support.commandMeta("set");
 strictAssert.equal(unresolved.disabled, true);
 strictAssert.equal(
@@ -100,6 +122,10 @@ strictAssert.equal(
 strictAssert.equal(unresolved.disabled_reason, unresolved.live_support_status);
 strictAssert.equal(support.exactSupportContextSummary("RESOURCE-A"), unresolved.live_support_status);
 strictAssert.doesNotMatch(unresolved.live_support_status, /尚未評估/);
+const diagnostic = support.commandMeta("identify");
+strictAssert.equal(diagnostic.disabled, false);
+strictAssert.equal(diagnostic.disabled_reason, null);
+strictAssert.equal(diagnostic.live_support_status, "識別／狀態診斷；不需要確切型號功能範圍。");
 state.resourceLiveSupport = {
   evaluated: false,
   reported_model: null,
@@ -117,6 +143,7 @@ state.resourceLiveSupport = {
   commands: {}
 };
 strictAssert.equal(support.commandMeta("set").live_support_status, "Future backend reason");
+selectedCommandModelId = "model-a";
 state.resourceLiveSupport = { evaluated: true, commands: {} };
 const missingMetadata = support.commandMeta("set");
 strictAssert.equal(missingMetadata.disabled, true);

@@ -1054,7 +1054,7 @@ def test_frontend_workspace_capture_keeps_helper_and_lifecycle_boundaries() -> N
     run_frontend_javascript_assertions(assertions)
 
 
-def test_frontend_execution_mode_transition_refreshes_selected_context_once() -> None:
+def test_frontend_resource_single_flight_and_execution_mode_context_refresh() -> None:
     assertions = textwrap.dedent(
         r"""
         const strictAssert = require("node:assert/strict");
@@ -1234,8 +1234,11 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         const evaluationHistory = [];
         const evaluationSubscriptions = [];
         const previewResources = [];
+        let resolveFirstSupport;
+        const firstSupportResponse = new Promise((resolve) => { resolveFirstSupport = resolve; });
         submitJob = async (payload) => {
           supportEvaluations.push(payload);
+          if (supportEvaluations.length === 1) return firstSupportResponse;
           return { job_id: `support-${supportEvaluations.length}` };
         };
         addHistory = (...args) => evaluationHistory.push(args);
@@ -1269,7 +1272,7 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
 
         elements.get("serial-remote").checked = true;
         elements.get("serial-local-on-close").checked = true;
-        await populateResourceSelect([{
+        const scanSelection = populateResourceSelect([{
           name: "RESOURCE-SCAN",
           model_id: "keysight-e3646a",
           idn: { manufacturer: "Keysight", model: "E3646A" }
@@ -1284,15 +1287,36 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
         strictAssert.equal("serial_remote" in supportEvaluations[0].runtime, false);
         strictAssert.equal("serial_local_on_close" in supportEvaluations[0].runtime, false);
         strictAssert.deepEqual(supportEvaluations[0].parameters, {});
-        strictAssert.deepEqual(evaluationHistory[0].slice(1, 4), ["identify", "accepted", "Read device information"]);
-        strictAssert.deepEqual(evaluationSubscriptions[0], ["support-1", "/api/events"]);
         await refreshSelectedResourceContext("RESOURCE-SCAN");
         strictAssert.equal(supportEvaluations.length, 1, "pending support evaluation must not be submitted twice");
 
+        elements.get("resource-select").value = "RESOURCE-B";
+        state.resourceModels["RESOURCE-B"] = "keysight-e36312a";
+        state.resourceChannelModels["RESOURCE-B"] = "keysight-e36312a";
+        await syncSelectedResource();
+        elements.get("resource-select").value = "RESOURCE-SCAN";
+        await syncSelectedResource();
+        strictAssert.equal(supportEvaluations.length, 1, "switching back to A must not resubmit A");
+        elements.get("resource-select").value = "RESOURCE-B";
+        await syncSelectedResource();
         elements.get("resource-select").value = "RESOURCE-SELECTED";
         state.resourceModels["RESOURCE-SELECTED"] = "keysight-e36312a";
         state.resourceChannelModels["RESOURCE-SELECTED"] = "keysight-e36312a";
         await syncSelectedResource();
+        strictAssert.equal(supportEvaluations.length, 1, "B and C must wait for A");
+        resolveFirstSupport({ job_id: "support-1" });
+        await scanSelection;
+        strictAssert.deepEqual(evaluationHistory[0].slice(1, 4), ["identify", "accepted", "Read device information"]);
+        strictAssert.deepEqual(evaluationSubscriptions[0], ["support-1", "/api/events"]);
+        strictAssert.equal(
+          shouldRefreshLiveAfterCommand(
+            { type: "finished" },
+            { command: "identify", runtime: { resource: "RESOURCE-SCAN", simulate: false, dry_run: false } }
+          ),
+          false
+        );
+        strictAssert.deepEqual(previewResources, []);
+        await finishResourceLiveSupportEvaluation("support-1");
         strictAssert.deepEqual(JSON.parse(state.realWriteAuthorization), {
           resource: "RESOURCE-SELECTED",
           expected_model_id: "keysight-e36312a",
@@ -1315,6 +1339,8 @@ def test_frontend_execution_mode_transition_refreshes_selected_context_once() ->
           true
         );
         strictAssert.strictEqual(state.resourceLiveSupport, unsupportedSupport);
+        await finishResourceLiveSupportEvaluation("support-2");
+        strictAssert.equal(pendingResourceLiveSupport, null, "terminal evaluation must clear pending");
         await refreshSelectedResourceContext("RESOURCE-SELECTED");
         strictAssert.equal(supportEvaluations.length, 2, "matching support context must be reused");
         strictAssert.deepEqual(previewResources, ["RESOURCE-SELECTED"]);

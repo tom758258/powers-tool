@@ -930,6 +930,7 @@ function shouldRefreshLiveAfterCommand(event, job) {
   return event.type === "finished"
     && job?.command !== "list-resources"
     && Boolean(runtime?.resource)
+    && runtime.resource === valueOrNull("resource")
     && runtime.simulate === false
     && runtime.dry_run === false;
 }
@@ -1108,8 +1109,13 @@ async function refreshSelectedResourceContext(resource) {
 }
 
 async function evaluateResourceLiveSupport(resource) {
-  if (pendingResourceLiveSupport?.resource === resource) return;
-  const pending = { resource, jobId: null };
+  if (pendingResourceLiveSupport) {
+    pendingResourceLiveSupport.requestedResource = resource === pendingResourceLiveSupport.resource
+      ? null
+      : resource;
+    return;
+  }
+  const pending = { resource, jobId: null, requestedResource: null };
   pendingResourceLiveSupport = pending;
   const runtime = { ...runtimePayload(), resource, confirm: false };
   delete runtime.serial_remote;
@@ -1121,9 +1127,8 @@ async function evaluateResourceLiveSupport(resource) {
   };
   try {
     const response = await submitJob(payload);
-    addHistory(response.job_id, "identify", "accepted", "Read device information");
-    if (pendingResourceLiveSupport !== pending || valueOrNull("resource") !== resource) return;
     pending.jobId = response.job_id;
+    addHistory(response.job_id, "identify", "accepted", "Read device information");
     subscribeToJob(response.job_id, "/api/events");
   } catch (error) {
     if (pendingResourceLiveSupport === pending) pendingResourceLiveSupport = null;
@@ -1132,13 +1137,22 @@ async function evaluateResourceLiveSupport(resource) {
       detail: error.message || String(error),
       resource
     });
+    await refreshRequestedResourceLiveSupport(pending);
   }
 }
 
-function finishResourceLiveSupportEvaluation(jobId) {
+async function finishResourceLiveSupportEvaluation(jobId) {
   if (pendingResourceLiveSupport?.jobId !== jobId) return false;
+  const completed = pendingResourceLiveSupport;
   pendingResourceLiveSupport = null;
+  await refreshRequestedResourceLiveSupport(completed);
   return true;
+}
+
+async function refreshRequestedResourceLiveSupport(completed) {
+  const requested = completed?.requestedResource;
+  if (!requested || requested !== valueOrNull("resource")) return;
+  await refreshSelectedResourceContext(requested);
 }
 
 function updateResourceModels(resources) {

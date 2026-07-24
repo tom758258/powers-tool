@@ -47,7 +47,7 @@ export function createJobEventController({ state, fetchJson, closeEventSource, u
     if (jobCommand(jobId) === "snapshot") refreshSnapshotFormIfVisible(jobId);
     if (state.basicJobActions[jobId]) updateBasicActionFromJob(jobId, event, job);
     if (event.type === "finished") updateResourceModelFromJob(job);
-    finishResourceLiveSupportEvaluation?.(jobId);
+    await finishResourceLiveSupportEvaluation?.(jobId);
     if (jobLabel(jobId) === "Restore plan preview") { captureRestorePlanPreview(job); if (state.selected === "restore-from-snapshot") { renderForm("restore-from-snapshot"); updateSelectedCommandState(); } }
     if (!healthState) refreshHealth();
   }

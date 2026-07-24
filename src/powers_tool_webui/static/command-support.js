@@ -24,8 +24,19 @@ function currentResourceLiveSupport() {
 
 function selectedModelLiveSupport(name) {
   const model = selectedCommandModel();
-  if (!model) return null;
-  return state.liveSupportByModel?.[model]?.commands?.[name] || null;
+  return model
+    ? state.liveSupportByModel?.[model]?.commands?.[name] || null
+    : modelIndependentLiveSupport(name);
+}
+
+function modelIndependentLiveSupport(name) {
+  const models = Object.values(state.liveSupportByModel || {});
+  if (!models.length) return null;
+  const entries = models.map((model) => model?.commands?.[name]);
+  if (entries.some((entry) => !entry)) return null;
+  if (entries.every((entry) => entry.policy_exempt === true)) return entries[0];
+  if (entries.every((entry) => entry.offline_only === true)) return entries[0];
+  return null;
 }
 
 function commandMeta(name) {
@@ -94,6 +105,14 @@ function commandMeta(name) {
   const resourceSupport = currentResourceLiveSupport();
   if (resourceSupport?.evaluated === false) {
     const unavailable = unresolvedLiveSupportText(resourceSupport);
+    if (modelSupport?.policy_exempt || modelSupport?.offline_only) {
+      return {
+        ...effective,
+        disabled: false,
+        disabled_reason: null,
+        live_support_status: localizedKnownSupportReason(modelSupport.support_reason) || unavailable
+      };
+    }
     return {
       ...effective,
       disabled: true,
