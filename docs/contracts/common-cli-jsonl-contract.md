@@ -1,6 +1,6 @@
 # Common CLI JSON / JSONL Contract
 
-Schema version: `2`
+Schema version: `1`
 
 This document defines shared JSON and JSONL envelope rules for command-line
 instrument workers and their client commands. Instrument-specific commands,
@@ -18,7 +18,7 @@ callers should parse JSONL events, single-response JSON, structured artifacts,
 and process exit codes instead of text-mode stdout.
 
 Consumers must ignore unknown fields. Producers may add optional fields under
-schema version `2`. Removing required fields or changing required field types
+schema version `1`. Removing required fields or changing required field types
 requires a major schema version bump.
 
 ## Common Fields
@@ -26,7 +26,7 @@ requires a major schema version bump.
 Common JSON object fields:
 
 - `event`: object type or command result type.
-- `schema_version`: integer schema version, currently `2`.
+- `schema_version`: integer schema version, currently `1`.
 - `timestamp_utc`: UTC timestamp serialized as ISO 8601.
 - `run_id`: runtime correlation ID when the command creates a runtime session.
 - `ok`: boolean command or runtime health summary when the object represents a
