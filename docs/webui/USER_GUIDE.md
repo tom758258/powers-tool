@@ -159,10 +159,12 @@ Voltage and Current fields are blankable. Blank fields are omitted and left
 unchanged by Core. To set both, fill both fields and click `Set` for the
 channel.
 
-The ON controls reflect fresh Live Data when available. An unlit ON control
-means OFF or unknown; it is not a confirmed OFF state unless Live Data is
-fresh. In Real mode, `Enable real hardware writes for this resource` is enabled
-and selected by default whenever a non-blank VISA resource is present. Clear
+Output controls show the next action from fresh Live Data: `Turn on` when the
+output is OFF or unknown, and `Turn off` when it is ON. A lit control still
+means the output is ON; an unlit control is not a confirmed OFF state unless
+Live Data is fresh. In Real mode, `Enable real hardware writes for this
+resource` is enabled and selected by default whenever a non-blank VISA resource
+is present. Clear
 the checkbox in Device options to disable writes for the current resource and
 identity context. Selecting or typing another resource, changing Expected
 model, detecting a different model, or returning to Real mode creates a new

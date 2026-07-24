@@ -1112,15 +1112,17 @@ def test_static_basic_command_panel_contract():
         assert f'data-basic-output="{channel}"' in index_html
 
 
-def test_static_basic_output_buttons_label_on_and_use_lit_state():
+def test_static_basic_output_buttons_label_next_action_and_use_lit_state():
     index_html, _app_js, _styles_css = read_static_texts()
     basic_controls_js = read_static_javascript("basic-controls.js")
     output_button = extract_js_function(basic_controls_js, "renderBasicOutputButton")
     all_button = extract_js_function(basic_controls_js, "renderBasicAllOutputButton")
 
-    assert "All OFF" not in index_html
-    assert 'button.textContent = t("basic_controls.output.on_control");' in output_button
-    assert 'button.textContent = t("basic_controls.output.all_on_control");' in all_button
+    assert 'data-i18n="basic_controls.output.on_control">Turn on</button>' in index_html
+    assert 'data-i18n="basic_controls.output.all_on_control">Turn all on</button>' in index_html
+    assert 'button.textContent = t(enabled ? "basic_controls.output.off_control" : "basic_controls.output.on_control");' in output_button
+    assert 'button.textContent = t(globalState === "on" ? "basic_controls.output.all_off_control" : "basic_controls.output.all_on_control");' in all_button
+    assert 'button.textContent = t(allOn ? "basic_controls.output.all_off_control" : "basic_controls.output.all_on_control");' in all_button
     assert 'button.textContent = enabled ? "ON" : "OFF";' not in output_button
     assert 'button.textContent = allOn ? "All ON" : "All OFF";' not in all_button
     assert 'button.classList.toggle("on", enabled);' in output_button

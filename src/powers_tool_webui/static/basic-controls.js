@@ -196,17 +196,19 @@ function renderBasicOutputButton(channel, liveChannel, fresh) {
   const button = document.querySelector(`[data-basic-output="${channel}"]`);
   if (!button) return;
   const unsupported = channelUnsupportedReason(channel);
-  const enabled = fresh && liveChannel?.output_enabled === true;
-  button.textContent = t("basic_controls.output.on_control");
+  const known = fresh && typeof liveChannel?.output_enabled === "boolean";
+  const enabled = known && liveChannel.output_enabled === true;
+  button.textContent = t(enabled ? "basic_controls.output.off_control" : "basic_controls.output.on_control");
   button.classList.toggle("on", enabled);
   button.classList.toggle("off", !enabled);
   button.setAttribute("aria-pressed", String(enabled));
-  button.setAttribute("aria-label", t("basic_controls.aria.channel_output_control", {
-    channel,
-    state: t(enabled ? "status.on" : fresh ? "status.off" : "health.status.unknown")
-  }));
+  button.setAttribute("aria-label", t(enabled
+    ? "basic_controls.aria.channel_output_on_action"
+    : known
+      ? "basic_controls.aria.channel_output_off_action"
+      : "basic_controls.aria.channel_output_unknown_action", { channel }));
   button.disabled = Boolean(unsupported);
-  button.title = unsupported || outputControlTitle(channel, enabled, fresh);
+  button.title = unsupported || outputControlTitle(channel, enabled, known);
   applyBasicPerChannelOutputPresentation(channel, button);
 }
 
@@ -216,19 +218,23 @@ function renderBasicAllOutputButton(channels) {
   const presentation = basicOutputPresentation();
   if (presentation.mode === "e3646a-global") {
     const globalState = e3646aGlobalOutputState(presentation);
-    button.textContent = t("basic_controls.output.all_on_control");
+    button.textContent = t(globalState === "on" ? "basic_controls.output.all_off_control" : "basic_controls.output.all_on_control");
     button.classList.toggle("on", globalState === "on");
     button.classList.toggle("off", globalState === "off");
     button.classList.toggle("unknown", globalState === "unknown");
     button.setAttribute("aria-pressed", globalState === "on" ? "true" : globalState === "off" ? "false" : "mixed");
-    button.setAttribute("aria-label", t(globalState === "on" ? "basic_controls.aria.all_outputs_on" : "basic_controls.aria.not_all_outputs_on"));
+    button.setAttribute("aria-label", t(globalState === "on"
+      ? "basic_controls.aria.all_outputs_on"
+      : globalState === "off"
+        ? "basic_controls.aria.not_all_outputs_on"
+        : "basic_controls.aria.output_unknown_turn_all_on"));
     button.title = outputAllControlTitle(globalState === "on");
     applyBasicOutputPresentation();
     return;
   }
   const supported = supportedChannelsForCurrentModel();
   const allOn = supported.length > 0 && supported.every((channel) => channels.find((item) => Number(item.channel) === channel)?.output_enabled === true);
-  button.textContent = t("basic_controls.output.all_on_control");
+  button.textContent = t(allOn ? "basic_controls.output.all_off_control" : "basic_controls.output.all_on_control");
   button.classList.toggle("on", allOn);
   button.classList.toggle("off", !allOn);
   button.classList.remove("unknown");

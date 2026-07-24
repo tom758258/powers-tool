@@ -279,20 +279,20 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         strictAssert.equal(outputStatuses[2].hidden, true);
         strictAssert.equal(outputInfo[1].hidden, false);
         strictAssert.equal(outputInfo[1].title, "E3646A does not support independent channel output switching. Use ALL to turn CH1 and CH2 on or off together.");
-        strictAssert.equal(allButton.textContent, "ALL ON");
+        strictAssert.equal(allButton.textContent, "Turn all off");
         strictAssert.equal(allButton.classList.contains("on"), true);
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "true");
-        strictAssert.equal(allButton.getAttribute("aria-label"), "All outputs on");
+        strictAssert.equal(allButton.getAttribute("aria-label"), "All outputs are ON. Press to turn all off.");
         strictAssert.equal(allButton.disabled, false);
 
         state.livePanel.channels[0].output_enabled = false;
         state.livePanel.channels[1].output_enabled = false;
         renderBasicAllOutputButton(state.livePanel.channels);
         renderBasicOutputButton(1, state.livePanel.channels[0], true);
-        strictAssert.equal(allButton.textContent, "ALL ON");
+        strictAssert.equal(allButton.textContent, "Turn all on");
         strictAssert.equal(allButton.classList.contains("off"), true);
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "false");
-        strictAssert.equal(allButton.getAttribute("aria-label"), "Not all outputs on");
+        strictAssert.equal(allButton.getAttribute("aria-label"), "Not all outputs are ON. Press to turn all on.");
         strictAssert.equal(allButton.disabled, false);
         strictAssert.equal(outputButtons[1].textContent, "Controlled by ALL");
 
@@ -301,10 +301,10 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         renderBasicAllOutputButton(state.livePanel.channels);
         renderBasicOutputControlState("all");
         strictAssert.equal(outputButtons[1].textContent, "Controlled by ALL");
-        strictAssert.equal(allButton.textContent, "ALL ON");
+        strictAssert.equal(allButton.textContent, "Turn all on");
         strictAssert.equal(allButton.classList.contains("unknown"), true);
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "mixed");
-        strictAssert.equal(allButton.getAttribute("aria-label"), "Not all outputs on");
+        strictAssert.equal(allButton.getAttribute("aria-label"), "Output state is unknown. Press to turn all on.");
         strictAssert.equal(allButton.disabled, false);
         state.livePanel.channels[0].output_enabled = true;
         renderBasicAllOutputButton(state.livePanel.channels);
@@ -373,8 +373,8 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         refreshBasicControlsPresentation();
         strictAssert.equal(allButton, allButtonIdentity);
         strictAssert.equal(state.livePanel, livePanelIdentity);
-        strictAssert.equal(allButton.textContent, "全部開啟");
-        strictAssert.equal(allButton.getAttribute("aria-label"), "所有輸出皆開啟");
+        strictAssert.equal(allButton.textContent, "全部關閉");
+        strictAssert.equal(allButton.getAttribute("aria-label"), "所有輸出目前皆為 ON，按下以全部關閉。");
         strictAssert.equal(outputButtons[1].textContent, "由 ALL 控制");
         strictAssert.equal(outputButtons[1].getAttribute("aria-label"), "CH1 輸出 由 ALL 控制");
         strictAssert.equal(outputInfo[1].getAttribute("aria-label"), "E3646A 全域輸出資訊");
@@ -400,7 +400,7 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         state.basicActionStates = {};
         setLocale("en");
         refreshBasicControlsPresentation();
-        strictAssert.equal(allButton.textContent, "ALL ON");
+        strictAssert.equal(allButton.textContent, "Turn all off");
 
         state.channelCapabilitiesByModel["keysight-e3646a"] = {
           channels: [1, 2],
@@ -445,11 +445,41 @@ def test_frontend_e3646a_basic_output_presentation_and_tri_state_readback():
         renderBasicAllOutputButton(state.livePanel.channels);
         renderBasicOutputActionStates();
         strictAssert.equal(allButton.parentNode, headerSlot);
-        strictAssert.equal(allButton.textContent, "ALL ON");
+        strictAssert.equal(allButton.textContent, "Turn all on");
         strictAssert.equal(allButton.getAttribute("aria-pressed"), "false");
         strictAssert.equal(allButton.disabled, false);
         strictAssert.equal(outputButtons[1].hidden, false);
         strictAssert.equal(outputButtons[1].disabled, false);
+        strictAssert.equal(outputButtons[1].textContent, "Turn on");
+        strictAssert.equal(outputButtons[1].getAttribute("aria-pressed"), "false");
+        strictAssert.equal(outputButtons[1].getAttribute("aria-label"), "CH1 output is OFF. Press to turn on.");
+        runBasicOutput(1);
+        strictAssert.equal(submissions[3][0], "output-on");
+        strictAssert.deepEqual(submissions[3][1], { channel: 1 });
+
+        state.livePanel.channels[0].output_enabled = true;
+        renderBasicOutputButton(1, state.livePanel.channels[0], true);
+        strictAssert.equal(outputButtons[1].textContent, "Turn off");
+        strictAssert.equal(outputButtons[1].classList.contains("on"), true);
+        strictAssert.equal(outputButtons[1].getAttribute("aria-pressed"), "true");
+        strictAssert.equal(outputButtons[1].getAttribute("aria-label"), "CH1 output is ON. Press to turn off.");
+        runBasicOutput(1);
+        strictAssert.equal(submissions[4][0], "output-off");
+        setLocale("zh-TW");
+        renderBasicOutputButton(1, state.livePanel.channels[0], true);
+        strictAssert.equal(outputButtons[1].textContent, "關閉");
+        strictAssert.equal(outputButtons[1].getAttribute("aria-label"), "CH1 輸出目前為 ON，按下以關閉。");
+        setLocale("en");
+
+        state.livePanel.channels[0].output_enabled = null;
+        renderBasicOutputButton(1, state.livePanel.channels[0], true);
+        strictAssert.equal(outputButtons[1].textContent, "Turn on");
+        strictAssert.equal(outputButtons[1].classList.contains("off"), true);
+        strictAssert.equal(outputButtons[1].getAttribute("aria-pressed"), "false");
+        strictAssert.equal(outputButtons[1].getAttribute("aria-label"), "CH1 output state is unknown. Press to turn on.");
+        strictAssert.equal(outputButtons[1].title, "CH1 output state is unknown.");
+        runBasicOutput(1);
+        strictAssert.equal(submissions[5][0], "output-on");
         strictAssert.equal(outputStatuses[1].hidden, true);
         strictAssert.equal(capabilityStatus.hidden, true);
         """
@@ -1756,5 +1786,4 @@ def test_static_workflow_run_button_state_contract():
         setLocale("en");
         """
     )
-
 
