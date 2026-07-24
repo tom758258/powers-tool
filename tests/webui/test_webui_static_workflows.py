@@ -399,6 +399,193 @@ strictAssert.deepEqual(
     )
 
 
+def test_ramp_form_preserves_page_local_draft_across_reselection() -> None:
+    assertions = textwrap.dedent(
+        r"""
+        const strictAssert = require("node:assert/strict");
+
+        class FakeClassList {
+          constructor(owner) { this.owner = owner; }
+          values() { return new Set(this.owner.className.split(/\s+/).filter(Boolean)); }
+          add(...names) {
+            const values = this.values();
+            names.forEach((name) => values.add(name));
+            this.owner.className = [...values].join(" ");
+          }
+          contains(name) { return this.values().has(name); }
+          toggle(name, force) {
+            const values = this.values();
+            const enabled = force === undefined ? !values.has(name) : Boolean(force);
+            if (enabled) values.add(name);
+            else values.delete(name);
+            this.owner.className = [...values].join(" ");
+            return enabled;
+          }
+        }
+
+        class FakeElement {
+          constructor(tagName) {
+            this.tagName = tagName.toUpperCase();
+            this.children = [];
+            this.parentNode = null;
+            this.dataset = {};
+            this.className = "";
+            this.classList = new FakeClassList(this);
+            this.listeners = {};
+            this.attributes = {};
+            this.textContent = "";
+            this.value = "";
+            this.checked = false;
+            this.disabled = false;
+            this.hidden = false;
+            this.id = "";
+            this.type = "";
+          }
+          get options() { return this.tagName === "SELECT" ? this.children : undefined; }
+          get firstChild() { return this.children[0] || null; }
+          appendChild(child) {
+            this.children.push(child);
+            child.parentNode = this;
+            return child;
+          }
+          append(...children) { children.forEach((child) => this.appendChild(child)); }
+          addEventListener(type, listener) {
+            if (!this.listeners[type]) this.listeners[type] = [];
+            this.listeners[type].push(listener);
+          }
+          dispatch(type) {
+            for (const listener of this.listeners[type] || []) listener({ target: this });
+          }
+          setAttribute(name, value) {
+            this.attributes[name] = String(value);
+            if (name === "id") this.id = String(value);
+          }
+          getAttribute(name) { return this.attributes[name] ?? null; }
+          hasAttribute(name) { return Object.hasOwn(this.attributes, name); }
+          removeAttribute(name) { delete this.attributes[name]; }
+          remove() {
+            if (!this.parentNode) return;
+            this.parentNode.children = this.parentNode.children.filter((child) => child !== this);
+            this.parentNode = null;
+          }
+          querySelector(selector) {
+            if (selector.startsWith("#")) {
+              const id = selector.slice(1);
+              return descendants(this).find((node) => node.id === id) || null;
+            }
+            if (selector.startsWith(".")) {
+              const className = selector.slice(1);
+              return descendants(this).find((node) => node.classList.contains(className)) || null;
+            }
+            return null;
+          }
+          querySelectorAll(selector) {
+            if (selector === "[data-i18n-loop]") {
+              return descendants(this).filter((node) => node.dataset.i18nLoop);
+            }
+            return [];
+          }
+          set innerHTML(value) {
+            strictAssert.equal(value, "");
+            this.children = [];
+          }
+        }
+
+        const descendants = (root) => [root, ...root.children.flatMap((child) => descendants(child))];
+        const elements = new Map();
+        const addElement = (id, tagName = "div") => {
+          const element = new FakeElement(tagName);
+          element.id = id;
+          elements.set(id, element);
+          return element;
+        };
+        addElement("command-filter", "input");
+        addElement("command-categories");
+        addElement("command-list");
+        addElement("selected-command");
+        addElement("command-description");
+        addElement("command-guidance");
+        const commandForm = addElement("command-form", "form");
+        globalThis.document = {
+          createElement: (tagName) => new FakeElement(tagName),
+          getElementById: (id) => elements.get(id)
+            || descendants(commandForm).find((node) => node.id === id)
+            || null,
+          querySelectorAll: (selector) => selector === "#command-form .pulse-child-field"
+            ? descendants(commandForm).filter((node) => node.classList.contains("pulse-child-field"))
+            : [],
+        };
+
+        renderWorkspaceSummary = () => {};
+        prefillClearProtectionChannel = () => {};
+        updateSelectedCommandState = () => {};
+        refreshElectricalRatingConstraints = () => {};
+        applyWorkflowPulseControlState = () => {};
+        isChannelSupported = () => true;
+        selectedElectricalRatingModel = () => null;
+        state.commands = {};
+        state.workflowControl = { phase: "idle", jobId: null, command: null };
+
+        selectCommand("ramp");
+        strictAssert.equal(document.getElementById("param-delay_ms").value, "0");
+        strictAssert.equal(document.getElementById("param-stop_voltage").value, "1");
+        strictAssert.equal(document.getElementById("param-enable_output").checked, false);
+        strictAssert.equal(document.getElementById("param-loop_count"), null);
+
+        const setInput = (id, value) => {
+          const input = document.getElementById(id);
+          input.value = value;
+          input.dispatch("input");
+        };
+        setInput("param-delay_ms", "500");
+        setInput("param-channel", "2");
+        setInput("param-start_voltage", "0.5");
+        setInput("param-stop_voltage", "2.5");
+        setInput("param-step_voltage", "0.25");
+        setInput("param-current", "0.2");
+        const enableOutput = document.getElementById("param-enable_output");
+        enableOutput.checked = true;
+        enableOutput.dispatch("change");
+        const loopEnabled = document.getElementById("param-loop_enabled");
+        loopEnabled.checked = true;
+        loopEnabled.dispatch("change");
+        setInput("param-loop_count", "4");
+        setInput("param-completion_pulse_timing", "loop");
+        setInput("param-completion_pulse_pins", "2,3");
+        setInput("param-completion_pulse_polarity", "negative");
+
+        selectCommand("ramp");
+        strictAssert.equal(document.getElementById("param-delay_ms").value, "500");
+        strictAssert.equal(document.getElementById("param-channel").value, "2");
+        strictAssert.equal(document.getElementById("param-start_voltage").value, "0.5");
+        strictAssert.equal(document.getElementById("param-stop_voltage").value, "2.5");
+        strictAssert.equal(document.getElementById("param-step_voltage").value, "0.25");
+        strictAssert.equal(document.getElementById("param-current").value, "0.2");
+        strictAssert.equal(document.getElementById("param-enable_output").checked, true);
+        strictAssert.equal(document.getElementById("param-loop_enabled").checked, true);
+        strictAssert.equal(document.getElementById("param-loop_count").value, "4");
+        strictAssert.equal(document.getElementById("param-completion_pulse_timing").value, "loop");
+        strictAssert.equal(document.getElementById("param-completion_pulse_pins").value, "2,3");
+        strictAssert.equal(document.getElementById("param-completion_pulse_polarity").value, "negative");
+
+        strictAssert.deepEqual(parameterPayload(), {
+          enable_output: true,
+          loop_count: 4,
+          channel: 2,
+          current: 0.2,
+          start_voltage: 0.5,
+          stop_voltage: 2.5,
+          step_voltage: 0.25,
+          delay_ms: 500,
+          completion_pulse_timing: "loop",
+          completion_pulse_pins: [2, 3],
+          completion_pulse_polarity: "negative",
+        });
+        """
+    )
+    run_frontend_javascript_assertions(assertions)
+
+
 def test_sequence_renderer_rebuilds_from_canonical_draft_without_missing_dependencies() -> None:
     run_webui_module_assertions(
         r"""

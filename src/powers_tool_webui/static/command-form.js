@@ -188,6 +188,11 @@ export function createCommandController({
   electricalConstraintAttributes,
   selectedElectricalRatingModel
 }) {
+state.rampDraft ||= Object.fromEntries((PARAMS?.ramp || []).map((param) => [
+  param.name,
+  param.type === "checkbox" ? Boolean(param.value) : String(param.value ?? "")
+]));
+
 async function loadCommands() {
   const payload = await fetchJson("/api/commands");
   state.commands = payload.commands || {};
@@ -319,16 +324,27 @@ function renderForm(command) {
     }
     input.id = `param-${param.name}`;
     input.dataset.i18nParam = param.name;
-    if (param.value !== undefined) input.value = param.value;
+    if (command === "ramp" && Object.hasOwn(state.rampDraft, param.name)) {
+      if (param.type === "checkbox") input.checked = Boolean(state.rampDraft[param.name]);
+      else input.value = state.rampDraft[param.name];
+    } else if (param.value !== undefined) {
+      input.value = param.value;
+    }
     applyParameterConstraint(input, param.name);
     applyElectricalRatingConstraint(input, param.name);
     if (param.name.includes("completion_pulse")) applyWorkflowPulseControlState(input);
     input.addEventListener("change", () => {
+      if (command === "ramp") {
+        state.rampDraft[param.name] = param.type === "checkbox" ? input.checked : input.value;
+      }
       enforcePulseFormRules(command, param.name, input);
       refreshElectricalRatingConstraints();
       updateSelectedCommandState();
     });
     input.addEventListener("input", () => {
+      if (command === "ramp") {
+        state.rampDraft[param.name] = param.type === "checkbox" ? input.checked : input.value;
+      }
       enforcePulseFormRules(command, param.name, input);
       updateSelectedCommandState();
     });
@@ -345,14 +361,25 @@ function renderForm(command) {
         prefix: "ramp",
         enabledInput: input,
         current: 1,
+        loopEnabled: Boolean(state.rampDraft.loop_enabled),
+        countDraft: state.rampDraft.loop_count,
         countInputId: "param-loop_count",
         translate: t,
         enabledTranslationKey: "form.field.loop_enabled",
         countTranslationKey: "form.field.loop_count",
         onValue: () => {},
+        onEnabled: (enabled) => {
+          state.rampDraft.loop_enabled = enabled;
+        },
+        onDraft: (value) => {
+          state.rampDraft.loop_count = value;
+        },
         onDisable: () => {
           const timing = document.getElementById("param-completion_pulse_timing");
-          if (timing?.value === "loop") timing.value = "";
+          if (timing?.value === "loop") {
+            timing.value = "";
+            state.rampDraft.completion_pulse_timing = "";
+          }
           updatePulseChildVisibility("ramp");
         }
       }));
