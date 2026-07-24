@@ -726,8 +726,8 @@ def test_frontend_device_resource_summary_is_mode_and_identity_aware() -> None:
         r"""
         const strictAssert = require("node:assert/strict");
         const elements = new Map([
-          ["resource", { value: "USB0::KEPT::INSTR" }],
-          ["resource-select", { value: "USB0::KEPT::INSTR", options: [{ textContent: "USB0::KEPT::INSTR" }] }],
+          ["resource", { value: "ASRL7::INSTR" }],
+          ["resource-select", { value: "ASRL7::INSTR", options: [{ textContent: "ASRL7::INSTR" }] }],
           ["expected-model-id", { value: "keysight-e36312a" }],
           ["device-resource-summary", { textContent: "", title: "" }]
         ]);
@@ -740,13 +740,13 @@ def test_frontend_device_resource_summary_is_mode_and_identity_aware() -> None:
         state.planningProfiles = {
           "generic-scpi": { profile_id: "generic-scpi", display_name: "Generic SCPI" }
         };
-        state.resourceModels = { "USB0::KEPT::INSTR": "keysight-edu36311a" };
-        state.resourceChannelModels = { "USB0::KEPT::INSTR": "keysight-edu36311a" };
-        state.resourceDisplayModels = { "USB0::KEPT::INSTR": "EDU36311A" };
+        state.resourceModels = { "ASRL7::INSTR": "keysight-edu36311a" };
+        state.resourceChannelModels = { "ASRL7::INSTR": "keysight-edu36311a" };
+        state.resourceDisplayModels = { "ASRL7::INSTR": "EDU36311A" };
         state.resourceLiveSupport = {
           evaluated: true,
           model_id: "keysight-edu36311a",
-          transport_scope: "usb",
+          transport_scope: "asrl",
           backend_scope: "system_visa",
           commands: {
             set: { product_open: true, policy_exempt: false },
@@ -754,7 +754,7 @@ def test_frontend_device_resource_summary_is_mode_and_identity_aware() -> None:
           }
         };
         state.resourceLiveSupportContext = {
-          resource: "USB0::KEPT::INSTR",
+          resource: "ASRL7::INSTR",
           model_id: "keysight-edu36311a"
         };
 
@@ -762,10 +762,11 @@ def test_frontend_device_resource_summary_is_mode_and_identity_aware() -> None:
         updateDeviceResourceSummary();
         const summary = elements.get("device-resource-summary");
         strictAssert.match(summary.textContent, /Real mode/);
-        strictAssert.match(summary.textContent, /VISA resource: USB0::KEPT::INSTR/);
+        strictAssert.match(summary.textContent, /VISA resource: ASRL7::INSTR/);
         strictAssert.match(summary.textContent, /Detected model: Keysight EDU36311A/);
         strictAssert.match(summary.textContent, /Expected Model guard: Require Keysight E36312A/);
-        strictAssert.match(summary.textContent, /1 validated, 1 pending/);
+        strictAssert.match(summary.textContent, /ASRL \/ system VISA/);
+        strictAssert.doesNotMatch(summary.textContent, /validated|pending|unavailable/);
         strictAssert.match(summary.title, /does not match/);
 
         state.executionMode = "simulate";
@@ -773,7 +774,7 @@ def test_frontend_device_resource_summary_is_mode_and_identity_aware() -> None:
         updateDeviceResourceSummary();
         strictAssert.match(summary.textContent, /Simulate mode/);
         strictAssert.match(summary.textContent, /Planning model: Keysight E36312A/);
-        strictAssert.match(summary.textContent, /Real VISA resource preserved, not used: USB0::KEPT::INSTR/);
+        strictAssert.match(summary.textContent, /Real VISA resource preserved, not used: ASRL7::INSTR/);
         strictAssert.equal(summary.textContent.includes("Expected Model guard"), false);
 
         state.executionMode = "dry-run";
@@ -1161,4 +1162,3 @@ def test_static_basic_output_buttons_lock_until_matching_readback():
     assert "outputAction" in clear_resolved
     assert "allAction" in clear_resolved
     assert 'allOutputState === "pending"' in render_channel
-

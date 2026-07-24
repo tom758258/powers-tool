@@ -208,6 +208,14 @@ function renderExpectedModelOptions() {
   populateIdentitySelector();
 }
 
+function commandStatusText(effectiveMeta) {
+  if (effectiveMeta.disabled_reason) return effectiveMeta.disabled_reason;
+  if (effectiveMeta.disabled) return effectiveMeta.live_support_status || "";
+  return effectiveMeta.live_support_status === t("support.scope.not_evaluated")
+    ? effectiveMeta.live_support_status
+    : "";
+}
+
 function renderCommands() {
   const filter = document.getElementById("command-filter").value.toLowerCase();
   const categories = document.getElementById("command-categories");
@@ -243,7 +251,7 @@ function renderCommands() {
       const title = document.createElement("span");
       title.textContent = commandDisplayName(name);
       const status = document.createElement("small");
-      status.textContent = effectiveMeta.disabled_reason || effectiveMeta.live_support_status || "";
+      status.textContent = commandStatusText(effectiveMeta);
       button.append(title, status);
       button.addEventListener("click", () => selectCommand(name));
       list.appendChild(button);

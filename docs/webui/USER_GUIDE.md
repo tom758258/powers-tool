@@ -117,9 +117,9 @@ live model metadata when available, but frontend state never overrides the
 Core IDN-selected live driver.
 
 After the read-only identity evaluation succeeds on a Product-open scope, the
-Device / Resource summary shows the detected transport/backend scope and
-compact Product live-support counts. The diagnostic can show that commands are
-pending, but it does not enable them. Changing `Expected model` updates
+Device / Resource summary shows the detected transport/backend scope without
+command-count statistics. The diagnostic can show that commands are pending,
+but it does not enable them. Changing `Expected model` updates
 planning guidance only; it does not rewrite the detected model or connection
 scope. The WebUI uses the normal Product policy and the default system-VISA
 backend; it does not provide a backend selector or validation mode. Pending
@@ -207,13 +207,13 @@ or source that lacks metadata. The browser may display this additive inventory,
 but Core validates the actual request and keeps missing or pending features
 closed in normal Product mode.
 
-The command rail distinguishes `Live validated`, `Pending live validation`,
-model-unsupported, missing exact scope, policy-exempt diagnostic, and
-`Connection scope not evaluated` states. Pending commands remain visible but
-disabled; pending means the instrument profile recognizes the command but the
-exact connection/backend evidence is not Product-open. These browser states
-are guidance only. Core repeats the exact policy check for every submitted
-live job, including direct or stale API requests.
+The command rail omits repeated positive live-support labels for commands that
+are available. Disabled, pending, model-unsupported, unresolved, missing exact
+scope, and `Connection scope not evaluated` reasons remain visible. Pending
+commands remain disabled; pending means the instrument profile recognizes the
+command but the exact connection/backend evidence is not Product-open. These
+browser states are guidance only. Core repeats the exact policy check for every
+submitted live job, including direct or stale API requests.
 
 Offline-only utilities are not identity/status diagnostics and are not shown
 as Product-open live commands.

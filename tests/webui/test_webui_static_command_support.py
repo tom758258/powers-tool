@@ -105,6 +105,7 @@ state.liveSupportByModel["model-b"] = {
 };
 strictAssert.equal(support.commandMeta("set").live_support_status, "尚未評估連線支援範圍");
 strictAssert.equal(support.commandMeta("set").disabled, undefined);
+strictAssert.equal(support.exactSupportContextSummary("RESOURCE-A"), "尚未評估連線支援範圍");
 state.resourceLiveSupportContext = { resource: "RESOURCE-A" };
 state.resourceLiveSupport = {
   evaluated: false,
@@ -155,6 +156,22 @@ state.resourceLiveSupport.commands.set = {
 const exactValidated = support.commandMeta("set");
 strictAssert.equal(exactValidated.disabled, undefined);
 strictAssert.equal(exactValidated.live_support_status, "已通過實機驗證：-- / --");
+state.resourceLiveSupport = {
+  evaluated: true,
+  transport_scope: "asrl",
+  backend_scope: "system_visa",
+  commands: {
+    set: { product_open: true, exact_scope_validation_status: "live_validated_full_suite" },
+    identify: { product_open: true, policy_exempt: true },
+    ramp: { product_open: false, exact_scope_validation_status: "feature_pending" }
+  }
+};
+strictAssert.equal(support.exactSupportContextSummary("RESOURCE-A"), "ASRL / system VISA");
+strictAssert.doesNotMatch(support.exactSupportContextSummary("RESOURCE-A"), /已驗證|待驗證|不可用/);
+i18n.setLocale("en");
+strictAssert.equal(support.exactSupportContextSummary("RESOURCE-A"), "ASRL / system VISA");
+strictAssert.doesNotMatch(support.exactSupportContextSummary("RESOURCE-A"), /validated|pending|unavailable/i);
+i18n.setLocale("zh-TW");
 state.resourceLiveSupport = {
   evaluated: true,
   transport_scope: "usb",

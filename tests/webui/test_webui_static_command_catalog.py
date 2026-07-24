@@ -126,12 +126,42 @@ const commandIds = () => elements.get("command-list").children.map(
   (button) => workflowIds.find((id) => button.children[0].textContent === catalog.commandDisplayName(id))
 );
 const commandLabels = () => elements.get("command-list").children.map((button) => button.children[0].textContent);
+const commandButton = (name) => elements.get("command-list").children.find(
+  (button) => button.children[0].textContent === catalog.commandDisplayName(name)
+);
 const expectedIds = ["cycle-output", "ramp", "ramp-list", "sequence", "smoke-output"];
+const positiveStatuses = {
+  "cycle-output": "Live validated: ASRL / system VISA",
+  ramp: "Identity/status diagnostic",
+  "ramp-list": "Offline utility",
+  sequence: "Simulation supported",
+  "smoke-output": "Dry-run supported",
+};
+Object.entries(positiveStatuses).forEach(([name, status]) => {
+  state.commands[name].live_support_status = status;
+});
 
 i18n.setLocale("en");
 controller.renderCommands();
 strictAssert.deepEqual(commandIds(), expectedIds);
 strictAssert.deepEqual(commandLabels(), ["Cycle output", "Ramp", "Ramp list", "Sequence", "Smoke output"]);
+for (const name of expectedIds) {
+  strictAssert.equal(commandButton(name).children[1].textContent, "");
+  strictAssert.equal(commandButton(name).disabled, false);
+}
+state.commands.ramp.disabled = true;
+state.commands.ramp.disabled_reason = "Pending live validation: ASRL / system VISA";
+state.commands["smoke-output"].live_support_status = "Connection scope not evaluated";
+controller.renderCommands();
+strictAssert.equal(commandButton("ramp").children[1].textContent, "Pending live validation: ASRL / system VISA");
+strictAssert.equal(commandButton("ramp").disabled, true);
+strictAssert.equal(commandButton("smoke-output").children[1].textContent, "Connection scope not evaluated");
+strictAssert.equal(commandButton("smoke-output").disabled, false);
+for (const name of expectedIds) {
+  delete state.commands[name].live_support_status;
+}
+delete state.commands.ramp.disabled;
+delete state.commands.ramp.disabled_reason;
 strictAssert.equal(
   elements.get("command-list").children[0].title,
   "Cycle output on then off"

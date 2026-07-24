@@ -228,12 +228,7 @@ function exactSupportContextSummary(resource) {
 function liveSupportSummary(liveSupport) {
   if (!liveSupport) return t("support.scope.not_evaluated");
   if (liveSupport.evaluated === false) return unresolvedLiveSupportText(liveSupport);
-  const commands = Object.values(liveSupport.commands || {});
-  const validated = commands.filter((entry) => entry.product_open === true && !entry.policy_exempt).length;
-  const pending = commands.filter((entry) => ["transport_pending", "feature_pending"].includes(entry.exact_scope_validation_status)).length;
-  const unavailable = commands.filter((entry) => !entry.policy_exempt && !entry.offline_only && entry.product_open !== true && !["transport_pending", "feature_pending"].includes(entry.exact_scope_validation_status)).length;
-  const scope = `${transportScopeLabel(liveSupport.transport_scope)} / ${backendScopeLabel(liveSupport.backend_scope)}`;
-  return t("support.scope.summary", { scope, validated, pending, unavailable });
+  return `${transportScopeLabel(liveSupport.transport_scope)} / ${backendScopeLabel(liveSupport.backend_scope)}`;
 }
 
 function unresolvedLiveSupportText(liveSupport) {
