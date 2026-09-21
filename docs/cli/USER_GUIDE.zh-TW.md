@@ -198,7 +198,7 @@ powers-tool output-state --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --channel 1
 
 對於 PowerShell 中的序列讀取/寫入終止字元，請儘量使用別名：`CR`、`LF`、`CRLF` 或 `NONE`。`NONE`、省略或空白終止字元表示不覆寫 VISA 設定。
 
-### PSM-2010
+## PSM-2010 RS-232 / ASRL
 
 PSM-2010 的 Product LIVE 操作同樣只開放文件所列的 ASRL／RS-232 + system VISA
 scope。它使用 CH1 與全域 output control，Live Data 可回報目前實際的 LOW/HIGH
