@@ -144,16 +144,11 @@ completion pulse。Ramp List 可在每個 logical step、每個 Segment，或所
 發送 pulse；loop-complete timing 至少需要兩次執行。Sequence 維持既有的 per-Step
 `trigger-pulse` action，沒有 top-level completion pulse。
 
-## RS-232 / ASRL 操作
+## E3646A RS-232 / ASRL
 
-目前 Product LIVE 的 RS-232 / ASRL 支援包含 E3646A 與 PSM-2010，且僅限
-[支援型號](../core/supported-models.zh-TW.md#product-live-exact-scope-matrix)
-列出的 exact system-VISA scopes。Serial overrides 都是選用設定；省略某個欄位時，
-Powers Tool 會保留對應的 VISA 設定。
-
-### E3646A
-
-E3646A 的 Product LIVE 支援僅限 ASRL／RS-232 transport 與 system VISA backend；目前
+E3646A 的 Product LIVE 支援僅限 ASRL／RS-232 transport 與 system VISA backend。
+Serial overrides 都是選用設定；省略某個欄位時，Powers Tool 會保留對應的 VISA
+設定。目前
 可用的 command inventory 請以 [Product LIVE exact-scope matrix](../core/supported-models.zh-TW.md#product-live-exact-scope-matrix)
 為準。`identify` 與 `verify` 僅是 diagnostic，不會開啟其他 command。Protection、
 Trigger、Snapshot、Restore、completion pulses 與 native LIST 不屬於 E3646A 的
