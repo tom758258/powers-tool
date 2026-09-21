@@ -224,7 +224,7 @@ For serial read/write termination in PowerShell, use aliases when possible:
 `CR`, `LF`, `CRLF`, or `NONE`. `NONE`, omitted, or blank termination means do
 not override the VISA setting.
 
-### PSM-2010
+## PSM-2010 RS-232 / ASRL
 
 PSM-2010 Product LIVE operation is also limited to its documented ASRL / RS-232
 + system VISA scope. It uses CH1 and global output control, and Live Data can
