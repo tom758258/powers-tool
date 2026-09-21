@@ -163,18 +163,11 @@ once after all loops. Loop-complete pulse timing requires at least two total
 executions. Sequence keeps its existing per-Step `trigger-pulse` action and
 does not add a top-level completion pulse.
 
-## RS-232 / ASRL Operation
-
-Current Product LIVE RS-232 / ASRL support includes E3646A and PSM-2010 on the
-exact system-VISA scopes listed in
-[Supported Models](../core/supported-models.md#product-live-exact-scope-matrix).
-Serial overrides are optional: when a setting is omitted, Powers Tool leaves
-the corresponding VISA setting unchanged.
-
-### E3646A
+## E3646A RS-232 / ASRL
 
 E3646A Product LIVE support is limited to ASRL / RS-232 with a system VISA
-backend. Consult the [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix)
+backend. Serial overrides are optional: when a setting is omitted, Powers Tool
+leaves the corresponding VISA setting unchanged. Consult the [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix)
 for the current command inventory. `identify` and `verify` are diagnostics only
 and do not open another command. Protection, trigger, snapshot/restore,
 completion pulses, and native LIST are not Product-open for E3646A.
