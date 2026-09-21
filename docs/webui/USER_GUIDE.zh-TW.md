@@ -212,6 +212,28 @@ Device options 包含執行模式；在 Real 模式還會顯示 `Expected model`
 
 如果未出現實機存活的資源，請檢查儀器電源、纜線、VISA 驅動程式可見度，以及是否有其他程式佔用了該儀器。
 
+## RS-232 / ASRL Serial 控制
+
+對 Product-open 的 RS-232 / ASRL 操作，Device options 提供選用的 serial
+overrides。目前 Product LIVE 的 ASRL scopes 包含 E3646A 與 PSM-2010，且使用
+system VISA；精確 command scope 請參閱
+[支援型號](../core/supported-models.zh-TW.md)。
+
+Serial 欄位留空時會保留目前 VISA 或 Connection Expert 的設定。只有在儀器環境
+確實需要明確覆寫時，才填入對應欄位。
+
+可用欄位包括 Baud rate、Data bits、Parity、Stop bits、Flow control、
+Read termination 與 Write termination。Read/write termination 接受
+`CR`、`LF`、`CRLF` 與 `NONE`；`NONE`、空白或省略都代表 Powers Tool
+不覆寫該 termination setting。
+
+E3646A 文件中的 factory 範例為 9600 baud、8 data bits、none parity、
+2 stop bits 與 DTR/DSR handshake，但實際 front-panel settings 可能不同。
+不要假設這些值也適用於 PSM-2010；請依實際儀器與 VISA configuration 操作。
+
+`Serial remote` 與 `Local on close` 會在支援時影響 remote/local 行為。
+只有操作程序確實需要這種 state change 時才使用。
+
 ## 即時資料 (Live Data)
 
 `Live Data` 是一個唯讀監控器。它會定期讀取所選資源，更新通道卡片，並顯示 WebUI、命令與即時監控狀態。
@@ -259,6 +281,45 @@ Sequence actions 與 Trigger Step/List sources 也有 exact feature status。Pro
 Offline-only utilities 不是 identity/status diagnostics，也不會顯示為 Product-open live commands。
 
 WebUI 僅提供 Product 模式：沒有 validation override，raw job 提交也無法把 pending evidence 變成正常 product support。
+
+### Protection 與 Diagnostics
+
+`Clear Protection` 與 `Clear Status / Errors` 不同。Clear Protection 會作用於
+OVP/OCP protection state，只有在已了解 trip 原因後才應使用。Clear Status /
+Errors 會清除 instrument status/error state，但不會清除 OVP/OCP protection
+latches。
+
+Advanced Diagnostics 也包含 `Get capabilities`、`Read device information`
+與 `Read errors`。這些是 inspection/diagnostic 工具，不是 output workflow。
+讀取 error queue 會移除此次回傳的 entries。
+
+Snapshot 是 state-capture workflow。Restore 可能重新套用保存的 setpoints、
+output state 與 protection state，因此在實機執行前請先檢查所選 snapshot，
+可行時先使用 Dry-run。
+
+### Trigger 與 Pulse Workflows
+
+Trigger 與 LIST controls 是具有 exact model/connection scope 的進階操作。
+在 E36312A 上，`Trigger Fire` 會送出 instrument-wide `*TRG`，也可能影響其他
+已經 arm 為 BUS trigger 的行為。
+
+對 Trigger Step/List 而言，Immediate 會在送出 `INIT` 時開始，因此不使用
+`Fire now`。BUS `Wait complete` 要求同一命令使用 `Fire now`。若 LIST 要在
+非同步狀態下持續執行，必須使用 `Leave configured`，避免 LIST 還在執行時就恢復
+active trigger/LIST configuration。
+
+Completion-pulse controls 與 Sequence Trigger pulse 可能暫時改變
+trigger/rear-pin configuration。Rear pulse pins 不是 output channels，目前支援的
+pulse workflows 僅限 E36312A。Global `*TRG` 可能影響其他已 arm 的 BUS-triggered
+行為，因此只有在了解周邊 trigger state 時才使用 pulse options。
+
+### Output Workflow State
+
+Ramp 的 `Enable output` 與 Ramp List 的
+`Auto-enable output for each channel` 都是明確的 output-enable controls。
+選取後，workflow 會先套用必要的初始 setpoint，再啟用 output。正常完成時，由
+workflow 啟用的 output 會保持 ON；測試結束後請明確關閉。未啟用這些選項時會
+保留原本的 output state。
 
 某些編輯器支援 JSON Load/Save (載入/儲存)，包括 Sequence (序列)、Ramp List (斜坡清單) 與 Trigger List (觸發清單) 工作區。請使用這些功能來處理可重複的工作流程，並保持儲存的檔案中沒有私人的實驗室資源字串，除非您刻意要將其限制為本機專用。
 

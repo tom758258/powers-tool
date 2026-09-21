@@ -280,6 +280,31 @@ unevaluated state. Normal model-aware live commands remain disabled, and an
 If no live resource appears, check instrument power, cabling, VISA driver
 visibility, and whether another program is holding the instrument.
 
+## RS-232 / ASRL Serial Controls
+
+For Product-open RS-232 / ASRL operation, Device options provides optional
+serial overrides. Current Product LIVE ASRL scopes include E3646A and PSM-2010
+with system VISA; see [Supported Models](../core/supported-models.md) for the
+exact command scope.
+
+Leave a serial field blank to keep the current VISA or Connection Expert
+setting. Only fill a field when the instrument setup requires an explicit
+override.
+
+The available fields are Baud rate, Data bits, Parity, Stop bits, Flow control,
+Read termination, and Write termination. Read/write termination accepts
+`CR`, `LF`, `CRLF`, and `NONE`. `NONE`, blank, or omitted means that Powers
+Tool does not override that termination setting.
+
+For E3646A, the documented factory example is 9600 baud, 8 data bits, none
+parity, 2 stop bits, and DTR/DSR handshake, but the actual front-panel settings
+may differ. Do not assume those values apply to PSM-2010; use the actual
+instrument and VISA configuration.
+
+`Serial remote` and `Local on close` affect remote/local behavior where
+supported. Use them only when the operating procedure requires that state
+change.
+
 ## Live Data
 
 `Live Data` is a read-only monitor. It reads the selected resource on an
@@ -372,6 +397,47 @@ as Product-open live commands.
 The WebUI is product-only. It does not offer a validation override, and raw
 job submissions cannot use one to turn pending evidence into normal product
 support.
+
+### Protection And Diagnostics
+
+`Clear Protection` is different from `Clear Status / Errors`. Clear Protection
+acts on OVP/OCP protection state and should be used only after the cause of a
+trip is understood. Clear Status / Errors clears instrument status/error state;
+it does not clear OVP/OCP protection latches.
+
+Advanced Diagnostics also includes `Get capabilities`, `Read device
+information`, and `Read errors`. These are inspection/diagnostic tools rather
+than output workflows. Reading the error queue removes the returned entries from
+that queue.
+
+Snapshot is a state-capture workflow. Restore can reapply saved setpoints,
+output state, and protection state, so inspect the selected snapshot and use
+Dry-run first when practical.
+
+### Trigger And Pulse Workflows
+
+Trigger and LIST controls are advanced operations with exact model/connection
+scope. On E36312A, `Trigger Fire` sends instrument-wide `*TRG`; it may also
+affect other behavior already armed for BUS trigger.
+
+For Trigger Step/List, Immediate starts when `INIT` is sent, so `Fire now` is
+not used. BUS `Wait complete` requires `Fire now` in the same command. A LIST
+that continues asynchronously requires `Leave configured` so the active
+trigger/LIST configuration is not restored while the list is still running.
+
+Completion-pulse controls and Sequence Trigger pulse can temporarily change
+trigger/rear-pin configuration. Rear pulse pins are not output channels, and
+the supported pulse workflows are E36312A-only. Global `*TRG` can affect other
+armed BUS-triggered behavior, so use pulse options only when the surrounding
+trigger state is understood.
+
+### Output Workflow State
+
+Ramp `Enable output` and Ramp List `Auto-enable output for each channel` are
+explicit output-enabling controls. When selected, the workflow stages the
+required initial setpoint before enabling output. Normal completion leaves
+outputs that the workflow enabled ON; turn them off explicitly when the test is
+finished. Leaving output enabling off preserves the prior output state.
 
 Some editors support JSON Load/Save, including Sequence, Ramp List, and Trigger
 List workspaces. Use these for repeatable workflows, and keep saved files free
