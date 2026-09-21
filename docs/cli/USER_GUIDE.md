@@ -91,8 +91,10 @@ $env:POWERS_TOOL_RESOURCE = "USB0::...::INSTR"
 .\powers-tool.exe read-status --resource "$env:POWERS_TOOL_RESOURCE" --json --log-scpi
 ```
 
-Use an explicit resource string for live commands. Do not rely on a script or
-unattended workflow to guess which instrument should be used.
+Use an explicit resource string for resource-specific live commands. Do not rely
+on a script or unattended workflow to guess which instrument should be used.
+`list-resources` and `list-resources --live-only` are discovery commands and
+can enumerate backend-discovered resources without a pre-supplied resource.
 
 ## Resource Listing
 
@@ -131,7 +133,8 @@ $env:POWERS_TOOL_ASRL_RESOURCE = "ASRL1::INSTR"
 
 Please note:
 * `$env:POWERS_TOOL_RESOURCE` is for generic live USB/LAN examples.
-* `$env:POWERS_TOOL_ASRL_RESOURCE` is for E3646A RS-232 / ASRL examples.
+* `$env:POWERS_TOOL_ASRL_RESOURCE` is for RS-232 / ASRL examples. The
+  model-specific notes below distinguish E3646A from PSM-2010.
 * These are documentation convenience variables, not hidden CLI defaults.
 * Live commands still require an explicit `--resource` argument.
 
@@ -160,7 +163,15 @@ once after all loops. Loop-complete pulse timing requires at least two total
 executions. Sequence keeps its existing per-Step `trigger-pulse` action and
 does not add a top-level completion pulse.
 
-## E3646A RS-232 / ASRL
+## RS-232 / ASRL Operation
+
+Current Product LIVE RS-232 / ASRL support includes E3646A and PSM-2010 on the
+exact system-VISA scopes listed in
+[Supported Models](../core/supported-models.md#product-live-exact-scope-matrix).
+Serial overrides are optional: when a setting is omitted, Powers Tool leaves
+the corresponding VISA setting unchanged.
+
+### E3646A
 
 E3646A Product LIVE support is limited to ASRL / RS-232 with a system VISA
 backend. Consult the [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix)
@@ -219,6 +230,18 @@ powers-tool output-state --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --channel 1
 For serial read/write termination in PowerShell, use aliases when possible:
 `CR`, `LF`, `CRLF`, or `NONE`. `NONE`, omitted, or blank termination means do
 not override the VISA setting.
+
+### PSM-2010
+
+PSM-2010 Product LIVE operation is also limited to its documented ASRL / RS-232
++ system VISA scope. It uses CH1 and global output control, and Live Data can
+report its current LOW/HIGH operating range.
+
+Do not assume the E3646A factory serial example applies to PSM-2010. This guide
+does not define a PSM-2010 factory serial profile; use the actual instrument and
+VISA configuration, and apply explicit serial overrides only when the setup
+requires them. See [Supported Models](../core/supported-models.md) for the
+current PSM-2010 command scope.
 
 ## Read-Only Workflow
 
@@ -281,6 +304,33 @@ first, confirm them by readback, and only enable output after confirming that
 the DUT can tolerate it. Turn output off when finished. Do not run output
 workflows unattended against an unknown resource.
 
+## Advanced And Safety-Critical Workflows
+
+Use the advanced command families only after the instrument identity, channel,
+current limit, output state, and DUT conditions are understood.
+
+`protection-set` changes protection configuration. `clear-protection` clears
+protection state and should be used only after the cause of the trip is
+understood. Preview supported protection changes with dry-run when practical.
+
+`snapshot` captures instrument state without intentionally enabling output.
+`snapshot-diff` compares saved state. `restore-from-snapshot` can reapply
+persisted setpoints, output state, and protection state, so inspect the snapshot
+and preview the restore plan before using it on live hardware.
+
+Native Trigger STEP/LIST and rear-panel pulse workflows are advanced operations
+with exact model/connection scope. On E36312A, a BUS `*TRG` is instrument-wide
+and may also affect other behavior that is already armed for BUS trigger.
+`Wait complete` and `Leave configured` change whether the command waits for
+completion and whether trigger/LIST configuration is restored; use them only
+when the intended trigger lifecycle is understood.
+
+Ramp and Ramp List do not enable output unless their explicit output-enable
+option is selected. When output enabling is selected, the workflow stages the
+required setpoint before enabling output. Normal completion leaves outputs that
+the workflow enabled ON; turn them off explicitly when the test is finished.
+Omitting output enabling preserves the prior output state.
+
 ## Common Commands
 
 | Command | Typical use |
@@ -297,6 +347,7 @@ workflows unattended against an unknown resource.
 | `set` | Set voltage/current without enabling output. |
 | `output-on` / `output-off` | Enable or disable output on an accepted exact LIVE scope; dry-run and simulator previews remain available. |
 | `safe-off` | Turn output off using the supported safety path. |
+| `capabilities` | Inspect model capabilities offline with `--model`, or inspect a selected resource. |
 
 For command-specific options and usage, run
 `powers-tool <command> --help`.
@@ -309,11 +360,16 @@ needs model-specific planning, pass a canonical simulation/dry-run model ID with
 `USB0::SIM::E36312A::INSTR`.
 
 ```powershell
+.\powers-tool.exe capabilities --model keysight-e36312a --json
 .\powers-tool.exe set --dry-run --model keysight-e3646a --channel 1 --voltage 1 --current 0.05
 .\powers-tool.exe readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
 .\powers-tool.exe trigger-step --dry-run --model keysight-e36312a --channel 1 --source bus --fire
 .\powers-tool.exe set --dry-run --profile generic-scpi --channel 1 --voltage 1 --current 0.05
 ```
+
+`capabilities --model <canonical-model-id>` is an offline inspection path. It
+reports the registered model capabilities without opening VISA, which makes it
+useful before choosing a live workflow.
 
 `--profile generic-scpi` is dry-run-only and is exposed only on commands whose
 existing support matrix permits Generic planning. It cannot be combined with
