@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 3.1.1
+
+- Expands English and Traditional Chinese CLI and WebUI operator guidance for
+  RS-232 / ASRL setup, advanced safety-critical workflows, trigger and pulse
+  behavior, and output workflow state.
+- Clarifies the canonical documentation and bundled Help generation and
+  synchronization workflow, with the tracked runtime Help regenerated from the
+  maintained User Guides.
+
 ## 3.1.0
 
 - Adds the `powers-tool manifest --json` machine introspection command for
