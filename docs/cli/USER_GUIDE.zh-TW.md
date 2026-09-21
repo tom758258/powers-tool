@@ -81,11 +81,10 @@ $env:POWERS_TOOL_RESOURCE = "USB0::...::INSTR"
 .\powers-tool.exe read-status --resource "$env:POWERS_TOOL_RESOURCE" --json --log-scpi
 ```
 
-對於實機命令，請使用明確的資源字串。請勿依賴腳本或無人值守的工作流程來猜測應使用哪台儀器。
-
-`list-resources` 與 `list-resources --live-only` 是 discovery commands，可以在
-沒有預先提供 resource 時列舉 backend 發現的 resources。Resource-specific live
-commands 則必須由 operator 明確選定並傳入 VISA resource。
+對 resource-specific live commands，請使用明確的資源字串。請勿依賴腳本或
+無人值守的工作流程來猜測應使用哪台儀器。`list-resources` 與
+`list-resources --live-only` 是 discovery commands，可以在沒有預先提供 resource
+時列舉 backend 發現的 resources。
 
 ## 資源列表
 
@@ -120,7 +119,8 @@ $env:POWERS_TOOL_ASRL_RESOURCE = "ASRL1::INSTR"
 
 請注意：
 * `$env:POWERS_TOOL_RESOURCE` 用於通用的實機 USB/LAN 範例。
-* `$env:POWERS_TOOL_ASRL_RESOURCE` 用於 E3646A RS-232 / ASRL 範例。
+* `$env:POWERS_TOOL_ASRL_RESOURCE` 用於 RS-232 / ASRL 範例；下方的型號專屬
+  說明會區分 E3646A 與 PSM-2010。
 * 這些是為了文件方便而提供的變數，並非隱藏的 CLI 預設值。
 * 實機命令仍需要明確提供 `--resource` 參數。
 
@@ -144,7 +144,14 @@ completion pulse。Ramp List 可在每個 logical step、每個 Segment，或所
 發送 pulse；loop-complete timing 至少需要兩次執行。Sequence 維持既有的 per-Step
 `trigger-pulse` action，沒有 top-level completion pulse。
 
-## E3646A RS-232 / ASRL
+## RS-232 / ASRL 操作
+
+目前 Product LIVE 的 RS-232 / ASRL 支援包含 E3646A 與 PSM-2010，且僅限
+[支援型號](../core/supported-models.zh-TW.md#product-live-exact-scope-matrix)
+列出的 exact system-VISA scopes。Serial overrides 都是選用設定；省略某個欄位時，
+Powers Tool 會保留對應的 VISA 設定。
+
+### E3646A
 
 E3646A 的 Product LIVE 支援僅限 ASRL／RS-232 transport 與 system VISA backend；目前
 可用的 command inventory 請以 [Product LIVE exact-scope matrix](../core/supported-models.zh-TW.md#product-live-exact-scope-matrix)
@@ -195,6 +202,17 @@ powers-tool output-state --resource "$env:POWERS_TOOL_ASRL_RESOURCE" --channel 1
 ```
 
 對於 PowerShell 中的序列讀取/寫入終止字元，請儘量使用別名：`CR`、`LF`、`CRLF` 或 `NONE`。`NONE`、省略或空白終止字元表示不覆寫 VISA 設定。
+
+### PSM-2010
+
+PSM-2010 的 Product LIVE 操作同樣只開放文件所列的 ASRL／RS-232 + system VISA
+scope。它使用 CH1 與全域 output control，Live Data 可回報目前實際的 LOW/HIGH
+operating range。
+
+不要假設 E3646A 的 factory serial 範例也適用於 PSM-2010。本指南沒有為 PSM-2010
+定義 factory serial profile；請依實際儀器與 VISA 設定操作，只有在環境確實需要時
+才明確覆寫 serial settings。目前 PSM-2010 command scope 請參閱
+[支援型號](../core/supported-models.zh-TW.md)。
 
 ## 唯讀工作流程
 
@@ -250,6 +268,30 @@ tracing，不是 telemetry。
 
 若要進行簡短的快速檢查，請將電壓與電流限制保持在低位，先設定設定點，透過 readback 確認，並在確認 DUT 可承受後才啟用輸出。完成後請關閉輸出。請勿針對未知的資源在無人值守的情況下執行輸出工作流程。
 
+## 進階與安全關鍵工作流程
+
+只有在已確認 instrument identity、channel、current limit、output state 與 DUT
+條件後，才使用進階 command families。
+
+`protection-set` 會修改 protection configuration。`clear-protection` 會清除
+protection state，應只在已了解 trip 原因後使用。可行時，先使用 dry-run 預覽支援的
+protection 變更。
+
+`snapshot` 會擷取 instrument state，不會刻意啟用 output；`snapshot-diff` 用於比較
+保存的狀態。`restore-from-snapshot` 可能重新套用保存的 setpoints、output state 與
+protection state，因此在實機使用前，請先檢查 snapshot 並預覽 restore plan。
+
+Native Trigger STEP/LIST 與 rear-panel pulse 都是具有 exact model/connection scope
+的進階操作。在 E36312A 上，BUS `*TRG` 是 instrument-wide，可能同時影響其他已經
+arm 為 BUS trigger 的行為。`Wait complete` 與 `Leave configured` 會影響命令是否
+等待完成，以及 trigger/LIST configuration 是否恢復；只有在了解預期 trigger
+lifecycle 時才使用。
+
+Ramp 與 Ramp List 不會自行啟用 output，除非明確選擇 output-enable 選項。啟用後，
+workflow 會先套用必要的 setpoint，再啟用 output。正常完成時，由 workflow 啟用的
+output 會保持 ON；測試結束後請明確關閉。未啟用 output-enable 時會保留原本的
+output state。
+
 ## 常用指令
 
 | 指令 | 典型用途 |
@@ -266,6 +308,7 @@ tracing，不是 telemetry。
 | `set` | 設定電壓/電流而不啟用輸出。 |
 | `output-on` / `output-off` | 在接受的 exact LIVE scope 上啟用或停用輸出；dry-run 與 simulator 預覽仍可用。 |
 | `safe-off` | 使用支援的安全路徑關閉輸出。 |
+| `capabilities` | 使用 `--model` 離線檢查型號 capabilities，或檢查選定 resource。 |
 
 各命令的專屬選項與使用方式請使用 `powers-tool <command> --help` 查詢。
 
@@ -276,11 +319,15 @@ planning 時，請以 `--model` 傳入 canonical 的 simulation/dry-run model ID
 deterministic SIM resource，例如 `USB0::SIM::E36312A::INSTR`：
 
 ```powershell
+.\powers-tool.exe capabilities --model keysight-e36312a --json
 .\powers-tool.exe set --dry-run --model keysight-e3646a --channel 1 --voltage 1 --current 0.05
 .\powers-tool.exe readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
 .\powers-tool.exe trigger-step --dry-run --model keysight-e36312a --channel 1 --source bus --fire
 .\powers-tool.exe set --dry-run --profile generic-scpi --channel 1 --voltage 1 --current 0.05
 ```
+
+`capabilities --model <canonical-model-id>` 是 offline inspection path，不會開啟
+VISA，即可回報已註冊的 model capabilities，適合在選擇實機 workflow 前先檢查。
 
 `--profile generic-scpi` 僅限 dry-run，且只出現在既有 support matrix 允許 Generic
 planning 的命令上。它不可與 `--model` 併用，在 simulator 或 live execution 中都是
