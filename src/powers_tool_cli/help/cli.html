@@ -176,15 +176,10 @@ after all loops. Ramp List can pulse after every step, after each Segment, or
 once after all loops. Loop-complete pulse timing requires at least two total
 executions. Sequence keeps its existing per-Step <code>trigger-pulse</code> action and
 does not add a top-level completion pulse.</p>
-<h2 id="rs-232-asrl-operation">RS-232 / ASRL Operation</h2>
-<p>Current Product LIVE RS-232 / ASRL support includes E3646A and PSM-2010 on the
-exact system-VISA scopes listed in
-<a href="supported-models.html#product-live-exact-scope-matrix">Supported Models</a>.
-Serial overrides are optional: when a setting is omitted, Powers Tool leaves
-the corresponding VISA setting unchanged.</p>
-<h3 id="e3646a">E3646A</h3>
+<h2 id="e3646a-rs-232-asrl">E3646A RS-232 / ASRL</h2>
 <p>E3646A Product LIVE support is limited to ASRL / RS-232 with a system VISA
-backend. Consult the <a href="supported-models.html#product-live-exact-scope-matrix">Product LIVE exact-scope matrix</a>
+backend. Serial overrides are optional: when a setting is omitted, Powers Tool
+leaves the corresponding VISA setting unchanged. Consult the <a href="supported-models.html#product-live-exact-scope-matrix">Product LIVE exact-scope matrix</a>
 for the current command inventory. <code>identify</code> and <code>verify</code> are diagnostics only
 and do not open another command. Protection, trigger, snapshot/restore,
 completion pulses, and native LIST are not Product-open for E3646A.</p>
@@ -222,7 +217,7 @@ powers-tool output-state --resource &quot;$env:POWERS_TOOL_ASRL_RESOURCE&quot; -
 <p>For serial read/write termination in PowerShell, use aliases when possible:
 <code>CR</code>, <code>LF</code>, <code>CRLF</code>, or <code>NONE</code>. <code>NONE</code>, omitted, or blank termination means do
 not override the VISA setting.</p>
-<h3 id="psm-2010">PSM-2010</h3>
+<h2 id="psm-2010-rs-232-asrl">PSM-2010 RS-232 / ASRL</h2>
 <p>PSM-2010 Product LIVE operation is also limited to its documented ASRL / RS-232
 + system VISA scope. It uses CH1 and global output control, and Live Data can
 report its current LOW/HIGH operating range.</p>

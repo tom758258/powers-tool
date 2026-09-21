@@ -157,13 +157,10 @@ pulse 會在所有通道完成後，以 logical voltage step 計算。既有單�
 completion pulse。Ramp List 可在每個 logical step、每個 Segment，或所有 loops 完成後
 發送 pulse；loop-complete timing 至少需要兩次執行。Sequence 維持既有的 per-Step
 <code>trigger-pulse</code> action，沒有 top-level completion pulse。</p>
-<h2 id="rs-232-asrl-操作">RS-232 / ASRL 操作</h2>
-<p>目前 Product LIVE 的 RS-232 / ASRL 支援包含 E3646A 與 PSM-2010，且僅限
-<a href="supported-models.zh-TW.html#product-live-exact-scope-matrix">支援型號</a>
-列出的 exact system-VISA scopes。Serial overrides 都是選用設定；省略某個欄位時，
-Powers Tool 會保留對應的 VISA 設定。</p>
-<h3 id="e3646a">E3646A</h3>
-<p>E3646A 的 Product LIVE 支援僅限 ASRL／RS-232 transport 與 system VISA backend；目前
+<h2 id="e3646a-rs-232-asrl">E3646A RS-232 / ASRL</h2>
+<p>E3646A 的 Product LIVE 支援僅限 ASRL／RS-232 transport 與 system VISA backend。
+Serial overrides 都是選用設定；省略某個欄位時，Powers Tool 會保留對應的 VISA
+設定。目前
 可用的 command inventory 請以 <a href="supported-models.zh-TW.html#product-live-exact-scope-matrix">Product LIVE exact-scope matrix</a>
 為準。<code>identify</code> 與 <code>verify</code> 僅是 diagnostic，不會開啟其他 command。Protection、
 Trigger、Snapshot、Restore、completion pulses 與 native LIST 不屬於 E3646A 的
@@ -194,7 +191,7 @@ powers-tool measure --resource &quot;$env:POWERS_TOOL_ASRL_RESOURCE&quot; --chan
 powers-tool output-state --resource &quot;$env:POWERS_TOOL_ASRL_RESOURCE&quot; --channel 1 --serial-remote --serial-local-on-close
 </code></pre>
 <p>對於 PowerShell 中的序列讀取/寫入終止字元，請儘量使用別名：<code>CR</code>、<code>LF</code>、<code>CRLF</code> 或 <code>NONE</code>。<code>NONE</code>、省略或空白終止字元表示不覆寫 VISA 設定。</p>
-<h3 id="psm-2010">PSM-2010</h3>
+<h2 id="psm-2010-rs-232-asrl">PSM-2010 RS-232 / ASRL</h2>
 <p>PSM-2010 的 Product LIVE 操作同樣只開放文件所列的 ASRL／RS-232 + system VISA
 scope。它使用 CH1 與全域 output control，Live Data 可回報目前實際的 LOW/HIGH
 operating range。</p>
