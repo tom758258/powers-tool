@@ -285,6 +285,25 @@ unevaluated state. Normal model-aware live commands remain disabled, and an
 <code>Expected model</code> mismatch still fails the diagnostic.</p>
 <p>If no live resource appears, check instrument power, cabling, VISA driver
 visibility, and whether another program is holding the instrument.</p>
+<h2 id="rs-232-asrl-serial-controls">RS-232 / ASRL Serial Controls</h2>
+<p>For Product-open RS-232 / ASRL operation, Device options provides optional
+serial overrides. Current Product LIVE ASRL scopes include E3646A and PSM-2010
+with system VISA; see <a href="supported-models.html">Supported Models</a> for the
+exact command scope.</p>
+<p>Leave a serial field blank to keep the current VISA or Connection Expert
+setting. Only fill a field when the instrument setup requires an explicit
+override.</p>
+<p>The available fields are Baud rate, Data bits, Parity, Stop bits, Flow control,
+Read termination, and Write termination. Read/write termination accepts
+<code>CR</code>, <code>LF</code>, <code>CRLF</code>, and <code>NONE</code>. <code>NONE</code>, blank, or omitted means that Powers
+Tool does not override that termination setting.</p>
+<p>For E3646A, the documented factory example is 9600 baud, 8 data bits, none
+parity, 2 stop bits, and DTR/DSR handshake, but the actual front-panel settings
+may differ. Do not assume those values apply to PSM-2010; use the actual
+instrument and VISA configuration.</p>
+<p><code>Serial remote</code> and <code>Local on close</code> affect remote/local behavior where
+supported. Use them only when the operating procedure requires that state
+change.</p>
 <h2 id="live-data">Live Data</h2>
 <p><code>Live Data</code> is a read-only monitor. It reads the selected resource on an
 interval, updates channel cards, and shows WebUI, command, and live monitor
@@ -362,6 +381,37 @@ as Product-open live commands.</p>
 <p>The WebUI is product-only. It does not offer a validation override, and raw
 job submissions cannot use one to turn pending evidence into normal product
 support.</p>
+<h3 id="protection-and-diagnostics">Protection And Diagnostics</h3>
+<p><code>Clear Protection</code> is different from <code>Clear Status / Errors</code>. Clear Protection
+acts on OVP/OCP protection state and should be used only after the cause of a
+trip is understood. Clear Status / Errors clears instrument status/error state;
+it does not clear OVP/OCP protection latches.</p>
+<p>Advanced Diagnostics also includes <code>Get capabilities</code>, <code>Read device
+information</code>, and <code>Read errors</code>. These are inspection/diagnostic tools rather
+than output workflows. Reading the error queue removes the returned entries from
+that queue.</p>
+<p>Snapshot is a state-capture workflow. Restore can reapply saved setpoints,
+output state, and protection state, so inspect the selected snapshot and use
+Dry-run first when practical.</p>
+<h3 id="trigger-and-pulse-workflows">Trigger And Pulse Workflows</h3>
+<p>Trigger and LIST controls are advanced operations with exact model/connection
+scope. On E36312A, <code>Trigger Fire</code> sends instrument-wide <code>*TRG</code>; it may also
+affect other behavior already armed for BUS trigger.</p>
+<p>For Trigger Step/List, Immediate starts when <code>INIT</code> is sent, so <code>Fire now</code> is
+not used. BUS <code>Wait complete</code> requires <code>Fire now</code> in the same command. A LIST
+that continues asynchronously requires <code>Leave configured</code> so the active
+trigger/LIST configuration is not restored while the list is still running.</p>
+<p>Completion-pulse controls and Sequence Trigger pulse can temporarily change
+trigger/rear-pin configuration. Rear pulse pins are not output channels, and
+the supported pulse workflows are E36312A-only. Global <code>*TRG</code> can affect other
+armed BUS-triggered behavior, so use pulse options only when the surrounding
+trigger state is understood.</p>
+<h3 id="output-workflow-state">Output Workflow State</h3>
+<p>Ramp <code>Enable output</code> and Ramp List <code>Auto-enable output for each channel</code> are
+explicit output-enabling controls. When selected, the workflow stages the
+required initial setpoint before enabling output. Normal completion leaves
+outputs that the workflow enabled ON; turn them off explicitly when the test is
+finished. Leaving output enabling off preserves the prior output state.</p>
 <p>Some editors support JSON Load/Save, including Sequence, Ramp List, and Trigger
 List workspaces. Use these for repeatable workflows, and keep saved files free
 of private lab resource strings unless they are intentionally local-only.</p>

@@ -217,6 +217,22 @@ storage 不可用，WebUI 會安全 fallback，不影響正常操作。</p>
 <p>在 Product-open scope 上成功完成唯讀身分評估後，Device / Resource summary 會顯示偵測到的 transport/backend scope，不含命令數統計。diagnostic 可以顯示命令為 pending，但不會啟用它們。變更 <code>Expected model</code> 只更新規劃指引；它不會改寫偵測到的 model 或連線 scope。WebUI 使用正常 Product policy 與預設 system-VISA backend；沒有 backend selector 或 validation mode。Pending metadata 只在實際 runtime transport/backend 符合已註冊 pending scope 時顯示。</p>
 <p>若身分評估在未知或已移出範圍（de-scoped）的儀器上成功，WebUI 會顯示無法解析出 Product-open live scope，而不是顯示 unevaluated 狀態。一般 model-aware live commands 維持停用，且 <code>Expected model</code> 不符時 diagnostic 仍會失敗。</p>
 <p>如果未出現實機存活的資源，請檢查儀器電源、纜線、VISA 驅動程式可見度，以及是否有其他程式佔用了該儀器。</p>
+<h2 id="rs-232-asrl-serial-控制">RS-232 / ASRL Serial 控制</h2>
+<p>對 Product-open 的 RS-232 / ASRL 操作，Device options 提供選用的 serial
+overrides。目前 Product LIVE 的 ASRL scopes 包含 E3646A 與 PSM-2010，且使用
+system VISA；精確 command scope 請參閱
+<a href="supported-models.zh-TW.html">支援型號</a>。</p>
+<p>Serial 欄位留空時會保留目前 VISA 或 Connection Expert 的設定。只有在儀器環境
+確實需要明確覆寫時，才填入對應欄位。</p>
+<p>可用欄位包括 Baud rate、Data bits、Parity、Stop bits、Flow control、
+Read termination 與 Write termination。Read/write termination 接受
+<code>CR</code>、<code>LF</code>、<code>CRLF</code> 與 <code>NONE</code>；<code>NONE</code>、空白或省略都代表 Powers Tool
+不覆寫該 termination setting。</p>
+<p>E3646A 文件中的 factory 範例為 9600 baud、8 data bits、none parity、
+2 stop bits 與 DTR/DSR handshake，但實際 front-panel settings 可能不同。
+不要假設這些值也適用於 PSM-2010；請依實際儀器與 VISA configuration 操作。</p>
+<p><code>Serial remote</code> 與 <code>Local on close</code> 會在支援時影響 remote/local 行為。
+只有操作程序確實需要這種 state change 時才使用。</p>
 <h2 id="即時資料-live-data">即時資料 (Live Data)</h2>
 <p><code>Live Data</code> 是一個唯讀監控器。它會定期讀取所選資源，更新通道卡片，並顯示 WebUI、命令與即時監控狀態。</p>
 <p>在執行輸出命令前使用 Live Data 來確認：</p>
@@ -249,6 +265,35 @@ PSM-2010 的 CH1 卡片會額外顯示目前實際 LOW/HIGH 輸出檔位的唯�
 <p>命令列會省略已可用命令的重複正向 live-support 標籤；disabled、pending、model-unsupported、unresolved、missing exact scope 與 <code>Connection scope not evaluated</code> 等原因仍會顯示。Pending commands 維持停用：pending 表示 instrument profile 認得該命令，但 exact connection/backend evidence 尚非 Product-open。這些瀏覽器狀態僅供指引。Core 會對每個提交的 live job（包括直接或過期的 API 請求）重新執行 exact policy 檢查。</p>
 <p>Offline-only utilities 不是 identity/status diagnostics，也不會顯示為 Product-open live commands。</p>
 <p>WebUI 僅提供 Product 模式：沒有 validation override，raw job 提交也無法把 pending evidence 變成正常 product support。</p>
+<h3 id="protection-與-diagnostics">Protection 與 Diagnostics</h3>
+<p><code>Clear Protection</code> 與 <code>Clear Status / Errors</code> 不同。Clear Protection 會作用於
+OVP/OCP protection state，只有在已了解 trip 原因後才應使用。Clear Status /
+Errors 會清除 instrument status/error state，但不會清除 OVP/OCP protection
+latches。</p>
+<p>Advanced Diagnostics 也包含 <code>Get capabilities</code>、<code>Read device information</code>
+與 <code>Read errors</code>。這些是 inspection/diagnostic 工具，不是 output workflow。
+讀取 error queue 會移除此次回傳的 entries。</p>
+<p>Snapshot 是 state-capture workflow。Restore 可能重新套用保存的 setpoints、
+output state 與 protection state，因此在實機執行前請先檢查所選 snapshot，
+可行時先使用 Dry-run。</p>
+<h3 id="trigger-與-pulse-workflows">Trigger 與 Pulse Workflows</h3>
+<p>Trigger 與 LIST controls 是具有 exact model/connection scope 的進階操作。
+在 E36312A 上，<code>Trigger Fire</code> 會送出 instrument-wide <code>*TRG</code>，也可能影響其他
+已經 arm 為 BUS trigger 的行為。</p>
+<p>對 Trigger Step/List 而言，Immediate 會在送出 <code>INIT</code> 時開始，因此不使用
+<code>Fire now</code>。BUS <code>Wait complete</code> 要求同一命令使用 <code>Fire now</code>。若 LIST 要在
+非同步狀態下持續執行，必須使用 <code>Leave configured</code>，避免 LIST 還在執行時就恢復
+active trigger/LIST configuration。</p>
+<p>Completion-pulse controls 與 Sequence Trigger pulse 可能暫時改變
+trigger/rear-pin configuration。Rear pulse pins 不是 output channels，目前支援的
+pulse workflows 僅限 E36312A。Global <code>*TRG</code> 可能影響其他已 arm 的 BUS-triggered
+行為，因此只有在了解周邊 trigger state 時才使用 pulse options。</p>
+<h3 id="output-workflow-state">Output Workflow State</h3>
+<p>Ramp 的 <code>Enable output</code> 與 Ramp List 的
+<code>Auto-enable output for each channel</code> 都是明確的 output-enable controls。
+選取後，workflow 會先套用必要的初始 setpoint，再啟用 output。正常完成時，由
+workflow 啟用的 output 會保持 ON；測試結束後請明確關閉。未啟用這些選項時會
+保留原本的 output state。</p>
 <p>某些編輯器支援 JSON Load/Save (載入/儲存)，包括 Sequence (序列)、Ramp List (斜坡清單) 與 Trigger List (觸發清單) 工作區。請使用這些功能來處理可重複的工作流程，並保持儲存的檔案中沒有私人的實驗室資源字串，除非您刻意要將其限制為本機專用。</p>
 <p>Ramp、Ramp List 與 Sequence 提供 <code>Enable loop</code> 核取方塊。啟用後會出現 inline Loop count，範圍 2 到 10,000；這是工作流程的總執行次數，不是額外重複次數。關閉 Loop 會隱藏欄位，代表執行一次。Ramp 與 Ramp List 只有在 Loop 啟用時才於 Pulse timing 提供 Loop complete。Ramp List 儲存 v5 文件、Sequence 儲存 v2 文件，兩者都明確寫入 <code>loop_count</code>，包含單次執行的 1。</p>
 <p>Ramp 的 Channel selector 會依所選或偵測到的型號顯示各通道、支援的通道組合，

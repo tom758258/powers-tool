@@ -126,8 +126,10 @@ supply setup.</p>
 <pre><code class="language-powershell">.\powers-tool.exe measure --resource &quot;$env:POWERS_TOOL_RESOURCE&quot; --channel 1 --log-scpi
 .\powers-tool.exe read-status --resource &quot;$env:POWERS_TOOL_RESOURCE&quot; --json --log-scpi
 </code></pre>
-<p>Use an explicit resource string for live commands. Do not rely on a script or
-unattended workflow to guess which instrument should be used.</p>
+<p>Use an explicit resource string for resource-specific live commands. Do not rely
+on a script or unattended workflow to guess which instrument should be used.
+<code>list-resources</code> and <code>list-resources --live-only</code> are discovery commands and
+can enumerate backend-discovered resources without a pre-supplied resource.</p>
 <h2 id="resource-listing">Resource Listing</h2>
 <p>For normal live use, prefer:</p>
 <pre><code class="language-powershell">.\powers-tool.exe list-resources --live-only
@@ -150,7 +152,8 @@ $env:POWERS_TOOL_ASRL_RESOURCE = &quot;ASRL1::INSTR&quot;
 </code></pre>
 <p>Please note:
 * <code>$env:POWERS_TOOL_RESOURCE</code> is for generic live USB/LAN examples.
-* <code>$env:POWERS_TOOL_ASRL_RESOURCE</code> is for E3646A RS-232 / ASRL examples.
+* <code>$env:POWERS_TOOL_ASRL_RESOURCE</code> is for RS-232 / ASRL examples. The
+  model-specific notes below distinguish E3646A from PSM-2010.
 * These are documentation convenience variables, not hidden CLI defaults.
 * Live commands still require an explicit <code>--resource</code> argument.</p>
 <h2 id="finite-workflow-loops">Finite Workflow Loops</h2>
@@ -173,7 +176,13 @@ after all loops. Ramp List can pulse after every step, after each Segment, or
 once after all loops. Loop-complete pulse timing requires at least two total
 executions. Sequence keeps its existing per-Step <code>trigger-pulse</code> action and
 does not add a top-level completion pulse.</p>
-<h2 id="e3646a-rs-232-asrl">E3646A RS-232 / ASRL</h2>
+<h2 id="rs-232-asrl-operation">RS-232 / ASRL Operation</h2>
+<p>Current Product LIVE RS-232 / ASRL support includes E3646A and PSM-2010 on the
+exact system-VISA scopes listed in
+<a href="supported-models.html#product-live-exact-scope-matrix">Supported Models</a>.
+Serial overrides are optional: when a setting is omitted, Powers Tool leaves
+the corresponding VISA setting unchanged.</p>
+<h3 id="e3646a">E3646A</h3>
 <p>E3646A Product LIVE support is limited to ASRL / RS-232 with a system VISA
 backend. Consult the <a href="supported-models.html#product-live-exact-scope-matrix">Product LIVE exact-scope matrix</a>
 for the current command inventory. <code>identify</code> and <code>verify</code> are diagnostics only
@@ -213,6 +222,15 @@ powers-tool output-state --resource &quot;$env:POWERS_TOOL_ASRL_RESOURCE&quot; -
 <p>For serial read/write termination in PowerShell, use aliases when possible:
 <code>CR</code>, <code>LF</code>, <code>CRLF</code>, or <code>NONE</code>. <code>NONE</code>, omitted, or blank termination means do
 not override the VISA setting.</p>
+<h3 id="psm-2010">PSM-2010</h3>
+<p>PSM-2010 Product LIVE operation is also limited to its documented ASRL / RS-232
++ system VISA scope. It uses CH1 and global output control, and Live Data can
+report its current LOW/HIGH operating range.</p>
+<p>Do not assume the E3646A factory serial example applies to PSM-2010. This guide
+does not define a PSM-2010 factory serial profile; use the actual instrument and
+VISA configuration, and apply explicit serial overrides only when the setup
+requires them. See <a href="supported-models.html">Supported Models</a> for the
+current PSM-2010 command scope.</p>
 <h2 id="read-only-workflow">Read-Only Workflow</h2>
 <p>Use read-only commands first when validating an instrument:</p>
 <pre><code class="language-powershell">.\powers-tool.exe identify --resource &quot;$env:POWERS_TOOL_RESOURCE&quot; --json --log-scpi
@@ -249,6 +267,27 @@ settings.</p>
 first, confirm them by readback, and only enable output after confirming that
 the DUT can tolerate it. Turn output off when finished. Do not run output
 workflows unattended against an unknown resource.</p>
+<h2 id="advanced-and-safety-critical-workflows">Advanced And Safety-Critical Workflows</h2>
+<p>Use the advanced command families only after the instrument identity, channel,
+current limit, output state, and DUT conditions are understood.</p>
+<p><code>protection-set</code> changes protection configuration. <code>clear-protection</code> clears
+protection state and should be used only after the cause of the trip is
+understood. Preview supported protection changes with dry-run when practical.</p>
+<p><code>snapshot</code> captures instrument state without intentionally enabling output.
+<code>snapshot-diff</code> compares saved state. <code>restore-from-snapshot</code> can reapply
+persisted setpoints, output state, and protection state, so inspect the snapshot
+and preview the restore plan before using it on live hardware.</p>
+<p>Native Trigger STEP/LIST and rear-panel pulse workflows are advanced operations
+with exact model/connection scope. On E36312A, a BUS <code>*TRG</code> is instrument-wide
+and may also affect other behavior that is already armed for BUS trigger.
+<code>Wait complete</code> and <code>Leave configured</code> change whether the command waits for
+completion and whether trigger/LIST configuration is restored; use them only
+when the intended trigger lifecycle is understood.</p>
+<p>Ramp and Ramp List do not enable output unless their explicit output-enable
+option is selected. When output enabling is selected, the workflow stages the
+required setpoint before enabling output. Normal completion leaves outputs that
+the workflow enabled ON; turn them off explicitly when the test is finished.
+Omitting output enabling preserves the prior output state.</p>
 <h2 id="common-commands">Common Commands</h2>
 <table>
 <thead>
@@ -306,6 +345,10 @@ workflows unattended against an unknown resource.</p>
 <td><code>safe-off</code></td>
 <td>Turn output off using the supported safety path.</td>
 </tr>
+<tr>
+<td><code>capabilities</code></td>
+<td>Inspect model capabilities offline with <code>--model</code>, or inspect a selected resource.</td>
+</tr>
 </tbody>
 </table>
 <p>For command-specific options and usage, run
@@ -315,11 +358,15 @@ workflows unattended against an unknown resource.</p>
 needs model-specific planning, pass a canonical simulation/dry-run model ID with
 <code>--model</code>, or use a deterministic SIM resource such as
 <code>USB0::SIM::E36312A::INSTR</code>.</p>
-<pre><code class="language-powershell">.\powers-tool.exe set --dry-run --model keysight-e3646a --channel 1 --voltage 1 --current 0.05
+<pre><code class="language-powershell">.\powers-tool.exe capabilities --model keysight-e36312a --json
+.\powers-tool.exe set --dry-run --model keysight-e3646a --channel 1 --voltage 1 --current 0.05
 .\powers-tool.exe readback --simulate --resource USB0::SIM::E36312A::INSTR --channel all
 .\powers-tool.exe trigger-step --dry-run --model keysight-e36312a --channel 1 --source bus --fire
 .\powers-tool.exe set --dry-run --profile generic-scpi --channel 1 --voltage 1 --current 0.05
 </code></pre>
+<p><code>capabilities --model &lt;canonical-model-id&gt;</code> is an offline inspection path. It
+reports the registered model capabilities without opening VISA, which makes it
+useful before choosing a live workflow.</p>
 <p><code>--profile generic-scpi</code> is dry-run-only and is exposed only on commands whose
 existing support matrix permits Generic planning. It cannot be combined with
 <code>--model</code> and is invalid in simulator or live execution.</p>
