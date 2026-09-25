@@ -133,6 +133,18 @@ _PSM2010_DRY_RUN_COMMANDS = frozenset(
 )
 
 
+def protection_features(model_id: str | None) -> dict[str, Any]:
+    """Return Product-open Protection configuration features for a model."""
+
+    full_protection = model_id in {E36312A_MODEL_ID, EDU36311A_MODEL_ID}
+    return {
+        "ovp_voltage": full_protection or model_id == PSM2010_MODEL_ID,
+        "ocp": full_protection or model_id == PSM2010_MODEL_ID,
+        "ocp_delay": full_protection,
+        "ocp_delay_triggers": ["setting-change", "cc-transition"] if full_protection else [],
+    }
+
+
 def hardware_validation_status(model_id: str | None) -> dict[str, Any]:
     """Return hardware validation status payload for a selected model."""
 

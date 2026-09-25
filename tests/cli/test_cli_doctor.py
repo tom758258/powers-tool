@@ -51,9 +51,28 @@ def test_offline_model_capabilities_uses_core_metadata_without_hardware(
     assert data["measure_channels"] == {"simulate": [1, 2, 3], "real": [1, 2, 3]}
     assert data["hardware_validation"]["read_only"] == "validated"
     assert data["command_support"]["capabilities"]["real"] is True
+    assert data["protection_features"] == {
+        "ovp_voltage": True,
+        "ocp": True,
+        "ocp_delay": True,
+        "ocp_delay_triggers": ["setting-change", "cc-transition"],
+    }
     assert data["electrical_ratings"]["model"] == "E36312A"
     assert "resource" not in data
     assert "reason" not in data["driver"]
+
+
+def test_psm2010_offline_capabilities_protection_features(capsys) -> None:
+    assert cli.main(["capabilities", "--model", "gw-instek-psm-2010", "--json"]) == 0
+
+    data = json.loads(capsys.readouterr().out)["data"]
+    assert data["protection_features"] == {
+        "ovp_voltage": True,
+        "ocp": True,
+        "ocp_delay": False,
+        "ocp_delay_triggers": [],
+    }
+    assert data["command_support"]["protection-set"]["real"] is True
 
 
 @pytest.mark.parametrize("model_id", ["not-a-model", "keysight-e36313a"])
@@ -188,6 +207,12 @@ def test_resource_backed_capabilities_uses_exact_live_scope(monkeypatch, capsys)
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["data"]["driver"]["class"] == "E36312APowerSupply"
+    assert payload["data"]["protection_features"] == {
+        "ovp_voltage": True,
+        "ocp": True,
+        "ocp_delay": True,
+        "ocp_delay_triggers": ["setting-change", "cc-transition"],
+    }
     assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed is True

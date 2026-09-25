@@ -364,6 +364,22 @@ needs model-specific planning, pass a canonical simulation/dry-run model ID with
 reports the registered model capabilities without opening VISA, which makes it
 useful before choosing a live workflow.
 
+The JSON `data.protection_features` object reports model-aware Protection
+configuration support with the same fields for every model:
+
+```json
+"protection_features": {
+  "ovp_voltage": true,
+  "ocp": true,
+  "ocp_delay": true,
+  "ocp_delay_triggers": ["setting-change", "cc-transition"]
+}
+```
+
+The values above are for E36312A. PSM-2010 reports `ovp_voltage` and `ocp` as
+`true`, but `ocp_delay` as `false` and `ocp_delay_triggers` as `[]`.
+E3646A reports all three flags as `false` and an empty trigger list.
+
 `--profile generic-scpi` is dry-run-only and is exposed only on commands whose
 existing support matrix permits Generic planning. It cannot be combined with
 `--model` and is invalid in simulator or live execution.

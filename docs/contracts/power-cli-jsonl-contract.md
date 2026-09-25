@@ -87,6 +87,13 @@ Success prints exactly one machine-readable JSON object to stdout and exits
 Consumers must ignore unknown fields. Usage and validation failures follow the
 shared exit-code rules. `manifest` describes the executable itself; the
 `capabilities` command describes instrument/model capabilities.
+Its success `data.protection_features` object has the same four fields for
+every model: Boolean `ovp_voltage`, `ocp`, and `ocp_delay`, plus the
+`ocp_delay_triggers` string array. Supported delay trigger values are
+`setting-change` and `cc-transition`; unsupported features are `false` with
+an empty trigger array. Offline `--model` and resolved `--resource` inspection
+use the same model-specific meanings. This additive field does not change
+`schema_version: 2` or existing `command_support` semantics.
 
 ## Runtime JSONL
 

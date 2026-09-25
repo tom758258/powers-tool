@@ -322,6 +322,18 @@ deterministic SIM resource，例如 <code>USB0::SIM::E36312A::INSTR</code>：</p
 </code></pre>
 <p><code>capabilities --model &lt;canonical-model-id&gt;</code> 是 offline inspection path，不會開啟
 VISA，即可回報已註冊的 model capabilities，適合在選擇實機 workflow 前先檢查。</p>
+<p>JSON 的 <code>data.protection_features</code> 以固定欄位回報各型號的 Protection
+設定支援程度：</p>
+<pre><code class="language-json">&quot;protection_features&quot;: {
+  &quot;ovp_voltage&quot;: true,
+  &quot;ocp&quot;: true,
+  &quot;ocp_delay&quot;: true,
+  &quot;ocp_delay_triggers&quot;: [&quot;setting-change&quot;, &quot;cc-transition&quot;]
+}
+</code></pre>
+<p>上例是 E36312A。PSM-2010 的 <code>ovp_voltage</code>、<code>ocp</code> 為 <code>true</code>，
+<code>ocp_delay</code> 為 <code>false</code>，<code>ocp_delay_triggers</code> 為 <code>[]</code>。
+E3646A 的三個旗標皆為 <code>false</code>，trigger 清單為空。</p>
 <p><code>--profile generic-scpi</code> 僅限 dry-run，且只出現在既有 support matrix 允許 Generic
 planning 的命令上。它不可與 <code>--model</code> 併用，在 simulator 或 live execution 中都是
 無效選項。</p>

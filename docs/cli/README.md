@@ -1259,6 +1259,11 @@ uv run powers-tool capabilities --simulate --json --resource "USB0::SIM::EDU3631
 uv run powers-tool safety inspect --json --explain --safety-config examples\safety-config.toml --resource-alias sim-e36312a --channel 1
 ```
 
+`capabilities --model <canonical-model-id> --json` inspects Product model
+metadata without opening VISA. Its top-level `data.protection_features` has
+`ovp_voltage`, `ocp`, `ocp_delay`, and `ocp_delay_triggers` fields. The resource
+path reports the same model-aware feature semantics after identity resolution.
+
 The early standalone examples provide the same passive discovery and identity
 query behavior:
 

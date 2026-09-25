@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 3.1.2
+
+- Adds model-aware Protection feature metadata to `capabilities`, so external
+  orchestrators can determine OVP, OCP, OCP delay, and delay trigger support.
+
 ## 3.1.1
 
 - Expands English and Traditional Chinese CLI and WebUI operator guidance for

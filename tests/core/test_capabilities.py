@@ -5,6 +5,45 @@ import pytest
 import powers_tool_core.capabilities as capabilities
 
 
+@pytest.mark.parametrize(
+    ("model_id", "expected"),
+    [
+        (
+            "keysight-e36312a",
+            {"ovp_voltage": True, "ocp": True, "ocp_delay": True,
+             "ocp_delay_triggers": ["setting-change", "cc-transition"]},
+        ),
+        (
+            "keysight-edu36311a",
+            {"ovp_voltage": True, "ocp": True, "ocp_delay": True,
+             "ocp_delay_triggers": ["setting-change", "cc-transition"]},
+        ),
+        (
+            "gw-instek-psm-2010",
+            {"ovp_voltage": True, "ocp": True, "ocp_delay": False,
+             "ocp_delay_triggers": []},
+        ),
+        (
+            "keysight-e3646a",
+            {"ovp_voltage": False, "ocp": False, "ocp_delay": False,
+             "ocp_delay_triggers": []},
+        ),
+        (
+            None,
+            {"ovp_voltage": False, "ocp": False, "ocp_delay": False,
+             "ocp_delay_triggers": []},
+        ),
+        (
+            "unknown-model",
+            {"ovp_voltage": False, "ocp": False, "ocp_delay": False,
+             "ocp_delay_triggers": []},
+        ),
+    ],
+)
+def test_protection_features_model_matrix(model_id: str | None, expected: dict) -> None:
+    assert capabilities.protection_features(model_id) == expected
+
+
 def test_hardware_validation_status_e36312a_shape() -> None:
     assert capabilities.hardware_validation_status("keysight-e36312a") == {
         "read_only": "validated",

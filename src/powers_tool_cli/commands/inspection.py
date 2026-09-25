@@ -196,6 +196,7 @@ def _run_capabilities(args: argparse.Namespace) -> int:
             **capabilities.capabilities_static_groups(),
             "hardware_validation": capabilities.hardware_validation_status(model_id),
             "command_support": capabilities.command_support(model_id),
+            "protection_features": capabilities.protection_features(model_id),
             "electrical_ratings": (
                 caps.electrical_ratings.to_dict() if caps.electrical_ratings else None
             ),
@@ -268,6 +269,9 @@ def _run_capabilities(args: argparse.Namespace) -> int:
             selection.physical_identity.model_id if selection.physical_identity else None
         ),
         "command_support": capabilities.command_support(
+            selection.physical_identity.model_id if selection.physical_identity else None
+        ),
+        "protection_features": capabilities.protection_features(
             selection.physical_identity.model_id if selection.physical_identity else None
         ),
         "electrical_ratings": caps.electrical_ratings.to_dict() if caps.electrical_ratings else None,

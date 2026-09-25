@@ -1160,6 +1160,11 @@ uv run powers-tool capabilities --simulate --json --resource "USB0::SIM::EDU3631
 uv run powers-tool safety inspect --json --explain --safety-config examples\safety-config.toml --resource-alias sim-e36312a --channel 1
 ```
 
+`capabilities --model <canonical-model-id> --json` 不開啟 VISA 即可檢查
+Product 型號 metadata。頂層 `data.protection_features` 固定包含
+`ovp_voltage`、`ocp`、`ocp_delay` 與 `ocp_delay_triggers`；resource 路徑完成
+型號辨識後，也回報相同的 model-aware feature 語意。
+
 早期的 standalone examples 提供相同的被動探索與身分查詢行為：
 
 ```powershell
