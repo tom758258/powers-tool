@@ -382,7 +382,8 @@ assert.deepEqual(
   Object.keys(EN_MESSAGES).filter((key) => key.startsWith("form.description.")).sort(),
   [...maintainedFieldDescriptions].sort()
 );
-assert.equal(EN_MESSAGES["app.document_title"], "Powers Tool WebUI");
+assert.equal(EN_MESSAGES["app.document_title"], "Powers Tool");
+assert.equal(ZH_TW_MESSAGES["app.document_title"], "Powers Tool");
 assert.equal(ZH_TW_MESSAGES["app.brand"], "Powers Tool");
 assert.match(ZH_TW_MESSAGES["resource.visa_resource"], /^VISA /);
 assert.equal(ZH_TW_MESSAGES["execution_mode.option.real"], "實機（Real）");
@@ -887,6 +888,7 @@ def test_static_html_i18n_bindings_have_catalog_parity_and_preserve_contracts() 
     assert en_keys == zh_tw_keys
     assert binding_keys <= en_keys
     assert '<html lang="en">' in html
+    assert '<title data-i18n="app.document_title">Powers Tool</title>' in html
     assert 'data-i18n="app.unofficial_tool"' in html
     assert 'data-i18n="app.appearance"' in html
     assert 'data-i18n="app.language"' in html

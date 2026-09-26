@@ -17,7 +17,7 @@ export const ZH_TW_MESSAGES = Object.freeze({
   "accessibility.supported_devices": "支援裝置",
   "app.appearance": "外觀",
   "app.brand": "Powers Tool",
-  "app.document_title": "Powers Tool WebUI",
+  "app.document_title": "Powers Tool",
   "app.help": "說明",
   "app.language": "語言",
   "app.unofficial_tool": "非官方工具",

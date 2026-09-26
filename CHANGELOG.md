@@ -4,6 +4,8 @@
 
 ## 3.1.2
 
+- Fixes the browser and Electron Desktop window title to use the canonical
+  `Powers Tool` product name instead of `Powers Tool WebUI`.
 - Adds model-aware Protection feature metadata to `capabilities`, so external
   orchestrators can determine OVP, OCP, OCP delay, and delay trigger support.
 

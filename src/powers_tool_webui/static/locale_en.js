@@ -17,7 +17,7 @@ export const EN_MESSAGES = Object.freeze({
   "accessibility.supported_devices": "Supported devices",
   "app.appearance": "Appearance",
   "app.brand": "Powers Tool",
-  "app.document_title": "Powers Tool WebUI",
+  "app.document_title": "Powers Tool",
   "app.help": "Help",
   "app.language": "Language",
   "app.unofficial_tool": "Unofficial Tool",
