@@ -36,6 +36,7 @@ def test_i18n_modules_use_the_existing_static_root_package_layout() -> None:
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is required for ES-module runtime tests")
+@pytest.mark.frontend_node
 def test_locale_ui_resolution_persistence_and_button_contract() -> None:
     script = r"""
 import assert from "node:assert/strict";
@@ -240,6 +241,7 @@ assert.equal(refreshes, 2);
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is required for ES-module runtime tests")
+@pytest.mark.frontend_node
 def test_i18n_es_module_runtime_contract() -> None:
     script = r"""
 import assert from "node:assert/strict";
@@ -609,6 +611,7 @@ process.stdout.write(JSON.stringify({ ok: true }));
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is required for ES-module runtime tests")
+@pytest.mark.frontend_node
 def test_dom_i18n_applies_only_safe_static_bindings() -> None:
     script = r"""
 import assert from "node:assert/strict";
@@ -729,6 +732,7 @@ process.stdout.write(JSON.stringify({ ok: true }));
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is required for ES-module runtime tests")
+@pytest.mark.frontend_node
 def test_device_options_static_translations_preserve_controls_and_state() -> None:
     script = r"""
 import assert from "node:assert/strict";

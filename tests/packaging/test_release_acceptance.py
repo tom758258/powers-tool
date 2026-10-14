@@ -245,6 +245,7 @@ def _make_acceptance_repository(request: pytest.FixtureRequest) -> Path:
     return repository
 
 
+@pytest.mark.windows_powershell
 def test_dirty_repository_fails_before_creating_acceptance_output(
     request: pytest.FixtureRequest,
 ) -> None:
@@ -267,6 +268,7 @@ def test_dirty_repository_fails_before_creating_acceptance_output(
     assert not output_root.exists()
 
 
+@pytest.mark.windows_powershell
 def test_output_root_accepts_absolute_path_under_tmp_tests(
     request: pytest.FixtureRequest,
 ) -> None:
@@ -293,6 +295,7 @@ def test_output_root_accepts_absolute_path_under_tmp_tests(
     "relative_output",
     [Path(".git") / "release_acceptance", Path("dist") / "release_acceptance"],
 )
+@pytest.mark.windows_powershell
 def test_output_root_rejects_paths_outside_tmp_tests_without_creating_them(
     request: pytest.FixtureRequest,
     relative_output: Path,
