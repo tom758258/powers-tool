@@ -45,7 +45,8 @@ def desktop_smoke(version: str) -> None:
     run(sys.executable, "tests/packaging/inspect_pyinstaller.py",
         str(desktop / "powers-tool.exe"),
         str(desktop / "powers-tool-webui-launcher.exe"))
-    run(str(desktop / "powers-tool.exe"), "identify", "--simulate", "--json")
+    run(str(desktop / "powers-tool.exe"), "identify", "--simulate", "--json",
+        "--resource", "USB0::SIM::E36312A::INSTR")
     run(str(desktop / "powers-tool-webui-launcher.exe"), "--version")
 
 def release_smoke(version: str) -> None:
