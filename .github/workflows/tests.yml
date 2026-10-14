@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: tests-${{ github.event.pull_request.number || github.ref }
+  group: tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -37,11 +37,11 @@ jobs:
         run: python scripts/check_text_hygiene.py
       - name: Check committed whitespace
         env:
-          EVENT_NAME: ${{ github.event_name }
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }
-          PUSH_BEFORE: ${{ github.event.before }
-          PUSH_SHA: ${{ github.sha }
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_SHA: ${{ github.sha }}
         run: |
           if [ "$EVENT_NAME" = workflow_dispatch ]; then
             base=$(git merge-base origin/main HEAD)
@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           mapfile -t files < <(git ls-files 'src/powers_tool_webui/static/*.js')
           if (( ${#files[@]} == 0 )); then echo '::error::No WebUI JS files'; exit 1; fi
-          for file in "$${{files[@]}"; do node --check "$file"; done
+          for file in "${files[@]}"; do node --check "$file"; done
       - name: Prepare pytest temp root
         run: mkdir -p .tmp_tests
       - name: Run Node runtime tests (Node required)
@@ -73,7 +73,7 @@ jobs:
           tests/tooling/test_ci_change_detection.py
 
   pytest-linux:
-    name: Linux Python ${{ matrix.python-version }
+    name: Linux Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -83,11 +83,11 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }
+          python-version: ${{ matrix.python-version }}
       - name: Install uv
         run: python -m pip install --upgrade uv
       - name: Install locked dependencies
-        run: uv sync --python ${{ matrix.python-version } --all-extras --locked --link-mode=copy
+        run: uv sync --python ${{ matrix.python-version }} --all-extras --locked --link-mode=copy
       - name: Build distributions
         run: ./.venv/bin/python -m build
       - name: Import and installed entry-point smoke
@@ -130,7 +130,7 @@ jobs:
           tests/packaging/test_packaging_identity.py
 
   pytest-windows:
-    name: Windows Python ${{ matrix.python-version }
+    name: Windows Python ${{ matrix.python-version }}
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -140,11 +140,11 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }
+          python-version: ${{ matrix.python-version }}
       - name: Install uv
         run: python -m pip install --upgrade uv
       - name: Install locked dependencies
-        run: uv sync --python ${{ matrix.python-version } --all-extras --locked --link-mode=copy
+        run: uv sync --python ${{ matrix.python-version }} --all-extras --locked --link-mode=copy
       - name: Build distributions
         run: .\.venv\Scripts\python.exe -m build
       - name: Import and installed entry-point smoke
@@ -179,25 +179,25 @@ jobs:
     name: Detect validation changes
     runs-on: ubuntu-latest
     outputs:
-      validation: ${{ steps.detect.outputs.validation }
-      packaging: ${{ steps.detect.outputs.packaging }
-      release-layout: ${{ steps.detect.outputs.release-layout }
+      validation: ${{ steps.detect.outputs.validation }}
+      packaging: ${{ steps.detect.outputs.packaging }}
+      release-layout: ${{ steps.detect.outputs.release-layout }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: Classify changes (fail closed)
         id: detect
         env:
-          GITHUB_EVENT_NAME: ${{ github.event_name }
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }
-          PUSH_BEFORE: ${{ github.event.before }
-          GITHUB_SHA: ${{ github.sha }
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          GITHUB_SHA: ${{ github.sha }}
         run: python scripts/ci_change_detection.py
 
   windows-validation:
@@ -253,7 +253,7 @@ jobs:
         shell: pwsh
         run: |
           $arguments = @('scripts/ci_packaging_smoke.py')
-          if ('${{ needs.detect-validation-changes.outputs.release-layout }' -eq 'true') {
+          if ('${{ needs.detect-validation-changes.outputs.release-layout }}' -eq 'true') {
             $arguments += '--release-layout'
           }
           & .\.venv\Scripts\python.exe @arguments
