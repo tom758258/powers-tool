@@ -68,6 +68,10 @@ powers_tool_webui = [
 addopts = "--basetemp=.tmp_pytest"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+  "frontend_node: Node.js runtime contracts, owned by quality-webui",
+  "windows_powershell: Windows PowerShell process and validation-script contracts",
+]
 
 [tool.ruff]
 line-length = 100

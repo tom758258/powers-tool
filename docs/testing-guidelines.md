@@ -88,3 +88,14 @@ needed, use `.tmp_tests/<purpose>`.
 
 Do not use `Local/` for pytest basetemp directories or generated test artifacts.
 `Local/` is reserved for private notes and local reference material.
+
+## CI Responsibilities (Plan B)
+
+- `quality-webui` owns Ruff, tracked text hygiene, reliable changed-range whitespace checks, JavaScript syntax and each individually marked `frontend_node` test. Missing Node is a failure, not a skip.
+- Linux Python 3.13 owns the primary no-hardware Python suite; 3.10–3.12 run defined API, safety, CLI/Worker and packaging compatibility contracts. Windows 3.10/3.12/3.13 runs platform and safety contracts rather than every Linux test.
+- `windows-validation` owns individually marked `windows_powershell` process tests, including Wrapper, Preflight, Live Validation script simulation/PlanOnly and release-acceptance script behavior, **not live hardware**. Mixed test files retain their cross-platform static cases in the Linux suite.
+- `detect-validation-changes` derives `validation`, `packaging` and `release-layout` from the entire trusted PR/push range. Failure to compare must not silently skip Windows jobs.
+- `windows-packaging-smoke` performs a single actual Windows Desktop build or (for release-layout changes) a single `build_release.ps1` including Desktop; verifies real artifacts and safe headless CLI smoke. It is not a formal release gate.
+- `scripts/release-acceptance.ps1` remains the separate complete, clean-HEAD, no-hardware release candidate gate. `build-windows.yml` remains a manual build/Draft Release workflow, and neither CI smoke nor simulation promotes live hardware support.
+
+For maintenance, keep every non-hardware test covered by at least one relevant CI job; review `pytest --collect-only`, skip reasons, and selected markers when moving a test between owners. Re-running tests in several matrices must have a specific compatibility or platform purpose.

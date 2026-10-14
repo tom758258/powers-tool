@@ -64,6 +64,7 @@ def test_help_theme_bootstrap_and_desktop_query_contract() -> None:
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is required for theme runtime tests")
+@pytest.mark.frontend_node
 def test_theme_preference_runtime_behavior() -> None:
     script = r'''
 import assert from "node:assert/strict";

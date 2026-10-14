@@ -63,6 +63,7 @@ def test_validation_script_inventory_and_obsolete_removals() -> None:
         assert not (ROOT / "scripts" / obsolete).exists()
 
 
+@pytest.mark.windows_powershell
 def test_shared_helper_owns_all_model_and_suite_boundaries() -> None:
     if POWERSHELL is None:
         pytest.skip("Windows PowerShell is required")
@@ -193,6 +194,7 @@ def test_shared_helper_owns_all_model_and_suite_boundaries() -> None:
         ("full", {*PSM2010_SMOKE_CASES, *PSM2010_DEEP_CASES}),
     ],
 )
+@pytest.mark.windows_powershell
 def test_psm2010_preflight_executes_maintained_no_hardware_cases(
     suite: str, expected_cases: set[str]
 ) -> None:
@@ -248,6 +250,7 @@ def test_psm2010_preflight_executes_maintained_no_hardware_cases(
     )
 
 
+@pytest.mark.windows_powershell
 def test_representative_smoke_executes_required_no_hardware_cli() -> None:
     output = ROOT / ".tmp_tests" / "pytest_cli_preflight" / uuid4().hex
     result = _run(
@@ -305,6 +308,7 @@ def test_representative_smoke_executes_required_no_hardware_cli() -> None:
     )
 
 
+@pytest.mark.windows_powershell
 def test_representative_deep_executes_required_no_hardware_cli() -> None:
     output = ROOT / ".tmp_tests" / "pytest_cli_preflight" / uuid4().hex
     result = _run(
@@ -354,6 +358,7 @@ def test_representative_deep_executes_required_no_hardware_cli() -> None:
     assert not (report_path.parent / "keysight-edu36311a").exists()
 
 
+@pytest.mark.windows_powershell
 def test_preflight_rejects_unsupported_suite_and_target() -> None:
     output = ROOT / ".tmp_tests" / "pytest_cli_preflight" / uuid4().hex
     invalid_suite = _run(

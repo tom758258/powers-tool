@@ -385,7 +385,7 @@ Run the fast no-hardware suite:
 CI also checks tracked WebUI JavaScript syntax, runs the focused WebUI Node
 runtime tests, builds the Python package on Linux and Windows, and runs package
 import plus CLI, WebUI, and Launcher smokes. The Windows Python 3.13 job also
-builds the Desktop directory. Wrapper contracts run in a separate Windows job.
+builds the Desktop directory. Windows PowerShell wrapper and validation-script contracts run in a conditional Windows validation job. Actual Desktop/Windows release-layout packaging smoke runs in another conditional Windows job, using the changed paths; Linux Python 3.13 runs the primary no-hardware suite and the remaining Python versions run selected compatibility, platform and safety contracts.
 The complete `release-acceptance.ps1` gate, distribution inspection, and release
 acceptance tests remain release validation rather than ordinary pull-request CI.
 

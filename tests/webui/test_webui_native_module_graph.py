@@ -5,9 +5,12 @@ from __future__ import annotations
 import shutil
 import subprocess
 
+import pytest
+
 from _webui_shared import STATIC_DIR
 
 
+@pytest.mark.frontend_node
 def test_app_js_native_module_graph_imports() -> None:
     node = shutil.which("node")
     assert node is not None, "Node.js is required for the WebUI native module graph smoke test."

@@ -97,6 +97,7 @@ def _run_powershell_command(command: str, *, env: dict[str, str] | None = None) 
         ({"outputs": [{"channel": 1, "enabled": False}], "output_enabled": True}, [1], True),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_strictly_normalizes_output_state_evidence(data, expected_channels, valid):
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -178,6 +179,7 @@ def _normalization_succeeded(result: dict[str, object]) -> bool:
     return len(failures) == 0
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_identity_metadata_matches_core_frozen_registry() -> None:
     command = r'''
 . .\scripts\_validation_helpers.ps1
@@ -274,6 +276,7 @@ def test_live_cli_check_identity_metadata_matches_core_frozen_registry() -> None
         ),
     ],
 )
+@pytest.mark.windows_powershell
 def test_snapshot_restore_identity_uses_core_normalization_and_model_specific_aliases(
     command_name, target, manufacturer, model, resolved, valid
 ):
@@ -340,6 +343,7 @@ def test_snapshot_restore_identity_uses_core_normalization_and_model_specific_al
         },
     ],
 )
+@pytest.mark.windows_powershell
 def test_snapshot_restore_identity_rejects_non_allowlisted_or_conflicting_fields(
     command_name, data
 ):
@@ -396,6 +400,7 @@ def test_snapshot_restore_identity_rejects_non_allowlisted_or_conflicting_fields
         ("snapshot", {"idn": REPORTED_E36312A_IDENTITY}, False),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_strictly_normalizes_observed_identity_evidence(
     command_name, data, valid
 ):
@@ -537,6 +542,7 @@ $record | ConvertTo-Json -Depth 10 -Compress
         ),
     ],
 )
+@pytest.mark.windows_powershell
 def test_optional_observed_identity_uses_exactly_one_non_null_path(
     tmp_path, data, expected_result, identity_observed
 ):
@@ -566,6 +572,7 @@ def test_optional_observed_identity_uses_exactly_one_non_null_path(
         "gw-instek-psm-2010",
     ],
 )
+@pytest.mark.windows_powershell
 def test_optional_null_identity_placeholder_is_absent_for_all_targets(
     tmp_path, target
 ):
@@ -608,6 +615,7 @@ def test_optional_null_identity_placeholder_is_absent_for_all_targets(
         ("restore-from-snapshot", "$false", {}, "passed"),
     ],
 )
+@pytest.mark.windows_powershell
 def test_snapshot_restore_identity_requirement_uses_exact_live_hardware_expected(
     tmp_path, command_name, live_hardware_value, data, expected_result
 ):
@@ -654,6 +662,7 @@ $record | ConvertTo-Json -Depth 10 -Compress
         (True, {**REPORTED_E36312A_IDENTITY, "model": "EDU36311A"}, "failed", False),
     ],
 )
+@pytest.mark.windows_powershell
 def test_snapshot_readback_allows_missing_identity_but_validates_present_evidence(
     tmp_path, identity_present, identity, expected_result, identity_observed
 ):
@@ -702,6 +711,7 @@ $record | ConvertTo-Json -Depth 10 -Compress
     assert (record["assertion_failures"] == []) is (expected_result == "passed")
 
 
+@pytest.mark.windows_powershell
 def test_snapshot_mutation_cases_use_model_aware_channels() -> None:
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -781,6 +791,7 @@ $failures = @(Get-CaseAssertionFailures -Case $case -Payload $payload -Identity 
     return failures
 
 
+@pytest.mark.windows_powershell
 def test_snapshot_mutation_accepts_changed_psm_channel_only(tmp_path) -> None:
     failures = _snapshot_mutation_failures(
         tmp_path,
@@ -792,6 +803,7 @@ def test_snapshot_mutation_accepts_changed_psm_channel_only(tmp_path) -> None:
     assert not any("channel 2" in failure or "channel 3" in failure for failure in failures)
 
 
+@pytest.mark.windows_powershell
 def test_snapshot_mutation_still_rejects_unchanged_psm_channel(tmp_path) -> None:
     failures = _snapshot_mutation_failures(
         tmp_path,
@@ -805,6 +817,7 @@ def test_snapshot_mutation_still_rejects_unchanged_psm_channel(tmp_path) -> None
     ]
 
 
+@pytest.mark.windows_powershell
 def test_snapshot_mutation_rejects_empty_expected_channels(tmp_path) -> None:
     failures = _snapshot_mutation_failures(
         tmp_path,
@@ -951,6 +964,7 @@ save_path.write_text(json.dumps(payload), encoding="utf-8")
     return tmp_path
 
 
+@pytest.mark.windows_powershell
 def test_actual_snapshot_cases_complete_full_workflow(tmp_path):
     fixture_path = _snapshot_workflow_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
@@ -1286,6 +1300,7 @@ Write-Output (Join-Path $script:ShareableArtifactDir "report.json")
 '''
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_malformed_missing_and_error_only_artifacts_fail_closed(tmp_path):
     fixture_path = _artifact_privacy_fixture_cli_path(tmp_path)
     result = _run_powershell_command(
@@ -1352,6 +1367,7 @@ def _shareable_text(directory: Path) -> str:
     )
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_redacts_keysight_technologies_error_only_idn_and_serial(tmp_path):
     fixture_path = _artifact_privacy_fixture_cli_path(tmp_path)
     result = _run_powershell_command(
@@ -1369,6 +1385,7 @@ def test_live_cli_check_redacts_keysight_technologies_error_only_idn_and_serial(
         assert expected in shareable_text
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_keeps_keysight_technologies_malformed_json_private(tmp_path):
     fixture_path = _artifact_privacy_fixture_cli_path(tmp_path)
     result = _run_powershell_command(
@@ -1389,6 +1406,7 @@ def test_live_cli_check_keeps_keysight_technologies_malformed_json_private(tmp_p
     assert "<redacted-idn>" in shareable_text
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_redacts_zero_serial_without_corrupting_numeric_evidence(tmp_path):
     fixture_path = _artifact_privacy_fixture_cli_path(tmp_path)
     result = _run_powershell_command(
@@ -1428,6 +1446,7 @@ def test_live_cli_check_redacts_zero_serial_without_corrupting_numeric_evidence(
         ("aCmE instruments,PSU1000,0,3.2", "0", False),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_free_form_idn_redactor_handles_manufacturer_variants(
     idn, serial, distinctive
 ):
@@ -1457,6 +1476,7 @@ $result = Protect-ShareableText -Text "identity: {idn}; standalone serial: {seri
         assert "0" not in redaction["sensitive"]
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_report_normalizes_stale_cleanup_lifecycle_states(tmp_path):
     fixture_path = _dynamic_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
@@ -1529,6 +1549,7 @@ if ($record.mode -ne "real") {{ throw "expected mode real, got $($record.mode)" 
 """
 
 
+@pytest.mark.windows_powershell
 def test_live_validation_accepts_real_execution_mode_fixture(tmp_path):
     fixture_path = _fixture_cli_path(tmp_path, mode="real", hardware_touched=True)
     output_dir = tmp_path / "out"
@@ -1539,6 +1560,7 @@ def test_live_validation_accepts_real_execution_mode_fixture(tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.windows_powershell
 def test_live_validation_still_rejects_real_mode_without_hardware_touch_fixture(tmp_path):
     fixture_path = _fixture_cli_path(tmp_path, mode="real", hardware_touched=False)
     output_dir = tmp_path / "out"
@@ -1559,6 +1581,7 @@ Write-LiveConfirmationWarnings -SuitesToRun @({suite_items})
     return _run_powershell_command(command)
 
 
+@pytest.mark.windows_powershell
 def test_live_confirmation_warnings_are_scoped_to_selected_suites():
     result = _confirmation_warnings_for_suites(
         ["readonly", "output", "software-sequence"]
@@ -1574,6 +1597,7 @@ def test_live_confirmation_warnings_are_scoped_to_selected_suites():
     assert "Protection suite writes" not in result.stdout
 
 
+@pytest.mark.windows_powershell
 def test_live_confirmation_warnings_include_trigger_list_when_selected():
     result = _confirmation_warnings_for_suites(
         ["readonly", "output", "trigger-list", "software-sequence"]
@@ -1588,6 +1612,7 @@ def test_live_confirmation_warnings_include_trigger_list_when_selected():
     assert "Protection suite writes" not in result.stdout
 
 
+@pytest.mark.windows_powershell
 def test_live_confirmation_warnings_format_single_output_affecting_suite():
     result = _confirmation_warnings_for_suites(["readonly", "output"])
 
@@ -1595,6 +1620,7 @@ def test_live_confirmation_warnings_format_single_output_affecting_suite():
     assert "Outputs may briefly turn on for output cases." in result.stdout
 
 
+@pytest.mark.windows_powershell
 def test_live_confirmation_warnings_format_single_software_sequence_suite():
     result = _confirmation_warnings_for_suites(["readonly", "software-sequence"])
 
@@ -1604,6 +1630,7 @@ def test_live_confirmation_warnings_format_single_software_sequence_suite():
     )
 
 
+@pytest.mark.windows_powershell
 def test_live_confirmation_warnings_use_model_neutral_snapshot_wording():
     result = _confirmation_warnings_for_suites(["snapshot"])
 
@@ -1629,6 +1656,7 @@ def test_live_confirmation_includes_single_client_access_warning():
     assert "Concurrent clients may interfere with SCPI response ordering or instrument state." in warning_block
 
 
+@pytest.mark.windows_powershell
 def test_plan_only_live_cli_check_does_not_emit_single_client_warning() -> None:
     result = _run_live_cli_check(
         "-Target",
@@ -1647,6 +1675,7 @@ def test_plan_only_live_cli_check_does_not_emit_single_client_warning() -> None:
     assert "Physical checks before pressing Enter" not in result.stdout
 
 
+@pytest.mark.windows_powershell
 def test_write_validation_case_console_result_formats_pass_and_fail():
     command = r"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -1671,6 +1700,7 @@ Write-ValidationCaseConsoleResult -Record ([pscustomobject]@{
     assert "FAIL  [live][output] output-on" in result.stdout
 
 
+@pytest.mark.windows_powershell
 def test_invoke_validation_command_emits_console_result_outside_import_only(tmp_path):
     fixture_path = _fixture_cli_path(tmp_path, mode="real", hardware_touched=True)
     output_dir = tmp_path / "out"
@@ -1702,6 +1732,7 @@ if ($record.result -ne "passed") {{ throw "expected passed, got $($record.result
     assert "USB0::FIXTURE::INSTR" not in result.stdout
 
 
+@pytest.mark.windows_powershell
 def test_invoke_validation_command_skips_console_result_in_import_only_mode(tmp_path):
     fixture_path = _fixture_cli_path(tmp_path, mode="real", hardware_touched=False)
     output_dir = tmp_path / "out"
@@ -1731,6 +1762,7 @@ $record | ConvertTo-Json -Depth 10 -Compress
     assert record["result"] == "failed"
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_plan_only_emits_preflight_pass_lines():
     result = _run_live_cli_check(
         "-Target",
@@ -1749,6 +1781,7 @@ def test_live_cli_check_plan_only_emits_preflight_pass_lines():
     assert "PASS  [preflight][readonly]" in result.stdout
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_uses_phase_specific_artifact_names(tmp_path):
     fixture_path = _dynamic_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
@@ -1784,6 +1817,7 @@ if ($liveRecord.json_path -notmatch "live-trigger-step-bus\.json$") {{ throw "ba
     assert (output_dir / "shareable" / "live-trigger-step-bus.json").exists()
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_failed_live_command_does_not_reuse_stale_preflight_json(tmp_path):
     fixture_path = _dynamic_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
@@ -1818,6 +1852,7 @@ if (Test-Path -LiteralPath (Join-Path $script:OutputDir "live-trigger-step-bus.j
     assert not (output_dir / "private" / "live-trigger-step-bus.json").exists()
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_preflight_still_rejects_hardware_touched_fixture(tmp_path):
     fixture_path = _dynamic_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
@@ -1853,6 +1888,7 @@ if (($script:Failures -join "`n") -notmatch "no-hardware validation") {{ throw (
         ("keysight-e3646a", "ASRL", "ASRL1::SIM::E3646A::INSTR", True),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_readonly_plan_only_succeeds_without_hardware(
     target, connection, resource, skip_external_preflight
 ):
@@ -1908,6 +1944,7 @@ def test_live_cli_check_readonly_plan_only_succeeds_without_hardware(
     assert "hardware_touched" not in json.dumps(report)
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_psm2010_suite_composition_uses_product_support() -> None:
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -2046,6 +2083,7 @@ $nonmatchingCandidateCount = @(
     )
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_psm2010_pending_command_on_product_connection_uses_validation_policy() -> None:
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -2075,6 +2113,7 @@ $arguments = Add-ValidationSupportPolicyArgument -Arguments @("measure")
     }
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_rejects_unregistered_nonproduct_command() -> None:
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -2098,6 +2137,7 @@ catch { $_.Exception.Message }
     assert "neither Product-open nor an explicit validation candidate" in result.stdout
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_safe_state_summary_excludes_low_power_setpoints() -> None:
     result = _run_live_cli_check(
         "-Target",
@@ -2122,6 +2162,7 @@ def test_live_cli_check_safe_state_summary_excludes_low_power_setpoints() -> Non
     )
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_psm2010_full_plan_only_covers_product_commands() -> None:
     result = _run_live_cli_check(
         "-Target",
@@ -2265,6 +2306,7 @@ def _sequence_documents_from_cases(cases: list[dict[str, object]]) -> dict[str, 
     return documents
 
 
+@pytest.mark.windows_powershell
 def test_psm_software_sequence_live_cases_cover_canonical_instrument_actions(
     tmp_path: Path,
 ) -> None:
@@ -2291,6 +2333,7 @@ def test_psm_software_sequence_live_cases_cover_canonical_instrument_actions(
         assert preflight[name]["expected_error_contains"] == "trigger-list"
 
 
+@pytest.mark.windows_powershell
 def test_psm_sequence_feature_fixture_is_valid_and_low_power(tmp_path: Path) -> None:
     composition = _psm_software_sequence_composition(tmp_path)
     live_cases = composition["live"]
@@ -2334,6 +2377,7 @@ def test_psm_sequence_feature_fixture_is_valid_and_low_power(tmp_path: Path) -> 
     )
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_output_summary_keeps_low_power_setpoints() -> None:
     result = _run_live_cli_check(
         "-Target",
@@ -2355,6 +2399,7 @@ def test_live_cli_check_output_summary_keeps_low_power_setpoints() -> None:
     assert "Safe-state cases may turn outputs OFF" not in summary
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_skip_external_preflight_requires_plan_only() -> None:
     result = _run_live_cli_check("-SkipExternalPreflight")
 
@@ -2362,6 +2407,7 @@ def test_live_cli_check_skip_external_preflight_requires_plan_only() -> None:
     assert "can only be used with -PlanOnly" in (result.stdout + result.stderr)
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_external_preflight_failure_remains_fail_closed() -> None:
     before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
     command = r"""
@@ -2385,6 +2431,7 @@ function global:powershell.exe { $global:LASTEXITCODE = 1 }
     assert report["live_executed"] is False
 
 
+@pytest.mark.windows_powershell
 def test_plan_only_can_skip_completed_release_preflight_without_skipping_plans() -> None:
     result = _run_live_cli_check(
         "-Target",
@@ -2422,6 +2469,7 @@ def test_plan_only_can_skip_completed_release_preflight_without_skipping_plans()
     )
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_rejects_redirected_stdin_before_live_execution() -> None:
     before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
     result = _run_live_cli_check(
@@ -2444,6 +2492,7 @@ def test_live_cli_check_rejects_redirected_stdin_before_live_execution() -> None
     assert any("stdin is redirected" in failure for failure in report["failures"])
 
 
+@pytest.mark.windows_powershell
 def test_trigger_list_plan_only_lists_manual_candidate_without_helper_or_stdin() -> None:
     resource = "USB0::PRIVATE-PLAN::E36312A::INSTR"
     result = _run_live_cli_check(
@@ -2474,6 +2523,7 @@ def test_trigger_list_plan_only_lists_manual_candidate_without_helper_or_stdin()
     assert "SERIAL" not in report_text
 
 
+@pytest.mark.windows_powershell
 def test_trigger_list_redirected_stdin_fails_before_manual_case() -> None:
     before = set(Path(".tmp_tests/live_cli_check").glob("*/shareable/report.json"))
     result = _run_live_cli_check(
@@ -2498,6 +2548,7 @@ def test_trigger_list_redirected_stdin_fails_before_manual_case() -> None:
     ("connection", "backend"),
     [("ASRL", None), ("USB", "@py"), ("USB", "@ivi")],
 )
+@pytest.mark.windows_powershell
 def test_plan_only_rejects_unregistered_exact_scope_before_preflight(
     connection, backend
 ) -> None:
@@ -2555,6 +2606,7 @@ def test_plan_only_rejects_unregistered_exact_scope_before_preflight(
     )
 
 
+@pytest.mark.windows_powershell
 def test_future_candidate_inventory_still_requires_full_plan_coverage() -> None:
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -2575,6 +2627,7 @@ catch { $_.Exception.Message }
     assert "missing command uses: future-candidate" in result.stdout
 
 
+@pytest.mark.windows_powershell
 def test_trigger_pulse_observation_occurs_only_after_command_and_cleanup(tmp_path) -> None:
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -2613,6 +2666,7 @@ Invoke-TriggerPulseCandidateCase -Case $case
     assert payload["outputs_all_off"] is True
 
 
+@pytest.mark.windows_powershell
 def test_trigger_fire_wrapper_restores_again_when_candidate_fails(tmp_path) -> None:
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -2640,6 +2694,7 @@ $trace | ConvertTo-Json -Compress
     assert "cleanup-trigger-fire-final" in trace
 
 
+@pytest.mark.windows_powershell
 def test_trigger_fire_payload_assertion_requires_exact_json_values(tmp_path) -> None:
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -2666,6 +2721,7 @@ $counts | ConvertTo-Json -Compress
     assert json.loads(result.stdout) == [0, 1, 1, 4, 1, 1, 2]
 
 
+@pytest.mark.windows_powershell
 def test_trigger_fire_command_record_preserves_diagnostics_and_property_presence(tmp_path) -> None:
     fixture_path = _trigger_record_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
@@ -2722,6 +2778,7 @@ $noTrigger = Invoke-ValidationCommand -Case $caseNoTrigger
     assert payload["no_trigger"] is None
 
 
+@pytest.mark.windows_powershell
 def test_trigger_fire_evidence_comes_only_from_recorded_payload(tmp_path) -> None:
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -2768,6 +2825,7 @@ $evidence | ConvertTo-Json -Compress
     ]
 
 
+@pytest.mark.windows_powershell
 def test_trigger_fire_abort_and_error_evidence_comes_from_recorded_diagnostics(tmp_path) -> None:
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -2840,6 +2898,7 @@ $notExecuted = New-TriggerEvidence
     assert payload["not_executed"] == "not_executed"
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_centrally_adds_validation_flag_only_for_policy_commands():
     command = r"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -2882,6 +2941,7 @@ $case = @(Get-SuiteCases -Model $script:NormalizedTarget -Suites (Get-SupportedS
     return json.loads(result.stdout)
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_verify_arguments_are_accepted_by_production_parser():
     arguments = _wrapper_arguments("verify")
 
@@ -2902,6 +2962,7 @@ def test_live_cli_check_verify_arguments_are_accepted_by_production_parser():
 
 
 @pytest.mark.parametrize("command", ["error", "clear"])
+@pytest.mark.windows_powershell
 def test_live_cli_check_raw_diagnostic_arguments_omit_model(command):
     arguments = _wrapper_arguments(command)
 
@@ -2910,6 +2971,7 @@ def test_live_cli_check_raw_diagnostic_arguments_omit_model(command):
     assert "--model" not in arguments
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_identify_retains_expected_model_guard():
     arguments = _wrapper_arguments("identify")
 
@@ -2918,6 +2980,7 @@ def test_live_cli_check_identify_retains_expected_model_guard():
     assert cli_request._target_core_request_for_args(args).runtime.expected_model_id == "keysight-e3646a"
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_model_aware_command_retains_expected_model_guard():
     arguments = _wrapper_arguments("output-state")
 
@@ -2934,6 +2997,7 @@ def test_live_cli_check_model_aware_command_retains_expected_model_guard():
         ("keysight-e3646a", "ASRL1::SIM::E3646A::INSTR"),
     ],
 )
+@pytest.mark.windows_powershell
 def test_every_maintained_live_suite_case_is_production_parser_compatible(
     tmp_path, target, resource
 ):
@@ -2972,6 +3036,7 @@ $records | ConvertTo-Json -Depth 12 -Compress
         ("@ivi", "@ivi", "custom_visa", "@ivi"),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_normalizes_backend_for_artifacts(value, backend, scope, argument):
     literal = "$null" if value is None else f'"{value}"'
     expected_argument = "$null" if argument is None else f'"{argument}"'
@@ -2991,6 +3056,7 @@ if ($fields.backend_argument -ne {expected_argument}) {{ throw "wrong backend ar
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_plan_artifact_redacts_resource_and_command_paths():
     resource = "TCPIP0::PLANONLY::E36312A::INSTR"
     result = _run_live_cli_check(
@@ -3029,6 +3095,7 @@ def test_live_cli_check_plan_artifact_redacts_resource_and_command_paths():
     assert "regression validation of an already Product-open exact scope" not in summary
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_shareable_plan_contains_no_private_runtime_material():
     resource = "USB0::SHAREABLE-CONTEXT::E36312A::INSTR"
     result = _run_live_cli_check(
@@ -3067,6 +3134,7 @@ def test_live_cli_check_shareable_plan_contains_no_private_runtime_material():
         ("keysight-e3646a", "ASRL", "ASRL1::SIM::E3646A::INSTR", "snapshot"),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_unsupported_explicit_suites_fail_before_live(target, connection, resource, suite):
     result = _run_live_cli_check(
         "-Target",
@@ -3084,6 +3152,7 @@ def test_live_cli_check_unsupported_explicit_suites_fail_before_live(target, con
     assert "Unsupported suite" in (result.stdout + result.stderr)
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_e3646a_full_plan_contains_software_sequence_not_native_list():
     result = _run_live_cli_check(
         "-Target",
@@ -3114,6 +3183,7 @@ def test_live_cli_check_e3646a_full_plan_contains_software_sequence_not_native_l
     assert "sequence-unsupported-completion-pulse-dry-run" in case_names
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_e3646a_log_no_longer_requires_candidate_admission() -> None:
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -3144,6 +3214,7 @@ def test_live_cli_check_full_suite_composition_is_model_aware():
     assert 'suites = @("readonly", "safe-state", "output", "protection", "snapshot", "software-sequence")' in script
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_log_validator_rejects_incomplete_or_error_artifacts(tmp_path):
     header = (
         "timestamp,resource,resource_alias,model,serial,channel,programmed_voltage,"
@@ -3204,6 +3275,7 @@ if ($failures.Count -eq 0) {{ throw "expected log validation failure" }}
         assert result.returncode == 0, name + ": " + result.stdout + result.stderr
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_target_metadata_matches_core_registries():
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -3264,6 +3336,7 @@ $TargetMetadata | ConvertTo-Json -Depth 8 -Compress
         ),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
     target: str,
     connection: str,
@@ -3343,6 +3416,7 @@ def test_live_cli_check_full_plan_reports_expanded_software_sequence_suites(
         ("keysight-e3646a", "ASRL", "ASRL1::SIM::E3646A::INSTR"),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_software_sequence_plan_only_supported_for_active_targets(target: str, connection: str, resource: str):
     result = _run_live_cli_check(
         "-Target",
@@ -3410,6 +3484,7 @@ def test_live_cli_check_software_sequence_plan_only_supported_for_active_targets
         ),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_software_sequence_expected_failures_are_reported_as_passed(
     target: str,
     connection: str,
@@ -3602,6 +3677,7 @@ print(json.dumps(payload))
         ({"errors": {"code": -200}}, "failed"),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_error_evidence_is_fail_closed_in_report(
     tmp_path, data, expected_result
 ) -> None:
@@ -3705,6 +3781,7 @@ $clearRecord = Invoke-ValidationCommand -Case $case
     return json.loads(result.stdout.strip())
 
 
+@pytest.mark.windows_powershell
 def test_e3646a_null_identity_placeholder_does_not_break_cleanup_error_evidence(
     tmp_path,
 ):
@@ -3724,6 +3801,7 @@ def test_e3646a_null_identity_placeholder_does_not_break_cleanup_error_evidence(
     assert "Cleanup could not verify the instrument error queue." not in run["failures"]
 
 
+@pytest.mark.windows_powershell
 def test_e3646a_non_null_malformed_identity_placeholder_fails_closed(tmp_path):
     run = _run_e3646a_null_identity_cleanup_fixture(
         tmp_path, malformed_identity=True, cleanup=False
@@ -3778,6 +3856,7 @@ Write-Output (Join-Path $script:ShareableArtifactDir "report.json")
     return _run_powershell_command(command, env=env)
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_shareable_artifacts_recursively_redact_private_live_fixture(tmp_path):
     fixture_path = _cleanup_fixture_cli_path(tmp_path)
     result = _run_state_changing_fixture(
@@ -3831,6 +3910,7 @@ def test_live_cli_check_shareable_artifacts_recursively_redact_private_live_fixt
         (True, [{"channel": 1, "enabled": False}, {"channel": 2, "enabled": False}, {"channel": 3, "enabled": False}], ["-200,Instrument error"], "partial", "Cleanup finished with instrument errors."),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_required_state_cleanup_incomplete_forces_failed_result(
     tmp_path,
     safe_off_ok,
@@ -3865,6 +3945,7 @@ def test_live_cli_check_required_state_cleanup_incomplete_forces_failed_result(
         ({"error_queue_ok": False}, "Cleanup could not verify the instrument error queue."),
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_required_state_cleanup_command_failures_are_not_passed(
     tmp_path,
     fixture_kwargs,
@@ -3884,6 +3965,7 @@ def test_live_cli_check_required_state_cleanup_command_failures_are_not_passed(
     assert report["failures"].count(failure_fragment) == 1
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_restore_false_is_truthfully_not_cleanup_verified(tmp_path):
     fixture_path = _cleanup_fixture_cli_path(tmp_path)
     result = _run_state_changing_fixture(
@@ -3901,6 +3983,7 @@ def test_live_cli_check_restore_false_is_truthfully_not_cleanup_verified(tmp_pat
     assert report["result"] == "passed_without_cleanup_verification"
 
 
+@pytest.mark.windows_powershell
 def test_live_cli_check_cleanup_lifecycle_statuses_are_distinct():
     command = r"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -3945,6 +4028,7 @@ $skipped = New-CleanupEvidence -ValidationMode "live"
         "keysight-e36313a",
     ],
 )
+@pytest.mark.windows_powershell
 def test_live_cli_check_noncanonical_or_inactive_targets_fail_before_live(target: str):
     result = _run_live_cli_check(
         "-Target",
@@ -4227,6 +4311,7 @@ $record = Invoke-ValidationCommand -Case $case
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
+@pytest.mark.windows_powershell
 def test_generated_artifact_fingerprints_use_dotnet_sha256_and_preserve_nonfile_shapes(tmp_path):
     file_path = tmp_path / "artifact.txt"
     missing_path = tmp_path / "missing.txt"
@@ -4284,6 +4369,7 @@ $directoryFingerprint = @(Get-GeneratedArtifactFingerprints -Paths @("{directory
     assert fingerprints["directory"]["sha256"] is None
 
 
+@pytest.mark.windows_powershell
 def test_tcpip_first_pre_io_open_failure_recovers_once_with_attempt_artifacts(tmp_path):
     run = _run_tcpip_session_fixture(tmp_path, mode="recover")
     record = run["record"]
@@ -4308,6 +4394,7 @@ def test_tcpip_first_pre_io_open_failure_recovers_once_with_attempt_artifacts(tm
     assert '"attempt": 2' in (private_dir / "live-fixture-clear-attempt-2.stdout.txt").read_text(encoding="utf-16")
 
 
+@pytest.mark.windows_powershell
 def test_tcpip_command_specific_connection_code_can_recover(tmp_path):
     run = _run_tcpip_session_fixture(
         tmp_path,
@@ -4320,6 +4407,7 @@ def test_tcpip_command_specific_connection_code_can_recover(tmp_path):
     assert run["record"]["recovered_after_open_failure"] is True
 
 
+@pytest.mark.windows_powershell
 def test_recovered_cli_execution_can_still_fail_final_payload_assertions(tmp_path):
     run = _run_tcpip_session_fixture(
         tmp_path,
@@ -4337,6 +4425,7 @@ def test_recovered_cli_execution_can_still_fail_final_payload_assertions(tmp_pat
     assert record["assertion_failures"]
 
 
+@pytest.mark.windows_powershell
 def test_tcpip_persistent_open_failure_fails_after_one_recovery(tmp_path):
     run = _run_tcpip_session_fixture(tmp_path, mode="persistent")
     record = run["record"]
@@ -4350,6 +4439,7 @@ def test_tcpip_persistent_open_failure_fails_after_one_recovery(tmp_path):
 
 
 @pytest.mark.parametrize("transport", ["usb", "asrl"])
+@pytest.mark.windows_powershell
 def test_non_tcpip_open_failure_does_not_retry_or_sleep(tmp_path, transport):
     run = _run_tcpip_session_fixture(tmp_path, mode="persistent", transport=transport)
 
@@ -4370,6 +4460,7 @@ def test_non_tcpip_open_failure_does_not_retry_or_sleep(tmp_path, transport):
         ("payload-assertion", "output-state", False, "output-state"),
     ],
 )
+@pytest.mark.windows_powershell
 def test_tcpip_non_pre_io_failures_do_not_retry(
     tmp_path, mode, command_name, state_changing, validation_kind
 ):
@@ -4386,6 +4477,7 @@ def test_tcpip_non_pre_io_failures_do_not_retry(
     assert run["sleeps"] == []
 
 
+@pytest.mark.windows_powershell
 def test_tcpip_generated_artifact_change_blocks_recovery(tmp_path):
     run = _run_tcpip_session_fixture(
         tmp_path,
@@ -4401,6 +4493,7 @@ def test_tcpip_generated_artifact_change_blocks_recovery(tmp_path):
 
 
 @pytest.mark.parametrize("command_name", ["log", "snapshot"])
+@pytest.mark.windows_powershell
 def test_tcpip_functional_generated_outputs_are_not_attempt_isolated_or_overwritten(
     tmp_path, command_name
 ):
@@ -4421,6 +4514,7 @@ def test_tcpip_functional_generated_outputs_are_not_attempt_isolated_or_overwrit
     "target",
     ["keysight-e36312a", "keysight-edu36311a", "keysight-e3646a"],
 )
+@pytest.mark.windows_powershell
 def test_tcpip_recovery_semantics_are_model_independent(tmp_path, target):
     run = _run_tcpip_session_fixture(tmp_path, mode="recover", target=target)
 
@@ -4430,6 +4524,7 @@ def test_tcpip_recovery_semantics_are_model_independent(tmp_path, target):
     assert run["sleeps"] == [500]
 
 
+@pytest.mark.windows_powershell
 def test_tcpip_preflight_case_does_not_retry_or_sleep(tmp_path):
     run = _run_tcpip_session_fixture(
         tmp_path,
@@ -4491,6 +4586,7 @@ Invoke-SafeOffCleanup -Role "final"
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
+@pytest.mark.windows_powershell
 def test_tcpip_cleanup_recovers_safe_off_and_settles_each_subprocess_once(tmp_path):
     run = _run_tcpip_cleanup_fixture(tmp_path, mode="cleanup-recover")
     safe_off, output_state, error_queue = run["commands"]
@@ -4504,6 +4600,7 @@ def test_tcpip_cleanup_recovers_safe_off_and_settles_each_subprocess_once(tmp_pa
     assert run["sleeps"] == [500, 500, 500]
 
 
+@pytest.mark.windows_powershell
 def test_tcpip_cleanup_persistent_safe_off_failure_remains_failed(tmp_path):
     run = _run_tcpip_cleanup_fixture(tmp_path, mode="cleanup-persistent")
     safe_off = run["commands"][0]
@@ -4527,6 +4624,7 @@ def test_trigger_helper_uses_settle_coordinator_without_cli_recovery_contract():
     assert "attempt-" not in helper_body
 
 
+@pytest.mark.windows_powershell
 def test_redaction_keeps_hyphenated_command_identifiers_and_rejects_prose_idn_guess():
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
