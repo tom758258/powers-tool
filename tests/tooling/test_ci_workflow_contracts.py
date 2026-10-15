@@ -6,6 +6,8 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 import re
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "tests.yml"
@@ -46,7 +48,8 @@ def test_workflow_keeps_tests_automatic_and_windows_jobs_conditional() -> None:
     assert "tests/tooling/test_ci_workflow_contracts.py" in workflow
     for job in (
         "quality-webui", "pytest-linux", "pytest-windows",
-        "detect-validation-changes", "windows-validation", "windows-packaging-smoke",
+        "detect-validation-changes", "windows-validation", "windows-live-validation",
+        "windows-release-acceptance", "windows-packaging-smoke",
     ):
         assert f"  {job}:" in workflow
     for name in ("validation", "packaging", "release_layout"):
@@ -54,6 +57,26 @@ def test_workflow_keeps_tests_automatic_and_windows_jobs_conditional() -> None:
     assert "needs.detect-validation-changes.outputs.validation == 'true'" in workflow
     assert "needs.detect-validation-changes.outputs.packaging == 'true'" in workflow
     assert "needs.detect-validation-changes.outputs.release_layout" in workflow
+
+
+def test_windows_powershell_jobs_are_focused_and_independent() -> None:
+    jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    owners = {
+        "windows-validation": "tests/cli/test_cli_wrappers.py",
+        "windows-live-validation": "tests/cli/test_live_cli_check_script.py",
+        "windows-release-acceptance": "tests/packaging/test_release_acceptance.py",
+    }
+    for job_id, test_file in owners.items():
+        job = jobs[job_id]
+        assert job["needs"] == "detect-validation-changes"
+        assert job["if"] == "needs.detect-validation-changes.outputs.validation == 'true'"
+        assert job["runs-on"] == "windows-latest"
+        assert any(step.get("name") == "Require Windows PowerShell" for step in job["steps"])
+        command = job["steps"][-1]["run"]
+        assert "--strict-markers" in command
+        assert '-m "windows_powershell and not hardware"' in command
+        assert f"--basetemp .tmp_tests/ci-{job_id}" in command
+        assert command.split()[-1] == test_file
 
 
 def test_change_paths_only_start_relevant_windows_jobs() -> None:
@@ -79,6 +102,7 @@ def test_change_paths_only_start_relevant_windows_jobs() -> None:
         "scripts/powers-tool-windows.spec": (False, True, False),
         "scripts/ci_packaging_smoke.py": (False, True, True),
         "tests/cli/test_cli_wrappers.py": (True, False, False),
+        "tests/cli/test_live_cli_check_script.py": (True, False, False),
         "tests/packaging/test_release_acceptance.py": (True, False, False),
         "tests/packaging/inspect_windows_bundle.py": (False, True, False),
         "docs/help/help.css": (False, True, False),
