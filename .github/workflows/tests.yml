@@ -248,11 +248,61 @@ jobs:
         run: uv sync --python 3.13 --all-extras --locked --link-mode=copy
       - name: Prepare pytest temp root
         run: New-Item -ItemType Directory -Force .tmp_tests | Out-Null
-      - name: Wrapper, preflight and script contracts (no real hardware)
+      - name: Wrapper and preflight contracts (no real hardware)
         run: >-
           .\.venv\Scripts\python.exe -m pytest -q -rs --strict-markers
           -m "windows_powershell and not hardware"
-          --basetemp .tmp_tests/ci-windows-validation tests
+          --basetemp .tmp_tests/ci-windows-validation tests/cli/test_cli_wrappers.py
+
+  windows-live-validation:
+    name: Windows Live Validation script contracts
+    needs: detect-validation-changes
+    if: needs.detect-validation-changes.outputs.validation == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Require Windows PowerShell
+        run: |
+          if (-not (Get-Command powershell.exe -ErrorAction SilentlyContinue)) { throw "Windows PowerShell is required" }
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+      - name: Install locked dependencies
+        run: uv sync --python 3.13 --all-extras --locked --link-mode=copy
+      - name: Prepare pytest temp root
+        run: New-Item -ItemType Directory -Force .tmp_tests | Out-Null
+      - name: Live Validation script contracts (no real hardware)
+        run: >-
+          .\.venv\Scripts\python.exe -m pytest -q -rs --strict-markers
+          -m "windows_powershell and not hardware"
+          --basetemp .tmp_tests/ci-windows-live-validation tests/cli/test_live_cli_check_script.py
+
+  windows-release-acceptance:
+    name: Windows Release Acceptance script contracts
+    needs: detect-validation-changes
+    if: needs.detect-validation-changes.outputs.validation == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Require Windows PowerShell
+        run: |
+          if (-not (Get-Command powershell.exe -ErrorAction SilentlyContinue)) { throw "Windows PowerShell is required" }
+      - name: Install uv
+        run: python -m pip install --upgrade uv
+      - name: Install locked dependencies
+        run: uv sync --python 3.13 --all-extras --locked --link-mode=copy
+      - name: Prepare pytest temp root
+        run: New-Item -ItemType Directory -Force .tmp_tests | Out-Null
+      - name: Release Acceptance script contracts (no real hardware)
+        run: >-
+          .\.venv\Scripts\python.exe -m pytest -q -rs --strict-markers
+          -m "windows_powershell and not hardware"
+          --basetemp .tmp_tests/ci-windows-release-acceptance tests/packaging/test_release_acceptance.py
 
   windows-packaging-smoke:
     name: Windows real packaging smoke
