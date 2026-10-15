@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -42,14 +41,7 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
           PUSH_SHA: ${{ github.sha }}
-        run: |
-          if [ "$EVENT_NAME" = workflow_dispatch ]; then
-            base=$(git merge-base origin/main HEAD)
-            test -n "$base" || { echo "::error::No trusted merge base"; exit 1; }
-            git diff --check "$base" HEAD
-          else
-            python scripts/check_changed_whitespace.py
-          fi
+        run: python scripts/check_changed_whitespace.py
       - name: Run Ruff
         run: ./.venv/bin/python -m ruff check src tests
       - name: Check tracked WebUI JavaScript
@@ -70,7 +62,7 @@ jobs:
         run: >-
           ./.venv/bin/python -m pytest -q
           --basetemp .tmp_tests/ci-change-detection
-          tests/tooling/test_ci_change_detection.py
+          tests/tooling/test_ci_workflow_contracts.py
 
   pytest-linux:
     name: Linux Python ${{ matrix.python-version }}
@@ -176,29 +168,66 @@ jobs:
           tests/packaging/test_packaging_identity.py
 
   detect-validation-changes:
-    name: Detect validation changes
+    name: Detect Windows validation and packaging changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
-      validation: ${{ steps.detect.outputs.validation }}
-      packaging: ${{ steps.detect.outputs.packaging }}
-      release-layout: ${{ steps.detect.outputs.release-layout }}
+      validation: ${{ steps.filter.outputs.validation }}
+      packaging: ${{ steps.filter.outputs.packaging }}
+      release_layout: ${{ steps.filter.outputs.release_layout }}
     steps:
       - uses: actions/checkout@v6
+      - name: Detect Windows validation inputs
+        id: filter
+        uses: dorny/paths-filter@v4
         with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-      - name: Classify changes (fail closed)
-        id: detect
-        env:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          GITHUB_SHA: ${{ github.sha }}
-        run: python scripts/ci_change_detection.py
+          base: ${{ github.event.repository.default_branch }}
+          filters: |
+            validation:
+              - 'src/powers_tool_core/*.py'
+              - 'src/powers_tool_core/**/*.py'
+              - 'src/powers_tool_cli/*.py'
+              - 'src/powers_tool_cli/**/*.py'
+              - 'scripts/preflight-cli.ps1'
+              - 'scripts/live-cli-check.ps1'
+              - 'scripts/_validation_helpers.ps1'
+              - 'scripts/batch-validation.ps1'
+              - 'scripts/e36312a_trigger_validation.py'
+              - 'scripts/release-acceptance.ps1'
+              - 'tests/cli/test_cli_wrappers.py'
+              - 'tests/cli/test_live_cli_check_script.py'
+              - 'tests/packaging/test_release_acceptance.py'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/tests.yml'
+            packaging:
+              - 'src/powers_tool_core/**'
+              - 'src/powers_tool_cli/**'
+              - 'src/powers_tool_webui/**'
+              - 'desktop/**'
+              - 'scripts/build_windows_bundle.ps1'
+              - 'scripts/build_desktop.ps1'
+              - 'scripts/build_release.ps1'
+              - 'scripts/powers-tool-windows.spec'
+              - 'scripts/ci_packaging_smoke.py'
+              - 'tests/packaging/inspect_*.py'
+              - 'tests/packaging/_inspector_utils.py'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/tests.yml'
+              - '.github/workflows/build-windows.yml'
+              - 'docs/help/**'
+              - 'scripts/generate_help.py'
+            release_layout:
+              - 'desktop/package.json'
+              - 'desktop/package-lock.json'
+              - 'scripts/build_release.ps1'
+              - 'scripts/ci_packaging_smoke.py'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - '.github/workflows/build-windows.yml'
 
   windows-validation:
     name: Windows PowerShell validation contracts
@@ -244,17 +273,17 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --python 3.13 --all-extras --locked --link-mode=copy
       - name: Build Desktop once
-        if: needs.detect-validation-changes.outputs.release-layout != 'true'
+        if: needs.detect-validation-changes.outputs.release_layout != 'true'
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_desktop.ps1
       - name: Build release layout once
-        if: needs.detect-validation-changes.outputs.release-layout == 'true'
+        if: needs.detect-validation-changes.outputs.release_layout == 'true'
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_release.ps1
       - name: Inspect real outputs and smoke executables
         shell: pwsh
         run: |
           $arguments = @('scripts/ci_packaging_smoke.py')
-          if ('${{ needs.detect-validation-changes.outputs.release-layout }}' -eq 'true') {
-            $arguments += '--release-layout'
+          if ('${{ needs.detect-validation-changes.outputs.release_layout }}' -eq 'true') {
+            $arguments += '--release_layout'
           }
           & .\.venv\Scripts\python.exe @arguments
           if ($LASTEXITCODE -ne 0) { throw "Packaging smoke failed ($LASTEXITCODE)" }
