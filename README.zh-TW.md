@@ -82,7 +82,6 @@ docs/
   webui/               WebUI 與 Desktop 文件
   contracts/           公開 protocol 與 workflow contracts
   help/                bundled Help presentation 與維護
-  skill/               選用的 orchestration skill
   architecture/
   CONTRIBUTING.md
   testing-guidelines.md
@@ -365,14 +364,6 @@ tests 仍保留給 release validation，不屬於一般 pull-request CI。
 Scripted no-hardware、live validation 與 release acceptance 工作流程記錄在
 [CLI README](docs/cli/README.zh-TW.md#scripted-validation)。Hardware validation
 屬於明確 opt-in，且需要使用者提供 VISA resource。
-
-## Codex／Agent Skill
-
-專案提供選用、需手動安裝的
-[Powers Tool CLI 調度 Skill](docs/skill/README.zh-TW.md)，供合約導向的 CLI
-與 Power Worker workflow 使用。它是附屬範本，不是 Powers Tool runtime
-功能，也不包含在 Python package、standalone executable、build、release 或
-CI 中。
 
 ## 文件
 

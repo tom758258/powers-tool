@@ -22,7 +22,6 @@ docs/
   webui/
   contracts/
   help/
-  skill/
   architecture/
   CONTRIBUTING.md
   testing-guidelines.md
@@ -79,8 +78,6 @@ Documentation ownership is divided as follows:
   machine-facing contracts.
 - `docs/help/` contains bundled Help presentation and maintenance ownership;
   see [`docs/help/README.md`](../help/README.md).
-- `docs/skill/` contains optional Powers Tool orchestration skill
-  documentation and assets.
 - `docs/architecture/` contains durable repository and component architecture
   documentation.
 - `docs/CONTRIBUTING.md` contains contributor workflow and durable validation

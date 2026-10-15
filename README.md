@@ -92,7 +92,6 @@ docs/
   webui/               WebUI and Desktop documentation
   contracts/           public protocol and workflow contracts
   help/                bundled Help presentation and maintenance
-  skill/               optional orchestration skill
   architecture/
   CONTRIBUTING.md
   testing-guidelines.md
@@ -392,14 +391,6 @@ acceptance tests remain release validation rather than ordinary pull-request CI.
 For scripted validation, live hardware checks, and release acceptance, see the
 [CLI README](docs/cli/README.md#scripted-validation). Hardware validation is
 explicit opt-in and requires a user-provided VISA resource.
-
-## Codex / Agent Skill
-
-The project publishes an optional, manually installed
-[Powers Tool CLI Orchestration Skill](docs/skill/README.md) for contract-aware
-CLI and Power Worker workflows. It is a companion template, not a Powers Tool
-runtime feature, and is not included with Python packages, standalone
-executables, builds, releases, or CI.
 
 ## Documentation
 
