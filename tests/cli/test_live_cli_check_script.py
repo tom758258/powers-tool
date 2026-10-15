@@ -845,6 +845,7 @@ def _snapshot_workflow_fixture_cli_path(tmp_path: Path) -> Path:
     (fixture_cli / "cli.py").write_text(
         r'''
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -923,8 +924,26 @@ if command == "snapshot":
         snapshot_path = Path(sys.argv[sys.argv.index("--snapshot-json") + 1])
         mutated = snapshot_path.name == "restore-off-snapshot-b.json"
         document = snapshot_document(mutated=mutated)
+        failure = os.environ.get("SNAPSHOT_FAILURE", "none")
+        if snapshot_path.name == "restore-off-snapshot-c.json":
+            if failure == "mismatch":
+                document["readback"][0]["setpoints"]["voltage"] = 0.75
+            elif failure == "assertion-error":
+                snapshot_path.write_text("{invalid", encoding="utf-8")
+            elif failure in {"cli", "json"}:
+                if failure == "cli":
+                    payload = {"ok": False, "error": {"code": "fixture", "message": "failed"},
+                               "execution": {"mode": "real", "dry_run": False, "hardware_touched": False}, "data": {}}
+                    text = json.dumps(payload)
+                else:
+                    text = "{invalid"
+                if save_path is not None:
+                    save_path.write_text(text, encoding="utf-8")
+                print(text)
+                sys.exit(3)
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-        snapshot_path.write_text(json.dumps(document), encoding="utf-8")
+        if failure != "assertion-error" or snapshot_path.name != "restore-off-snapshot-c.json":
+            snapshot_path.write_text(json.dumps(document), encoding="utf-8")
         data = document
     else:
         data = snapshot_document()
@@ -979,9 +998,14 @@ print(json.dumps(payload))
     return tmp_path
 
 
-@pytest.mark.parametrize("debug_artifacts", [False, True], ids=["minimal", "debug"])
+@pytest.mark.parametrize(
+    ("debug_artifacts", "failure"),
+    [(False, "none"), (True, "none"), (False, "mismatch"), (False, "cli"),
+     (False, "json"), (False, "assertion-error")],
+    ids=["minimal", "debug", "mismatch", "cli-failure", "invalid-json", "assertion-error"],
+)
 @pytest.mark.windows_powershell
-def test_actual_snapshot_cases_complete_full_workflow(tmp_path, debug_artifacts):
+def test_actual_snapshot_cases_complete_full_workflow(tmp_path, debug_artifacts, failure):
     fixture_path = _snapshot_workflow_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
     command = rf'''
@@ -1017,20 +1041,28 @@ foreach ($case in @(Get-SnapshotCases -Model "keysight-e36312a" -Live $true)) {{
     records = $script:CommandRecords.ToArray()
 }} | ConvertTo-Json -Depth 20 -Compress
 '''
-    result = _run_powershell_command(command, env={"PYTHONPATH": str(fixture_path)})
+    result = _run_powershell_command(
+        command, env={"PYTHONPATH": str(fixture_path), "SNAPSHOT_FAILURE": failure}
+    )
 
     assert result.returncode == 0, result.stdout + result.stderr
     run = json.loads(result.stdout.strip())
-    assert run["failures"] == []
+    assert bool(run["failures"]) == (failure != "none")
     assert run["executed"][-1] == "restore-error-queue"
     records = {record["name"]: record for record in run["records"]}
     for name in ("restore-off-save-b", "restore-off-execute", "restore-off-save-c"):
-        assert records[name]["result"] == "passed"
-        assert records[name]["identity_observed"] is True
+        assert records[name]["result"] == ("failed" if name == "restore-off-save-c" and failure != "none" else "passed")
+        assert records[name]["identity_observed"] is (name != "restore-off-save-c" or failure not in {"cli", "json"})
     assert records["restore-on-readback"]["result"] == "passed"
     assert records["restore-on-readback"]["identity_observed"] is False
     assert records["restore-on-readback"]["assertion_failures"] == []
-    for name in ("restore-off-save-b", "restore-off-save-c"):
+    compared = failure in {"none", "mismatch"}
+    comparison = records["restore-off-save-c"]
+    assert comparison["comparison_result"] == ({"none": "matched", "mismatch": "mismatch"}.get(failure))
+    assert comparison["validation_evidence"]["snapshot_sections_checked"] == (
+        ["readback", "protection_settings"] if compared else []
+    )
+    for name in ("restore-off-save-b",):
         assert records[name]["validation_evidence"]["snapshot_sections_checked"] == [
             "readback", "protection_settings"
         ]
@@ -1041,10 +1073,13 @@ foreach ($case in @(Get-SnapshotCases -Model "keysight-e36312a" -Live $true)) {{
     }
     if not debug_artifacts:
         assert all(record["json_path"] is None for record in records.values())
-        assert {p.name for p in output_dir.rglob("*") if p.is_file()} == {
+        expected_files = {
             "snapshot-live.json", "restore-off-snapshot-a.json", "restore-off-snapshot-b.json",
             "restore-off-snapshot-c.json", "restore-on-snapshot.json",
         }
+        if failure in {"cli", "json"}:
+            expected_files.remove("restore-off-snapshot-c.json")
+        assert {p.name for p in output_dir.rglob("*") if p.is_file()} == expected_files
 
 
 def test_live_cli_check_uses_candidate_scope_names_only() -> None:
@@ -3892,17 +3927,26 @@ def _run_state_changing_fixture(
     expect_result: str = "passed",
     env: dict[str, str],
     debug_artifacts: bool = True,
-    fail_report: bool = False,
+    fail_report: bool | str = False,
 ) -> subprocess.CompletedProcess[str]:
-    report_fault = r'''
-function Test-ValidationShareablePair {
+    report_fault = rf'''
+$pairValidator = ${{function:Test-ValidationShareablePair}}
+function Test-ValidationShareablePair {{
     param($Report, $Summary)
-    [pscustomobject]@{
+    [pscustomobject]@{{
         cleanup_status = $script:CleanupEvidence.status
-        cleanup_commands = @($script:CommandRecords | Select-Object -Last 3 | ForEach-Object { $_.name })
-    } | ConvertTo-Json -Compress
-    throw "private fixture report failure"
-}
+        cleanup_commands = @($script:CommandRecords | Select-Object -Last 3 | ForEach-Object {{ $_.name }})
+    }} | ConvertTo-Json -Compress
+    $data = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+    switch ("{fail_report}") {{
+        "status-only" {{ $data = [pscustomobject]@{{ status = "passed" }} }}
+        "missing-cases" {{ $data.PSObject.Properties.Remove("cases") }}
+        "missing-command-evidence" {{ $data.commands[0].PSObject.Properties.Remove("validation_evidence") }}
+        default {{ throw "private fixture report failure" }}
+    }}
+    Write-Utf8NoBomText -LiteralPath $Report -Text ($data | ConvertTo-Json -Depth 30)
+    & $pairValidator -Report $Report -Summary $Summary
+}}
 ''' if fail_report else ""
     command = rf"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
@@ -4820,7 +4864,7 @@ def test_debug_plan_only_retains_full_attempt_files() -> None:
                 assert (Path.cwd() / attempt[field]).is_file()
 
 
-@pytest.mark.parametrize("failure", ["none", "command", "report"])
+@pytest.mark.parametrize("failure", ["none", "command", "report", "status-only", "missing-cases", "missing-command-evidence"])
 @pytest.mark.windows_powershell
 def test_minimal_live_fixture_retains_reports_or_fails_closed_after_cleanup(tmp_path, failure):
     fixture_path = _cleanup_fixture_cli_path(tmp_path, safe_off_ok=failure != "command")
@@ -4834,13 +4878,13 @@ def test_minimal_live_fixture_retains_reports_or_fails_closed_after_cleanup(tmp_
     result = _run_state_changing_fixture(
         output_dir,
         debug_artifacts=False,
-        fail_report=failure == "report",
+        fail_report=failure if failure not in {"none", "command"} else False,
         expect_result="failed" if failure == "command" else "passed",
         env={"PYTHONPATH": str(fixture_path)},
     )
     assert sentinel.read_text(encoding="utf-8") == "another run"
     files = {p.relative_to(output_dir).as_posix() for p in output_dir.rglob("*") if p.is_file()}
-    if failure == "report":
+    if failure not in {"none", "command"}:
         assert result.returncode == 1, result.stdout + result.stderr
         assert files == {"private/error-summary.md"}
         cleanup = json.loads(result.stdout.strip())

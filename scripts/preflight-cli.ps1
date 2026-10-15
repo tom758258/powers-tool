@@ -154,6 +154,8 @@ if (-not $outputBase.StartsWith(($temporaryBase + [System.IO.Path]::DirectorySep
     throw "Preflight output must stay under .tmp_tests."
 }
 $runRoot = Join-Path $outputBase ("run_" + (Get-Date -Format "yyyyMMdd_HHmmss_fff") + "_" + [guid]::NewGuid().ToString("N").Substring(0,8))
+Assert-ValidationRunPath -RunRoot $outputBase -TmpRoot $TmpRoot
+Assert-ValidationRunPath -RunRoot $runRoot -TmpRoot $TmpRoot
 New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
 $python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $script:CliExecutable = Join-Path $RepoRoot ".venv\Scripts\powers-tool.exe"

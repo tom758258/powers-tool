@@ -379,15 +379,35 @@ def test_preflight_rejects_unsupported_suite_and_target() -> None:
     assert "not a deep preflight representative" in unsupported_deep_target.stderr
 
 
+@pytest.mark.parametrize("failed", [False, True], ids=["passed", "failed"])
 @pytest.mark.windows_powershell
-def test_preflight_minimal_retains_two_reports_per_model() -> None:
+def test_preflight_minimal_retains_two_reports_per_model(failed) -> None:
+    if POWERSHELL is None:
+        pytest.skip("Windows PowerShell is required")
     output = ROOT / ".tmp_tests" / "pytest_cli_preflight" / uuid4().hex
-    result = _run(
-        "scripts/preflight-cli.ps1",
-        "-Target", "all", "-Suite", "smoke",
-        "-OutputRoot", str(output.relative_to(ROOT)),
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+    if failed:
+        command = rf'''
+function global:ConvertFrom-Json {{
+    [CmdletBinding()] param([Parameter(ValueFromPipeline=$true)][string]$InputObject)
+    process {{
+        $value = Microsoft.PowerShell.Utility\ConvertFrom-Json -InputObject $InputObject
+        if ($null -ne $value.PSObject.Properties["ok"]) {{ $value.ok = $false }}
+        return $value
+    }}
+}}
+& .\scripts\preflight-cli.ps1 -Target all -Suite smoke -OutputRoot "{output}"
+'''
+        result = subprocess.run(
+            [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+    else:
+        result = _run(
+            "scripts/preflight-cli.ps1",
+            "-Target", "all", "-Suite", "smoke",
+            "-OutputRoot", str(output.relative_to(ROOT)),
+        )
+    assert result.returncode == int(failed), result.stdout + result.stderr
     run = next(output.glob("run_*"))
     assert not (run / "report.json").exists()
     reports = sorted(run.glob("*/shareable/report.json"))
@@ -395,12 +415,81 @@ def test_preflight_minimal_retains_two_reports_per_model() -> None:
     for report_path in reports:
         report = json.loads(report_path.read_text(encoding="utf-8"))
         assert report["artifact_mode"] == "minimal"
-        assert report["status"] == "passed"
+        assert report["status"] == ("failed" if failed else "passed")
         assert report["hardware_touched"] is False
         assert report["commands"]
         assert all(command["json_path"] is None for command in report["commands"])
         assert all(command["assertions"] for command in report["commands"])
     assert len([p for p in run.rglob("*") if p.is_file()]) == len(reports) * 2
+
+
+@pytest.mark.parametrize(
+    ("surface", "boundary"),
+    [("live", "normal"), ("live", "outside"), ("live", "ancestor"),
+     ("live", "run"), ("live", "child"), ("preflight", "outside"),
+     ("preflight", "ancestor"), ("preflight", "output-root")],
+)
+@pytest.mark.windows_powershell
+def test_validation_output_paths_are_checked_before_writing(surface, boundary) -> None:
+    if POWERSHELL is None:
+        pytest.skip("Windows PowerShell is required")
+    parent = ROOT / ".tmp_tests" / "pytest_output_paths" / uuid4().hex
+    parent.mkdir(parents=True)
+    target = parent / "target"
+    target.mkdir()
+    sentinel = target / "keep.txt"
+    sentinel.write_text("outside evidence", encoding="utf-8")
+    sibling = parent / "sibling-run"
+    sibling.mkdir()
+    (sibling / "keep.txt").write_text("another run", encoding="utf-8")
+    output = parent / "run"
+    link = None
+    if boundary == "outside":
+        output = ROOT / ("unsafe-validation-" + uuid4().hex)
+    elif boundary in {"ancestor", "run", "output-root", "child"}:
+        link = parent / "link"
+        if boundary == "child":
+            output.mkdir()
+            (output / "original.txt").write_text("current evidence", encoding="utf-8")
+            link = output / "link"
+        create = subprocess.run(
+            [POWERSHELL, "-NoProfile", "-Command",
+             f"New-Item -ItemType Junction -Path '{link}' -Target '{target}' -ErrorAction Stop | Out-Null"],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+        assert create.returncode == 0, create.stdout + create.stderr
+        if boundary != "child":
+            output = link / "new-output" if boundary == "ancestor" else link
+    else:
+        output.mkdir()
+        (output / "old.txt").write_text("old current run", encoding="utf-8")
+    if surface == "live":
+        command = rf'''
+$env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
+. .\scripts\live-cli-check.ps1
+try {{ Reset-OutputDirectory -Path "{output}" -Root $TmpRoot | Out-Null }} catch {{ exit 1 }}
+exit 0
+'''
+    else:
+        command = rf'& .\scripts\preflight-cli.ps1 -Target keysight-e36312a -Suite smoke -OutputRoot "{output}"'
+    try:
+        result = subprocess.run(
+            [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+        assert result.returncode == (0 if boundary == "normal" else 1), result.stdout + result.stderr
+        assert sentinel.read_text(encoding="utf-8") == "outside evidence"
+        assert {p.relative_to(target).as_posix() for p in target.rglob("*")} == {"keep.txt"}
+        assert (sibling / "keep.txt").read_text(encoding="utf-8") == "another run"
+        if boundary == "normal":
+            assert list(output.iterdir()) == []
+        elif boundary == "child":
+            assert (output / "original.txt").read_text(encoding="utf-8") == "current evidence"
+        elif boundary in {"ancestor", "outside"}:
+            assert not output.exists()
+    finally:
+        if link is not None:
+            link.rmdir()
 
 
 @pytest.mark.windows_powershell
@@ -531,8 +620,9 @@ def test_shareable_generation_failure_keeps_only_safe_summary_in_current_run(bou
     assert "{invalid" not in failure_text
 
 
+@pytest.mark.parametrize("fault", ["json", "status-only", "missing-commands", "missing-assertions"])
 @pytest.mark.windows_powershell
-def test_preflight_report_generation_failure_is_fail_closed() -> None:
+def test_preflight_report_generation_failure_is_fail_closed(fault) -> None:
     if POWERSHELL is None:
         pytest.skip("Windows PowerShell is required")
     output = ROOT / ".tmp_tests" / "pytest_preflight_report_failure" / uuid4().hex
@@ -548,7 +638,13 @@ function global:ConvertTo-Json {{
         $json = Microsoft.PowerShell.Utility\ConvertTo-Json -InputObject $InputObject -Depth $Depth -Compress:$Compress
         if ($json -match '"kind"\s*:\s*"powers-tool-cli-preflight"') {{
             [Console]::Out.WriteLine("fixture-report-status:" + $InputObject.status)
-            return "{{invalid fixture-private-data"
+            switch ("{fault}") {{
+                "json" {{ return "{{invalid fixture-private-data" }}
+                "status-only" {{ return '{{"status":"passed"}}' }}
+                "missing-commands" {{ $InputObject.Remove("commands") }}
+                "missing-assertions" {{ $InputObject.commands[0].PSObject.Properties.Remove("assertions") }}
+            }}
+            return Microsoft.PowerShell.Utility\ConvertTo-Json -InputObject $InputObject -Depth $Depth
         }}
         return $json
     }}

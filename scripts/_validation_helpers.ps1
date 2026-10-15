@@ -76,27 +76,35 @@ function Invoke-CapturedValidationCommand {
     }
 }
 
-# Enumerate without following reparse points. Never remove files outside
-# a single validation run beneath the repository's .tmp_tests directory.
+function Assert-ValidationRunPath {
+    param(
+        [Parameter(Mandatory = $true)][string]$RunRoot,
+        [Parameter(Mandatory = $true)][string]$TmpRoot
+    )
+    $base = [System.IO.Path]::GetFullPath($TmpRoot).TrimEnd('\', '/')
+    $run = [System.IO.Path]::GetFullPath($RunRoot).TrimEnd('\', '/')
+    if (-not $run.StartsWith(($base + [System.IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to operate outside the validation temporary root."
+    }
+    $current = $run
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        if ((Test-Path -LiteralPath $current -ErrorAction Stop) -and
+            ((Get-Item -LiteralPath $current -Force -ErrorAction Stop).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+            throw "Refusing to operate through a linked validation ancestor."
+        }
+        $current = Split-Path -Parent $current
+    }
+}
+
+# Enumerate without following reparse points before removing any artifacts.
 function Clear-ValidationRunExcept {
     param(
         [Parameter(Mandatory = $true)][string]$RunRoot,
         [Parameter(Mandatory = $true)][string]$TmpRoot,
         [string[]]$KeepPaths = @()
     )
-    $base = [System.IO.Path]::GetFullPath($TmpRoot).TrimEnd('\', '/')
+    Assert-ValidationRunPath -RunRoot $RunRoot -TmpRoot $TmpRoot
     $run = [System.IO.Path]::GetFullPath($RunRoot).TrimEnd('\', '/')
-    if (-not $run.StartsWith(($base + [System.IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to clean outside the validation temporary root."
-    }
-    $current = $run
-    while (-not [string]::IsNullOrWhiteSpace($current)) {
-        if ((Test-Path -LiteralPath $current -ErrorAction Stop) -and
-            ((Get-Item -LiteralPath $current -Force -ErrorAction Stop).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-            throw "Refusing to clean through a linked validation ancestor."
-        }
-        $current = Split-Path -Parent $current
-    }
     if (-not (Test-Path -LiteralPath $run -PathType Container -ErrorAction Stop)) { return }
     $kept = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($path in @($KeepPaths)) {
@@ -144,8 +152,105 @@ function Test-ValidationShareablePair {
         if ((Get-Item -LiteralPath $path).Length -eq 0) { throw "Required shareable artifact was empty." }
     }
     $parsed = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $parsed -or [string]::IsNullOrWhiteSpace([string]$parsed.status)) {
-        throw "Shareable report lacks a valid status."
+    if ($parsed -isnot [pscustomobject] -or $parsed.promotes_live_support -isnot [bool] -or $parsed.promotes_live_support) {
+        throw "Shareable report lacks valid support evidence."
+    }
+    foreach ($field in @("model_id", "package_version")) {
+        if ($parsed.$field -isnot [string] -or [string]::IsNullOrWhiteSpace($parsed.$field)) {
+            throw "Shareable report lacks required metadata."
+        }
+    }
+    # Git is unavailable in some distributions; an explicit null is valid.
+    if ($null -eq $parsed.PSObject.Properties["git_head"] -or
+        ($null -ne $parsed.git_head -and $parsed.git_head -notmatch '^(?:[0-9a-f]{40}|[0-9a-f]{64})$')) {
+        throw "Shareable report lacks valid Git metadata."
+    }
+    if ($parsed.commands -isnot [array]) { throw "Shareable report lacks command evidence." }
+    if ($parsed.kind -eq "powers-tool-cli-preflight") {
+        if ($parsed.schema_version -cne 1 -or $parsed.status -notin @("passed", "failed") -or
+            $parsed.target -cne $parsed.model_id -or [string]::IsNullOrWhiteSpace($parsed.expected_model) -or
+            $parsed.validation_mode -cne "no-hardware-cli-preflight" -or
+            $parsed.hardware_touched -isnot [bool] -or $parsed.hardware_touched -or
+            $parsed.checks -isnot [array] -or $parsed.checks.Count -ne $parsed.commands.Count -or
+            $parsed.summary_counts.total -ne $parsed.commands.Count -or
+            $parsed.summary_counts.passed + $parsed.summary_counts.failed -ne $parsed.commands.Count) {
+            throw "Incomplete Preflight report."
+        }
+        foreach ($check in $parsed.checks) {
+            if ([string]::IsNullOrWhiteSpace($check.name) -or $check.passed -isnot [bool] -or $check.failures -isnot [array]) {
+                throw "Incomplete Preflight check evidence."
+            }
+        }
+        foreach ($command in $parsed.commands) {
+            if ($command.passed -isnot [bool] -or $command.assertions -isnot [array] -or
+                $command.failures -isnot [array] -or [string]::IsNullOrWhiteSpace($command.command)) {
+                throw "Incomplete Preflight command evidence."
+            }
+            foreach ($field in @("mode", "dry_run", "hardware_touched")) {
+                if ($null -eq $command.PSObject.Properties[$field]) { throw "Missing Preflight execution evidence." }
+            }
+            if (($null -ne $command.mode -and $command.mode -isnot [string]) -or
+                ($null -ne $command.dry_run -and $command.dry_run -isnot [bool]) -or
+                ($null -ne $command.hardware_touched -and $command.hardware_touched -isnot [bool])) {
+                throw "Invalid Preflight execution evidence."
+            }
+            if ($command.passed -and $command.assertions.Count -eq 0) { throw "Missing Preflight assertions." }
+            foreach ($assertion in $command.assertions) {
+                if ([string]::IsNullOrWhiteSpace($assertion.name) -or $assertion.passed -isnot [bool] -or
+                    $null -eq $assertion.PSObject.Properties["expected"] -or $null -eq $assertion.PSObject.Properties["observed"]) {
+                    throw "Incomplete Preflight assertion evidence."
+                }
+            }
+        }
+    }
+    elseif ($parsed.kind -eq "powers-tool-live-validation") {
+        if ($parsed.schema_version -cne "2.0" -or
+            $parsed.status -notin @("passed", "failed", "planned", "preflight_failed", "confirmation_required", "passed_without_cleanup_verification") -or
+            $parsed.result -cne $parsed.status -or
+            $parsed.validation_mode -notin @("live", "planned", "preflight_failed", "confirmation_required", "failed") -or
+            $parsed.plan_only -isnot [bool] -or $parsed.live_executed -isnot [bool] -or
+            $parsed.live_executed -ne ($parsed.validation_mode -eq "live") -or
+            $parsed.cases -isnot [array] -or $parsed.cases.Count -ne $parsed.commands.Count -or
+            $parsed.failures -isnot [array] -or $parsed.cleanup -isnot [pscustomobject] -or
+            $parsed.cleanup.status -notin @("passed", "partial", "failed", "pending", "not_required", "skipped_by_operator",
+                "not_executed_plan_only", "not_executed_preflight_failed", "not_executed_confirmation_required") -or
+            $parsed.cleanup.attempted -isnot [bool] -or $parsed.cleanup.requested -isnot [bool] -or
+            $parsed.cleanup.output_state_checked -isnot [bool] -or $parsed.cleanup.error_queue_checked -isnot [bool] -or
+            $parsed.instrument_identity -isnot [pscustomobject] -or
+            $parsed.instrument_identity.availability -notin @("observed", "not_observed", "not_observed_plan_only")) {
+            throw "Incomplete Live report."
+        }
+        $modelField = if ($parsed.live_executed) { "expected_model_id" } else { "planning_model_id" }
+        if ($parsed.$modelField -cne $parsed.model_id) { throw "Missing Live model evidence." }
+        if ($parsed.instrument_identity.availability -eq "observed") {
+            foreach ($field in @("manufacturer", "detected_model", "source_command")) {
+                if ([string]::IsNullOrWhiteSpace($parsed.instrument_identity.$field)) { throw "Missing observed identity evidence." }
+            }
+        }
+        for ($i = 0; $i -lt $parsed.commands.Count; $i++) {
+            $command = $parsed.commands[$i]
+            $case = $parsed.cases[$i]
+            if ($command.result -notin @("passed", "failed") -or $case.name -cne $command.name -or
+                $case.result -cne $command.result -or $case.expected_success -isnot [bool] -or
+                $command.assertion_failures -isnot [array] -or $command.attempts -isnot [array] -or
+                $command.attempts.Count -eq 0 -or $command.validation_evidence -isnot [pscustomobject] -or
+                $command.identity_observed -isnot [bool]) {
+                throw "Incomplete Live case evidence."
+            }
+            foreach ($field in @("mode", "dry_run", "parse_error")) {
+                if ($null -eq $command.PSObject.Properties[$field]) { throw "Missing Live execution evidence." }
+            }
+            foreach ($attempt in $command.attempts) {
+                if ($attempt.exit_code -isnot [int] -or $null -eq $attempt.PSObject.Properties["ok"]) {
+                    throw "Missing Live attempt evidence."
+                }
+            }
+        }
+    }
+    else { throw "Unknown shareable report kind." }
+    foreach ($command in $parsed.commands) {
+        if ($command -isnot [pscustomobject] -or [string]::IsNullOrWhiteSpace($command.name) -or
+            $command.exit_code -isnot [int]) { throw "Invalid command result evidence." }
     }
 }
 

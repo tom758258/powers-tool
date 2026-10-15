@@ -107,12 +107,10 @@ function Reset-OutputDirectory {
         [Parameter(Mandatory = $true)][string]$Root
     )
 
-    New-Item -ItemType Directory -Path $Root -Force | Out-Null
-    Assert-UnderDirectory -Path $Path -Root $Root
+    Assert-ValidationRunPath -RunRoot $Path -TmpRoot $Root
     if (Test-Path -LiteralPath $Path) {
-        $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
-        Assert-UnderDirectory -Path $resolvedPath -Root $Root
-        Remove-Item -LiteralPath $resolvedPath -Recurse -Force
+        Clear-ValidationRunExcept -RunRoot $Path -TmpRoot $Root
+        Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
     }
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
     return (Resolve-Path -LiteralPath $Path).Path
@@ -1679,7 +1677,8 @@ function Get-CaseAssertionFailures {
         [AllowNull()]$OutputStates,
         [AllowNull()]$InstrumentErrors,
         [string]$StderrPath = "",
-        [AllowNull()][string]$StderrText = $null
+        [AllowNull()][string]$StderrText = $null,
+        [hashtable]$ComparisonEvidence = @{ sections = @(); result = $null }
     )
 
     $failures = New-Object System.Collections.Generic.List[string]
@@ -1813,7 +1812,9 @@ function Get-CaseAssertionFailures {
                 if ($leftValue -cne $rightValue) {
                     $failures.Add("$($Case.name) restorable $section differs after restore.")
                 }
+                $ComparisonEvidence.sections += @($section)
             }
+            $ComparisonEvidence.result = if ($failures.Count -eq 0) { "matched" } else { "mismatch" }
         }
         catch {
             $failures.Add("$($Case.name) could not compare canonical snapshot artifacts.")
@@ -1843,6 +1844,7 @@ function Get-CaseAssertionFailures {
                         $failures.Add("$($Case.name) did not prove changed OVP and OCP state for channel $channel.")
                     }
                 }
+                $ComparisonEvidence.sections = @("readback", "protection_settings")
             }
             catch {
                 $failures.Add("$($Case.name) could not prove the pre-restore snapshot mutation.")
@@ -1880,6 +1882,7 @@ function Get-CaseAssertionFailures {
                     }
                 }
             }
+            $ComparisonEvidence.sections = @("readback")
         }
         catch {
             $failures.Add("$($Case.name) could not compare the restored live readback with its snapshot.")
@@ -1931,16 +1934,13 @@ function Get-CaseAssertionFailures {
 # Retain only the specific evidence actually checked by existing validators.
 # This is report enrichment, not a new pass/fail condition.
 function Get-CaseValidationEvidence {
-    param([Parameter(Mandatory = $true)]$Case)
+    param([Parameter(Mandatory = $true)]$Case, [hashtable]$ComparisonEvidence = @{ sections = @(); result = $null })
     $details = [ordered]@{
         expected_channels = @($Case.expected_channels)
         expected_output_enabled = $Case.expected_output_enabled
     }
-    if ($Case.validation_kind -in @("snapshot-compare", "snapshot-mutation")) {
-        $details["snapshot_sections_checked"] = @("readback", "protection_settings")
-    }
-    elseif ($Case.validation_kind -eq "snapshot-readback") {
-        $details["snapshot_sections_checked"] = @("readback")
+    if ($Case.validation_kind -in @("snapshot-compare", "snapshot-mutation", "snapshot-readback")) {
+        $details["snapshot_sections_checked"] = @($ComparisonEvidence.sections)
     }
     if ($Case.validation_kind -eq "log" -and @($Case.generated_artifacts).Count -ge 2) {
         try {
@@ -2356,8 +2356,9 @@ function Invoke-ValidationCommand {
     }
 
     $assertionFailures = @($identityNormalizationFailures) + @($outputStateNormalizationFailures) + @($instrumentErrorNormalizationFailures)
+    $comparisonEvidence = @{ sections = @(); result = $null }
     if ($casePassed) {
-        $assertionFailures += @(Get-CaseAssertionFailures -Case $Case -Payload $payload -OutputStates $outputStates -InstrumentErrors $instrumentErrors -StderrPath $stderrPath -StderrText $finalAttempt.stderr_text)
+        $assertionFailures += @(Get-CaseAssertionFailures -Case $Case -Payload $payload -OutputStates $outputStates -InstrumentErrors $instrumentErrors -StderrPath $stderrPath -StderrText $finalAttempt.stderr_text -ComparisonEvidence $comparisonEvidence)
         if ($assertionFailures.Count -gt 0) {
             $casePassed = $false
             $failure = $assertionFailures -join " "
@@ -2447,9 +2448,9 @@ function Invoke-ValidationCommand {
         state_changing = $Case.state_changing
         validation_kind = $Case.validation_kind
         assertion_failures = @($assertionFailures | ForEach-Object { Protect-ShareableText -Text $_ })
-        validation_evidence = Get-CaseValidationEvidence -Case $Case
+        validation_evidence = Get-CaseValidationEvidence -Case $Case -ComparisonEvidence $comparisonEvidence
         generated_artifacts = $generatedArtifactPaths.ToArray()
-        comparison_result = if ($Case.validation_kind -eq "snapshot-compare") { if ($assertionFailures.Count -eq 0) { "matched" } else { "mismatch" } } else { $null }
+        comparison_result = $comparisonEvidence.result
         result = if ($casePassed) { "passed" } else { "failed" }
         stdout_path = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $shareableStdoutPath } else { $null }
         stderr_path = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $shareableStderrPath } else { $null }
