@@ -102,6 +102,7 @@ def test_live_cli_check_strictly_normalizes_output_state_evidence(data, expected
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $data = @'
 {json.dumps(data)}
 '@ | ConvertFrom-Json
@@ -159,6 +160,7 @@ def _normalize_observed_identity(
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $data = @'
 {json.dumps(data)}
 '@ | ConvertFrom-Json
@@ -407,6 +409,7 @@ def test_live_cli_check_strictly_normalizes_observed_identity_evidence(
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $data = @'
 {json.dumps(data)}
 '@ | ConvertFrom-Json
@@ -456,6 +459,7 @@ def _invoke_optional_identity_case(
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "{target}"
@@ -624,6 +628,7 @@ def test_snapshot_restore_identity_requirement_uses_exact_live_hardware_expected
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -683,6 +688,7 @@ def test_snapshot_readback_allows_missing_identity_but_validates_present_evidenc
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -716,6 +722,7 @@ def test_snapshot_mutation_cases_use_model_aware_channels() -> None:
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:RawResource = "ASRL1::FIXTURE::INSTR"
 $script:PrivateArtifactDir = Join-Path (Get-Location) ".tmp_tests\snapshot-mutation-composition"
 $script:CandidateInventory = $null
@@ -777,6 +784,7 @@ def _snapshot_mutation_failures(
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $case = New-CommandCase -Name "restore-off-save-b" -Suite "snapshot" -Phase "live" -Args @("snapshot") -ValidationKind "snapshot-mutation" -ExpectedChannels @({channels}) -CompareSnapshotPaths @("{before_path.as_posix()}","{after_path.as_posix()}")
 $payload = '{{"data":{{}}}}' | ConvertFrom-Json
 $failures = @(Get-CaseAssertionFailures -Case $case -Payload $payload -Identity $null -OutputStates $null -InstrumentErrors $null -StderrPath "{(tmp_path / 'empty.stderr').as_posix()}")
@@ -971,6 +979,7 @@ def test_actual_snapshot_cases_complete_full_workflow(tmp_path):
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -1271,6 +1280,7 @@ def _artifact_privacy_command(
     return rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -1453,6 +1463,7 @@ def test_live_cli_check_free_form_idn_redactor_handles_manufacturer_variants(
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -1483,6 +1494,7 @@ def test_live_cli_check_report_normalizes_stale_cleanup_lifecycle_states(tmp_pat
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -1531,6 +1543,7 @@ def _live_fixture_validation_command(output_dir: Path, *, expect_passed: bool) -
     return rf"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -1680,6 +1693,7 @@ def test_write_validation_case_console_result_formats_pass_and_fail():
     command = r"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 Write-ValidationCaseConsoleResult -Record ([pscustomobject]@{
     result = "passed"
     phase = "preflight"
@@ -1707,6 +1721,7 @@ def test_invoke_validation_command_emits_console_result_outside_import_only(tmp_
     command = rf"""
 Remove-Item Env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY -ErrorAction SilentlyContinue
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -1739,6 +1754,7 @@ def test_invoke_validation_command_skips_console_result_in_import_only_mode(tmp_
     command = rf"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -1788,6 +1804,7 @@ def test_live_cli_check_uses_phase_specific_artifact_names(tmp_path):
     command = rf"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -1824,6 +1841,7 @@ def test_live_cli_check_failed_live_command_does_not_reuse_stale_preflight_json(
     command = rf"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -1859,6 +1877,7 @@ def test_live_cli_check_preflight_still_rejects_hardware_touched_fixture(tmp_pat
     command = rf"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -1941,7 +1960,8 @@ def test_live_cli_check_readonly_plan_only_succeeds_without_hardware(
         else "passed"
     )
     assert report["external_preflight"]["status"] == expected_preflight_status
-    assert "hardware_touched" not in json.dumps(report)
+    assert report["live_executed"] is False
+    assert (report["external_preflight"].get("evidence") is None or report["external_preflight"]["evidence"]["hardware_touched"] is False)
 
 
 @pytest.mark.windows_powershell
@@ -1949,6 +1969,7 @@ def test_live_cli_check_psm2010_suite_composition_uses_product_support() -> None
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:NormalizedTarget = "gw-instek-psm-2010"
 $script:TransportScope = "asrl"
 $script:BackendArtifact = Get-BackendArtifactFields -Value $null
@@ -2088,6 +2109,7 @@ def test_live_cli_check_psm2010_pending_command_on_product_connection_uses_valid
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:NormalizedTarget = "gw-instek-psm-2010"
 $script:TransportScope = "asrl"
 $script:BackendArtifact = Get-BackendArtifactFields -Value $null
@@ -2118,6 +2140,7 @@ def test_live_cli_check_rejects_unregistered_nonproduct_command() -> None:
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:NormalizedTarget = "gw-instek-psm-2010"
 $script:TransportScope = "asrl"
 $script:BackendArtifact = Get-BackendArtifactFields -Value $null
@@ -2248,7 +2271,8 @@ def test_live_cli_check_psm2010_full_plan_only_covers_product_commands() -> None
         "--ocp-delay-trigger" in case["arguments"]
         for case in report["planned_live_cases"]
     )
-    assert "hardware_touched" not in json.dumps(report)
+    assert report["live_executed"] is False
+    assert (report["external_preflight"].get("evidence") is None or report["external_preflight"]["evidence"]["hardware_touched"] is False)
     private_payloads = list(
         (report_path.parent.parent / "private").glob("preflight-*.json")
     )
@@ -2265,6 +2289,7 @@ def _psm_software_sequence_composition(tmp_path: Path) -> dict[str, object]:
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:OutputDir = "{output_dir.as_posix()}"
 $script:NormalizedTarget = "gw-instek-psm-2010"
 $script:RawResource = "ASRL1::SIM::PSM2010::INSTR"
@@ -2611,6 +2636,7 @@ def test_future_candidate_inventory_still_requires_full_plan_coverage() -> None:
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CandidateInventory = '{"keysight-e36312a":{"commands":["future-candidate"],"connections":[["usb","system_visa"]]}}' | ConvertFrom-Json
 $script:TransportScope = "usb"
 $script:BackendArtifact = Get-BackendArtifactFields -Value $null
@@ -2632,6 +2658,7 @@ def test_trigger_pulse_observation_occurs_only_after_command_and_cleanup(tmp_pat
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:TriggerEvidence = New-TriggerEvidence
 $script:Failures = New-Object System.Collections.Generic.List[string]
 $script:StateChanging = $true
@@ -2671,6 +2698,7 @@ def test_trigger_fire_wrapper_restores_again_when_candidate_fails(tmp_path) -> N
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:PrivateArtifactDir = "{(tmp_path / 'private').as_posix()}"
 New-Item -ItemType Directory -Path $script:PrivateArtifactDir -Force | Out-Null
 $script:TriggerEvidence = New-TriggerEvidence
@@ -2699,6 +2727,7 @@ def test_trigger_fire_payload_assertion_requires_exact_json_values(tmp_path) -> 
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $case = New-CommandCase -Name "fire" -Suite "trigger-list" -Phase "preflight" -Args @("trigger-fire") -ValidationKind "trigger-fire"
 $payloads = @(
     '{{"data":{{"trigger":{{"mode":"fire","channel":1,"fired":true,"completed":true}}}}}}',
@@ -2728,6 +2757,7 @@ def test_trigger_fire_command_record_preserves_diagnostics_and_property_presence
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -2783,6 +2813,7 @@ def test_trigger_fire_evidence_comes_only_from_recorded_payload(tmp_path) -> Non
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:PrivateArtifactDir = "{(tmp_path / 'private').as_posix()}"
 New-Item -ItemType Directory -Path $script:PrivateArtifactDir -Force | Out-Null
 $script:Failures = New-Object System.Collections.Generic.List[string]
@@ -2830,6 +2861,7 @@ def test_trigger_fire_abort_and_error_evidence_comes_from_recorded_diagnostics(t
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:PrivateArtifactDir = "{(tmp_path / 'private').as_posix()}"
 New-Item -ItemType Directory -Path $script:PrivateArtifactDir -Force | Out-Null
 $script:Failures = New-Object System.Collections.Generic.List[string]
@@ -2903,6 +2935,7 @@ def test_live_cli_check_centrally_adds_validation_flag_only_for_policy_commands(
     command = r"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -2928,6 +2961,7 @@ def _wrapper_arguments(command: str) -> list[str]:
     powershell = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:NormalizedTarget = "keysight-e3646a"
 $script:RawResource = "ASRL1::INSTR"
 $script:OutputDir = ".tmp_tests\parser-contract"
@@ -3005,6 +3039,7 @@ def test_every_maintained_live_suite_case_is_production_parser_compatible(
     powershell = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:NormalizedTarget = "{target}"
 $script:RawResource = "{resource}"
 $script:OutputDir = "{output_dir}"
@@ -3043,6 +3078,7 @@ def test_live_cli_check_normalizes_backend_for_artifacts(value, backend, scope, 
     command = rf"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -3188,6 +3224,7 @@ def test_live_cli_check_e3646a_log_no_longer_requires_candidate_admission() -> N
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:NormalizedTarget = "keysight-e3646a"
 $script:TransportScope = "asrl"
 $script:BackendArtifact = Get-BackendArtifactFields -Value $null
@@ -3266,6 +3303,7 @@ def test_live_cli_check_log_validator_rejects_incomplete_or_error_artifacts(tmp_
         command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $case = New-CommandCase -Name "log-test" -Suite "readonly" -Phase "preflight" -Args @("log") -ValidationKind "log" -ExpectedChannels @(1,2,3) -GeneratedArtifacts @("{csv_path}", "{jsonl_path}")
 $payload = '{{"data":{{"samples_written":1,"stopped":false,"stop_reason":"completed"}}}}' | ConvertFrom-Json
 $failures = @(Get-CaseAssertionFailures -Case $case -Payload $payload -Identity $null -OutputStates $null -InstrumentErrors $null -StderrPath "{tmp_path / 'empty.stderr'}")
@@ -3280,6 +3318,7 @@ def test_live_cli_check_target_metadata_matches_core_registries():
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -3686,6 +3725,7 @@ def test_live_cli_check_error_evidence_is_fail_closed_in_report(
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -3745,6 +3785,7 @@ def _run_e3646a_null_identity_cleanup_fixture(
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e3646a"
@@ -3824,6 +3865,7 @@ def _run_state_changing_fixture(
     command = rf"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -3988,6 +4030,7 @@ def test_live_cli_check_cleanup_lifecycle_statuses_are_distinct():
     command = r"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -4270,6 +4313,7 @@ def _run_tcpip_session_fixture(
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 function Get-FileHash {{ throw "legacy Get-FileHash must not be invoked" }}
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
@@ -4321,6 +4365,7 @@ def test_generated_artifact_fingerprints_use_dotnet_sha256_and_preserve_nonfile_
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 function Get-FileHash {{ throw "legacy Get-FileHash must not be invoked" }}
 $fileFingerprint = @(Get-GeneratedArtifactFingerprints -Paths @("{file_path}"))[0][0]
 $missingFingerprint = @(Get-GeneratedArtifactFingerprints -Paths @("{missing_path}"))[0][0]
@@ -4544,6 +4589,7 @@ def _run_tcpip_cleanup_fixture(tmp_path: Path, *, mode: str) -> dict[str, object
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -4629,6 +4675,7 @@ def test_redaction_keeps_hyphenated_command_identifiers_and_rejects_prose_idn_gu
     command = r'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
+$script:DebugArtifacts = $true
 $script:SensitiveValues = New-Object System.Collections.Generic.List[string]
 $script:RawResource = $null
 $script:ResourceDisplay = "LAN:<redacted-resource>"
@@ -4643,3 +4690,40 @@ $commands = Protect-ShareableText -Text "measure-all safe-off measure"
     redaction = json.loads(result.stdout)
     assert redaction["prose"] == "Preview a guarded set, output, measure, and turn off."
     assert redaction["commands"] == "measure-all safe-off <redacted>"
+
+
+@pytest.mark.windows_powershell
+def test_minimal_plan_only_removes_transient_artifacts_without_hardware() -> None:
+    result = _run_live_cli_check(
+        "-Target", "keysight-e36312a", "-Connection", "USB",
+        "-Resource", "USB0::SIM::E36312A::INSTR",
+        "-Suite", "readonly", "-PlanOnly", "-SkipExternalPreflight",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = _report_path(result.stdout, result.stderr)
+    assert {p.name for p in report_path.parents[1].rglob("*") if p.is_file()} == {
+        "report.json", "summary.md"
+    }
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["artifact_mode"] == "minimal"
+    assert report["debug_artifacts_retained"] is False
+    assert report["live_executed"] is False
+    assert all(record["json_path"] is None for record in report["commands"])
+    assert all(record["attempts"] for record in report["commands"])
+
+
+@pytest.mark.windows_powershell
+def test_debug_plan_only_retains_full_attempt_files() -> None:
+    result = _run_live_cli_check(
+        "-Target", "keysight-e36312a", "-Connection", "USB",
+        "-Resource", "USB0::SIM::E36312A::INSTR",
+        "-Suite", "readonly", "-PlanOnly", "-SkipExternalPreflight",
+        "-DebugArtifacts",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    report_path = _report_path(result.stdout, result.stderr)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["artifact_mode"] == "debug"
+    assert report["debug_artifacts_retained"] is True
+    assert list((report_path.parents[1] / "private").glob("*.json"))
+    assert any(record["json_path"] for record in report["commands"])

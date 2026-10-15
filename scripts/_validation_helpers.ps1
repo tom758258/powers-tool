@@ -1,5 +1,170 @@
 Set-StrictMode -Version Latest
 
+# Reusable Windows PowerShell 5.1 command capture. Minimal mode never writes
+# stdout/stderr files; diagnostic mode may preserve both.
+function ConvertTo-ValidationProcessArgument {
+    param([AllowEmptyString()][string]$Value)
+    $quoted = New-Object System.Text.StringBuilder
+    [void]$quoted.Append('"')
+    $slashes = 0
+    foreach ($char in $Value.ToCharArray()) {
+        if ($char -eq [char]92) { $slashes++; continue }
+        if ($char -eq [char]34) {
+            [void]$quoted.Append(('\' * ($slashes * 2 + 1)))
+            [void]$quoted.Append('"')
+            $slashes = 0
+            continue
+        }
+        if ($slashes -gt 0) {
+            [void]$quoted.Append(('\' * $slashes))
+            $slashes = 0
+        }
+        [void]$quoted.Append($char)
+    }
+    if ($slashes -gt 0) { [void]$quoted.Append(('\' * ($slashes * 2))) }
+    [void]$quoted.Append('"')
+    return $quoted.ToString()
+}
+
+function Invoke-CapturedValidationCommand {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Arguments,
+        [string]$WorkingDirectory = (Get-Location).Path,
+        [switch]$CaptureInMemory,
+        [string]$StdOutPath = "",
+        [string]$StdErrPath = "",
+        [string]$PythonPath = ""
+    )
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $FilePath
+    $psi.Arguments = (@($Arguments | ForEach-Object { ConvertTo-ValidationProcessArgument -Value $_ }) -join ' ')
+    $psi.WorkingDirectory = $WorkingDirectory
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    if (-not [string]::IsNullOrWhiteSpace($PythonPath)) {
+        $psi.EnvironmentVariables["PYTHONPATH"] = $PythonPath
+    }
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $psi
+    try {
+        if (-not $process.Start()) { throw "Could not start validation subprocess." }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $stdoutText = $stdoutTask.GetAwaiter().GetResult()
+        $stderrText = $stderrTask.GetAwaiter().GetResult()
+        $exitCode = $process.ExitCode
+    } finally {
+        $process.Dispose()
+    }
+    if (-not $CaptureInMemory) {
+        foreach ($path in @($StdOutPath, $StdErrPath)) {
+            if ([string]::IsNullOrWhiteSpace($path)) { throw "File capture requires stdout and stderr paths." }
+            New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+        }
+        Write-Utf8NoBomText -LiteralPath $StdOutPath -Text $stdoutText
+        Write-Utf8NoBomText -LiteralPath $StdErrPath -Text $stderrText
+    }
+    return [pscustomobject]@{
+        exit_code = $exitCode
+        stdout_text = $stdoutText
+        stderr_text = $stderrText
+        stdout_path = if ($CaptureInMemory) { $null } else { $StdOutPath }
+        stderr_path = if ($CaptureInMemory) { $null } else { $StdErrPath }
+    }
+}
+
+# Enumerate without following reparse points. Never remove files outside
+# a single validation run beneath the repository's .tmp_tests directory.
+function Clear-ValidationRunExcept {
+    param(
+        [Parameter(Mandatory = $true)][string]$RunRoot,
+        [Parameter(Mandatory = $true)][string]$TmpRoot,
+        [string[]]$KeepPaths = @()
+    )
+    $base = [System.IO.Path]::GetFullPath($TmpRoot).TrimEnd('\', '/')
+    $run = [System.IO.Path]::GetFullPath($RunRoot).TrimEnd('\', '/')
+    if (-not $run.StartsWith(($base + [System.IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to clean outside the validation temporary root."
+    }
+    if (-not (Test-Path -LiteralPath $run -PathType Container)) { return }
+    $current = $run
+    while ($current.StartsWith(($base + [System.IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
+        if ((Get-Item -LiteralPath $current -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+            throw "Refusing to clean through a linked validation ancestor."
+        }
+        $current = Split-Path -Parent $current
+    }
+    $kept = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in @($KeepPaths)) {
+        $full = [System.IO.Path]::GetFullPath($path)
+        if (-not $full.StartsWith(($run + [System.IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "A retained artifact escaped the current validation run."
+        }
+        [void]$kept.Add($full)
+    }
+    $directories = New-Object 'System.Collections.Generic.List[string]'
+    $files = New-Object 'System.Collections.Generic.List[string]'
+    $stack = New-Object 'System.Collections.Generic.Stack[string]'
+    $stack.Push($run)
+    while ($stack.Count -gt 0) {
+        $dir = $stack.Pop()
+        foreach ($item in @(Get-ChildItem -LiteralPath $dir -Force)) {
+            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Refusing to traverse or remove a linked validation path."
+            }
+            if (-not $item.FullName.StartsWith(($run + [System.IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "Validation artifact escaped the current run."
+            }
+            if ($item.PSIsContainer) {
+                $directories.Add($item.FullName)
+                $stack.Push($item.FullName)
+            } else {
+                $files.Add($item.FullName)
+            }
+        }
+    }
+    foreach ($file in $files) {
+        if (-not $kept.Contains($file)) { Remove-Item -LiteralPath $file -Force }
+    }
+    foreach ($dir in @($directories | Sort-Object { $_.Length } -Descending)) {
+        if (@(Get-ChildItem -LiteralPath $dir -Force).Count -eq 0) {
+            Remove-Item -LiteralPath $dir -Force
+        }
+    }
+}
+
+function Test-ValidationShareablePair {
+    param([Parameter(Mandatory = $true)][string]$Report, [Parameter(Mandatory = $true)][string]$Summary)
+    foreach ($path in @($Report, $Summary)) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required shareable artifact was not generated." }
+        if ((Get-Item -LiteralPath $path).Length -eq 0) { throw "Required shareable artifact was empty." }
+    }
+    $parsed = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json -ErrorAction Stop
+    if ($null -eq $parsed -or [string]::IsNullOrWhiteSpace([string]$parsed.status)) {
+        throw "Shareable report lacks a valid status."
+    }
+}
+
+function Write-ValidationArtifactFailure {
+    param(
+        [Parameter(Mandatory = $true)][string]$RunRoot,
+        [Parameter(Mandatory = $true)][string]$TmpRoot
+    )
+    Clear-ValidationRunExcept -RunRoot $RunRoot -TmpRoot $TmpRoot
+    $private = Join-Path $RunRoot "private"
+    New-Item -ItemType Directory -Path $private -Force | Out-Null
+    Write-Utf8NoBomText -LiteralPath (Join-Path $private "error-summary.md") -Text (
+        "# Validation artifact generation failed" + [Environment]::NewLine +
+        "Status: failed" + [Environment]::NewLine +
+        "The shareable report or retention checks did not complete. " +
+        "Raw paths, resources and diagnostics are intentionally omitted." + [Environment]::NewLine
+    )
+}
+
+
 function Get-PackageVersion {
     param([Parameter(Mandatory = $true)][string]$ProjectRoot)
 

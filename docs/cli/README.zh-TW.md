@@ -319,9 +319,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\preflight-cli.
   -Suite deep
 ```
 
-Preflight artifacts 預設寫入 `.tmp_tests\cli_preflight`。可指定自訂 `-OutputRoot`，
-但必須留在 `.tmp_tests` 之下。每次執行會建立 timestamped directory，內含 per-target
-`report.json`、`summary.md`，以及 per-command JSON/stdout/stderr artifacts。
+Preflight artifacts 預設寫入 `.tmp_tests\cli_preflight`，自訂 `-OutputRoot`
+仍必須位於 `.tmp_tests` 下。每次執行只為實際執行的各型號保留
+`shareable/report.json` 與 `shareable/summary.md`，不另外產生頂層彙總報告。
+逐案例的 assertions 與失敗原因保存在報告中。一般 CLI 輸出優先在記憶體擷取；
+必要的 Sequence、Snapshot 檔案僅作暫存。指定 `-DebugArtifacts` 時，
+則保留完整 private 原始檔及詳細遮蔽後的 shareable 附件。
 
 #### Live CLI validation（`scripts\live-cli-check.ps1`）
 
@@ -329,6 +332,14 @@ Preflight artifacts 預設寫入 `.tmp_tests\cli_preflight`。可指定自訂 `-
 `-Target`、`-Connection` 與 `-Resource`，不會掃描或猜測 live resource。執行此腳本
 只產生 validation evidence；它不會自行將 pending support 提升為 Product-open，也不會
 改變 [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix)。
+
+Live 與 PlanOnly 預設採用記憶體優先的 Minimal 模式，當次執行最後只保留
+`shareable/report.json` 與 `shareable/summary.md`。CSV／JSONL、Snapshot、
+Trigger 等必要暫存檔會先完成驗證再清理；自動執行的外部 Preflight 結果會
+整合進 Live report。指定 `-DebugArtifacts` 才保留完整 private 與詳細
+shareable 資料。一般 PASS／FAIL 留存兩份報告；Shareable 產生失敗時，
+整次驗證 FAIL，僅保留該 Run 遮蔽的 `private/error-summary.md`。
+驗證通過不代表自動開放 Product 功能。
 
 使用 live wrapper 前，請先把 operator 選定的 exact VISA resource 放入 PowerShell
 session 變數。請使用 model 與 transport 專用名稱，避免範例混淆：

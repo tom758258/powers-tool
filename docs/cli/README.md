@@ -343,9 +343,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\preflight-cli.
 ```
 
 Preflight artifacts default to `.tmp_tests\cli_preflight`. A custom `-OutputRoot`
-may be supplied, but it must remain under `.tmp_tests`. Each run writes a
-timestamped directory containing per-target `report.json`, `summary.md`, and
-per-command JSON/stdout/stderr artifacts.
+must remain beneath `.tmp_tests`. By default each executed target retains only
+`shareable/report.json` and `shareable/summary.md` under its own run/target
+directory, with all case assertions embedded in the JSON report. `-Target all`
+does not add an aggregate report; `-Suite deep` retains reports only for its
+representative targets. Optional `-DebugArtifacts` retains private raw
+JSON/stdout/stderr and redacted per-command shareable evidence. CLI command
+outputs are normally captured in memory; sequence/snapshot files are temporary.
 
 #### Live CLI validation (`scripts\live-cli-check.ps1`)
 
@@ -354,6 +358,17 @@ wrapper. It requires an explicit `-Target`, `-Connection`, and `-Resource`, and
 never scans for or guesses a live resource. Running the script produces
 validation evidence only; it does not by itself promote pending support or
 change the [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix).
+
+Live and PlanOnly validation also default to memory-first minimal artifacts:
+only the redacted `shareable/report.json` and `shareable/summary.md`
+remain under the live run directory. Necessary CSV/JSONL, snapshot, trigger,
+and other temporary files are checked before removal. External CLI preflight
+results are included in the live report rather than preserved as a second
+minimal report tree. Pass `-DebugArtifacts` to keep original `private/`
+and detailed redacted `shareable/` diagnostics. Ordinary PASS/FAIL always
+retains reviewable reports; failure to generate a valid shareable pair fails
+closed with only `private/error-summary.md` inside that run. Neither
+artifact mode changes live safety rules or grants Product-open support.
 
 Before using the live wrapper, copy the exact operator-selected VISA resource
 into a PowerShell session variable. Use a model- and transport-specific name so

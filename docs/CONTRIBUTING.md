@@ -175,17 +175,25 @@ case is reusable.
 
 ## Artifact requirements
 
-The wrapper keeps local raw execution files in `private/` and creates a
-redacted `shareable/` artifact set. Attach only the files from `shareable/`:
-its `report.json`, `summary.md`, and redacted per-command JSON/stdout/stderr
-evidence. Never upload or manually copy files from `private/`. Failed or
-malformed raw command output remains private; the shareable set records a safe
-placeholder when that output cannot be parsed. The shareable set records the
-commit SHA, package version, pull-request revision, expected model, detected
-manufacturer/model, firmware, redacted serial, transport, backend, exact
-wrapper command, target, suite, selected cases, plan-only/live status, exit
-codes, failures or partial results, output-state result, error queue, and
-cleanup result.
+Preflight and Live/PlanOnly validation default to `minimal` artifacts.
+Small CLI JSON/stdout/stderr outputs are captured and checked in memory.
+Files required for CSV/JSONL, snapshot, sequence, trigger, or other assertions
+are temporary until all necessary checks complete. Each successful or ordinarily
+failed run retains redacted `shareable/report.json` and
+`shareable/summary.md` (per target for Preflight `-Target all`); these are
+sufficient formal review attachments when they contain the exact-scope
+assertions and observed results. Use `-DebugArtifacts` to retain private raw
+and detailed redacted shareable diagnostics when needed. Never upload or
+manually copy files from `private/`. Shareable report generation failure is
+itself a failed run, retaining only redacted `private/error-summary.md`.
+
+The minimal report must retain commit SHA, package version, expected and
+detected manufacturer/model identity, firmware, redacted serial, transport,
+backend, exact command/feature scope, selected cases, plan-only/live status,
+exit codes, actual assertions, failures and partial results, output state,
+instrument error queue, trigger and workflow evidence, and cleanup outcome.
+References to discarded files must be absent or null. Passing validation
+does not self-authorize or expand Core Product support.
 
 Failed validation is still useful evidence and must not be discarded. Passing
 artifacts for pending or new exact scopes are candidate evidence; regression
