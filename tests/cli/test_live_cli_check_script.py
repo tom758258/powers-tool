@@ -2198,6 +2198,7 @@ def test_live_cli_check_psm2010_full_plan_only_covers_product_commands() -> None
         "full",
         "-PlanOnly",
         "-SkipExternalPreflight",
+        "-DebugArtifacts",
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -2442,7 +2443,7 @@ function global:powershell.exe { $global:LASTEXITCODE = 1 }
     -Connection USB `
     -Resource SIM::E36312A `
     -Suite readonly `
-    -PlanOnly
+    -PlanOnly -DebugArtifacts
 """
     result = _run_powershell_command(command)
 
@@ -2469,6 +2470,7 @@ def test_plan_only_can_skip_completed_release_preflight_without_skipping_plans()
         "readonly",
         "-PlanOnly",
         "-SkipExternalPreflight",
+        "-DebugArtifacts",
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -3201,6 +3203,7 @@ def test_live_cli_check_e3646a_full_plan_contains_software_sequence_not_native_l
         "full",
         "-PlanOnly",
         "-SkipExternalPreflight",
+        "-DebugArtifacts",
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
@@ -3479,9 +3482,10 @@ def test_live_cli_check_software_sequence_plan_only_supported_for_active_targets
     assert "ramp-list-dry-run" in command_names
     assert "sequence-lint-readonly" in command_names
     assert "sequence-dry-run-readonly" in command_names
-    assert len({command["json_path"] for command in report["commands"]}) == len(report["commands"])
-    assert len({command["stdout_path"] for command in report["commands"]}) == len(report["commands"])
-    assert len({command["stderr_path"] for command in report["commands"]}) == len(report["commands"])
+    assert report["artifact_mode"] == "minimal"
+    assert all(command["json_path"] is None for command in report["commands"])
+    assert all(command["stdout_path"] is None for command in report["commands"])
+    assert all(command["stderr_path"] is None for command in report["commands"])
 
 
 @pytest.mark.parametrize(

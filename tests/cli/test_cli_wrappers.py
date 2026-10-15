@@ -428,3 +428,41 @@ def test_shared_capture_helper_defaults_to_memory_without_raw_files() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.windows_powershell
+def test_shareable_generation_failure_keeps_only_safe_summary_in_current_run() -> None:
+    if POWERSHELL is None:
+        pytest.skip("Windows PowerShell is required")
+    tmp_root = ROOT / ".tmp_tests"
+    parent = tmp_root / "pytest_artifact_failure" / uuid4().hex
+    run = parent / "failed-run"
+    sibling = parent / "sibling-run"
+    (run / "shareable").mkdir(parents=True)
+    sibling.mkdir(parents=True)
+    sentinel = sibling / "keep.txt"
+    sentinel.write_text("another run", encoding="utf-8")
+    report = run / "shareable" / "report.json"
+    report.write_text("{invalid", encoding="utf-8")
+    summary = run / "shareable" / "summary.md"
+    summary.write_text("partial summary", encoding="utf-8")
+    helper = ROOT / "scripts" / "_validation_helpers.ps1"
+    script = (
+        f". '{helper}'; "
+        f"try {{ Test-ValidationShareablePair -Report '{report}' -Summary '{summary}'; exit 3 }} "
+        f"catch {{ Write-ValidationArtifactFailure -RunRoot '{run}' -TmpRoot '{tmp_root}' }}; "
+        "exit 0"
+    )
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sentinel.read_text(encoding="utf-8") == "another run"
+    assert [file.relative_to(run).as_posix() for file in run.rglob("*") if file.is_file()] == [
+        "private/error-summary.md"
+    ]
+    failure_text = (run / "private" / "error-summary.md").read_text(encoding="utf-8")
+    assert "failed" in failure_text
+    assert "{invalid" not in failure_text

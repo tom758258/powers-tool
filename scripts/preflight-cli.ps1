@@ -209,7 +209,7 @@ try {
         }
         Write-Utf8NoBomText -LiteralPath $reportPath -Text ($report | ConvertTo-Json -Depth 30)
         $summary = New-Object System.Collections.Generic.List[string]
-        foreach ($line in @("# Powers Tool CLI Preflight", "", "Target: $resolvedTarget", "Suite: $resolvedSuite", "Status: $($report.status)", "Hardware touched: false", "", "| Command | Category | Exit | Result |", "| --- | --- | ---: | --- |")) { $summary.Add($line) }
+        foreach ($line in @("# Powers Tool CLI Preflight", "", "Target: $resolvedTarget", ("Suite: " + [char]96 + $resolvedSuite + [char]96), "Status: $($report.status)", "Hardware touched: false", "", "| Command | Category | Exit | Result |", "| --- | --- | ---: | --- |")) { $summary.Add($line) }
         foreach ($command in $commands) { $summary.Add("| $($command.name) | $($command.category) | $($command.exit_code) | $(if ($command.passed) { 'passed' } else { 'failed' }) |") }
         Write-Utf8NoBomText -LiteralPath $summaryPath -Text ($summary.ToArray() -join [Environment]::NewLine)
         Test-ValidationShareablePair -Report $reportPath -Summary $summaryPath
@@ -233,4 +233,3 @@ catch {
 }
 if ($anyFailed) { exit 1 }
 exit 0
-
