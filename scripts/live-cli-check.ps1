@@ -15,7 +15,8 @@ param(
 
     [switch]$SkipExternalPreflight,
 
-    [bool]$Restore = $true
+    [bool]$Restore = $true,
+    [switch]$DebugArtifacts
 )
 
 Set-StrictMode -Version 3.0
@@ -1677,7 +1678,8 @@ function Get-CaseAssertionFailures {
         [AllowNull()]$Identity,
         [AllowNull()]$OutputStates,
         [AllowNull()]$InstrumentErrors,
-        [Parameter(Mandatory = $true)][string]$StderrPath
+        [string]$StderrPath = "",
+        [AllowNull()][string]$StderrText = $null
     )
 
     $failures = New-Object System.Collections.Generic.List[string]
@@ -1735,7 +1737,7 @@ function Get-CaseAssertionFailures {
         if ($records.Count -ne $Case.expected_channels.Count) {
             $failures.Add("$($Case.name) returned an unexpected measurement channel count.")
         }
-        $scpiText = if (Test-Path -LiteralPath $StderrPath) { Get-Content -LiteralPath $StderrPath -Raw } else { "" }
+        $scpiText = if ($null -ne $StderrText) { $StderrText } elseif (Test-Path -LiteralPath $StderrPath) { Get-Content -LiteralPath $StderrPath -Raw } else { "" }
         if ($scpiText -match '(?im)>>.*(?:OUTP\s+(?:ON|OFF)|VOLT\s|CURR\s|\*CLS|\*TRG|INIT|ABOR)') {
             $failures.Add("$($Case.name) emitted state-changing SCPI.")
         }
@@ -1755,7 +1757,7 @@ function Get-CaseAssertionFailures {
         if ($reportedBackend -ne $expectedBackend) {
             $failures.Add("$($Case.name) reported an unexpected selected backend.")
         }
-        $scpiText = if (Test-Path -LiteralPath $StderrPath) { Get-Content -LiteralPath $StderrPath -Raw } else { "" }
+        $scpiText = if ($null -ne $StderrText) { $StderrText } elseif (Test-Path -LiteralPath $StderrPath) { Get-Content -LiteralPath $StderrPath -Raw } else { "" }
         if ($scpiText -match '(?im)>>.*(?:OUTP\s+(?:ON|OFF)|VOLT\s|CURR\s|\*CLS|\*TRG|INIT|ABOR)') {
             $failures.Add("$($Case.name) emitted state-changing SCPI.")
         }
@@ -1926,6 +1928,34 @@ function Get-CaseAssertionFailures {
     return $failures.ToArray()
 }
 
+# Retain only the specific evidence actually checked by existing validators.
+# This is report enrichment, not a new pass/fail condition.
+function Get-CaseValidationEvidence {
+    param([Parameter(Mandatory = $true)]$Case)
+    $details = [ordered]@{
+        expected_channels = @($Case.expected_channels)
+        expected_output_enabled = $Case.expected_output_enabled
+    }
+    if ($Case.validation_kind -eq "snapshot-compare" -or $Case.validation_kind -eq "snapshot-mutation" -or $Case.validation_kind -eq "snapshot-readback") {
+        $details["snapshot_sections_checked"] = @("readback", "protection_settings")
+    }
+    if ($Case.validation_kind -eq "log" -and @($Case.generated_artifacts).Count -ge 2) {
+        try {
+            $rows = @(Import-Csv -LiteralPath $Case.generated_artifacts[0])
+            $events = @(Get-Content -LiteralPath $Case.generated_artifacts[1] | ForEach-Object { $_ | ConvertFrom-Json -ErrorAction Stop })
+            $details["csv_row_count"] = $rows.Count
+            $details["csv_columns"] = if ($rows.Count -gt 0) { @($rows[0].PSObject.Properties.Name) } else { @() }
+            $details["jsonl_sample_count"] = @($events | Where-Object { $_.event -eq "sample" }).Count
+            $details["jsonl_summary_count"] = @($events | Where-Object { $_.event -eq "summary" }).Count
+            $details["expected_channel_count"] = @($Case.expected_channels).Count
+            $details["fields_checked_nonempty"] = @("programmed_voltage", "programmed_current", "measured_voltage", "measured_current", "output_enabled")
+        } catch {
+            $details["evidence_summary_status"] = "unavailable_or_invalid"
+        }
+    }
+    return [pscustomobject]$details
+}
+
 function Get-FileSha256 {
     [OutputType([string])]
     param([Parameter(Mandatory = $true)][string]$LiteralPath)
@@ -2000,38 +2030,62 @@ function Invoke-ValidationCommandAttempt {
     $shareableStdoutPath = Join-Path $script:ShareableArtifactDir ($attemptArtifactBaseName + ".stdout.txt")
     $shareableStderrPath = Join-Path $script:ShareableArtifactDir ($attemptArtifactBaseName + ".stderr-scpi.txt")
     $allArgs = @(Get-ValidationCommandArguments -Case $Case -JsonPath $jsonPath)
-    if (Test-Path -LiteralPath $jsonPath) {
+    if (-not $DebugArtifacts) {
+        $minimalArgs = New-Object System.Collections.Generic.List[string]
+        for ($i = 0; $i -lt $allArgs.Count; $i++) {
+            if ($allArgs[$i] -ceq "--save-json") { $i++; continue }
+            $minimalArgs.Add([string]$allArgs[$i])
+        }
+        $allArgs = $minimalArgs.ToArray()
+    }
+    if ($DebugArtifacts -and (Test-Path -LiteralPath $jsonPath)) {
         Remove-Item -LiteralPath $jsonPath -Force
     }
     $generatedBefore = @(Get-GeneratedArtifactFingerprints -Paths @($Case.generated_artifacts))
     $settleBeforeMs = Invoke-LiveTcpipSubprocessSettle -Phase $Case.phase
 
-    $oldErrorActionPreference = $ErrorActionPreference
-    $nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
-    $hadNativePreference = $null -ne $nativePreferenceVariable
-    $oldNativePreference = $null
-    $hadPythonPath = $null -ne [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
-    $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
-    try {
-        $ErrorActionPreference = "Continue"
-        if ($hadNativePreference) {
-            $oldNativePreference = [bool]$nativePreferenceVariable.Value
-            $PSNativeCommandUseErrorActionPreference = $false
+    $stdoutText = $null
+    $stderrText = $null
+    $exitCode = -1
+    if ($DebugArtifacts) {
+        $oldErrorActionPreference = $ErrorActionPreference
+        $nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+        $hadNativePreference = $null -ne $nativePreferenceVariable
+        $oldNativePreference = $null
+        $hadPythonPath = $null -ne [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+        $oldPythonPath = [Environment]::GetEnvironmentVariable("PYTHONPATH", "Process")
+        try {
+            $ErrorActionPreference = "Continue"
+            if ($hadNativePreference) {
+                $oldNativePreference = [bool]$nativePreferenceVariable.Value
+                $PSNativeCommandUseErrorActionPreference = $false
+            }
+            [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
+            & $CliExecutable @CliPrefix @allArgs 1> $stdoutPath 2> $stderrPath
+            $exitCode = $LASTEXITCODE
         }
-        [Environment]::SetEnvironmentVariable("PYTHONPATH", (Get-ValidationChildPythonPath), "Process")
-        & $CliExecutable @CliPrefix @allArgs 1> $stdoutPath 2> $stderrPath
-        $exitCode = $LASTEXITCODE
-    }
-    finally {
-        if ($hadPythonPath) {
-            [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process")
+        finally {
+            if ($hadPythonPath) {
+                [Environment]::SetEnvironmentVariable("PYTHONPATH", $oldPythonPath, "Process")
+            }
+            else {
+                [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process")
+            }
+            $ErrorActionPreference = $oldErrorActionPreference
+            if ($hadNativePreference) {
+                $PSNativeCommandUseErrorActionPreference = $oldNativePreference
+            }
         }
-        else {
-            [Environment]::SetEnvironmentVariable("PYTHONPATH", $null, "Process")
-        }
-        $ErrorActionPreference = $oldErrorActionPreference
-        if ($hadNativePreference) {
-            $PSNativeCommandUseErrorActionPreference = $oldNativePreference
+
+    } else {
+        try {
+            $capture = Invoke-CapturedValidationCommand -FilePath $CliExecutable -Arguments @($CliPrefix + $allArgs) -WorkingDirectory $RepoRoot -PythonPath (Get-ValidationChildPythonPath) -CaptureInMemory
+            $exitCode = $capture.exit_code
+            $stdoutText = [string]$capture.stdout_text
+            $stderrText = [string]$capture.stderr_text
+        } catch {
+            $stdoutText = ""
+            $stderrText = $null
         }
     }
 
@@ -2040,24 +2094,24 @@ function Invoke-ValidationCommandAttempt {
     $payload = $null
     $parseError = $null
     $parseStatus = "parsed"
-    if (Test-Path -LiteralPath $jsonPath) {
-        try {
-            $payload = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
+    if ($DebugArtifacts) {
+        if (Test-Path -LiteralPath $jsonPath) {
+            try { $payload = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json -ErrorAction Stop }
+            catch { $parseStatus = "failed"; $parseError = "Could not parse command JSON." }
+        } else { $parseStatus = "missing"; $parseError = "JSON output file was not created." }
+        Write-ShareableJsonArtifact -PrivatePath $jsonPath -ShareablePath $shareableJsonPath -Payload $payload -ParseStatus $parseStatus
+        Write-ShareableTextArtifact -PrivatePath $stdoutPath -ShareablePath $shareableStdoutPath
+        Write-ShareableTextArtifact -PrivatePath $stderrPath -ShareablePath $shareableStderrPath
+        $scpiTranscriptEmpty = (Test-Path -LiteralPath $stderrPath) -and (Get-Item -LiteralPath $stderrPath).Length -eq 0
+    } else {
+        if ([string]::IsNullOrWhiteSpace($stdoutText)) {
+            $parseStatus = "missing"; $parseError = "Command JSON output was missing."
+        } else {
+            try { $payload = $stdoutText | ConvertFrom-Json -ErrorAction Stop }
+            catch { $parseStatus = "failed"; $parseError = "Could not parse command JSON." }
         }
-        catch {
-            $parseStatus = "failed"
-            $parseError = "Could not parse command JSON."
-        }
+        $scpiTranscriptEmpty = ($null -ne $stderrText -and $stderrText.Length -eq 0)
     }
-    else {
-        $parseStatus = "missing"
-        $parseError = "JSON output file was not created."
-    }
-
-    Write-ShareableJsonArtifact -PrivatePath $jsonPath -ShareablePath $shareableJsonPath -Payload $payload -ParseStatus $parseStatus
-    Write-ShareableTextArtifact -PrivatePath $stdoutPath -ShareablePath $shareableStdoutPath
-    Write-ShareableTextArtifact -PrivatePath $stderrPath -ShareablePath $shareableStderrPath
-    $scpiTranscriptEmpty = (Test-Path -LiteralPath $stderrPath) -and (Get-Item -LiteralPath $stderrPath).Length -eq 0
 
     return [pscustomobject]@{
         attempt_number = $AttemptNumber
@@ -2069,12 +2123,13 @@ function Invoke-ValidationCommandAttempt {
         scpi_transcript_empty = $scpiTranscriptEmpty
         generated_artifacts_changed = $generatedArtifactsChanged
         arguments = $allArgs
-        private_json_path = $jsonPath
-        private_stdout_path = $stdoutPath
-        private_stderr_path = $stderrPath
-        shareable_json_path = $shareableJsonPath
-        shareable_stdout_path = $shareableStdoutPath
-        shareable_stderr_path = $shareableStderrPath
+        stderr_text = $stderrText
+        private_json_path = if ($DebugArtifacts) { $jsonPath } else { $null }
+        private_stdout_path = if ($DebugArtifacts) { $stdoutPath } else { $null }
+        private_stderr_path = if ($DebugArtifacts) { $stderrPath } else { $null }
+        shareable_json_path = if ($DebugArtifacts) { $shareableJsonPath } else { $null }
+        shareable_stdout_path = if ($DebugArtifacts) { $shareableStdoutPath } else { $null }
+        shareable_stderr_path = if ($DebugArtifacts) { $shareableStderrPath } else { $null }
     }
 }
 
@@ -2299,7 +2354,7 @@ function Invoke-ValidationCommand {
 
     $assertionFailures = @($identityNormalizationFailures) + @($outputStateNormalizationFailures) + @($instrumentErrorNormalizationFailures)
     if ($casePassed) {
-        $assertionFailures += @(Get-CaseAssertionFailures -Case $Case -Payload $payload -OutputStates $outputStates -InstrumentErrors $instrumentErrors -StderrPath $stderrPath)
+        $assertionFailures += @(Get-CaseAssertionFailures -Case $Case -Payload $payload -OutputStates $outputStates -InstrumentErrors $instrumentErrors -StderrPath $stderrPath -StderrText $finalAttempt.stderr_text)
         if ($assertionFailures.Count -gt 0) {
             $casePassed = $false
             $failure = $assertionFailures -join " "
@@ -2310,7 +2365,7 @@ function Invoke-ValidationCommand {
     $artifactIndex = 0
     foreach ($generatedPath in $Case.generated_artifacts) {
         $artifactIndex += 1
-        if (Test-Path -LiteralPath $generatedPath) {
+        if ($DebugArtifacts -and (Test-Path -LiteralPath $generatedPath)) {
             $extension = [System.IO.Path]::GetExtension($generatedPath)
             $shareableGeneratedPath = Join-Path $script:ShareableArtifactDir ($artifactBaseName + "-generated-" + $artifactIndex + $extension)
             Write-ShareableTextArtifact -PrivatePath $generatedPath -ShareablePath $shareableGeneratedPath
@@ -2346,9 +2401,9 @@ function Invoke-ValidationCommand {
             error_message = if ($null -eq $attemptError) { $null } else { Protect-ShareableText -Text ([string](Get-PropertyValue -Object $attemptError -Name "message")) }
             scpi_transcript_empty = $attempt.scpi_transcript_empty
             generated_artifacts_changed = $attempt.generated_artifacts_changed
-            json_path = ConvertTo-RepoRelativePath -Path $attempt.shareable_json_path
-            stdout_path = ConvertTo-RepoRelativePath -Path $attempt.shareable_stdout_path
-            stderr_scpi_path = ConvertTo-RepoRelativePath -Path $attempt.shareable_stderr_path
+            json_path = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $attempt.shareable_json_path } else { $null }
+            stdout_path = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $attempt.shareable_stdout_path } else { $null }
+            stderr_scpi_path = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $attempt.shareable_stderr_path } else { $null }
         }
         if (Test-LiveTcpipPhase -Phase $Case.phase) {
             $attemptDiagnosticFields["hardware_touched"] = if ($null -eq $attemptExecution) { $null } else { Get-PropertyValue -Object $attemptExecution -Name "hardware_touched" }
@@ -2389,13 +2444,14 @@ function Invoke-ValidationCommand {
         state_changing = $Case.state_changing
         validation_kind = $Case.validation_kind
         assertion_failures = @($assertionFailures | ForEach-Object { Protect-ShareableText -Text $_ })
+        validation_evidence = Get-CaseValidationEvidence -Case $Case
         generated_artifacts = $generatedArtifactPaths.ToArray()
         comparison_result = if ($Case.validation_kind -eq "snapshot-compare") { if ($assertionFailures.Count -eq 0) { "matched" } else { "mismatch" } } else { $null }
         result = if ($casePassed) { "passed" } else { "failed" }
-        stdout_path = ConvertTo-RepoRelativePath -Path $shareableStdoutPath
-        stderr_path = ConvertTo-RepoRelativePath -Path $shareableStderrPath
-        stderr_scpi_path = ConvertTo-RepoRelativePath -Path $shareableStderrPath
-        json_path = ConvertTo-RepoRelativePath -Path $shareableJsonPath
+        stdout_path = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $shareableStdoutPath } else { $null }
+        stderr_path = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $shareableStderrPath } else { $null }
+        stderr_scpi_path = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $shareableStderrPath } else { $null }
+        json_path = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $shareableJsonPath } else { $null }
     }
     $script:CommandRecords.Add($record)
     if (-not $casePassed) {
@@ -2793,7 +2849,8 @@ function Write-ValidationArtifacts {
         [Parameter(Mandatory = $true)][datetime]$StartedAt
     )
 
-    Ensure-ArtifactDirectories
+    try {
+        Ensure-ArtifactDirectories
     $completedAt = Get-Date
     $reportPath = Join-Path $script:ShareableArtifactDir "report.json"
     $summaryPath = Join-Path $script:ShareableArtifactDir "summary.md"
@@ -2841,6 +2898,10 @@ function Write-ValidationArtifacts {
     $promotesLiveSupport = $false
     $reportFields = [ordered]@{
         schema_version = "2.0"
+        artifact_mode = if ($DebugArtifacts) { "debug" } else { "minimal" }
+        debug_artifacts_retained = [bool]$DebugArtifacts
+        private_raw_artifacts_retained = [bool]$DebugArtifacts
+        redaction_applied = $true
         kind = "powers-tool-live-validation"
         vendor_id = $TargetMetadata[$script:NormalizedTarget].vendor_id
         model_id = $script:NormalizedTarget
@@ -2976,6 +3037,16 @@ function Write-ValidationArtifacts {
         }
     }
     Write-Utf8NoBomFile -LiteralPath $summaryPath -Value $lines
+    Test-ValidationShareablePair -Report $reportPath -Summary $summaryPath
+    if (-not $DebugArtifacts) {
+        Clear-ValidationRunExcept -RunRoot $script:OutputDir -TmpRoot $TmpRoot -KeepPaths @($reportPath, $summaryPath)
+    }
+    } catch {
+        try { Write-ValidationArtifactFailure -RunRoot $script:OutputDir -TmpRoot $TmpRoot }
+        catch { [Console]::Error.WriteLine("Artifact failure cleanup was blocked for safety.") }
+        [Console]::Error.WriteLine("Shareable artifact generation or retention failed.")
+        exit 1
+    }
 }
 
 $script:ConnectionLabel = $null
@@ -3029,7 +3100,7 @@ if ($Suite -eq "full") {
 }
 else {
     if ($Suite -notin $supportedSuites) {
-        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $timestamp = (Get-Date -Format "yyyyMMdd_HHmmss_fff") + "_" + [guid]::NewGuid().ToString("N").Substring(0,8)
         $OutputDir = Join-Path (Join-Path $TmpRoot "live_cli_check") ($timestamp + "_" + $NormalizedTarget + "_" + $ConnectionLabel + "_" + $Suite)
         $script:OutputDir = Reset-OutputDirectory -Path $OutputDir -Root $TmpRoot
         $script:SuitesToRun = @($Suite)
@@ -3047,7 +3118,7 @@ if (-not $PlanOnly -and -not $Restore -and @($SuitesToRun | Where-Object { $_ -i
     Fail-Validation "Snapshot and trigger-list live validation require safe-off cleanup; -Restore:`$false is not allowed."
 }
 
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$timestamp = (Get-Date -Format "yyyyMMdd_HHmmss_fff") + "_" + [guid]::NewGuid().ToString("N").Substring(0,8)
 $OutputDir = Join-Path (Join-Path $TmpRoot "live_cli_check") ($timestamp + "_" + $NormalizedTarget + "_" + $ConnectionLabel + "_" + $Suite)
 $script:OutputDir = Reset-OutputDirectory -Path $OutputDir -Root $TmpRoot
 $script:SuitesToRun = @($SuitesToRun)
@@ -3085,31 +3156,56 @@ else {
     $externalPreflightStdout = Join-Path $script:PrivateArtifactDir "external_preflight.stdout.txt"
     $externalPreflightStderr = Join-Path $script:PrivateArtifactDir "external_preflight.stderr.txt"
     Write-Host "Running external no-hardware CLI preflight for $NormalizedTarget..."
-    $oldErrorActionPreference = $ErrorActionPreference
-    $nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
-    $hadNativePreference = $null -ne $nativePreferenceVariable
-    $oldNativePreference = $null
-    try {
-        $ErrorActionPreference = "Continue"
-        if ($hadNativePreference) {
-            $oldNativePreference = [bool]$nativePreferenceVariable.Value
-            $PSNativeCommandUseErrorActionPreference = $false
+    $preflightArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PreflightScript, "-Target", $NormalizedTarget, "-OutputRoot", $externalPreflightRoot)
+    if ($DebugArtifacts) { $preflightArgs += "-DebugArtifacts" }
+    if ($DebugArtifacts) {
+        $oldErrorActionPreference = $ErrorActionPreference
+        $nativePreferenceVariable = Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue
+        $hadNativePreference = $null -ne $nativePreferenceVariable
+        $oldNativePreference = $null
+        try {
+            $ErrorActionPreference = "Continue"
+            if ($hadNativePreference) {
+                $oldNativePreference = [bool]$nativePreferenceVariable.Value
+                $PSNativeCommandUseErrorActionPreference = $false
+            }
+            & powershell.exe @preflightArgs 1> $externalPreflightStdout 2> $externalPreflightStderr
+            $externalPreflightExit = $LASTEXITCODE
         }
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PreflightScript -Target $NormalizedTarget -OutputRoot $externalPreflightRoot 1> $externalPreflightStdout 2> $externalPreflightStderr
-        $externalPreflightExit = $LASTEXITCODE
-    }
-    finally {
-        $ErrorActionPreference = $oldErrorActionPreference
-        if ($hadNativePreference) { $PSNativeCommandUseErrorActionPreference = $oldNativePreference }
+        finally {
+            $ErrorActionPreference = $oldErrorActionPreference
+            if ($hadNativePreference) { $PSNativeCommandUseErrorActionPreference = $oldNativePreference }
+        }
+    } else {
+        $externalCapture = Invoke-CapturedValidationCommand -FilePath "powershell.exe" -Arguments $preflightArgs -WorkingDirectory $RepoRoot -CaptureInMemory
+        $externalPreflightExit = $externalCapture.exit_code
     }
     $externalReportPath = @(Get-ChildItem -LiteralPath $externalPreflightRoot -Filter report.json -File -Recurse -ErrorAction SilentlyContinue | Sort-Object { $_.FullName.Length } | Select-Object -First 1)
+    $externalEvidence = $null
+    if ($externalReportPath.Count -eq 1) {
+        try {
+            $externalParsed = Get-Content -LiteralPath $externalReportPath[0].FullName -Raw | ConvertFrom-Json -ErrorAction Stop
+            $externalEvidence = [pscustomobject]@{
+                status = $externalParsed.status
+                model_id = $externalParsed.model_id
+                suite = $externalParsed.suite
+                summary_counts = $externalParsed.summary_counts
+                checks = $externalParsed.checks
+                commands = $externalParsed.commands
+                hardware_touched = $externalParsed.hardware_touched
+            }
+        } catch { $externalPreflightExit = 1 }
+    } elseif ($externalPreflightExit -eq 0) {
+        $externalPreflightExit = 1
+    }
     $script:ExternalPreflight = [pscustomobject]@{
         status = if ($externalPreflightExit -eq 0) { "passed" } else { "failed" }
         exit_code = $externalPreflightExit
-        output_root = ConvertTo-RepoRelativePath -Path $externalPreflightRoot
-        report = if ($externalReportPath.Count -eq 1) { ConvertTo-RepoRelativePath -Path $externalReportPath[0].FullName } else { $null }
-        stdout = ConvertTo-RepoRelativePath -Path $externalPreflightStdout
-        stderr = ConvertTo-RepoRelativePath -Path $externalPreflightStderr
+        output_root = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $externalPreflightRoot } else { $null }
+        report = if ($DebugArtifacts -and $externalReportPath.Count -eq 1) { ConvertTo-RepoRelativePath -Path $externalReportPath[0].FullName } else { $null }
+        stdout = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $externalPreflightStdout } else { $null }
+        stderr = if ($DebugArtifacts) { ConvertTo-RepoRelativePath -Path $externalPreflightStderr } else { $null }
+        evidence = $externalEvidence
     }
 }
 if ($externalPreflightExit -ne 0) {

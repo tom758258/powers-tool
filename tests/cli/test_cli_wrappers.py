@@ -203,11 +203,12 @@ def test_psm2010_preflight_executes_maintained_no_hardware_cases(
         "scripts/preflight-cli.ps1",
         "-Target", "gw-instek-psm-2010",
         "-Suite", suite,
+        "-DebugArtifacts",
         "-OutputRoot", str(output.relative_to(ROOT)),
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
-    report_path = next(output.glob("run_*/report.json"))
+    report_path = next(output.glob("run_*/gw-instek-psm-2010/shareable/report.json"))
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["status"] == "passed"
     assert report["suite"] == suite
@@ -217,11 +218,7 @@ def test_psm2010_preflight_executes_maintained_no_hardware_cases(
     assert report["resource_scan_performed"] is False
     assert report["resource_guess_performed"] is False
 
-    target_report = json.loads(
-        (report_path.parent / "gw-instek-psm-2010" / "report.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    target_report = report
     assert target_report["model_id"] == "gw-instek-psm-2010"
     assert target_report["expected_model"] == "PSM-2010"
     assert target_report["simulator_resource"] == "ASRL1::SIM::PSM2010::INSTR"
@@ -257,10 +254,11 @@ def test_representative_smoke_executes_required_no_hardware_cli() -> None:
         "scripts/preflight-cli.ps1",
         "-Target", "keysight-edu36311a",
         "-Suite", "smoke",
+        "-DebugArtifacts",
         "-OutputRoot", str(output.relative_to(ROOT)),
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    reports = sorted(output.glob("run_*/report.json"))
+    reports = sorted(output.glob("run_*/keysight-edu36311a/shareable/report.json"))
     assert len(reports) == 1
     report = json.loads(reports[0].read_text(encoding="utf-8"))
     assert report["kind"] == "powers-tool-cli-preflight"
@@ -273,11 +271,7 @@ def test_representative_smoke_executes_required_no_hardware_cli() -> None:
         encoding="utf-8"
     )
 
-    target_report = json.loads(
-        (reports[0].parent / "keysight-edu36311a" / "report.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    target_report = report
     commands = {command["name"]: command for command in target_report["commands"]}
     assert set(commands) == {
         "identify-simulate",
@@ -315,10 +309,11 @@ def test_representative_deep_executes_required_no_hardware_cli() -> None:
         "scripts/preflight-cli.ps1",
         "-Target", "keysight-e3646a",
         "-Suite", "deep",
+        "-DebugArtifacts",
         "-OutputRoot", str(output.relative_to(ROOT)),
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    report_path = next(output.glob("run_*/report.json"))
+    report_path = next(output.glob("run_*/keysight-e3646a/shareable/report.json"))
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["suite"] == "deep"
     assert report["targets"] == ["keysight-e3646a"]
@@ -327,11 +322,7 @@ def test_representative_deep_executes_required_no_hardware_cli() -> None:
         encoding="utf-8"
     )
 
-    e3646a = json.loads(
-        (report_path.parent / "keysight-e3646a" / "report.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    e3646a = report
     assert {command["category"] for command in e3646a["commands"]} >= {
         "software-sequence",
         "safe-off",
@@ -354,7 +345,7 @@ def test_representative_deep_executes_required_no_hardware_cli() -> None:
         command["hardware_touched"] is False
         for command in e3646a["commands"]
     )
-    assert not (report_path.parent / "keysight-e36312a").exists()
+    assert not (report_path.parents[2] / "keysight-e36312a").exists()
     assert not (report_path.parent / "keysight-edu36311a").exists()
 
 
@@ -386,3 +377,92 @@ def test_preflight_rejects_unsupported_suite_and_target() -> None:
     )
     assert unsupported_deep_target.returncode == 2
     assert "not a deep preflight representative" in unsupported_deep_target.stderr
+
+
+@pytest.mark.windows_powershell
+def test_preflight_minimal_retains_two_reports_per_model() -> None:
+    output = ROOT / ".tmp_tests" / "pytest_cli_preflight" / uuid4().hex
+    result = _run(
+        "scripts/preflight-cli.ps1",
+        "-Target", "all", "-Suite", "smoke",
+        "-OutputRoot", str(output.relative_to(ROOT)),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    run = next(output.glob("run_*"))
+    assert not (run / "report.json").exists()
+    reports = sorted(run.glob("*/shareable/report.json"))
+    assert len(reports) == 4
+    for report_path in reports:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        assert report["artifact_mode"] == "minimal"
+        assert report["status"] == "passed"
+        assert report["hardware_touched"] is False
+        assert report["commands"]
+        assert all(command["json_path"] is None for command in report["commands"])
+        assert all(command["assertions"] for command in report["commands"])
+    assert len([p for p in run.rglob("*") if p.is_file()]) == len(reports) * 2
+
+
+@pytest.mark.windows_powershell
+def test_shared_capture_helper_defaults_to_memory_without_raw_files() -> None:
+    if POWERSHELL is None:
+        pytest.skip("Windows PowerShell is required")
+    output = ROOT / ".tmp_tests" / "pytest_capture_helper" / uuid4().hex
+    output.mkdir(parents=True)
+    helper = ROOT / "scripts" / "_validation_helpers.ps1"
+    out_path = output / "stdout.txt"
+    err_path = output / "stderr.txt"
+    command = (
+        f". '{helper}'; "
+        "$argsForChild = @('-NoProfile','-Command','[Console]::Out.WriteLine(\"captured\"); [Console]::Error.WriteLine(\"warning\")'); "
+        f"$memory = Invoke-CapturedValidationCommand -FilePath 'powershell.exe' -Arguments $argsForChild -CaptureInMemory -StdOutPath '{out_path}' -StdErrPath '{err_path}'; "
+        "if ($memory.stdout_text.Trim() -ne 'captured' -or $memory.stderr_text.Trim() -ne 'warning' -or $memory.exit_code -ne 0) { exit 7 }; "
+        f"if (Test-Path '{out_path}') {{ exit 8 }}; "
+        f"$saved = Invoke-CapturedValidationCommand -FilePath 'powershell.exe' -Arguments $argsForChild -StdOutPath '{out_path}' -StdErrPath '{err_path}'; "
+        "if ($saved.exit_code -ne 0 -or -not (Test-Path $saved.stdout_path) -or -not (Test-Path $saved.stderr_path)) { exit 9 }; "
+        "exit 0"
+    )
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.windows_powershell
+def test_shareable_generation_failure_keeps_only_safe_summary_in_current_run() -> None:
+    if POWERSHELL is None:
+        pytest.skip("Windows PowerShell is required")
+    tmp_root = ROOT / ".tmp_tests"
+    parent = tmp_root / "pytest_artifact_failure" / uuid4().hex
+    run = parent / "failed-run"
+    sibling = parent / "sibling-run"
+    (run / "shareable").mkdir(parents=True)
+    sibling.mkdir(parents=True)
+    sentinel = sibling / "keep.txt"
+    sentinel.write_text("another run", encoding="utf-8")
+    report = run / "shareable" / "report.json"
+    report.write_text("{invalid", encoding="utf-8")
+    summary = run / "shareable" / "summary.md"
+    summary.write_text("partial summary", encoding="utf-8")
+    helper = ROOT / "scripts" / "_validation_helpers.ps1"
+    script = (
+        f". '{helper}'; "
+        f"try {{ Test-ValidationShareablePair -Report '{report}' -Summary '{summary}'; exit 3 }} "
+        f"catch {{ Write-ValidationArtifactFailure -RunRoot '{run}' -TmpRoot '{tmp_root}' }}; "
+        "exit 0"
+    )
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sentinel.read_text(encoding="utf-8") == "another run"
+    assert [file.relative_to(run).as_posix() for file in run.rglob("*") if file.is_file()] == [
+        "private/error-summary.md"
+    ]
+    failure_text = (run / "private" / "error-summary.md").read_text(encoding="utf-8")
+    assert "failed" in failure_text
+    assert "{invalid" not in failure_text
