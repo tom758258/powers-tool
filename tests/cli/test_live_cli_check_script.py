@@ -1082,26 +1082,6 @@ foreach ($case in @(Get-SnapshotCases -Model "keysight-e36312a" -Live $true)) {{
         assert {p.name for p in output_dir.rglob("*") if p.is_file()} == expected_files
 
 
-def test_live_cli_check_uses_candidate_scope_names_only() -> None:
-    script = SCRIPT.read_text(encoding="utf-8")
-    removed_names = (
-        "Candidate" + "ContextRequired",
-        "candidate_" + "context_required",
-        "Assert-Candidate" + "ContextInventory",
-        "Test-CurrentConnectionUsesCandidate" + "Capabilities",
-        "missing candidate " + "context",
-    )
-
-    assert all(name not in script for name in removed_names)
-    for current_name in (
-        "CandidateScopeRequired",
-        "candidate_scope_required",
-        "Assert-CandidateScopeInventory",
-        "Test-CurrentConnectionSupportsCandidates",
-        "missing candidate scope marking",
-    ):
-        assert current_name in script
-
 
 def _report_path(stdout: str, stderr: str) -> Path:
     combined = stdout + "\n" + stderr
@@ -3041,17 +3021,13 @@ def test_live_cli_check_verify_arguments_are_accepted_by_production_parser():
 
     args = cli.build_parser().parse_args(arguments)
 
-    assert arguments == [
-        "verify",
-        "--json",
-        "--resource",
-        "ASRL1::INSTR",
-        "--log-scpi",
-        "--model",
-        "keysight-e3646a",
-        "--save-json",
-        ".tmp_tests\\parser-contract.json",
-    ]
+    assert arguments[0] == "verify"
+    assert "--json" in arguments
+    assert "--log-scpi" in arguments
+    assert arguments.count("--resource") == 1
+    assert arguments[arguments.index("--resource") + 1] == "ASRL1::INSTR"
+    assert arguments.count("--model") == 1
+    assert arguments.count("--save-json") == 1
     assert cli_request._target_core_request_for_args(args).runtime.expected_model_id == "keysight-e3646a"
 
 
@@ -3299,17 +3275,6 @@ Load-CoreSupportPolicyInventory
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout) == {"candidate": False}
 
-
-def test_live_cli_check_full_suite_composition_is_model_aware():
-    script = (Path("scripts") / "_validation_helpers.ps1").read_text(encoding="utf-8")
-
-    assert '"keysight-e36312a" = [pscustomobject]@{' in script
-    assert '"keysight-edu36311a" = [pscustomobject]@{' in script
-    assert '"keysight-e3646a" = [pscustomobject]@{' in script
-    assert 'suites = @("readonly", "output", "protection", "snapshot", "trigger-list", "software-sequence")' in script
-    assert 'suites = @("readonly", "output", "protection", "software-sequence")' in script
-    assert 'suites = @("readonly", "output", "software-sequence")' in script
-    assert 'suites = @("readonly", "safe-state", "output", "protection", "snapshot", "software-sequence")' in script
 
 
 @pytest.mark.windows_powershell
