@@ -89,14 +89,15 @@ function Clear-ValidationRunExcept {
     if (-not $run.StartsWith(($base + [System.IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to clean outside the validation temporary root."
     }
-    if (-not (Test-Path -LiteralPath $run -PathType Container)) { return }
     $current = $run
-    while ($current.StartsWith(($base + [System.IO.Path]::DirectorySeparatorChar), [System.StringComparison]::OrdinalIgnoreCase)) {
-        if ((Get-Item -LiteralPath $current -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        if ((Test-Path -LiteralPath $current -ErrorAction Stop) -and
+            ((Get-Item -LiteralPath $current -Force -ErrorAction Stop).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
             throw "Refusing to clean through a linked validation ancestor."
         }
         $current = Split-Path -Parent $current
     }
+    if (-not (Test-Path -LiteralPath $run -PathType Container -ErrorAction Stop)) { return }
     $kept = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($path in @($KeepPaths)) {
         $full = [System.IO.Path]::GetFullPath($path)
@@ -111,7 +112,7 @@ function Clear-ValidationRunExcept {
     $stack.Push($run)
     while ($stack.Count -gt 0) {
         $dir = $stack.Pop()
-        foreach ($item in @(Get-ChildItem -LiteralPath $dir -Force)) {
+        foreach ($item in @(Get-ChildItem -LiteralPath $dir -Force -ErrorAction Stop)) {
             if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
                 throw "Refusing to traverse or remove a linked validation path."
             }
@@ -127,11 +128,11 @@ function Clear-ValidationRunExcept {
         }
     }
     foreach ($file in $files) {
-        if (-not $kept.Contains($file)) { Remove-Item -LiteralPath $file -Force }
+        if (-not $kept.Contains($file)) { Remove-Item -LiteralPath $file -Force -ErrorAction Stop }
     }
     foreach ($dir in @($directories | Sort-Object { $_.Length } -Descending)) {
-        if (@(Get-ChildItem -LiteralPath $dir -Force).Count -eq 0) {
-            Remove-Item -LiteralPath $dir -Force
+        if (@(Get-ChildItem -LiteralPath $dir -Force -ErrorAction Stop).Count -eq 0) {
+            Remove-Item -LiteralPath $dir -Force -ErrorAction Stop
         }
     }
 }
@@ -155,7 +156,7 @@ function Write-ValidationArtifactFailure {
     )
     Clear-ValidationRunExcept -RunRoot $RunRoot -TmpRoot $TmpRoot
     $private = Join-Path $RunRoot "private"
-    New-Item -ItemType Directory -Path $private -Force | Out-Null
+    New-Item -ItemType Directory -Path $private -Force -ErrorAction Stop | Out-Null
     Write-Utf8NoBomText -LiteralPath (Join-Path $private "error-summary.md") -Text (
         "# Validation artifact generation failed" + [Environment]::NewLine +
         "Status: failed" + [Environment]::NewLine +

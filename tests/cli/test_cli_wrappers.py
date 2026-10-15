@@ -430,8 +430,12 @@ def test_shared_capture_helper_defaults_to_memory_without_raw_files() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.parametrize(
+    "boundary",
+    ["normal", "tmp-root", "ancestor", "run", "child", "missing-run", "root-itself", "outside", "remove-error"],
+)
 @pytest.mark.windows_powershell
-def test_shareable_generation_failure_keeps_only_safe_summary_in_current_run() -> None:
+def test_shareable_generation_failure_keeps_only_safe_summary_in_current_run(boundary) -> None:
     if POWERSHELL is None:
         pytest.skip("Windows PowerShell is required")
     tmp_root = ROOT / ".tmp_tests"
@@ -447,6 +451,65 @@ def test_shareable_generation_failure_keeps_only_safe_summary_in_current_run() -
     summary = run / "shareable" / "summary.md"
     summary.write_text("partial summary", encoding="utf-8")
     helper = ROOT / "scripts" / "_validation_helpers.ps1"
+    link = None
+    if boundary != "normal":
+        sandbox = parent / "sandbox"
+        sandbox.mkdir()
+        tmp_root = sandbox / ".tmp_tests"
+        tmp_root.mkdir()
+        cleanup_run = tmp_root / "run"
+        cleanup_run.mkdir()
+        (cleanup_run / "keep.txt").write_text("current run", encoding="utf-8")
+        linked_run = parent / "linked-run"
+        if boundary in {"tmp-root", "ancestor", "run", "child", "missing-run"}:
+            if boundary == "ancestor":
+                link, target = parent / "linked-sandbox", sandbox
+                tmp_root = link / ".tmp_tests"
+                cleanup_run = tmp_root / "run"
+            elif boundary in {"tmp-root", "missing-run"}:
+                link, target = parent / "linked-tmp", tmp_root
+                tmp_root = link
+                cleanup_run = link / ("missing" if boundary == "missing-run" else "run")
+            elif boundary == "run":
+                link, target = linked_run, cleanup_run
+                cleanup_run = link
+                tmp_root = parent
+            else:
+                link, target = cleanup_run / "linked-child", sibling
+            create = subprocess.run(
+                [POWERSHELL, "-NoProfile", "-Command",
+                 f"New-Item -ItemType Junction -Path '{link}' -Target '{target}' -ErrorAction Stop | Out-Null"],
+                cwd=ROOT, capture_output=True, text=True, check=False,
+            )
+            assert create.returncode == 0, create.stdout + create.stderr
+        elif boundary == "root-itself":
+            cleanup_run = tmp_root
+        elif boundary == "outside":
+            cleanup_run = run
+        prelude = (
+            'function Remove-Item { [CmdletBinding()] param([string]$LiteralPath, [switch]$Force); '
+            'Write-Error "fixture deletion denied" }; '
+            if boundary == "remove-error" else ""
+        )
+        script = (
+            f". '{helper}'; $ErrorActionPreference = 'Continue'; {prelude}"
+            f"try {{ Write-ValidationArtifactFailure -RunRoot '{cleanup_run}' -TmpRoot '{tmp_root}'; exit 7 }} "
+            "catch { exit 0 }"
+        )
+        try:
+            result = subprocess.run(
+                [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                check=False,
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            assert sentinel.read_text(encoding="utf-8") == "another run"
+            assert not list(parent.rglob("error-summary.md"))
+            assert (sandbox / ".tmp_tests" / "run" / "keep.txt").read_text(encoding="utf-8") == "current run"
+        finally:
+            if link is not None:
+                link.rmdir()
+        return
     script = (
         f". '{helper}'; "
         f"try {{ Test-ValidationShareablePair -Report '{report}' -Summary '{summary}'; exit 3 }} "
@@ -466,3 +529,44 @@ def test_shareable_generation_failure_keeps_only_safe_summary_in_current_run() -
     failure_text = (run / "private" / "error-summary.md").read_text(encoding="utf-8")
     assert "failed" in failure_text
     assert "{invalid" not in failure_text
+
+
+@pytest.mark.windows_powershell
+def test_preflight_report_generation_failure_is_fail_closed() -> None:
+    if POWERSHELL is None:
+        pytest.skip("Windows PowerShell is required")
+    output = ROOT / ".tmp_tests" / "pytest_preflight_report_failure" / uuid4().hex
+    sibling = output / "sibling-run"
+    sibling.mkdir(parents=True)
+    sentinel = sibling / "keep.txt"
+    sentinel.write_text("another run", encoding="utf-8")
+    command = rf'''
+function global:ConvertTo-Json {{
+    [CmdletBinding()]
+    param([Parameter(ValueFromPipeline=$true)]$InputObject, [int]$Depth = 2, [switch]$Compress)
+    process {{
+        $json = Microsoft.PowerShell.Utility\ConvertTo-Json -InputObject $InputObject -Depth $Depth -Compress:$Compress
+        if ($json -match '"kind"\s*:\s*"powers-tool-cli-preflight"') {{
+            [Console]::Out.WriteLine("fixture-report-status:" + $InputObject.status)
+            return "{{invalid fixture-private-data"
+        }}
+        return $json
+    }}
+}}
+& .\scripts\preflight-cli.ps1 -Target keysight-e36312a -Suite smoke -OutputRoot "{output}"
+'''
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "fixture-report-status:passed" in result.stdout
+    assert sentinel.read_text(encoding="utf-8") == "another run"
+    run, = output.glob("run_*")
+    assert {p.relative_to(run).as_posix() for p in run.rglob("*") if p.is_file()} == {
+        "private/error-summary.md"
+    }
+    text = (run / "private/error-summary.md").read_text(encoding="utf-8")
+    assert "failed" in text
+    assert "fixture-private-data" not in text
+    assert str(output) not in text

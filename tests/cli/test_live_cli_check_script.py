@@ -903,7 +903,12 @@ def snapshot_document(mutated=False):
 
 command = sys.argv[1]
 dry_run = "--dry-run" in sys.argv
-save_path = Path(sys.argv[sys.argv.index("--save-json") + 1])
+save_path = Path(sys.argv[sys.argv.index("--save-json") + 1]) if "--save-json" in sys.argv else None
+output_state = Path(__file__).with_name("output-enabled")
+if command == "safe-off":
+    output_state.unlink(missing_ok=True)
+elif command == "output-on" or (command == "restore-from-snapshot" and "--restore-output-state" in sys.argv):
+    output_state.touch()
 data = {
     "resource": {
         "idn": {
@@ -942,7 +947,7 @@ elif command == "readback":
         "channels": snapshot_document()["readback"],
     }
 elif command == "output-state":
-    one_on = save_path.name == "live-restore-on-assert.json"
+    one_on = output_state.exists()
     data = {
         "resource": {"idn": {**reported, "raw": "Keysight Technologies,E36312A,SN,2.10"}},
         "channel": "all",
@@ -964,22 +969,25 @@ payload = {
     },
     "data": data,
 }
-save_path.parent.mkdir(parents=True, exist_ok=True)
-save_path.write_text(json.dumps(payload), encoding="utf-8")
+if save_path is not None:
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    save_path.write_text(json.dumps(payload), encoding="utf-8")
+print(json.dumps(payload))
 '''.lstrip(),
         encoding="utf-8",
     )
     return tmp_path
 
 
+@pytest.mark.parametrize("debug_artifacts", [False, True], ids=["minimal", "debug"])
 @pytest.mark.windows_powershell
-def test_actual_snapshot_cases_complete_full_workflow(tmp_path):
+def test_actual_snapshot_cases_complete_full_workflow(tmp_path, debug_artifacts):
     fixture_path = _snapshot_workflow_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
-$script:DebugArtifacts = $true
+$script:DebugArtifacts = ${str(debug_artifacts).lower()}
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -1022,6 +1030,21 @@ foreach ($case in @(Get-SnapshotCases -Model "keysight-e36312a" -Live $true)) {{
     assert records["restore-on-readback"]["result"] == "passed"
     assert records["restore-on-readback"]["identity_observed"] is False
     assert records["restore-on-readback"]["assertion_failures"] == []
+    for name in ("restore-off-save-b", "restore-off-save-c"):
+        assert records[name]["validation_evidence"]["snapshot_sections_checked"] == [
+            "readback", "protection_settings"
+        ]
+    assert records["restore-on-readback"]["validation_evidence"] == {
+        "expected_channels": [1, 2, 3],
+        "expected_output_enabled": None,
+        "snapshot_sections_checked": ["readback"],
+    }
+    if not debug_artifacts:
+        assert all(record["json_path"] is None for record in records.values())
+        assert {p.name for p in output_dir.rglob("*") if p.is_file()} == {
+            "snapshot-live.json", "restore-off-snapshot-a.json", "restore-off-snapshot-b.json",
+            "restore-off-snapshot-c.json", "restore-on-snapshot.json",
+        }
 
 
 def test_live_cli_check_uses_candidate_scope_names_only() -> None:
@@ -3621,11 +3644,14 @@ elif command == "error":
         payload["ok"] = False
         payload["error"] = {{"code": "error_queue_failed", "message": "error queue failed"}}
 
-print(r"TCPIP0::192.168.50.77::5025::SOCKET KEYSIGHT,E36312A,MY12345678,2.10 C:\Users\Example User\private\sequence.yaml")
+if "--save-json" in sys.argv:
+    print(r"TCPIP0::192.168.50.77::5025::SOCKET KEYSIGHT,E36312A,MY12345678,2.10 C:\Users\Example User\private\sequence.yaml")
+    save_path = sys.argv[sys.argv.index("--save-json") + 1]
+    with open(save_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+else:
+    print(json.dumps(payload))
 print(r"TCPIP0::192.168.50.77::5025::SOCKET MY12345678", file=sys.stderr)
-save_path = sys.argv[sys.argv.index("--save-json") + 1]
-with open(save_path, "w", encoding="utf-8") as handle:
-    json.dump(payload, handle)
 sys.exit(0 if payload["ok"] else 2)
 """.lstrip(),
         encoding="utf-8",
@@ -3865,11 +3891,23 @@ def _run_state_changing_fixture(
     restore: bool = True,
     expect_result: str = "passed",
     env: dict[str, str],
+    debug_artifacts: bool = True,
+    fail_report: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    report_fault = r'''
+function Test-ValidationShareablePair {
+    param($Report, $Summary)
+    [pscustomobject]@{
+        cleanup_status = $script:CleanupEvidence.status
+        cleanup_commands = @($script:CommandRecords | Select-Object -Last 3 | ForEach-Object { $_.name })
+    } | ConvertTo-Json -Compress
+    throw "private fixture report failure"
+}
+''' if fail_report else ""
     command = rf"""
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
-$script:DebugArtifacts = $true
+$script:DebugArtifacts = ${str(debug_artifacts).lower()}
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
 $script:NormalizedTarget = "keysight-e36312a"
@@ -3895,6 +3933,7 @@ Invoke-ValidationCommand -Case $case | Out-Null
 Invoke-SafeOffCleanup -Role "final"
 $result = if ($script:Failures.Count -eq 0) {{ "passed" }} else {{ "failed" }}
 if (-not $script:Restore -and $result -eq "passed") {{ $result = "passed_without_cleanup_verification" }}
+{report_fault}
 Write-ValidationArtifacts -ValidationMode "live" -Result $result -StartedAt (Get-Date)
 if ($result -ne "{expect_result}") {{ throw "expected {expect_result}, got $result" }}
 Write-Output (Join-Path $script:ShareableArtifactDir "report.json")
@@ -4282,11 +4321,14 @@ else:
     exit_code = 0
 
 save_indexes = [index for index, value in enumerate(sys.argv) if value == "--save-json"]
-if len(save_indexes) != 1:
+if len(save_indexes) > 1:
     raise SystemExit(91)
-save_path = Path(sys.argv[save_indexes[0] + 1])
-save_path.write_text(json.dumps(payload), encoding="utf-8")
-print(json.dumps({"attempt": count, "command": command}))
+if save_indexes:
+    save_path = Path(sys.argv[save_indexes[0] + 1])
+    save_path.write_text(json.dumps(payload), encoding="utf-8")
+    print(json.dumps({"attempt": count, "command": command}))
+else:
+    print(json.dumps(payload))
 raise SystemExit(exit_code)
 '''.lstrip(),
         encoding="utf-8",
@@ -4305,6 +4347,7 @@ def _run_tcpip_session_fixture(
     validation_kind: str = "",
     generated_artifact: bool = False,
     target: str = "keysight-e36312a",
+    debug_artifacts: bool = False,
 ) -> dict[str, object]:
     fixture_path = _tcpip_session_fixture_cli_path(tmp_path)
     output_dir = tmp_path / "out"
@@ -4317,7 +4360,7 @@ def _run_tcpip_session_fixture(
     command = rf'''
 $env:POWERS_TOOL_LIVE_CLI_CHECK_IMPORT_ONLY = "1"
 . .\scripts\live-cli-check.ps1
-$script:DebugArtifacts = $true
+$script:DebugArtifacts = ${str(debug_artifacts).lower()}
 function Get-FileHash {{ throw "legacy Get-FileHash must not be invoked" }}
 $script:CliExecutable = $PythonExe
 $script:CliPrefix = @("-m", "powers_tool_cli.cli")
@@ -4345,7 +4388,7 @@ $record = Invoke-ValidationCommand -Case $case
     record = $record
     sleeps = $script:SleepCalls.ToArray()
     failures = $script:Failures.ToArray()
-    files = @((Get-ChildItem -LiteralPath $script:OutputDir -Recurse -File).Name | Sort-Object)
+    files = @(Get-ChildItem -LiteralPath $script:OutputDir -Recurse -File | ForEach-Object {{ $_.Name }} | Sort-Object)
 }} | ConvertTo-Json -Depth 30 -Compress
 '''
     env = {
@@ -4356,7 +4399,13 @@ $record = Invoke-ValidationCommand -Case $case
     }
     result = _run_powershell_command(command, env=env)
     assert result.returncode == 0, result.stdout + result.stderr
-    return json.loads(result.stdout.strip().splitlines()[-1])
+    run = json.loads(result.stdout.strip().splitlines()[-1])
+    if not debug_artifacts:
+        assert run["files"] == []
+        assert run["record"]["json_path"] is None
+        assert run["record"]["parse_error"] is None
+        assert all(attempt["stdout_path"] is None for attempt in run["record"]["attempts"])
+    return run
 
 
 @pytest.mark.windows_powershell
@@ -4418,9 +4467,10 @@ $directoryFingerprint = @(Get-GeneratedArtifactFingerprints -Paths @("{directory
     assert fingerprints["directory"]["sha256"] is None
 
 
+@pytest.mark.parametrize("debug_artifacts", [False, True], ids=["minimal", "debug"])
 @pytest.mark.windows_powershell
-def test_tcpip_first_pre_io_open_failure_recovers_once_with_attempt_artifacts(tmp_path):
-    run = _run_tcpip_session_fixture(tmp_path, mode="recover")
+def test_tcpip_first_pre_io_open_failure_recovers_once_with_attempt_artifacts(tmp_path, debug_artifacts):
+    run = _run_tcpip_session_fixture(tmp_path, mode="recover", debug_artifacts=debug_artifacts)
     record = run["record"]
 
     assert record["result"] == "passed"
@@ -4434,13 +4484,16 @@ def test_tcpip_first_pre_io_open_failure_recovers_once_with_attempt_artifacts(tm
     assert record["settle_delay_ms"] == 500
     assert [attempt["settle_before_ms"] for attempt in record["attempts"]] == [0, 500]
     assert run["sleeps"] == [500]
-    assert record["json_path"].endswith("live-fixture-clear-attempt-2.json")
-    assert "live-fixture-clear-attempt-1.json" in run["files"]
-    assert "live-fixture-clear-attempt-2.json" in run["files"]
-    assert "legacy.json" not in run["files"]
-    private_dir = tmp_path / "out" / "private"
-    assert '"attempt": 1' in (private_dir / "live-fixture-clear-attempt-1.stdout.txt").read_text(encoding="utf-16")
-    assert '"attempt": 2' in (private_dir / "live-fixture-clear-attempt-2.stdout.txt").read_text(encoding="utf-16")
+    assert record["exit_code"] == 0
+    assert record["parse_error"] is None
+    if debug_artifacts:
+        assert record["json_path"].endswith("live-fixture-clear-attempt-2.json")
+        assert "live-fixture-clear-attempt-1.json" in run["files"]
+        assert "live-fixture-clear-attempt-2.json" in run["files"]
+        assert "legacy.json" not in run["files"]
+        private_dir = tmp_path / "out" / "private"
+        assert '"attempt": 1' in (private_dir / "live-fixture-clear-attempt-1.stdout.txt").read_text(encoding="utf-16")
+        assert '"attempt": 2' in (private_dir / "live-fixture-clear-attempt-2.stdout.txt").read_text(encoding="utf-16")
 
 
 @pytest.mark.windows_powershell
@@ -4484,6 +4537,10 @@ def test_tcpip_persistent_open_failure_fails_after_one_recovery(tmp_path):
     assert record["recovery_attempted"] is True
     assert record["recovered_after_open_failure"] is False
     assert record["final_attempt"] == 2
+    assert record["exit_code"] == 3
+    assert record["error_code"] == "connection_failed"
+    assert record["attempts"][-1]["error_message"]
+    assert run["failures"]
     assert run["sleeps"] == [500]
 
 
@@ -4523,6 +4580,11 @@ def test_tcpip_non_pre_io_failures_do_not_retry(
 
     assert run["record"]["attempt_count"] == 1
     assert run["record"]["recovery_attempted"] is False
+    assert run["record"]["result"] == "failed"
+    assert run["failures"]
+    if mode == "argument":
+        assert run["record"]["exit_code"] == 2
+        assert run["record"]["error_code"] == "invalid_argument"
     assert run["sleeps"] == []
 
 
@@ -4701,12 +4763,13 @@ def test_minimal_plan_only_removes_transient_artifacts_without_hardware() -> Non
     result = _run_live_cli_check(
         "-Target", "keysight-e36312a", "-Connection", "USB",
         "-Resource", "USB0::SIM::E36312A::INSTR",
-        "-Suite", "readonly", "-PlanOnly", "-SkipExternalPreflight",
+        "-Suite", "readonly", "-PlanOnly",
     )
     assert result.returncode == 0, result.stdout + result.stderr
     report_path = _report_path(result.stdout, result.stderr)
-    assert {p.name for p in report_path.parents[1].rglob("*") if p.is_file()} == {
-        "report.json", "summary.md"
+    run_dir = report_path.parents[1]
+    assert {p.relative_to(run_dir).as_posix() for p in run_dir.rglob("*") if p.is_file()} == {
+        "shareable/report.json", "shareable/summary.md"
     }
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["artifact_mode"] == "minimal"
@@ -4714,6 +4777,24 @@ def test_minimal_plan_only_removes_transient_artifacts_without_hardware() -> Non
     assert report["live_executed"] is False
     assert all(record["json_path"] is None for record in report["commands"])
     assert all(record["attempts"] for record in report["commands"])
+    external = report["external_preflight"]
+    assert external["status"] == "passed"
+    assert external["exit_code"] == 0
+    assert external["output_root"] is None
+    assert external["report"] is None
+    evidence = external["evidence"]
+    assert evidence["model_id"] == report["model_id"]
+    assert evidence["status"] == "passed"
+    assert evidence["hardware_touched"] is False
+    assert evidence["summary_counts"]["failed"] == 0
+    assert all(check["passed"] for check in evidence["checks"])
+    assert all(command["assertions"] for command in evidence["commands"])
+    log = next(record for record in report["commands"] if record["validation_kind"] == "log")
+    assert log["result"] == "passed"
+    assert log["validation_evidence"]["csv_row_count"] == 3
+    assert log["validation_evidence"]["jsonl_sample_count"] == 3
+    assert log["validation_evidence"]["jsonl_summary_count"] == 1
+    assert report["promotes_live_support"] is False
 
 
 @pytest.mark.windows_powershell
@@ -4731,3 +4812,64 @@ def test_debug_plan_only_retains_full_attempt_files() -> None:
     assert report["debug_artifacts_retained"] is True
     assert list((report_path.parents[1] / "private").glob("*.json"))
     assert any(record["json_path"] for record in report["commands"])
+    for record in report["commands"]:
+        for field in ("json_path", "stdout_path", "stderr_path"):
+            assert (Path.cwd() / record[field]).is_file()
+        for attempt in record["attempts"]:
+            for field in ("json_path", "stdout_path", "stderr_scpi_path"):
+                assert (Path.cwd() / attempt[field]).is_file()
+
+
+@pytest.mark.parametrize("failure", ["none", "command", "report"])
+@pytest.mark.windows_powershell
+def test_minimal_live_fixture_retains_reports_or_fails_closed_after_cleanup(tmp_path, failure):
+    fixture_path = _cleanup_fixture_cli_path(tmp_path, safe_off_ok=failure != "command")
+    output_dir = Path(".tmp_tests/pytest_minimal_live") / tmp_path.name
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sibling = output_dir.parent / (output_dir.name + "-sibling")
+    sibling.mkdir(exist_ok=True)
+    sentinel = sibling / "keep.txt"
+    sentinel.write_text("another run", encoding="utf-8")
+    result = _run_state_changing_fixture(
+        output_dir,
+        debug_artifacts=False,
+        fail_report=failure == "report",
+        expect_result="failed" if failure == "command" else "passed",
+        env={"PYTHONPATH": str(fixture_path)},
+    )
+    assert sentinel.read_text(encoding="utf-8") == "another run"
+    files = {p.relative_to(output_dir).as_posix() for p in output_dir.rglob("*") if p.is_file()}
+    if failure == "report":
+        assert result.returncode == 1, result.stdout + result.stderr
+        assert files == {"private/error-summary.md"}
+        cleanup = json.loads(result.stdout.strip())
+        assert cleanup == {
+            "cleanup_status": "passed",
+            "cleanup_commands": ["safe-off-final-cleanup", "cleanup-output-state", "cleanup-error-queue"],
+        }
+        text = (output_dir / "private/error-summary.md").read_text(encoding="utf-8")
+        assert "private fixture report failure" not in text
+        assert "192.168.50.77" not in text
+        assert str(output_dir) not in text
+        assert "failed" in text
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert files == {"shareable/report.json", "shareable/summary.md"}
+        report = json.loads((output_dir / "shareable/report.json").read_text(encoding="utf-8"))
+        assert report["result"] == ("failed" if failure == "command" else "passed")
+        assert report["artifact_mode"] == "minimal"
+        assert report["promotes_live_support"] is False
+        records = report["commands"]
+        assert records[0]["result"] == "passed"
+        assert records[0]["identity_observed"] is True
+        assert all(record["parse_error"] is None for record in records)
+        assert all(record["json_path"] is None and record["stdout_path"] is None for record in records)
+        if failure == "command":
+            assert report["failures"]
+            assert records[1]["exit_code"] == 2
+            assert records[1]["error_code"] == "safe_off_failed"
+            assert records[1]["result"] == "failed"
+        else:
+            assert report["cleanup"]["status"] == "passed"
+            assert records[-1]["instrument_errors_observed"] == []

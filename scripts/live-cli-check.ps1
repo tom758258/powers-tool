@@ -1936,8 +1936,11 @@ function Get-CaseValidationEvidence {
         expected_channels = @($Case.expected_channels)
         expected_output_enabled = $Case.expected_output_enabled
     }
-    if ($Case.validation_kind -eq "snapshot-compare" -or $Case.validation_kind -eq "snapshot-mutation" -or $Case.validation_kind -eq "snapshot-readback") {
+    if ($Case.validation_kind -in @("snapshot-compare", "snapshot-mutation")) {
         $details["snapshot_sections_checked"] = @("readback", "protection_settings")
+    }
+    elseif ($Case.validation_kind -eq "snapshot-readback") {
+        $details["snapshot_sections_checked"] = @("readback")
     }
     if ($Case.validation_kind -eq "log" -and @($Case.generated_artifacts).Count -ge 2) {
         try {
