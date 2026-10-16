@@ -29,11 +29,12 @@ browser to open. After startup succeeds, the launcher shows a compact Running
 window with the actual URL, Running status, and `Quit`; the port settings and
 `Start` are hidden.
 
-Only if every automatic candidate is already in use does the launcher show the
-full port settings window. Enter another local port and click `Start`. If that
-manually entered port is also in use, the full fallback window stays open and
-lets you edit the port and try again. After a retry succeeds, the launcher
-returns to the compact Running window.
+Only if every automatic candidate is unavailable, because another service already
+uses its address or because Windows refuses to bind it, does the launcher show
+the full port settings window. Enter another local port and click `Start`. If
+that manually entered port is also unavailable, the full fallback window stays
+open and lets you edit the port and try again. After a retry succeeds, the
+launcher returns to the compact Running window.
 
 From PowerShell, `--port` requests one fixed port. It never switches to another
 port unless `--auto-port` is also supplied:
@@ -43,11 +44,12 @@ port unless `--auto-port` is also supplied:
 .\dist\powers-tool\powers-tool-webui-launcher.exe --port 9000 --auto-port
 ```
 
-A fixed-port conflict reports the selected port and exits instead of opening
-the manual port window. Other startup failures, including application startup,
-server exit, or readiness errors, also report their original details, clean up,
-and exit. Only automatic address-in-use exhaustion opens the manual fallback,
-and only another address-in-use error keeps that fallback window open.
+A fixed port that cannot be bound, whether because its address is already in use
+or because access was denied, reports the selected port and exits instead of
+opening the manual port window. Other startup failures, including application
+startup, server exit, or readiness errors, also report their original details,
+clean up, and exit. Only automatic candidate exhaustion opens the manual
+fallback, and only another unavailable candidate keeps that fallback window open.
 This window presentation does not change port selection, startup failure,
 cleanup, or exit-code behavior.
 
@@ -283,10 +285,9 @@ and Job History are retained. Real write authorization is revoked: enable it
 again explicitly after checking the new connection. Backend loading, Scan, or
 Identify success does not grant Product support. PyVISA-py is included; its only
 Product-open combinations are E36312A and EDU36311A over TCPIP, with exact
-command and feature checks backed by 2026-10-16 live validation. Supported
-devices shows only those exact combinations for `@py` rather than reusing
-the System VISA list. Unverified USB + `@py` remains closed. Pending feature
-metadata is retained where individual actions or sources lack backend evidence.
+command and feature checks. Supported devices shows only those exact
+combinations for `@py` rather than reusing the System VISA list. USB + `@py`
+remains closed. Unverified feature values remain pending.
 
 If identity succeeds for an unknown or de-scoped instrument, the WebUI shows
 that no Product-open live scope could be resolved instead of showing an
@@ -549,10 +550,15 @@ a port other than `7999`.
 ### The launcher says the port is already in use
 
 The launcher never opens the service that already owns a candidate port.
-Default automatic startup skips address-in-use candidates. A fixed `--port`
-conflict exits without choosing another port. If the manual fallback window is
-open, choose another port or stop the service that owns the selected port, then
-click `Start` again.
+Default automatic startup skips address-in-use candidates and candidates Windows
+refuses to bind. A fixed `--port` that cannot be bound exits without choosing
+another port. If the manual fallback window is open, choose another port or stop
+the service that owns the selected port, then click `Start` again.
+
+If the launcher reports that access to bind the port was denied, Windows is
+refusing that specific port, which happens for ports inside a reserved or
+excluded local TCP port range. Choose a different port, or have an administrator
+release the port range.
 
 ### Scan Device finds nothing
 
