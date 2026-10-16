@@ -303,18 +303,25 @@ def test_exact_validated_command_inventory(
         ("keysight-edu36311a", EDU36311A_VALIDATED_COMMANDS),
     ],
 )
-def test_tcpip_pyvisa_py_pending_inventory(model: str, commands: set[str]) -> None:
-    assert _commands_for_scope(model, TRANSPORT_TCPIP, BACKEND_PYVISA_PY) == commands
-    for command in commands:
-        scope = find_live_support_scope(
-            model_id=model,
-            command=command,
-            transport=TRANSPORT_TCPIP,
-            backend="@py",
-        )
-        assert scope is not None
-        assert scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
-        assert "pending separate live validation" in (scope.note or "")
+def test_tcpip_pyvisa_py_product_inventory(model: str = "keysight-e36312a") -> None:
+    expected = {
+        "keysight-e36312a": E36312A_VALIDATED_COMMANDS,
+        "keysight-edu36311a": EDU36311A_VALIDATED_COMMANDS,
+    }
+    evidence = {
+        "keysight-e36312a": "keysight-e36312a-tcpip-pyvisa-py-20261016-full",
+        "keysight-edu36311a": "keysight-edu36311a-tcpip-pyvisa-py-20261016-full",
+    }
+    for model, commands in expected.items():
+        assert _commands_for_scope(model, TRANSPORT_TCPIP, BACKEND_PYVISA_PY) == commands
+        for command in commands:
+            scope = find_live_support_scope(
+                model_id=model, command=command, transport=TRANSPORT_TCPIP, backend="@py",
+            )
+            assert scope is not None
+            assert scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+            assert scope.accepted_evidence_ids == (evidence[model],)
+            assert scope.candidate_basis_evidence_ids == ()
 
 
 @pytest.mark.parametrize(
@@ -346,21 +353,21 @@ def test_validated_scope_is_allowed_in_both_modes(mode: str) -> None:
     assert scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
 
 
-def test_product_rejects_and_validation_allows_transport_pending() -> None:
-    arguments = {
-        "model_id": "keysight-e36312a",
-        "command": "measure",
-        "transport": "TCPIP",
-        "backend": "@py",
-    }
-    with pytest.raises(LiveSupportPolicyError, match="transport_pending"):
-        ensure_live_scope_supported(
-            **arguments, support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT
-        )
+@pytest.mark.parametrize("model", ["keysight-e36312a", "keysight-edu36311a"])
+@pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
+def test_product_and_validation_allow_accepted_tcpip_pyvisa_py(
+    model: str, mode: str,
+) -> None:
     scope = ensure_live_scope_supported(
-        **arguments, support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION
+        model_id=model,
+        command="measure",
+        transport="TCPIP", backend="@py", support_policy_mode=mode,
     )
-    assert scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
+    assert scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+    assert scope.admission_kind == "product"
+    assert scope.accepted_evidence_ids == (
+        f"{model}-tcpip-pyvisa-py-20261016-full",
+    )
 
 
 def test_psm2010_has_exact_product_open_scope_and_provenance() -> None:
@@ -546,24 +553,51 @@ def test_feature_lookup_is_exact_and_rejects_duplicates() -> None:
         find_feature_support(duplicated, "trigger_source", scope.feature_scopes[0].feature_value)
 
 
-def test_transport_pending_parent_requires_and_allows_pending_feature_only_in_validation() -> None:
-    arguments = {
-        "model_id": "keysight-e36312a",
-        "command": "sequence",
-        "transport": TRANSPORT_TCPIP,
-        "backend": BACKEND_PYVISA_PY,
-        "feature_requirements": (("sequence_action", "set"),),
+@pytest.mark.parametrize("model", ["keysight-e36312a", "keysight-edu36311a"])
+def test_pyvisa_py_sequence_opens_verified_features_and_keeps_others_pending(model: str) -> None:
+    args = {
+        "model_id": model, "command": "sequence",
+        "transport": TRANSPORT_TCPIP, "backend": BACKEND_PYVISA_PY,
     }
-    with pytest.raises(LiveSupportPolicyError, match="transport_pending"):
-        ensure_live_scope_supported(
-            **arguments, support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT
-        )
-    scope = ensure_live_scope_supported(
-        **arguments, support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION
+    accepted = {"output-off", "output-on", "output-state", "readback", "set"}
+    for action in supported_sequence_actions_for_model_id(model):
+        feature_args = {**args, "feature_requirements": (("sequence_action", action),)}
+        if action in accepted:
+            scope = ensure_live_scope_supported(
+                **feature_args, support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
+            )
+            feature = find_feature_support(scope, "sequence_action", action)
+            assert feature.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+            assert feature.inherits_parent_accepted_evidence
+        else:
+            with pytest.raises(LiveSupportPolicyError, match="feature_pending"):
+                ensure_live_scope_supported(
+                    **feature_args, support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
+                )
+            scope = ensure_live_scope_supported(
+                **feature_args, support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            )
+            assert find_feature_support(scope, "sequence_action", action).validation_status == (
+                VALIDATION_STATUS_FEATURE_PENDING
+            )
+
+
+@pytest.mark.parametrize("command", ["trigger-step", "trigger-list"])
+def test_pyvisa_py_trigger_source_bus_open_immediate_pending(command: str) -> None:
+    args = {"model_id": "keysight-e36312a", "command": command,
+            "transport": TRANSPORT_TCPIP, "backend": BACKEND_PYVISA_PY}
+    bus = ensure_live_scope_supported(
+        **args, support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
+        feature_requirements=(("trigger_source", "bus"),),
     )
-    feature = find_feature_support(scope, "sequence_action", "set")
-    assert feature is not None
-    assert feature.validation_status == VALIDATION_STATUS_FEATURE_PENDING
+    assert find_feature_support(bus, "trigger_source", "bus").validation_status == (
+        VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+    )
+    with pytest.raises(LiveSupportPolicyError, match="feature_pending"):
+        ensure_live_scope_supported(
+            **args, support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
+            feature_requirements=(("trigger_source", "immediate"),),
+        )
 
 
 def test_validated_parent_allows_mixed_validated_and_pending_features() -> None:
@@ -669,83 +703,27 @@ def test_validated_parent_allows_explicit_unsupported_feature_metadata(mode: str
         )
 
 
-def test_transport_pending_parent_rejects_validated_feature_metadata() -> None:
+def test_pyvisa_py_scope_cannot_claim_unverified_feature_evidence() -> None:
     base = command_live_support("keysight-e36312a", "sequence")
-    pending_scope = next(
-        scope
-        for scope in base.scopes
-        if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
-    )
-    changed_scope = replace(
-        pending_scope,
-        feature_scopes=(
-            replace(
-                pending_scope.feature_scopes[0],
-                validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
-                note="Synthetic invalid validated feature.",
-            ),
-        )
-        + pending_scope.feature_scopes[1:],
-    )
-    registry = _replace_command(
-        LIVE_SUPPORT_POLICY_REGISTRY,
-        "keysight-e36312a",
-        "sequence",
-        replace(
-            base,
-            scopes=tuple(
-                changed_scope if scope is pending_scope else scope for scope in base.scopes
-            ),
-        ),
-    )
-
-    with pytest.raises(ValueError, match="feature status is invalid for exact parent scope"):
-        validate_live_support_metadata(registry)
-
-
-def test_transport_pending_parent_allows_explicit_unsupported_feature_metadata() -> None:
-    base = command_live_support("keysight-e36312a", "sequence")
-    pending_scope = next(
-        scope
-        for scope in base.scopes
-        if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
-    )
-    changed_scope = replace(
-        pending_scope,
+    pyvisa_scope = next(scope for scope in base.scopes if scope.backend_scope == BACKEND_PYVISA_PY)
+    pending = next(feature for feature in pyvisa_scope.feature_scopes if feature.feature_value == "apply")
+    changed = replace(
+        pyvisa_scope,
         feature_scopes=tuple(
             replace(
-                feature,
-                validation_status=VALIDATION_STATUS_NOT_SUPPORTED_BY_MODEL,
-                note="Synthetic explicit unsupported feature.",
-            )
-            if feature.feature_value == "set"
-            else feature
-            for feature in pending_scope.feature_scopes
+                feature, validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
+                inherits_parent_accepted_evidence=True,
+                note="Synthetic improper promotion.",
+            ) if feature is pending else feature
+            for feature in pyvisa_scope.feature_scopes
         ),
     )
     registry = _replace_command(
-        LIVE_SUPPORT_POLICY_REGISTRY,
-        "keysight-e36312a",
-        "sequence",
-        replace(
-            base,
-            scopes=tuple(
-                changed_scope if scope is pending_scope else scope for scope in base.scopes
-            ),
-        ),
+        LIVE_SUPPORT_POLICY_REGISTRY, "keysight-e36312a", "sequence",
+        replace(base, scopes=tuple(changed if scope is pyvisa_scope else scope for scope in base.scopes)),
     )
-
-    validate_live_support_metadata(registry)
-    with pytest.raises(LiveSupportPolicyError, match="not_supported_by_model"):
-        ensure_live_scope_supported(
-            model_id="keysight-e36312a",
-            command="sequence",
-            transport=pending_scope.transport_scope,
-            backend=pending_scope.backend_scope,
-            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
-            feature_requirements=(("sequence_action", "set"),),
-            registry=registry,
-        )
+    with pytest.raises(ValueError, match="evidence feature mismatch"):
+        validate_live_support_metadata(registry)
 
 
 @pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
