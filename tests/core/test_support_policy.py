@@ -303,25 +303,20 @@ def test_exact_validated_command_inventory(
         ("keysight-edu36311a", EDU36311A_VALIDATED_COMMANDS),
     ],
 )
-def test_tcpip_pyvisa_py_product_inventory(model: str = "keysight-e36312a") -> None:
-    expected = {
-        "keysight-e36312a": E36312A_VALIDATED_COMMANDS,
-        "keysight-edu36311a": EDU36311A_VALIDATED_COMMANDS,
-    }
+def test_tcpip_pyvisa_py_product_inventory(model: str, commands: set[str]) -> None:
     evidence = {
         "keysight-e36312a": "keysight-e36312a-tcpip-pyvisa-py-20261016-full",
         "keysight-edu36311a": "keysight-edu36311a-tcpip-pyvisa-py-20261016-full",
     }
-    for model, commands in expected.items():
-        assert _commands_for_scope(model, TRANSPORT_TCPIP, BACKEND_PYVISA_PY) == commands
-        for command in commands:
-            scope = find_live_support_scope(
-                model_id=model, command=command, transport=TRANSPORT_TCPIP, backend="@py",
-            )
-            assert scope is not None
-            assert scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
-            assert scope.accepted_evidence_ids == (evidence[model],)
-            assert scope.candidate_basis_evidence_ids == ()
+    assert _commands_for_scope(model, TRANSPORT_TCPIP, BACKEND_PYVISA_PY) == commands
+    for command in commands:
+        scope = find_live_support_scope(
+            model_id=model, command=command, transport=TRANSPORT_TCPIP, backend="@py",
+        )
+        assert scope is not None
+        assert scope.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+        assert scope.accepted_evidence_ids == (evidence[model],)
+        assert scope.candidate_basis_evidence_ids == ()
 
 
 @pytest.mark.parametrize(
