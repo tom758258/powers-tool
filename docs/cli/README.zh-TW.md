@@ -455,8 +455,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\live-cli-check
 ```
 
 若要在 exact registered pending scope 上以 PyVISA-py
-做 contributor validation，請明確傳入 backend selector。目前 pyvisa-py 的 registered
-pending validation scope 是 E36312A 或 EDU36311A 的 TCPIP/LAN，不是 USB：
+E36312A 與 EDU36311A 的 TCPIP/LAN + pyvisa-py (`@py`) 已依 2026-10-16
+實機 full-suite 驗證開啟 Product scope。請明確指定 backend selector；
+USB + `@py` 仍未開啟：
 
 ```powershell
 $env:E36312A_LAN_RESOURCE = "TCPIP0::...::INSTR"
@@ -1057,8 +1058,8 @@ uv run powers-tool output-on --dry-run --json --model keysight-e36312a --channel
 uv run powers-tool output-on --simulate --json --resource USB0::SIM::E36312A::INSTR --channel all
 ```
 
-`output-on` 只在 E36312A 與 EDU36311A 的 USB/TCPIP + system VISA，以及 E3646A 的
-ASRL + system VISA 下 Product-open。其他 scope fail closed。E3646A 在程式化兩個通道後
+`output-on` 在 E36312A 與 EDU36311A 的 USB/TCPIP + system VISA、
+這兩個型號的 TCPIP + pyvisa-py (`@py`)，以及 E3646A 的 ASRL + system VISA 下 Product-open。其他 scope fail closed。E3646A 在程式化兩個通道後
 使用一個全域輸出開關，不是獨立的 per-channel output relay。
 
 讀回並循環輸出狀態：
