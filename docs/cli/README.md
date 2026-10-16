@@ -496,7 +496,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\live-cli-check
 ```
 
 For a TCPIP/LAN connection to E36312A or EDU36311A, PyVISA-py (`@py`) is
-Product-open for the commands and feature values accepted on 2026-10-16.
+Product-open for the commands and feature values independently accepted for the exact scope.
 Select the backend explicitly. USB + `@py` remains closed:
 
 ```powershell
