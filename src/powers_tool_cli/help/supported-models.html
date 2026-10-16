@@ -117,12 +117,12 @@ sources individually. Sequence <code>wait</code> and <code>log</code> remain hos
 Current live trigger sources are <code>bus</code> and <code>immediate</code> (<code>imm</code> normalizes to
 <code>immediate</code>); PIN/EXT inputs are rejected.</p>
 <p>On a Product-open connection, only individually Product-open actions and sources
-are available. For E36312A and EDU36311A TCPIP + pyvisa-py, Sequence Product
-support includes only <code>set</code>, <code>output-off</code>, <code>output-on</code>,
-<code>output-state</code>, and <code>readback</code>. Other implemented Sequence
-actions remain <code>feature_pending</code>. E36312A Trigger Step/List over this
-backend opens only BUS; <code>immediate</code> remains pending. System-VISA
-feature scope is unchanged.</p>
+are available for Product use. On the new TCPIP + pyvisa-py scopes (2026-10-16),
+<code>sequence</code> allows <code>set</code>, <code>output-off</code>, <code>output-on</code>, <code>output-state</code>, and <code>readback</code>;
+other implemented Sequence actions remain <code>feature_pending</code>. For E36312A
+<code>trigger-step</code> and <code>trigger-list</code>, BUS is Product-open, but <code>immediate</code>
+remains <code>feature_pending</code>. The corresponding broader system-VISA scopes are
+unchanged. Missing support for an action or source does not make it available.</p>
 <h2 id="models-not-currently-available-for-product-use">Models Not Currently Available For Product Use</h2>
 <p>The following catalog-known model IDs are not active Product planning or live
 expected-model identities: <code>keysight-e36313a</code>, <code>keysight-e36233a</code>,
@@ -141,9 +141,10 @@ and LAN (including independently accepted LAN + pyvisa-py for those two models),
 and E3646A and PSM-2010 ASRL / RS-232. Each connection remains limited
 to the commands and feature entries listed in the Product matrix. E3646A and
 PSM-2010 USB and LAN are outside the current scope.</p>
-<p>E36312A and EDU36311A now have accepted TCPIP + pyvisa-py Product scopes
-from the 2026-10-16 full-suite reports, subject to separately validated feature
-values. USB + pyvisa-py, pyvisa-bt, custom VISA, and other models remain closed.</p>
+<p>E36312A and EDU36311A now have independently accepted TCPIP + pyvisa-py Product
+scopes from 2026-10-16, limited to the 30 and 21 exact commands shown above and
+the separately validated feature values. This does not extend to USB + pyvisa-py,
+pyvisa-bt, custom VISA, or any other model/backend combination.</p>
 <table>
 <thead>
 <tr>
