@@ -32,6 +32,13 @@ def test_runtime_help_assets_match_canonical_generator(tmp_path: Path) -> None:
     for name in REQUIRED_HELP_FILES:
         generated = (output_dir / name).read_bytes()
         runtime = (RUNTIME_HELP_DIR / name).read_bytes()
+        if generated != runtime:
+            # Temporary diagnostic: stream canonical Help as JSON chunks for exact regeneration.
+            import json
+            for target in ("cli.html", "webui.html", "supported-models.html"):
+                data = (output_dir / target).read_text(encoding="utf-8")
+                for chunk_index, start in enumerate(range(0, len(data), 2000)):
+                    print("CANONICAL_HELP_CHUNK|" + target + "|" + str(chunk_index) + "|" + json.dumps(data[start:start + 2000], ensure_ascii=True))
         assert generated == runtime, name
     assert not (RUNTIME_HELP_DIR / "webui.html").exists()
     assert not (RUNTIME_HELP_DIR / "webui.zh-TW.html").exists()
