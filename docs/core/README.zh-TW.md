@@ -58,7 +58,12 @@ Backend selector 與 Product support 分開正規化：未設定或空白代表
 `system_visa`，`@py` 代表 `pyvisa_py`，`@bt` 代表 `pyvisa_bt`，其他 selector
 代表 `custom_visa`。Backend identity 本身不授予 Product support。目前沒有使用
 `pyvisa_bt` 的 Product-open exact scope，因此 model-aware Product execution 搭配
-`@bt` 時會 fail closed。
+`@bt` 時會 fail closed。目前僅 E36312A 與 EDU36311A 的 TCPIP + `@py`
+通過 2026-10-16 實機 full-suite 驗證並成為 Product-open；USB + `@py` 仍關閉。
+在這兩個 TCPIP + `@py` scope 中，Sequence 只開啟已驗證的 `set`、
+`output-off`、`output-on`、`output-state`、`readback`；E36312A 的 Trigger
+Step/List 只開啟 BUS source。其他已實作但未獨立驗證的 feature 仍為
+`feature_pending`。
 
 Exact policy evaluation 對 `sequence_action` 與 `trigger_source` 是 feature-aware
 的。Sequence 在第一個 step 前會驗證每個與儀器相關的 normalized action；host-only
