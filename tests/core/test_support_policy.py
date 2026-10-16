@@ -981,14 +981,18 @@ def test_checked_in_feature_inventory_matches_current_profiles() -> None:
             assert {
                 feature.feature_value for feature in scope.feature_scopes
             } == supported_sequence_actions_for_model_id(model)
-            expected_status = (
-                VALIDATION_STATUS_FEATURE_PENDING
-                if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
-                else VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
-            )
-            assert {feature.validation_status for feature in scope.feature_scopes} == {
-                expected_status
-            }
+            accepted_pyvisa = {"set", "output-off", "output-on", "output-state", "readback"}
+            for feature in scope.feature_scopes:
+                expected_status = (
+                    VALIDATION_STATUS_FEATURE_PENDING
+                    if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
+                    or (
+                        scope.backend_scope == BACKEND_PYVISA_PY
+                        and feature.feature_value not in accepted_pyvisa
+                    )
+                    else VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+                )
+                assert feature.validation_status == expected_status
     assert "trigger-pulse" in supported_sequence_actions_for_model_id("keysight-e36312a")
     assert "trigger-pulse" not in supported_sequence_actions_for_model_id("keysight-edu36311a")
     assert "trigger-pulse" not in supported_sequence_actions_for_model_id("keysight-e3646a")
@@ -1260,7 +1264,7 @@ def test_public_model_projection_is_json_safe_and_omits_private_evidence() -> No
     } == {
         (TRANSPORT_USB, BACKEND_SYSTEM_VISA, VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE),
         (TRANSPORT_TCPIP, BACKEND_SYSTEM_VISA, VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE),
-        (TRANSPORT_TCPIP, BACKEND_PYVISA_PY, VALIDATION_STATUS_TRANSPORT_PENDING),
+        (TRANSPORT_TCPIP, BACKEND_PYVISA_PY, VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE),
     }
     assert metadata["commands"]["clear"]["policy_exempt"] is True
     assert metadata["commands"]["clear"]["offline_only"] is False
@@ -1323,7 +1327,7 @@ def test_public_exact_projection_distinguishes_open_pending_and_missing_scopes()
         backend=None,
         commands=commands,
     )
-    pending = exact_live_support_metadata(
+    pyvisa = exact_live_support_metadata(
         model_id="keysight-e36312a",
         resource="TCPIP0::192.0.2.1::INSTR",
         backend="@py",
@@ -1333,25 +1337,21 @@ def test_public_exact_projection_distinguishes_open_pending_and_missing_scopes()
     assert usb["policy_mode"] == SUPPORT_POLICY_MODE_PRODUCT
     assert usb["commands"]["set"]["product_open"] is True
     assert system_tcpip["commands"]["set"]["product_open"] is True
-    assert pending["commands"]["set"] == {
-        "profile_validation_status": VALIDATION_STATUS_PROFILE_VALIDATED,
-        "profile_supported": True,
-        "metadata_available": True,
-        "policy_exempt": False,
-        "offline_only": False,
-        "disabled_reason": "Pending live validation: TCPIP / pyvisa-py.",
-        "support_reason": "Pending live validation: TCPIP / pyvisa-py.",
-        "exact_scope_validation_status": VALIDATION_STATUS_TRANSPORT_PENDING,
-        "product_open": False,
-    }
-    assert pending["commands"]["output-on"]["exact_scope_validation_status"] == VALIDATION_STATUS_TRANSPORT_PENDING
-    assert pending["commands"]["output-on"]["product_open"] is False
-    assert pending["commands"]["output-on"]["disabled_reason"] == "Pending live validation: TCPIP / pyvisa-py."
-    assert pending["commands"]["clear"]["policy_exempt"] is True
-    assert pending["commands"]["clear"]["offline_only"] is False
-    assert pending["commands"]["clear"]["product_open"] is True
-    assert pending["commands"]["clear"]["exact_scope_validation_status"] is None
-    offline = pending["commands"]["snapshot-diff"]
+    assert pyvisa["commands"]["set"]["profile_supported"] is True
+    assert pyvisa["commands"]["set"]["exact_scope_validation_status"] == (
+        VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+    )
+    assert pyvisa["commands"]["set"]["product_open"] is True
+    assert pyvisa["commands"]["set"]["disabled_reason"] is None
+    assert pyvisa["commands"]["output-on"]["exact_scope_validation_status"] == (
+        VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+    )
+    assert pyvisa["commands"]["output-on"]["product_open"] is True
+    assert pyvisa["commands"]["clear"]["policy_exempt"] is True
+    assert pyvisa["commands"]["clear"]["offline_only"] is False
+    assert pyvisa["commands"]["clear"]["product_open"] is True
+    assert pyvisa["commands"]["clear"]["exact_scope_validation_status"] is None
+    offline = pyvisa["commands"]["snapshot-diff"]
     assert offline["policy_exempt"] is False
     assert offline["offline_only"] is True
     assert offline["product_open"] is False
