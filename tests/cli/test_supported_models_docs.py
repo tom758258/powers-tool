@@ -159,7 +159,6 @@ def test_core_support_document_ownership_is_explicit() -> None:
         "--validation-allow-pending-live-support",
         "internal_validation_candidate_inventory",
         "transport_pending",
-        "feature_pending",
         "live-cli-check.ps1",
         ".tmp_tests",
         "private/",
