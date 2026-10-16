@@ -9,7 +9,6 @@ import powers_tool_cli.commands.inspection as inspection
 from tests.cli.cli_test_helpers import (
     OUTPUT_RESOURCE,
     FakeSession,
-    assert_live_scope_rejected,
 )
 
 
