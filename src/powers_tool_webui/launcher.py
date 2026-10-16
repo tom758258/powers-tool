@@ -79,8 +79,20 @@ def bind_local_socket(port: int) -> socket.socket:
     return socket.create_server((DEFAULT_HOST, port))
 
 
-def _is_port_in_use_error(exc: OSError) -> bool:
-    return exc.errno == errno.EADDRINUSE or getattr(exc, "winerror", None) == 10048
+def _bind_conflict_reason(exc: OSError) -> str | None:
+    """Classify a retryable candidate-port bind failure.
+
+    Returns ``"in_use"`` for ``EADDRINUSE``/Windows ``10048``, ``"denied"`` for
+    the bind permission refusal ``EACCES``/Windows ``10013``, and ``None`` for
+    every other failure so it stays fatal.
+    """
+
+    winerror = getattr(exc, "winerror", None)
+    if exc.errno == errno.EADDRINUSE or winerror == 10048:
+        return "in_use"
+    if exc.errno == errno.EACCES or winerror == 10013:
+        return "denied"
+    return None
 
 
 def create_uvicorn_server(port: int) -> Any:
@@ -275,7 +287,8 @@ class LauncherApp:
             try:
                 server_socket = self._socket_binder(port)
             except OSError as exc:
-                if not _is_port_in_use_error(exc):
+                bind_conflict = _bind_conflict_reason(exc)
+                if bind_conflict is None:
                     self._show_startup_error(
                         exc,
                         startup_attempt=startup_attempt,
@@ -287,13 +300,14 @@ class LauncherApp:
                             port,
                             exc,
                             startup_attempt=startup_attempt,
+                            bind_conflict=bind_conflict,
                         )
                     else:
                         self._show_startup_error(
                             exc,
                             startup_attempt=startup_attempt,
                             port=port,
-                            port_in_use=True,
+                            bind_conflict=bind_conflict,
                         )
                     return
                 continue
@@ -459,7 +473,7 @@ class LauncherApp:
         *,
         startup_attempt: int,
         port: int | None = None,
-        port_in_use: bool = False,
+        bind_conflict: str | None = None,
     ) -> None:
         if (
             startup_attempt != self._startup_attempt
@@ -472,7 +486,7 @@ class LauncherApp:
         message = self._startup_error_message(
             exc,
             port=port,
-            port_in_use=port_in_use,
+            bind_conflict=bind_conflict,
         )
         self._status_value.set(f"Failed: {message}")
         messagebox.showerror("Start failed", message)
@@ -484,6 +498,7 @@ class LauncherApp:
         exc: BaseException,
         *,
         startup_attempt: int,
+        bind_conflict: str,
     ) -> None:
         if (
             startup_attempt != self._startup_attempt
@@ -494,7 +509,7 @@ class LauncherApp:
         message = self._startup_error_message(
             exc,
             port=port,
-            port_in_use=True,
+            bind_conflict=bind_conflict,
         )
         self._status_value.set(f"Failed: {message}")
         self._show_fallback_window()
@@ -505,10 +520,12 @@ class LauncherApp:
         exc: BaseException,
         *,
         port: int | None,
-        port_in_use: bool,
+        bind_conflict: str | None,
     ) -> str:
         details = f"{type(exc).__name__}: {exc}"
-        if port_in_use and port is not None:
+        if bind_conflict is not None and port is not None:
+            if bind_conflict == "denied":
+                return f"Access to bind port {port} was denied. {details}"
             return f"Port {port} is already in use. {details}"
         return details
 
