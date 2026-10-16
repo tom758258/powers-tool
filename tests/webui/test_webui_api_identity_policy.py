@@ -92,7 +92,7 @@ def test_webui_resource_capabilities_enforces_exact_scope(
     assert session.closed is True
 
 
-def test_webui_resource_capabilities_rejects_pending_backend_after_idn(
+def test_webui_resource_capabilities_rejects_unvalidated_usb_pyvisa_after_idn(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -106,7 +106,7 @@ def test_webui_resource_capabilities_rejects_pending_backend_after_idn(
         json={
             "command": "capabilities",
             "runtime": {
-                "resource": "TCPIP0::192.0.2.1::INSTR",
+                "resource": "USB0::FAKE::E36312A::INSTR",
                 "backend": "@py",
                 "simulate": False,
                 "dry_run": False,
@@ -118,14 +118,14 @@ def test_webui_resource_capabilities_rejects_pending_backend_after_idn(
     assert response.status_code == 200
     job_data = wait_for_job(client, response.json()["job_id"])
     assert job_data["status"] == "failed"
-    assert "transport_pending" in job_data["error"]
+    assert "no exact transport/backend scope" in job_data["error"]
     assert "policy_mode=product" in job_data["error"]
     assert session.queries == ["*IDN?"]
     assert session.writes == []
     assert session.closed is True
 
 
-def test_webui_identify_returns_pending_exact_metadata_without_opening_it(
+def test_webui_identify_returns_verified_pyvisa_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from powers_tool_webui import commands
@@ -164,8 +164,8 @@ def test_webui_identify_returns_pending_exact_metadata_without_opening_it(
     assert live_support["transport_scope"] == "tcpip"
     assert live_support["backend_scope"] == "pyvisa_py"
     assert live_support["policy_mode"] == "product"
-    assert live_support["commands"]["set"]["exact_scope_validation_status"] == "transport_pending"
-    assert live_support["commands"]["set"]["product_open"] is False
+    assert live_support["commands"]["set"]["exact_scope_validation_status"] == "live_validated_full_suite"
+    assert live_support["commands"]["set"]["product_open"] is True
     assert live_support["commands"]["identify"]["policy_exempt"] is True
     assert live_support["commands"]["identify"]["product_open"] is True
     assert live_support["commands"]["snapshot-diff"]["offline_only"] is True
@@ -447,7 +447,7 @@ def test_webui_unknown_model_normal_live_command_remains_rejected(
     assert session.closed is True
 
 
-def test_webui_pending_command_remains_product_rejected_after_identify_metadata(
+def test_webui_unvalidated_usb_pyvisa_command_fails_closed(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -459,7 +459,7 @@ def test_webui_pending_command_remains_product_rejected_after_identify_metadata(
         json={
             "command": "set",
             "runtime": {
-                "resource": "TCPIP0::192.0.2.1::INSTR",
+                "resource": "USB0::FAKE::E36312A::INSTR",
                 "backend": "@py",
                 "expected_model_id": "keysight-e36312a",
                 "confirm": True,
@@ -471,7 +471,7 @@ def test_webui_pending_command_remains_product_rejected_after_identify_metadata(
     assert response.status_code == 200
     job_data = wait_for_job(client, response.json()["job_id"])
     assert job_data["status"] == "failed"
-    assert "transport_pending" in job_data["error"]
+    assert "no exact transport/backend scope" in job_data["error"]
     assert "policy_mode=product" in job_data["error"]
     assert session.queries == ["*IDN?"]
     assert session.writes == []
