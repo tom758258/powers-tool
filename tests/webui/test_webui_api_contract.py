@@ -580,7 +580,7 @@ def test_commands_metadata_includes_safe_exact_live_support_projection(
     } == {
         ("usb", "system_visa", "live_validated_full_suite"),
         ("tcpip", "system_visa", "live_validated_full_suite"),
-        ("tcpip", "pyvisa_py", "transport_pending"),
+        ("tcpip", "pyvisa_py", "live_validated_full_suite"),
     }
     assert live_support["keysight-edu36311a"]["commands"]["trigger-list"]["profile_supported"] is False
     assert live_support["keysight-edu36311a"]["commands"]["trigger-list"]["scopes"] == []
@@ -652,16 +652,25 @@ def test_commands_metadata_includes_safe_exact_live_support_projection(
         "sequence_action"
     }
     assert all(feature["product_open"] for feature in sequence_scope["features"])
-    pending_sequence_scope = next(
+    pyvisa_sequence_scope = next(
         scope
         for scope in live_support["keysight-e36312a"]["commands"]["sequence"]["scopes"]
         if scope["backend_scope"] == "pyvisa_py"
     )
-    assert all(
-        feature["validation_status"] == "feature_pending"
-        and feature["product_open"] is False
-        for feature in pending_sequence_scope["features"]
-    )
+    assert pyvisa_sequence_scope["product_open"] is True
+    validated_actions = {"output-off", "output-on", "output-state", "readback", "set"}
+    for feature in pyvisa_sequence_scope["features"]:
+        accepted = feature["feature_value"] in validated_actions
+        assert feature["product_open"] is accepted
+        assert feature["validation_status"] == (
+            "live_validated_full_suite" if accepted else "feature_pending"
+        )
+    for model in ("keysight-e36312a", "keysight-edu36311a"):
+        set_scope = next(
+            scope for scope in live_support[model]["commands"]["set"]["scopes"]
+            if scope["backend_scope"] == "pyvisa_py"
+        )
+        assert set_scope["product_open"] is True
 
     serialized = json.dumps(live_support)
     assert ".tmp_tests" not in serialized
