@@ -184,9 +184,10 @@ uv run python -m powers_tool_webui.server --host 127.0.0.1 --port 7999
 不帶命令列選項時，啟動器會在 `127.0.0.1` 上從 port `7999` 開始，最多嘗試
 100 個 port，通常到 `8098`。啟動器會對每個候選 port 實際 bind server socket；
 無論該 port 是被另一個 Powers Tool WebUI 或其他服務占用，都只會跳過，不會開啟
-已存在的服務。新啟動的 WebUI 通過 `/api/health` readiness 後，才會開啟瀏覽器，
-並顯示包含實際 URL、Running 狀態與 `Quit` 的精簡 Running 視窗；port 設定與
-`Start` 會隱藏。
+已存在的服務。若作業系統拒絕 bind 該候選 port，例如 port 落在本機保留或排除的
+TCP port 範圍內，也同樣會被跳過。新啟動的 WebUI 通過 `/api/health` readiness 後，
+才會開啟瀏覽器，並顯示包含實際 URL、Running 狀態與 `Quit` 的精簡 Running 視窗；
+port 設定與 `Start` 會隱藏。
 
 PowerShell 的 `--port` 會要求固定 port；除非同時提供 `--auto-port`，否則不會
 自動切換到其他 port：
@@ -196,14 +197,15 @@ PowerShell 的 `--port` 會要求固定 port；除非同時提供 `--auto-port`�
 .\.venv\Scripts\powers-tool-webui-launcher.exe --port 9000 --auto-port
 ```
 
-固定 port 衝突會回報選定 port、完成清理並以非零狀態結束，不會改用其他 port
-或開啟手動 port 視窗。加上 `--auto-port` 則明確從選定 port 開始嘗試最多 100 個
-port。只有所有自動候選都因 address-in-use 失敗時，才會開啟完整 port fallback 視窗、
-回報嘗試過的範圍，並允許手動輸入其他 port；`Start` 接著只嘗試該 port。手動重試若也
-遇到 address-in-use，fallback 視窗會保持開啟並重新啟用 port 欄位與 `Start`；成功的
-fallback 重試會回到精簡 Running 視窗。自動候選不會超過 port `65535`。
+固定 port 衝突或 bind 被拒絕時，會回報選定 port、完成清理並以非零狀態結束，不會
+改用其他 port 或開啟手動 port 視窗。加上 `--auto-port` 則明確從選定 port 開始嘗試
+最多 100 個 port。只有所有自動候選都因 address-in-use 或 bind 存取被拒絕而無法使用
+時，才會開啟完整 port fallback 視窗、回報嘗試過的範圍，並允許手動輸入其他 port；
+`Start` 接著只嘗試該 port。手動輸入的 port 若仍無法使用，fallback 視窗會保持開啟
+並重新啟用 port 欄位與 `Start`；訊息會區分該 port 已被占用，或 bind 存取被拒絕。
+成功的 fallback 重試會回到精簡 Running 視窗。自動候選不會超過 port `65535`。
 
-非 address-in-use 的 bind 失敗會立即停止自動選擇。Uvicorn 或 application 初始化失敗、
+其他非上述情況的 bind 失敗會立即停止自動選擇。Uvicorn 或 application 初始化失敗、
 server thread 提前結束與 readiness timeout 也都是 fatal startup failures。啟動器會保留
 原始錯誤細節、要求部分建立的 server 停止、關閉自己持有的 socket、短暫等待其 server
 thread，並以非零狀態結束。這些失敗永不重新開啟 manual port window，包括發生在手動

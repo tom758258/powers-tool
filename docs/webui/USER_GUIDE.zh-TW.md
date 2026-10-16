@@ -29,10 +29,10 @@ dist\powers-tool\powers-tool-webui-launcher.exe
 開啟瀏覽器；啟動器接著顯示包含實際 URL、Running 狀態與 `Quit` 的精簡 Running
 視窗，port 設定與 `Start` 會隱藏。
 
-只有所有自動候選 port 都因 address-in-use 失敗時，才會顯示 manual fallback
-視窗。請輸入其他本機 port 並點擊 `Start`；如果手動輸入的 port 也因
-address-in-use 失敗，視窗會保留以便編輯與重試。重試成功後會回到精簡 Running
-視窗。
+只有所有自動候選 port 都無法使用——可能是被占用，也可能是 Windows 拒絕 bind——
+時，才會顯示 manual fallback 視窗。請輸入其他本機 port 並點擊 `Start`；如果
+手動輸入的 port 也無法使用，視窗會保留以便編輯與重試。重試成功後會回到精簡
+Running 視窗。
 
 從 PowerShell 使用 `--port` 可要求固定 port；除非同時提供 `--auto-port`，否則
 不會自動切換到其他 port：
@@ -42,11 +42,12 @@ address-in-use 失敗，視窗會保留以便編輯與重試。重試成功後�
 .\dist\powers-tool\powers-tool-webui-launcher.exe --port 9000 --auto-port
 ```
 
-固定 port 衝突會回報選定的 port、完成清理並以非零狀態結束，不會改用其他 port
-或開啟 manual port 視窗。其他 bind、startup、application、server exit 或
-readiness error 也會保留原始細節、完成清理並結束，不會開啟 manual fallback。
-只有自動 address-in-use exhaustion 會開啟 manual fallback，且只有另一個
-address-in-use error 才會讓 fallback 保持開啟。
+固定 port 無法 bind 時——可能是已被占用，也可能是存取被拒絕——會回報選定的
+port、完成清理並以非零狀態結束，不會開啟 manual port 視窗。其他 bind、
+startup、application、server exit 或 readiness error 也會保留原始細節、
+完成清理並結束，不會開啟 manual fallback。只有自動候選 port 全部無法使用時才會
+開啟 manual fallback，且只有下一個候選 port 仍無法使用時，才會讓 fallback 保持
+開啟。
 
 如果瀏覽器沒有自動開啟，請先開啟啟動器顯示的實際 URL。若實際使用預設 port，
 該 URL 會是：
@@ -384,9 +385,13 @@ http://127.0.0.1:7999/
 ### 啟動器顯示 port 已被佔用
 
 啟動器絕不會開啟已經占用候選 port 的服務。預設自動啟動會跳過 address-in-use
-候選 port；固定 `--port` 發生衝突時會直接結束，不會選擇其他 port。若已開啟
-manual fallback 視窗，請選擇其他 port，或停止占用所選 port 的服務後，再點擊
-`Start`。
+候選 port，以及 Windows 拒絕 bind 的候選 port。固定 `--port` 無法 bind 時會直接
+結束，不會選擇其他 port。若已開啟 manual fallback 視窗，請選擇其他 port，或停止
+占用所選 port 的服務後，再點擊 `Start`。
+
+若啟動器回報 bind 該 port 的存取被拒絕，表示 Windows 拒絕這個特定 port，常見於
+port 落在本機保留或排除的 TCP port 範圍內。請改用其他 port，或請系統管理員釋放
+該 port 範圍。
 
 ### Scan Device 找不到任何東西
 

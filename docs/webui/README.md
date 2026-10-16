@@ -213,7 +213,9 @@ With no arguments, the launcher starts automatically on `127.0.0.1`, beginning
 at port `7999` and trying up to 100 ports through `8098`. The launcher remains
 hidden during automatic startup. Each candidate is tested by binding the server
 socket, so a port used by another Powers Tool WebUI or any other service is
-skipped without opening that existing service. After the newly started WebUI
+skipped without opening that existing service. A candidate that the operating
+system refuses to bind, for example a port inside a reserved or excluded local
+TCP port range, is skipped the same way. After the newly started WebUI
 reports ready at `/api/health`, the browser opens and the launcher shows a
 compact Running window containing only the actual bound URL, Running status,
 and Quit.
@@ -230,14 +232,16 @@ port:
 ```
 
 Automatic candidates never exceed port `65535`. Only when every automatic
-candidate fails because its address is already in use does the launcher show
+candidate is unavailable, either because its address is already in use or
+because the operating system refuses to bind it, does the launcher show
 the full port fallback window, report the attempted range, and allow a
 different port to be entered manually. Start then tries only that port. If the
-manually entered port is also in use, the full fallback window stays open and
-re-enables the port field and Start button for another retry. A successful
-fallback retry returns to the compact Running window.
+manually entered port is also unavailable, the full fallback window stays open
+and re-enables the port field and Start button for another retry. The fallback
+message states whether the port is already in use or whether access to bind it
+was denied. A successful fallback retry returns to the compact Running window.
 
-A non-address-in-use bind failure stops automatic selection immediately.
+Any other bind failure stops automatic selection immediately.
 Uvicorn or application initialization failures, an early server-thread exit,
 and readiness timeout are also fatal startup failures. The launcher preserves
 the original error details, requests the partially created server to stop,
