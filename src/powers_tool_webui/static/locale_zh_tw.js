@@ -1,4 +1,6 @@
 export const ZH_TW_MESSAGES = Object.freeze({
+  "device.backend.change_blocked": "硬體忙碌或無法確認狀態，不能切換 VISA 後端。",
+  "device.backend.preview_stop_failed": "Live Preview 停止失敗：{detail}。確認工作狀態後可重試切換後端。",
   "device.backend.label": "VISA 後端",
   "device.backend.system": "System VISA（預設）",
   "supported_devices.empty_backend": "所選後端尚無正式支援組合。",
@@ -341,7 +343,7 @@ export const ZH_TW_MESSAGES = Object.freeze({
   "supported_devices.connection.usb": "USB",
   "supported_devices.connection_separator": "、",
   "supported_devices.connections": "連線方式",
-  "supported_devices.description": "目前可由 WebUI 使用的裝置與連線方式。",
+  "supported_devices.description": "僅列出具有正式開放命令的連線方式；展開明細可查看支援的命令與功能。",
   "supported_devices.heading": "支援裝置",
   "supported_devices.model": "型號",
   "supported_devices.vendor": "廠商",

@@ -54,7 +54,7 @@ const controller = webuiJobTransport.createJobEventController({
   state,
   updateHistory: (id, status) => history.push({ id, status }),
   closeEventSource: () => effects.push("close"),
-  renderJobDetail: () => detail,
+  renderJobDetail: (_id, _event, generation) => { strictAssert.equal(generation, 0); return detail; },
   jobCommand: () => "list-resources",
   populateResourceSelect: () => effects.push("scan"),
   captureResourceScanFailure: () => effects.push("scan-error"),

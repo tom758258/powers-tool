@@ -57,6 +57,10 @@ def test_workflow_keeps_tests_automatic_and_windows_jobs_conditional() -> None:
     assert "needs.detect-validation-changes.outputs.validation == 'true'" in workflow
     assert "needs.detect-validation-changes.outputs.packaging == 'true'" in workflow
     assert "needs.detect-validation-changes.outputs.release_layout" in workflow
+    jobs = yaml.safe_load(workflow)["jobs"]
+    smoke = next(step for step in jobs["windows-packaging-smoke"]["steps"]
+                 if step.get("name") == "Inspect real outputs and smoke executables")
+    assert "$arguments += '--release-layout'" in smoke["run"]
 
 
 def test_windows_powershell_jobs_are_focused_and_independent() -> None:

@@ -168,6 +168,8 @@ class _FakeCArchive:
                 "powers_tool_cli.cli",
                 "powers_tool_webui",
                 "powers_tool_webui.server",
+                "pyvisa_py",
+                "pyvisa_py.highlevel",
             }
         else:
             self.pyz_names = pyz_names

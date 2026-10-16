@@ -425,6 +425,10 @@ async function handleBackendChange(event) {
   updateExecutionModeUi({ renderCommands: false });
   let changed = false;
   try {
+    const health = await fetchJson("/api/health");
+    if (health?.status !== "ok" || health.hardware_locked !== false) {
+      throw new Error(t("device.backend.change_blocked"));
+    }
     await stopRealLiveJobsAndWait();
     state.backend = requested;
     state.backendGeneration += 1;

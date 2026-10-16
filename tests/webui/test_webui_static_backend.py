@@ -59,7 +59,9 @@ strictAssert.equal(hasRealWriteAuthorization(), true);
 strictAssert.equal(runtimePayload().backend, null);
 const requests = [];
 let rejectStop = false;
+let serverLocked = false;
 webuiApi.fetchJson = async (url, options) => {
+  if (url === "/api/health") return { status: "ok", hardware_locked: serverLocked };
   if (rejectStop && url.endsWith("/stop")) throw new Error("Stop failed");
   requests.push({ url, body: options?.body ? JSON.parse(options.body) : null });
   if (url.startsWith("/api/jobs/")) return { status: "finished" };
@@ -83,6 +85,12 @@ state.jobs = history;
 state.realSubmissionsPending = 0;
 state.liveRequestsPending = 0;
 state.health.hardwareLocked = false;
+serverLocked = true;
+selector.value = "@py";
+await handleBackendChange({ target: selector });
+strictAssert.equal(state.backend, null);
+strictAssert.equal(state.backendGeneration, 0);
+serverLocked = false;
 state.liveJobId = "monitor-old";
 state.previewJobId = "preview-old";
 state.previewStoppingJobs.add("preview-stopping");
@@ -132,6 +140,15 @@ updateResourceModelFromJob({ runtime: { backend: "@py", resource: "RESOURCE-TEST
 strictAssert.equal(hasRealWriteAuthorization(), false);
 strictAssert.equal(captureResourceLiveSupport({ runtime: {}, result: { live_support: { backend_scope: "system_visa" } } }, "RESOURCE-TEST"), false);
 strictAssert.equal(state.resourceLiveSupport, support);
+const errors = [];
+renderClientResult = (...args) => errors.push(args);
+state.previewJobId = "preview-stop-error";
+rejectStop = true;
+stopLivePreviewSnapshot();
+await new Promise((resolve) => setTimeout(resolve, 0));
+strictAssert.equal(state.previewStoppingJobs.has("preview-stop-error"), true);
+strictAssert.ok(errors.some((error) => error[0] === "Live preview" && error[1] === "failed"));
+rejectStop = false;
 state.planningIdentityCache.simulate = "model-a";
 state.planningIdentityCache["dry-run"] = "model-a";
 for (const mode of ["simulate", "dry-run"]) {
@@ -142,6 +159,15 @@ for (const mode of ["simulate", "dry-run"]) {
   strictAssert.equal("serial_options" in runtime, false);
   strictAssert.equal(runtime.confirm, false);
 }
+const result = control("result");
+result.textContent = "current backend result";
+let resolveOld;
+webuiApi.fetchJson = () => new Promise((resolve) => { resolveOld = resolve; });
+const staleDetail = renderJobDetail("old", { type: "finished", data: {} }, state.backendGeneration);
+state.backendGeneration += 1;
+resolveOld({ job_id: "old", status: "finished", command: "identify", runtime: { backend: "@py" } });
+await staleDetail;
+strictAssert.equal(result.textContent, "current backend result");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 """
     )
