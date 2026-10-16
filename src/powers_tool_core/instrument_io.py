@@ -32,6 +32,8 @@ def run_instrument_io(
     opener: Callable[..., Any] = open_resource,
     scpi_logger: Callable[[str, str, str], None] | None = None,
 ) -> dict[str, Any]:
+    if request.runtime.dry_run and request.command in {"error", "measure", "identify"}:
+        raise CoreValidationError(f"{request.command} is not supported in dry-run mode")
     if request.command == "clear":
         return _run_clear(request, opener=opener, scpi_logger=scpi_logger)
     if request.command == "error":

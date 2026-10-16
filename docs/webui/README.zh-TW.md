@@ -294,6 +294,10 @@ restore/snapshot boolean。未知命令與 `/api/jobs` 刻意不支援的命令�
 Product-active metadata inventory 產生；`generic-scpi` 仍是獨立的 nonphysical planning
 profile。
 
+Dry-run 的 `list-resources`、`verify`、`error`、`identify` 與 `measure` 診斷請求，
+會在建立 job 前以 HTTP 400 拒絕。帶有 resource 的 `capabilities` 請求在 Dry-run
+也會被拒絕；省略 resource 時仍可查閱靜態 model metadata，不會執行 VISA I/O。
+
 Browser 與 raw WebUI jobs 一律使用 product support-policy mode。Validation-policy
 runtime 欄位會被拒絕而非忽略。Frontend 的 enabled 狀態僅供 UX：Core 仍是最終由 IDN
 選擇的 exact-scope authority，pending transport/backend scope 不是 product-open。

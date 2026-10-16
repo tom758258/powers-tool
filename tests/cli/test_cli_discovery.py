@@ -1,4 +1,5 @@
 import json
+from unittest.mock import Mock
 
 import pytest
 
@@ -13,17 +14,19 @@ from tests.cli.cli_test_helpers import (
     expected_resource,
 )
 def test_list_resources_prints_backend_resources(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(
-        cli_runtime,
-        "list_resources",
-        lambda *, backend=None: ("USB0::A::INSTR", "TCPIP0::B::INSTR"),
-    )
+    manager = Mock()
+    manager.list_resources.return_value = ("USB0::A::INSTR", "TCPIP0::B::INSTR")
+    factory = Mock(return_value=manager)
+    monkeypatch.setattr(connection, "create_resource_manager", factory)
 
-    assert cli.main(["list-resources"]) == 0
+    assert cli.main(["list-resources", "--backend", "@py"]) == 0
 
     captured = capsys.readouterr()
     assert captured.out == "USB0::A::INSTR\nTCPIP0::B::INSTR\n"
     assert captured.err == ""
+    factory.assert_called_once_with("@py")
+    manager.list_resources.assert_called_once_with()
+    manager.open_resource.assert_not_called()
 
 def test_list_resources_prints_empty_message(monkeypatch, capsys) -> None:
     monkeypatch.setattr(cli_runtime, "list_resources", lambda *, backend=None: ())
@@ -41,14 +44,18 @@ def test_list_resources_live_only_prints_openable_idn_resources(monkeypatch, cap
         lambda *, backend=None: ("USB0::FAKE::INSTR", "USB0::DEAD::INSTR"),
     )
 
+    session = FakeSession("KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
+    opened = []
+
     def fake_open_resource(resource, *, backend=None, timeout_ms=5000):
+        opened.append((resource, backend))
         if resource == "USB0::DEAD::INSTR":
             raise VisaConnectionError("not reachable")
-        return FakeSession("KEYSIGHT,UNKNOWN,SERIAL0000,1.0")
+        return session
 
     monkeypatch.setattr(cli_runtime, "open_resource", fake_open_resource)
 
-    assert cli.main(["list-resources", "--live-only"]) == 0
+    assert cli.main(["list-resources", "--live-only", "--backend", "@py"]) == 0
 
     captured = capsys.readouterr()
     assert captured.out == (
@@ -57,6 +64,9 @@ def test_list_resources_live_only_prints_openable_idn_resources(monkeypatch, cap
         "    IDN: KEYSIGHT,UNKNOWN,SERIAL0000,1.0\n"
     )
     assert captured.err == ""
+    assert opened == [("USB0::FAKE::INSTR", "@py"), ("USB0::DEAD::INSTR", "@py")]
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
 
 def test_list_resources_live_only_can_log_scpi(monkeypatch, capsys) -> None:
     monkeypatch.setattr(cli_runtime, "list_resources", lambda *, backend=None: ("USB0::FAKE::INSTR",))

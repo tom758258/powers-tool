@@ -42,6 +42,10 @@ def validate_request_admission(
     """
 
     request = validate_and_normalize_request(request)
+    if request.runtime.dry_run and request.command in {
+        "list-resources", "verify", "error", "identify", "measure",
+    }:
+        raise CoreValidationError(f"{request.command} is not supported in dry-run mode")
     validate_request_parameters(request)
     if isinstance(request, OperationRequest):
         validate_general_workflow_parameters(request)

@@ -23,6 +23,8 @@ def run_discovery(
     opener: Callable[..., Any] = open_resource,
     scpi_logger: Callable[[str, str, str], None] | None = None,
 ) -> dict[str, Any]:
+    if request.runtime.dry_run:
+        raise CoreValidationError(f"{request.command} is not supported in dry-run mode")
     if request.command == "list-resources":
         return _run_list_resources(request, resource_lister=resource_lister, opener=opener, scpi_logger=scpi_logger)
     if request.command == "verify":

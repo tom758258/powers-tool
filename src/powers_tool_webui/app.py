@@ -269,6 +269,8 @@ async def create_job(request: Request):
         if command in {"capabilities", "safety inspect"}:
             if parameters:
                 raise CoreValidationError(f"{command} does not accept parameters")
+            if command == "capabilities" and validation_runtime.dry_run and validation_runtime.resource:
+                raise CoreValidationError("resource-backed capabilities is not supported in dry-run mode")
             admitted_parameters = {}
         else:
             validation_request = request_type(

@@ -337,7 +337,7 @@ def command_support(model_id: str | None) -> dict[str, dict[str, Any]]:
                     ),
                 }
             )
-        if command == "log":
+        if command in {"log", "identify", "measure"}:
             entry["dry_run"] = False
         support[command] = entry
     return support

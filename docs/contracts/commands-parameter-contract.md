@@ -26,6 +26,12 @@ document, so replacing or deleting a source file after submission cannot
 change a queued workflow. Re-admitting an already admitted request is
 idempotent.
 
+Dry-run rejects `list-resources`, `verify`, `error`, `identify`, and `measure`
+at Core admission and at the directly callable discovery/instrument-I/O
+execution boundaries, before VISA manager creation, enumeration, resource open,
+or SCPI I/O. Live and simulator execution remain available. Dry-run `clear`
+continues to return a plan without opening a resource.
+
 Only semantic defaults are materialized. In particular, trigger controls and
 read-only/all-channel selectors have canonical defaults, while optional
 completion-pulse and other presence-sensitive settings remain absent unless

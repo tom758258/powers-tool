@@ -347,6 +347,11 @@ options and every model-keyed support/rating map are generated from the same
 Core Product-active metadata inventory; `generic-scpi` remains a separate
 nonphysical planning profile.
 
+Dry-run diagnostic requests for `list-resources`, `verify`, `error`, `identify`,
+and `measure` are rejected with HTTP 400 before job creation. Resource-backed
+`capabilities` requests are also rejected in Dry-run; omitting the resource
+preserves static model metadata inspection without VISA I/O.
+
 The browser and raw WebUI jobs always use the product support-policy mode.
 Validation-policy runtime fields are rejected, not ignored. Frontend enabled
 state is UX only: Core remains the final IDN-selected exact-scope authority,

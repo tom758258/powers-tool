@@ -1,6 +1,10 @@
+from unittest.mock import Mock
+
 import pytest
 
 import powers_tool_core.live_support as live_support_module
+from powers_tool_core.command_runner import run_core_command, validate_request_admission
+from powers_tool_core.discovery import run_discovery
 from powers_tool_core.core import (
     ConfirmationRequiredError,
     CoreIoError,
@@ -78,6 +82,65 @@ def _request(
 
 def test_runtime_options_defaults_to_product_support_policy_mode() -> None:
     assert RuntimeOptions().support_policy_mode == SUPPORT_POLICY_MODE_PRODUCT
+
+
+@pytest.mark.parametrize("entry", ["admission", "core", "direct"])
+@pytest.mark.parametrize("simulate", [False, True])
+@pytest.mark.parametrize(
+    ("command", "parameters"),
+    [
+        ("list-resources", {}),
+        ("list-resources", {"live_only": True}),
+        ("verify", {}),
+        ("error", {}),
+        ("identify", {}),
+        ("measure", {"channel": 1}),
+    ],
+)
+def test_dry_run_diagnostics_reject_before_visa(
+    monkeypatch, entry: str, simulate: bool, command: str, parameters: dict[str, object]
+) -> None:
+    from powers_tool_core import connection
+
+    session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    resource = Mock()
+    resource.query.side_effect = session.query
+    resource.write.side_effect = session.write
+    manager = Mock()
+    manager.list_resources.return_value = ("USB0::FAKE::INSTR",)
+    manager.open_resource.return_value = resource
+    factory = Mock(return_value=manager)
+    monkeypatch.setattr(connection, "create_resource_manager", factory)
+    lister = Mock(wraps=connection.list_resources)
+    opener = Mock(wraps=connection.open_resource)
+    request = OperationRequest(
+        command,
+        RuntimeOptions(
+            resource="USB0::FAKE::INSTR",
+            dry_run=True,
+            simulate=simulate,
+            planning_model_id="keysight-e36312a",
+        ),
+        parameters,
+    )
+
+    with pytest.raises(CoreValidationError, match="dry-run"):
+        if entry == "admission":
+            validate_request_admission(request)
+        elif entry == "core":
+            run_core_command(request, resource_lister=lister, opener=opener)
+        elif command in {"list-resources", "verify"}:
+            run_discovery(request, resource_lister=lister, opener=opener)
+        else:
+            run_instrument_io(request, opener=opener)
+
+    factory.assert_not_called()
+    lister.assert_not_called()
+    opener.assert_not_called()
+    manager.list_resources.assert_not_called()
+    manager.open_resource.assert_not_called()
+    assert session.queries == []
+    assert session.writes == []
 
 
 def test_identify_expected_model_mismatch_stops_after_idn() -> None:

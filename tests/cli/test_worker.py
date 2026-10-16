@@ -7,6 +7,7 @@ import urllib.request
 import urllib.error
 import threading
 from pathlib import Path
+from unittest.mock import Mock
 import pytest
 
 import powers_tool_cli.worker_config as worker_config_mod
@@ -1592,13 +1593,15 @@ def test_cli_send_command_accepts_and_reports_worker_artifact(running_worker, ca
 
 
 def test_worker_readonly_dry_run_does_not_open_live_resource(tmp_path, monkeypatch):
+    from powers_tool_core import connection
+
     artifacts_dir = tmp_path / "artifacts"
     events_jsonl = tmp_path / "events.jsonl"
 
-    def fail_open_resource(*args, **kwargs):
-        raise AssertionError("read-only dry-run must not open VISA")
-
+    fail_open_resource = Mock(side_effect=AssertionError("dry-run must not open VISA"))
+    factory = Mock(side_effect=AssertionError("dry-run must not create a VISA manager"))
     monkeypatch.setattr(worker_execution_mod, "open_resource", fail_open_resource)
+    monkeypatch.setattr(connection, "create_resource_manager", factory)
     parser = build_parser()
     args = parser.parse_args([
         "worker",
@@ -1628,6 +1631,27 @@ def test_worker_readonly_dry_run_does_not_open_live_resource(tmp_path, monkeypat
 
     try:
         assert actual_port is not None
+        jobs_before = set((artifacts_dir / "jobs").glob("*"))
+        for command, arguments in (("identify", {}), ("error", {}), ("measure", {"channel": 1})):
+            rejected = urllib.request.Request(
+                f"http://127.0.0.1:{actual_port}/command",
+                data=json.dumps({
+                    "schema_version": 2,
+                    "command": command,
+                    "arguments": arguments,
+                    "context": DRY_RUN_CONTEXT,
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with pytest.raises(urllib.error.HTTPError) as raised:
+                urllib.request.urlopen(rejected)
+            assert raised.value.code == 400
+            rejection = json.loads(raised.value.read().decode("utf-8"))
+            assert rejection["error"]["code"] == "argument_error"
+            assert "dry-run" in rejection["error"]["message"]
+            assert set((artifacts_dir / "jobs").glob("*")) == jobs_before
+        fail_open_resource.assert_not_called()
+        factory.assert_not_called()
         req = urllib.request.Request(
             f"http://127.0.0.1:{actual_port}/command",
             data=json.dumps({
@@ -1648,6 +1672,8 @@ def test_worker_readonly_dry_run_does_not_open_live_resource(tmp_path, monkeypat
         assert result_data["execution"]["dry_run"] is True
         assert result_data["execution"]["hardware_touched"] is False
         assert result_data["data"]["plan"]["hardware_touched"] is False
+        fail_open_resource.assert_not_called()
+        factory.assert_not_called()
     finally:
         if actual_port is not None:
             try:

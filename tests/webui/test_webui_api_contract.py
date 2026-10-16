@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -230,6 +231,76 @@ def test_commands_metadata(client: TestClient):
     assert cmds["smoke-output"]["requires_confirm"] is True
     assert "smoke-output" in data["output_affecting_commands"]
     assert "ramp-list" in data["output_affecting_commands"]
+
+
+@pytest.mark.parametrize(
+    ("command", "parameters"),
+    [("list-resources", {}), ("list-resources", {"live_only": True}),
+     ("verify", {}), ("error", {}), ("identify", {}),
+     ("measure", {"channel": 1}), ("capabilities", {})],
+)
+@pytest.mark.parametrize("simulate", [False, True])
+def test_api_rejects_dry_run_diagnostics_before_creating_job(
+    client: TestClient, monkeypatch, simulate: bool, command: str, parameters: dict[str, Any]
+) -> None:
+    from powers_tool_core import connection
+    from powers_tool_webui import commands
+    from powers_tool_webui.jobs import job_manager
+
+    factory = Mock(side_effect=AssertionError("dry-run must not create a VISA manager"))
+    opener = Mock(side_effect=AssertionError("dry-run must not open a VISA resource"))
+    submit = Mock(side_effect=AssertionError("unsafe dry-run must not create a job"))
+    monkeypatch.setattr(connection, "create_resource_manager", factory)
+    monkeypatch.setattr(commands, "open_resource", opener)
+    monkeypatch.setattr(job_manager, "submit_job", submit)
+    jobs_before = dict(job_manager.jobs)
+
+    response = client.post(
+        "/api/jobs",
+        json={
+            "command": command,
+            "runtime": {"dry_run": True, "simulate": simulate,
+                        "planning_model_id": "keysight-e36312a",
+                        "resource": "USB0::FAKE::INSTR"},
+            "parameters": parameters,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "dry-run" in response.json()["detail"]
+    assert job_manager.jobs == jobs_before
+    submit.assert_not_called()
+    factory.assert_not_called()
+    opener.assert_not_called()
+
+
+@pytest.mark.parametrize("resource", [None, "USB0::FAKE::INSTR"])
+@pytest.mark.parametrize("simulate", [False, True])
+def test_capabilities_dry_run_execution_never_opens_visa(
+    client: TestClient, monkeypatch, resource, simulate: bool
+) -> None:
+    from powers_tool_core.core import CoreValidationError
+    from powers_tool_webui import commands
+    from powers_tool_webui.jobs import Job
+
+    opener = Mock(side_effect=AssertionError("dry-run must not open a VISA resource"))
+    monkeypatch.setattr(commands, "open_resource", opener)
+    job = Job("dry-capabilities", "capabilities", {
+        "dry_run": True, "simulate": simulate,
+        "planning_model_id": "keysight-e36312a", "resource": resource,
+    }, {})
+
+    if resource:
+        with pytest.raises(CoreValidationError, match="dry-run"):
+            commands.execute_job_command(job)
+    else:
+        assert "models" in commands.execute_job_command(job)
+        response = client.post("/api/jobs", json={"command": "capabilities", "runtime": job.runtime})
+        assert response.status_code == 200
+        result = wait_for_job(client, response.json()["job_id"])
+        assert result["status"] == "finished"
+        assert "models" in result["result"]
+    opener.assert_not_called()
 
 
 def test_api_rejects_invalid_static_parameter_before_creating_job(client: TestClient):

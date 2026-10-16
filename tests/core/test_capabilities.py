@@ -6,6 +6,20 @@ import powers_tool_core.capabilities as capabilities
 
 
 @pytest.mark.parametrize(
+    "model_id",
+    ["keysight-e36312a", "keysight-edu36311a", "keysight-e3646a",
+     "gw-instek-psm-2010", "generic-scpi", None],
+)
+def test_command_support_diagnostics_disable_dry_run(model_id: str | None) -> None:
+    support = capabilities.command_support(model_id)
+
+    for command in ("identify", "measure"):
+        assert support[command]["dry_run"] is False
+        assert support[command]["simulate"] is True
+        assert support[command]["real"] is True
+
+
+@pytest.mark.parametrize(
     ("model_id", "expected"),
     [
         (
@@ -231,7 +245,7 @@ def test_command_support_psm2010_product_boundary() -> None:
     support = capabilities.command_support("gw-instek-psm-2010")
 
     readonly_commands = {
-        "identify": True,
+        "identify": False,
         "measure": False,
         "output-state": True,
         "readback": False,

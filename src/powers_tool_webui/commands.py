@@ -559,6 +559,8 @@ def _capabilities(runtime: RuntimeOptions) -> dict[str, Any]:
     )
 
     if runtime.resource:
+        if runtime.dry_run:
+            raise CoreValidationError("resource-backed capabilities is not supported in dry-run mode")
         manager = SimulatedResourceManager() if runtime.simulate else None
         try:
             with open_resource(
