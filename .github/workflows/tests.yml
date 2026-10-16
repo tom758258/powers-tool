@@ -333,7 +333,7 @@ jobs:
         run: |
           $arguments = @('scripts/ci_packaging_smoke.py')
           if ('${{ needs.detect-validation-changes.outputs.release_layout }}' -eq 'true') {
-            $arguments += '--release_layout'
+            $arguments += '--release-layout'
           }
           & .\.venv\Scripts\python.exe @arguments
           if ($LASTEXITCODE -ne 0) { throw "Packaging smoke failed ($LASTEXITCODE)" }

@@ -1,4 +1,6 @@
 export const EN_MESSAGES = Object.freeze({
+  "device.backend.change_blocked": "Cannot change VISA backend while hardware is busy or its status is unavailable.",
+  "device.backend.preview_stop_failed": "Live preview stop failed: {detail}. Check the job status before retrying the backend change.",
   "device.backend.label": "VISA Backend",
   "device.backend.system": "System VISA (default)",
   "supported_devices.empty_backend": "No Product-open combinations for the selected backend.",
@@ -341,7 +343,7 @@ export const EN_MESSAGES = Object.freeze({
   "supported_devices.connection.usb": "USB",
   "supported_devices.connection_separator": ", ",
   "supported_devices.connections": "Connections",
-  "supported_devices.description": "Devices and connections currently supported by the WebUI.",
+  "supported_devices.description": "Connections with Product-open commands. Expand details for supported commands and features.",
   "supported_devices.heading": "Supported devices",
   "supported_devices.model": "Model",
   "supported_devices.vendor": "Vendor",

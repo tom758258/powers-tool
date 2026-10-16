@@ -875,9 +875,10 @@ function captureLatestSnapshotDocument(job) {
   return true;
 }
 
-async function renderJobDetail(jobId, event) {
+async function renderJobDetail(jobId, event, generation = state.backendGeneration) {
   try {
     const job = await webuiApi.fetchJson(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (generation !== state.backendGeneration) return null;
     updateJobResult(job.job_id, job.status, webuiResults.jobSummary(job, event), job);
     renderResult({
       job_id: job.job_id,
@@ -890,6 +891,7 @@ async function renderJobDetail(jobId, event) {
     });
     return job;
   } catch (error) {
+    if (generation !== state.backendGeneration) return null;
     const rawError = event.data?.error || event.data?.detail;
     updateJobResult(jobId, event.type, rawError || { key: event.type === "failed" ? "job.summary.failed" : `job.summary.${event.type}` });
     renderResult(event.data);
@@ -1424,6 +1426,7 @@ async function onBackendChanged({ evaluate = false } = {}) {
   const select = document.getElementById("resource-select");
   select.replaceChildren(new Option(t("resource.scan.waiting"), ""));
   renderBlankLivePanel();
+  renderResult({});
   setLiveState(t("live_data.status.not_monitoring"));
   renderSupportedDevices();
   renderCommands();
@@ -1435,6 +1438,7 @@ async function onBackendChanged({ evaluate = false } = {}) {
 
 function stopLivePreviewSnapshot() {
   const jobId = state.previewJobId;
+  const generation = state.backendGeneration;
   closeEventSource("previewEvents");
   state.previewJobId = null;
   if (jobId) {
@@ -1444,6 +1448,11 @@ function stopLivePreviewSnapshot() {
       .then(() => state.previewStoppingJobs.delete(jobId))
       .catch((error) => {
         console.error("Live preview stop failed", error);
+        if (generation === state.backendGeneration && state.previewStoppingJobs.has(jobId)) {
+          renderClientResult("Live preview", "failed", t("device.backend.preview_stop_failed", { detail: error.message || String(error) }), {
+            error: "Live preview stop failed", job_id: jobId
+          });
+        }
       });
   }
 }

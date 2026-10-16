@@ -39,7 +39,7 @@ export function createJobEventController({ state, fetchJson, closeEventSource, u
     if (jobCommand(jobId) === "snapshot" && ["accepted", "started", "progress"].includes(event.type)) refreshSnapshotFormIfVisible(jobId);
     if (!["finished", "failed", "cancelled"].includes(event.type)) return;
     closeEventSource("events");
-    const job = await renderJobDetail(jobId, event);
+    const job = await renderJobDetail(jobId, event, generation);
     if (generation !== state.backendGeneration) return;
     if (state.workflowControl.jobId === jobId && job && ["finished", "failed", "cancelled"].includes(job.status)) {
       if (job.status === "failed" && job.error_code === "cleanup_failed") updateJobResult(jobId, "failed", { key: "job.summary.cleanup_failed" });
