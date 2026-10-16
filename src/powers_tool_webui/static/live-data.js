@@ -219,18 +219,23 @@ function metric(value, label) {
 
 export function createLiveDataController({ state, isNoHardwareMode, renderBlankLivePanel, runtimePayload, fetchJson, updateLiveMonitorButton, closeEventSource, renderLivePanel, setLiveState, liveStateText, stopLivePreviewSnapshot }) {
   async function startLive() {
+    if (state.executionModeTransition) return;
+    const generation = state.backendGeneration;
+    const current = () => generation === state.backendGeneration && !state.executionModeTransition;
     if (isNoHardwareMode()) { renderBlankLivePanel("error", t("live_data.error.real_only")); return; }
     const payload = { runtime: runtimePayload(), parameters: { interval_ms: 5000 } };
     if (!payload.runtime.resource) { renderLivePanel({ status: "error", stale: true, message: t("live_data.error.resource_required") }); return; }
     try {
+      state.liveRequestsPending = (state.liveRequestsPending || 0) + 1;
       stopLivePreviewSnapshot(); updateLiveMonitorButton(false, true);
       const response = await fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) });
       state.liveJobId = response.job_id; updateLiveMonitorButton(true, false); closeEventSource("liveEvents");
       state.liveEvents = new EventSource(response.events_url);
-      state.liveEvents.addEventListener("progress", (event) => renderLivePanel(JSON.parse(event.data).data));
-      state.liveEvents.addEventListener("finished", () => { state.liveJobId = null; updateLiveMonitorButton(false, false); setLiveState(t("live_data.status.not_monitoring"), "state-idle", t("live_data.status.monitor_stopped")); closeEventSource("liveEvents"); });
-      state.liveEvents.addEventListener("failed", (event) => { const message = JSON.parse(event.data).data?.error || t("live_data.error.monitor_failed"); renderLivePanel({ status: "error", stale: true, message }); state.liveJobId = null; updateLiveMonitorButton(false, false); closeEventSource("liveEvents"); });
-    } catch (error) { renderLivePanel({ status: "error", stale: true, message: error.message || String(error) }); state.liveJobId = null; updateLiveMonitorButton(false, false); }
+      state.liveEvents.addEventListener("progress", (event) => { if (current()) renderLivePanel(JSON.parse(event.data).data); });
+      state.liveEvents.addEventListener("finished", () => { if (!current()) return; state.liveJobId = null; updateLiveMonitorButton(false, false); setLiveState(t("live_data.status.not_monitoring"), "state-idle", t("live_data.status.monitor_stopped")); closeEventSource("liveEvents"); });
+      state.liveEvents.addEventListener("failed", (event) => { if (!current()) return; const message = JSON.parse(event.data).data?.error || t("live_data.error.monitor_failed"); renderLivePanel({ status: "error", stale: true, message }); state.liveJobId = null; updateLiveMonitorButton(false, false); closeEventSource("liveEvents"); });
+    } catch (error) { if (current()) { renderLivePanel({ status: "error", stale: true, message: error.message || String(error) }); state.liveJobId = null; updateLiveMonitorButton(false, false); } }
+    finally { state.liveRequestsPending -= 1; }
   }
   async function toggleLiveMonitor() { if (state.liveJobId || state.liveEvents) await stopLive(); else await startLive(); }
   async function stopLive() {
@@ -239,15 +244,20 @@ export function createLiveDataController({ state, isNoHardwareMode, renderBlankL
     catch (error) { renderLivePanel({ status: "error", stale: true, message: error.message || String(error) }); updateLiveMonitorButton(true, false); }
   }
   async function startLivePreviewSnapshot(healthState, resource = null) {
-    if (isNoHardwareMode()) return; stopLivePreviewSnapshot(); setLiveState(t("live_data.status.refreshing_once"), "state-warning", t("live_data.status.refreshing_after_command"));
+    if (isNoHardwareMode() || state.executionModeTransition) return;
+    const generation = state.backendGeneration;
+    const current = () => generation === state.backendGeneration && !state.executionModeTransition;
+    stopLivePreviewSnapshot(); setLiveState(t("live_data.status.refreshing_once"), "state-warning", t("live_data.status.refreshing_after_command"));
     if (!healthState?.serverReady || !healthState?.deviceIdle) { renderBlankLivePanel("error", t("live_data.error.not_ready")); setLiveState(t("live_data.status.refresh_blocked"), "state-error", t("live_data.error.refresh_not_ready")); return; }
     const payload = { runtime: runtimePayload(), parameters: { interval_ms: 1000 } }; if (resource) payload.runtime.resource = resource;
     if (!payload.runtime.resource) { renderBlankLivePanel(); setLiveState(t("live_data.status.not_monitoring"), "state-idle", t("live_data.status.no_resource")); return; }
     try {
+      state.liveRequestsPending = (state.liveRequestsPending || 0) + 1;
       const response = await fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) }); state.previewJobId = response.job_id; let handledFreshSample = false; state.previewEvents = new EventSource(response.events_url);
-      state.previewEvents.addEventListener("progress", (event) => { if (handledFreshSample) return; const sample = JSON.parse(event.data).data; renderLivePanel(sample); if (!isFreshLivePreviewSample(sample)) return; handledFreshSample = true; stopLivePreviewSnapshot(); });
-      state.previewEvents.addEventListener("failed", (event) => { const error = JSON.parse(event.data).data?.error || t("live_data.error.preview_failed"); renderBlankLivePanel("error", error); setLiveState(liveStateText("error", Date.now() / 1000, error), "state-error", error); stopLivePreviewSnapshot(); });
-    } catch (error) { const message = error.message || String(error); renderBlankLivePanel("error", message); setLiveState(liveStateText("error", Date.now() / 1000, message), "state-error", message); }
+      state.previewEvents.addEventListener("progress", (event) => { if (!current() || handledFreshSample) return; const sample = JSON.parse(event.data).data; renderLivePanel(sample); if (!isFreshLivePreviewSample(sample)) return; handledFreshSample = true; stopLivePreviewSnapshot(); });
+      state.previewEvents.addEventListener("failed", (event) => { if (!current()) return; const error = JSON.parse(event.data).data?.error || t("live_data.error.preview_failed"); renderBlankLivePanel("error", error); setLiveState(liveStateText("error", Date.now() / 1000, error), "state-error", error); stopLivePreviewSnapshot(); });
+    } catch (error) { if (current()) { const message = error.message || String(error); renderBlankLivePanel("error", message); setLiveState(liveStateText("error", Date.now() / 1000, message), "state-error", message); } }
+    finally { state.liveRequestsPending -= 1; }
   }
   function isFreshLivePreviewSample(sample) { return Boolean(sample && sample.stale === false && sample.status !== "busy" && sample.status !== "error" && Array.isArray(sample.channels)); }
   async function waitForLiveTerminal(jobId) { const deadline = Date.now() + 15000; while (Date.now() < deadline) { const job = await fetchJson(`/api/jobs/${jobId}`); if (["cancelled", "finished", "failed"].includes(job.status)) return job; await new Promise((resolve) => setTimeout(resolve, 100)); } throw new Error("Live Data stop timed out while waiting for the backend job to finish."); }

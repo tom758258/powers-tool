@@ -1,4 +1,8 @@
 export const EN_MESSAGES = Object.freeze({
+  "device.backend.label": "VISA Backend",
+  "device.backend.system": "System VISA (default)",
+  "supported_devices.empty_backend": "No Product-open combinations for the selected backend.",
+  "supported_devices.scope_details": "Product-open commands and features",
   "accessibility.switch_theme_to_dark": "Switch theme to Dark",
   "accessibility.switch_theme_to_light": "Switch theme to Light",
   "accessibility.switch_theme_to_system": "Switch theme to System",

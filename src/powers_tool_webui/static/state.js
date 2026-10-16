@@ -6,6 +6,13 @@ export function createInitialState({
 }) {
   return {
     executionMode: "real",
+    backend: null,
+    backendEvaluationRequired: false,
+    backendAuthorizationRequired: false,
+    backendGeneration: 0,
+    realSubmissionsPending: 0,
+    liveRequestsPending: 0,
+    previewStoppingJobs: new Set(),
     executionModeTransition: false,
     realIdentityCache: { expectedModelId: "", resource: "", serial: {} },
     planningIdentityCache: { simulate: "", "dry-run": "" },

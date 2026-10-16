@@ -400,6 +400,19 @@ unchanged context. Selecting or typing another resource, changing Expected
 model, detecting a different model, or returning to Real mode creates a new
 context with writes enabled by default. With no resource, the checkbox is
 disabled and no authorization exists.
+Backend switching is blocked while a job or real submission is unfinished.
+Active Live Data and Preview jobs must stop and reach a terminal state first.
+A successful switch revokes write authorization, clears detected identity,
+exact support, scans, live samples, and current Workspace results, and starts
+a read-only Identify evaluation. Resource, Expected model, serial settings,
+command drafts, and Job History are preserved. Write authorization remains
+locked after the new identity is read until the operator enables it again.
+Asynchronous callbacks from earlier backend generations cannot update the
+current connection. Supported devices uses `live_support_by_model_id` from
+Core and shows only Product-open connections for the selected backend, with
+command and feature details; pending entries are excluded. PyVISA-py currently
+has no Product-open combinations.
+
 The serial fields are optional; blank fields are omitted from the runtime
 payload and do not override VISA backend or Connection Expert settings.
 Read/write termination fields accept `CR`, `LF`, `CRLF`, and `NONE` aliases.
@@ -435,8 +448,10 @@ The Device / Resource summary shows the detected model, expected-model guard,
 transport/backend scope, and compact validated/pending/unavailable counts when
 that exact context is known. Pending metadata appears only when the actual
 runtime transport/backend matches a registered pending scope. WebUI remains
-Product-only and the standard browser uses the default system-VISA backend; it
-has no validation mode or VISA-backend selector. These displays and disabled
+Product-only. Device options selects System VISA (default, `runtime.backend: null`)
+or PyVISA-py (`runtime.backend: "@py"`) for all Real jobs, Scan, Identify, and
+Live Data. No-hardware payloads omit backend settings. System VISA explicitly
+loads IVI and never falls back to PyVISA-py. There is no validation mode. These displays and disabled
 controls are UX; the Core post-IDN exact-scope gate remains authoritative.
 
 The safe Core projection can also include additive `sequence_action` and
@@ -454,8 +469,8 @@ normalized request features after IDN and before feature-specific SCPI.
 The Product model selector contains Product-active models only. Candidate,
 catalog-only, and de-scoped models are not browser runtime choices; there are
 currently no candidates. WebUI remains
-Product-only and provides neither a candidate bootstrap control nor a backend
-or validation selector.
+Product-only and provides neither a candidate bootstrap control nor a
+validation selector.
 
 Pure offline utilities are classified separately from identity/status
 diagnostics. They do not represent Product-open live commands and are not

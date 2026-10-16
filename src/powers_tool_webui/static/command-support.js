@@ -18,7 +18,8 @@ function currentExactLiveSupport() {
 
 function currentResourceLiveSupport() {
   const resource = valueOrNull("resource");
-  if (!resource || state.resourceLiveSupportContext?.resource !== resource) return null;
+  if (!resource || state.resourceLiveSupportContext?.resource !== resource
+    || state.resourceLiveSupportContext?.backend_scope !== (state.backend === "@py" ? "pyvisa_py" : "system_visa")) return null;
   return state.resourceLiveSupport;
 }
 
@@ -122,6 +123,10 @@ function commandMeta(name) {
   }
   const exactSupport = currentExactLiveSupport();
   if (!exactSupport) {
+    if (state.backendEvaluationRequired && !modelSupport?.policy_exempt && !modelSupport?.offline_only) {
+      effective.disabled = true;
+      effective.disabled_reason = t("support.scope.not_evaluated");
+    }
     effective.live_support_status = modelSupport?.policy_exempt
       ? localizedKnownSupportReason(modelSupport.support_reason)
       : t("support.scope.not_evaluated");

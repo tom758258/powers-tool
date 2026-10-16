@@ -1492,6 +1492,7 @@ def test_frontend_resource_single_flight_and_execution_mode_context_refresh() ->
         strictAssert.deepEqual(JSON.parse(state.realWriteAuthorization), {
           resource: "RESOURCE-REAL",
           expected_model_id: "keysight-e36312a",
+          backend: null,
           connected_model_id: "keysight-e3646a"
         });
         const enabledBadgeText = elements.get("execution-mode-badge").textContent;
@@ -1554,13 +1555,14 @@ def test_frontend_resource_single_flight_and_execution_mode_context_refresh() ->
         strictAssert.deepEqual(JSON.parse(state.realWriteAuthorization), {
           resource: "RESOURCE-SELECTED",
           expected_model_id: "keysight-e36312a",
+          backend: null,
           connected_model_id: "keysight-e36312a"
         });
         strictAssert.equal(supportEvaluations.length, 2);
         strictAssert.equal(supportEvaluations[1].command, "identify");
         strictAssert.equal(supportEvaluations[1].runtime.resource, "RESOURCE-SELECTED");
         strictAssert.equal(supportEvaluations[1].runtime.confirm, false);
-        const unsupportedSupport = { evaluated: false, reported_model: "UNKNOWN-PSU", commands: {} };
+        const unsupportedSupport = { evaluated: false, backend_scope: "system_visa", reported_model: "UNKNOWN-PSU", commands: {} };
         state.resourceLiveSupport = null;
         state.resourceLiveSupportContext = null;
         strictAssert.equal(

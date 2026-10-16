@@ -283,3 +283,54 @@ def test_serial_remote_failure_closes_resource_and_preserves_connection_error() 
 
     assert manager.resource.commands == ["SYST:REM", "SYST:LOC"]
     assert manager.resource.closed is True
+
+
+@pytest.mark.parametrize(
+    ("backend", "selector"),
+    [(None, "@ivi"), ("", "@ivi"), ("  ", "@ivi"), ("system_visa", "@ivi"),
+     ("@ivi", "@ivi"), ("@py", "@py"), ("pyvisa_py", "@py"),
+     ("pyvisa_bt", "@bt"), ("custom.dll", "custom.dll"),
+     ("custom.dll@ivi", "custom.dll@ivi"), ("@custom", "@custom")],
+)
+def test_backend_selector_bypasses_environment_without_changing_custom_libraries(
+    monkeypatch, backend, selector,
+):
+    import pyvisa
+
+    from powers_tool_core.connection import create_resource_manager
+
+    calls = []
+    sentinel = object()
+    monkeypatch.setenv("PYVISA_LIBRARY", "@py")
+
+    def load_wrapper(name):
+        def load_library(argument):
+            calls.append((name, argument))
+            return sentinel
+        return load_library
+
+    # Exercise PyVISA's real selector/environment parsing without loading VISA.
+    monkeypatch.setattr(pyvisa.highlevel, "get_wrapper_class", load_wrapper)
+    monkeypatch.setattr(pyvisa, "ResourceManager", pyvisa.highlevel.open_visa_library)
+    assert create_resource_manager(backend) is sentinel
+    argument, separator, wrapper = selector.rpartition("@")
+    assert calls == [(wrapper if separator else "ivi", argument if separator else selector)]
+
+
+def test_system_visa_load_failure_does_not_try_python_backend(monkeypatch):
+    import pyvisa
+
+    from powers_tool_core.connection import create_resource_manager
+
+    calls = []
+
+    def load_wrapper(name):
+        calls.append(name)
+        raise OSError("test IVI library unavailable")
+
+    monkeypatch.setenv("PYVISA_LIBRARY", "@py")
+    monkeypatch.setattr(pyvisa.highlevel, "get_wrapper_class", load_wrapper)
+    monkeypatch.setattr(pyvisa, "ResourceManager", pyvisa.highlevel.open_visa_library)
+    with pytest.raises(VisaConnectionError, match="@ivi.*test IVI library unavailable"):
+        create_resource_manager()
+    assert calls == ["ivi"]

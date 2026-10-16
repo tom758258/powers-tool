@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PyInstaller.building.api import COLLECT, EXE, PYZ
 from PyInstaller.building.build_main import Analysis
-from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 
 REPO_ROOT = Path(SPECPATH).resolve().parent
@@ -12,6 +12,9 @@ SRC_ROOT = REPO_ROOT / "src"
 POWERS_ICON = REPO_ROOT / "desktop" / "assets" / "powers-icon.ico"
 
 PROJECT_METADATA = copy_metadata("powers-tool")
+VISA_BACKENDS = collect_submodules(
+    "pyvisa_py", filter=lambda name: not name.startswith("pyvisa_py.testsuite")
+)
 CLI_HELP = collect_data_files(
     "powers_tool_cli",
     includes=["help/*"],
@@ -28,7 +31,7 @@ cli_analysis = Analysis(
     pathex=[str(SRC_ROOT)],
     binaries=[],
     datas=[*PROJECT_METADATA, *CLI_HELP],
-    hiddenimports=[],
+    hiddenimports=VISA_BACKENDS,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -42,7 +45,7 @@ launcher_analysis = Analysis(
     pathex=[str(SRC_ROOT)],
     binaries=[],
     datas=[*PROJECT_METADATA, *WEBUI_STATIC, *LAUNCHER_ICON_DATA],
-    hiddenimports=[],
+    hiddenimports=VISA_BACKENDS,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -56,7 +59,7 @@ host_analysis = Analysis(
     pathex=[str(SRC_ROOT)],
     binaries=[],
     datas=[*PROJECT_METADATA, *WEBUI_STATIC],
-    hiddenimports=[],
+    hiddenimports=VISA_BACKENDS,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -59,7 +59,8 @@ export function createDeviceResourceController({
   updateSelectedCommandState,
   closeEventSource,
   renderClientResult,
-  renderBlankLivePanel
+  renderBlankLivePanel,
+  onBackendChanged
 }) {
 function setDeviceOptionsExpanded(expanded) {
   const panel = document.getElementById("device-options-panel");
@@ -85,7 +86,7 @@ function supportedDeviceConnectionLabel(connection) {
   if (connection === "asrl") {
     return t("supported_devices.connection.asrl");
   }
-  return t("supported_devices.connection.usb");
+  return connection === "usb" ? t("supported_devices.connection.usb") : String(connection).toUpperCase();
 }
 
 function renderSupportedDevices() {
@@ -93,7 +94,24 @@ function renderSupportedDevices() {
   if (!body) {
     return;
   }
-  const devices = Array.isArray(state.supportedDevices) ? state.supportedDevices : [];
+  const backendScope = state.backend === "@py" ? "pyvisa_py" : "system_visa";
+  const devices = (state.physicalModels || []).flatMap((model) => {
+    const commands = state.liveSupportByModel?.[model.model_id]?.commands || {};
+    const connections = [...new Set(Object.values(commands).flatMap((command) =>
+      command.profile_supported === true && !command.policy_exempt && !command.offline_only
+        ? (command.scopes || []).filter((scope) =>
+          scope.backend_scope === backendScope && scope.product_open === true && !scope.pending
+          && (!scope.features?.length || scope.features.some((feature) => feature.product_open === true && !feature.pending))
+        ).map((scope) => scope.transport_scope)
+        : []
+    ))];
+    return connections.length ? [{
+      vendor: model.vendor_display_name,
+      model: model.model_name,
+      connections,
+      commands
+    }] : [];
+  });
   body.replaceChildren(
     ...devices.map((device) => {
       const row = document.createElement("tr");
@@ -108,9 +126,34 @@ function renderSupportedDevices() {
         cell.textContent = value;
         row.appendChild(cell);
       }
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = t("supported_devices.scope_details");
+      details.appendChild(summary);
+      for (const [name, command] of Object.entries(device.commands)) {
+        if (command.profile_supported !== true || command.policy_exempt || command.offline_only) continue;
+        for (const scope of command.scopes || []) {
+          if (scope.backend_scope !== backendScope || scope.product_open !== true || scope.pending
+            || (scope.features?.length && !scope.features.some((feature) => feature.product_open === true && !feature.pending))) continue;
+          const features = (scope.features || []).filter((feature) => feature.product_open === true && !feature.pending)
+            .map((feature) => `${feature.feature_kind}=${feature.feature_value}`);
+          const line = document.createElement("div");
+          line.textContent = `${supportedDeviceConnectionLabel(scope.transport_scope)}: ${name}${scope.features ? ` [${features.join(", ")}]` : ""}`;
+          details.appendChild(line);
+        }
+      }
+      row.lastChild.appendChild(details);
       return row;
     })
   );
+  if (!devices.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 3;
+    cell.textContent = t("supported_devices.empty_backend");
+    row.appendChild(cell);
+    body.appendChild(row);
+  }
 }
 
 function setDeviceResourceExpanded(expanded) {
@@ -228,6 +271,7 @@ function realAuthorizationContext() {
   return JSON.stringify({
     resource: valueOrNull("resource"),
     expected_model_id: state.realIdentityCache.expectedModelId || valueOrNull("expected-model-id"),
+    backend: state.backend || null,
     connected_model_id: detectedCommandModelForResource(valueOrNull("resource"))
   });
 }
@@ -239,6 +283,10 @@ function clearRealWriteAuthorization() {
 }
 
 function resetRealWriteAuthorization() {
+  if (state.backendAuthorizationRequired) {
+    clearRealWriteAuthorization();
+    return false;
+  }
   const resource = valueOrNull("resource");
   if (state.executionMode !== "real" || !resource) {
     clearRealWriteAuthorization();
@@ -273,6 +321,11 @@ function updateExecutionModeUi({
     control.disabled = noHardware;
     control.classList.toggle("no-hardware-control", noHardware);
   });
+  const backend = document.getElementById("visa-backend");
+  if (backend) {
+    backend.disabled = noHardware || backendChangeBusy();
+    backend.value = state.backend || "";
+  }
   populateIdentitySelector();
   if (resetAuthorization) resetRealWriteAuthorization();
   if (checkbox) {
@@ -301,6 +354,8 @@ function executionModeBusy() {
 }
 
 function refreshExecutionModeBusyPresentation() {
+  const backend = document.getElementById("visa-backend");
+  if (backend) backend.disabled = isNoHardwareMode() || backendChangeBusy();
   const title = executionModeBusy() ? t("execution_mode.busy_title") : "";
   document.querySelectorAll('input[name="execution-mode"]').forEach((radio) => {
     radio.title = title;
@@ -358,6 +413,35 @@ function populateIdentitySelector() {
   }
 }
 
+function backendChangeBusy() {
+  return executionModeBusy() || Boolean(state.realSubmissionsPending || state.liveRequestsPending || state.health?.hardwareLocked);
+}
+
+async function handleBackendChange(event) {
+  const requested = event.target.value || null;
+  event.target.value = state.backend || "";
+  if (requested === state.backend || backendChangeBusy()) return;
+  state.executionModeTransition = true;
+  updateExecutionModeUi({ renderCommands: false });
+  let changed = false;
+  try {
+    await stopRealLiveJobsAndWait();
+    state.backend = requested;
+    state.backendGeneration += 1;
+    clearRealWriteAuthorization();
+    state.backendEvaluationRequired = true;
+    state.backendAuthorizationRequired = true;
+    changed = true;
+    await onBackendChanged();
+  } catch (error) {
+    renderClientResult("VISA Backend", "failed", error.message || String(error), { error: "Backend change failed" });
+  } finally {
+    state.executionModeTransition = false;
+    updateExecutionModeUi({ renderCommands: false });
+  }
+  if (changed) await onBackendChanged({ evaluate: true });
+}
+
 async function handleExecutionModeChange(event) {
   const requested = event.target.value;
   if (requested === state.executionMode || state.executionModeTransition) return;
@@ -389,6 +473,18 @@ async function handleExecutionModeChange(event) {
 }
 
 async function stopRealLiveJobsAndWait() {
+  for (const jobId of [...(state.previewStoppingJobs || [])]) {
+    await fetchJson(`/api/live/${jobId}/stop`, { method: "POST" });
+    const deadline = Date.now() + 15000;
+    let terminal = false;
+    while (Date.now() < deadline) {
+      const job = await fetchJson(`/api/jobs/${jobId}`);
+      if (["cancelled", "finished", "failed"].includes(job.status)) { terminal = true; break; }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (!terminal) throw new Error("Live preview did not reach a terminal state within 15 seconds.");
+    state.previewStoppingJobs.delete(jobId);
+  }
   const jobs = [["liveJobId", "liveEvents"], ["previewJobId", "previewEvents"]];
   for (const [idKey, eventKey] of jobs) {
     const jobId = state[idKey];
@@ -554,6 +650,7 @@ function refreshLiveMonitorPresentation() {
 }
 
 function refreshHealthPresentation() {
+  refreshExecutionModeBusyPresentation();
   const health = state.health;
   const notLoaded = !health || health.status === "not_loaded";
   const failed = health?.status === "failed";
@@ -659,6 +756,7 @@ function setStateIndicator(elementId, text, stateClass = "state-idle", title = "
     refreshDeviceResourcePresentation,
     populateIdentitySelector,
     handleExecutionModeChange,
+    handleBackendChange,
     stopRealLiveJobsAndWait,
     selectedExpectedModelLabel,
     physicalModelDisplayName,

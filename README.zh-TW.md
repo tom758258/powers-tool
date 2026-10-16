@@ -23,10 +23,14 @@ Live hardware 會從 `*IDN?` 解析，且在文件所述 exact support scope 之
 fail closed。當前型號與 connection coverage 請參閱
 [Supported Models](docs/core/supported-models.md)。
 
-**Live hardware prerequisite：** 實體硬體操作需要另行安裝可由 PyVISA 載入的
-VISA implementation/runtime。`powers-tool` 會安裝 PyVISA，但 PyVISA 是
-Python API 層，不等於完整的 system 或 vendor VISA runtime。Powers Tool
-不內含 Keysight IO Libraries Suite、NI-VISA 或其他廠商／系統 VISA runtime。
+**VISA 後端：** Python 安裝與 Windows bundle 均包含 PyVISA 和 PyVISA-py。
+預設 System VISA 明確選用 IVI（`@ivi`），需另行安裝 Keysight IO Libraries Suite、
+NI-VISA 等廠商／系統 VISA runtime。IVI 無法載入時會回報 backend 錯誤，不會自動
+fallback 到 PyVISA-py，即使設定 `PYVISA_LIBRARY=@py` 也不例外。
+CLI 使用 `--backend @py`，或在 WebUI 裝置設定 → VISA 後端明確選用 PyVISA-py。
+基礎 Python backend 可使用 TCPIP；Powers Tool 不預裝或打包選用的 USB／serial
+額外函式庫。Backend 可載入或儀器可識別不等於 Product 支援，目前沒有 PyVISA-py
+正式支援組合。CLI 仍保留自訂 VISA library 路徑與 backend selector，並受既有 policy 限制。
 Simulator、dry-run 與一般 no-hardware validation 不需要實體儀器或 vendor VISA
 runtime。安裝 VISA runtime 不會擴大支援範圍；live operation 仍受
 [Supported Models](docs/core/supported-models.md) 所記載的 exact model、command、

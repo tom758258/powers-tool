@@ -146,6 +146,12 @@
                 <label><input type="radio" name="execution-mode" value="dry-run"> <span data-i18n="execution_mode.option.dry_run">Dry-run</span></label>
                 <p id="execution-mode-help" class="model-profile-help" data-i18n="execution_mode.help.real_locked">Real hardware mode. Writes are enabled by default when a VISA resource is present.</p>
               </fieldset>
+              <label><span data-i18n="device.backend.label">VISA Backend</span>
+                <select id="visa-backend">
+                  <option value="" data-i18n="device.backend.system">System VISA</option>
+                  <option value="@py">PyVISA-py (@py)</option>
+                </select>
+              </label>
               <div class="model-profile-control">
                 <label id="identity-model-label">Expected model
                   <select id="expected-model-id">

@@ -40,6 +40,11 @@ const fallback = context.buildWorkspaceResultContextForJob({ command: "identify"
 strictAssert.equal(fallback.canonicalModelId, "keysight-e36312a");
 strictAssert.deepEqual(context.buildWorkspaceResultContextForJob({ command: "set", runtime: { simulate: true, planning_model_id: "keysight-e36312a" } }), { command: "set", executionMode: "simulate", planningModelId: "keysight-e36312a" });
 strictAssert.deepEqual(context.buildCurrentWorkspaceResultContext({ command: "set", executionMode: "dry-run", planningIdentity: "profile:generic-scpi" }), { command: "set", executionMode: "dry-run", planningProfileId: "generic-scpi" });
+const pythonJob = { ...job, runtime: { ...job.runtime, backend: "@py" } };
+const pythonContext = context.buildWorkspaceResultContextForJob(pythonJob, maps);
+strictAssert.notEqual(context.buildWorkspaceResultKey(pythonContext), context.buildWorkspaceResultKey(real));
+const selectedPythonContext = context.buildCurrentWorkspaceResultContext({ ...real, backend: "@py" });
+strictAssert.equal(context.buildWorkspaceResultKey(selectedPythonContext), context.buildWorkspaceResultKey(pythonContext));
 const entry = context.buildWorkspaceResultEntry(job, maps);
 strictAssert.equal(context.findWorkspaceResult({ [entry.key]: job }, entry.context), job);
 strictAssert.equal(context.buildWorkspaceResultEntry({ status: "running" }), null);

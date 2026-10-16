@@ -605,7 +605,7 @@ function runtimePayload() {
   }
   const runtime = {
     resource: valueOrNull("resource"),
-    backend: null,
+    backend: state.backend || null,
     timeout_ms: 5000,
     safety_config: null,
     simulate: false,

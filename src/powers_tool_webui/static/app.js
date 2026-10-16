@@ -75,7 +75,8 @@ const deviceResourceController = webuiDevice.createDeviceResourceController({
   updateSelectedCommandState: (...args) => updateSelectedCommandState(...args),
   closeEventSource: (...args) => closeEventSource(...args),
   renderClientResult: (...args) => renderClientResult(...args),
-  renderBlankLivePanel: (...args) => renderBlankLivePanel(...args)
+  renderBlankLivePanel: (...args) => renderBlankLivePanel(...args),
+  onBackendChanged: (...args) => onBackendChanged(...args)
 });
 
 var {
@@ -85,7 +86,7 @@ var {
   expectedModelSummary, selectedExpectedModel, selectedPlanningIdentity,
   rememberCurrentExecutionIdentity, isNoHardwareMode, realAuthorizationContext,
   hasRealWriteAuthorization, updateExecutionModeUi,
-  populateIdentitySelector, handleExecutionModeChange, stopRealLiveJobsAndWait,
+  populateIdentitySelector, handleExecutionModeChange, handleBackendChange, stopRealLiveJobsAndWait,
   selectedExpectedModelLabel, physicalModelDisplayName, detectedResourceDisplayModel,
   resourceModelDetectionRecorded, detectedCommandModelForResource,
   detectedChannelModelForResource, selectedCommandModel, selectedChannelModel,
@@ -252,6 +253,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 function bind() {
   document.getElementById("run").addEventListener("click", runSelected);
   document.getElementById("scan").addEventListener("click", scanResources);
+  document.getElementById("visa-backend").addEventListener("change", handleBackendChange);
   document.getElementById("resource-select").addEventListener("change", syncSelectedResource);
   document.getElementById("resource").addEventListener("input", syncTypedResource);
   document.getElementById("resource").addEventListener("change", syncTypedResource);
@@ -259,6 +261,7 @@ function bind() {
   document.getElementById("expected-model-id")?.addEventListener("change", handleExpectedModelChanged);
   document.querySelectorAll('input[name="execution-mode"]').forEach((radio) => radio.addEventListener("change", handleExecutionModeChange));
   document.getElementById("real-write-enabled")?.addEventListener("change", () => {
+    if (document.getElementById("real-write-enabled").checked) state.backendAuthorizationRequired = false;
     state.realWriteAuthorization = document.getElementById("real-write-enabled").checked ? realAuthorizationContext() : null;
     updateExecutionModeUi();
   });
@@ -503,6 +506,7 @@ async function scanResources() {
     renderClientResult("Scan Device", "failed", "Scan Device is available only in Real hardware mode.", { error: "Real mode required" });
     return;
   }
+  if (state.executionModeTransition) return;
   state.resourceScan = { status: "scanning", resources: [], detail: "" };
   try {
     const payload = {
@@ -510,7 +514,7 @@ async function scanResources() {
       runtime: runtimePayload(),
       parameters: { live_only: true }
     };
-    const response = await webuiApi.fetchJson("/api/jobs", { method: "POST", body: JSON.stringify(payload) });
+    const response = await submitJob(payload);
     addHistory(response.job_id, "list-resources", "accepted", "Scan Device");
     subscribeToJob(response.job_id, "/api/events");
   } catch (error) {
@@ -839,8 +843,17 @@ async function reconcileWorkflowJob(jobId, originalError = null) {
   }
 }
 
-function submitJob(payload) {
-  return webuiJobTransport.submitJob(webuiApi.fetchJson, payload);
+async function submitJob(payload) {
+  const real = !payload.runtime?.simulate && !payload.runtime?.dry_run;
+  if (real && state.executionModeTransition) throw new Error("Connection change in progress.");
+  if (real) state.realSubmissionsPending += 1;
+  updateExecutionModeUi({ renderCommands: false });
+  try {
+    return await webuiJobTransport.submitJob(webuiApi.fetchJson, payload);
+  } finally {
+    if (real) state.realSubmissionsPending -= 1;
+    updateExecutionModeUi({ renderCommands: false });
+  }
 }
 
 function captureLatestSnapshotDocument(job) {
@@ -890,6 +903,8 @@ function shouldRefreshLiveAfterCommand(event, job) {
     && job?.command !== "list-resources"
     && Boolean(runtime?.resource)
     && runtime.resource === valueOrNull("resource")
+    && (runtime.backend || null) === state.backend
+    && !state.executionModeTransition
     && runtime.simulate === false
     && runtime.dry_run === false;
 }
@@ -902,6 +917,7 @@ function currentWorkspaceResultContext(command) {
   return webuiContext.buildCurrentWorkspaceResultContext({
     command,
     executionMode: state.executionMode,
+    backend: state.backend,
     planningIdentity: selectedPlanningIdentity() || "",
     resource: valueOrNull("resource") || "",
     expectedModelGuard: selectedExpectedModel() || "",
@@ -1056,7 +1072,7 @@ async function syncSelectedResource() {
 }
 
 async function refreshSelectedResourceContext(resource) {
-  if (isNoHardwareMode() || !resource) return;
+  if (isNoHardwareMode() || !resource || state.executionModeTransition) return;
   clearStaleResourceLiveSupport(resource);
   const hasLiveSupport = state.resourceLiveSupportContext?.resource === resource
     && Boolean(state.resourceLiveSupport);
@@ -1074,7 +1090,7 @@ async function evaluateResourceLiveSupport(resource) {
       : resource;
     return;
   }
-  const pending = { resource, jobId: null, requestedResource: null };
+  const pending = { resource, generation: state.backendGeneration, jobId: null, requestedResource: null };
   pendingResourceLiveSupport = pending;
   const runtime = { ...runtimePayload(), resource, confirm: false };
   delete runtime.serial_remote;
@@ -1109,6 +1125,7 @@ async function finishResourceLiveSupportEvaluation(jobId) {
 }
 
 async function refreshRequestedResourceLiveSupport(completed) {
+  if (completed?.generation !== state.backendGeneration) return;
   const requested = completed?.requestedResource;
   if (!requested || requested !== valueOrNull("resource")) return;
   await refreshSelectedResourceContext(requested);
@@ -1125,6 +1142,7 @@ function updateResourceModels(resources) {
 }
 
 function updateResourceModelFromJob(job) {
+  if ((job?.runtime?.backend || null) !== state.backend) return;
   const result = job?.result || {};
   const resultResource = result.resource;
   const resourceName = resultResource?.name || (typeof resultResource === "string" ? resultResource : job?.runtime?.resource);
@@ -1135,8 +1153,8 @@ function updateResourceModelFromJob(job) {
   if (updated) {
     refreshBasicInputConstraints();
     syncBasicFromLivePanel(state.livePanel);
-    if (state.selected) selectCommand(state.selected);
-    else renderCommands();
+    renderCommands();
+    updateSelectedCommandState();
   }
 }
 
@@ -1163,7 +1181,9 @@ function updateResourceModel(resource, modelId, reportedModel = null) {
 
 function captureResourceLiveSupport(job, resource) {
   const liveSupport = job?.result?.live_support;
-  if (!resource || resource !== valueOrNull("resource") || !liveSupport) return false;
+  if (!resource || resource !== valueOrNull("resource") || !liveSupport
+    || (job?.runtime?.backend || null) !== state.backend
+    || liveSupport.backend_scope !== (state.backend === "@py" ? "pyvisa_py" : "system_visa")) return false;
   state.resourceLiveSupport = liveSupport;
   state.resourceLiveSupportContext = {
     resource,
@@ -1173,13 +1193,16 @@ function captureResourceLiveSupport(job, resource) {
   };
   updateDeviceResourceSummary();
   syncBasicFromLivePanel(state.livePanel);
-  if (state.selected) selectCommand(state.selected);
-  else renderCommands();
+  renderCommands();
+  updateSelectedCommandState();
+  renderWorkspaceSummary();
   return true;
 }
 
 function clearStaleResourceLiveSupport(resource) {
-  if (!state.resourceLiveSupportContext || state.resourceLiveSupportContext.resource === resource) return false;
+  if (!state.resourceLiveSupportContext) return false;
+  if (state.resourceLiveSupportContext.resource === resource
+    && state.resourceLiveSupportContext.backend_scope === (state.backend === "@py" ? "pyvisa_py" : "system_visa")) return false;
   state.resourceLiveSupport = null;
   state.resourceLiveSupportContext = null;
   return true;
@@ -1381,19 +1404,53 @@ function renderLoopControl({
   return wrapper;
 }
 
+async function onBackendChanged({ evaluate = false } = {}) {
+  if (evaluate) {
+    await refreshSelectedResourceContext(valueOrNull("resource"));
+    return;
+  }
+  pendingResourceLiveSupport = null;
+  state.resourceLiveSupport = null;
+  state.resourceLiveSupportContext = null;
+  state.resourceModels = {};
+  state.resourceDisplayModels = {};
+  state.resourceChannelModels = {};
+  state.resourceScan = { status: "not_scanned", resources: [], detail: "" };
+  state.workspaceResults = {};
+  state.basicActionStates = {};
+  state.basicJobActions = {};
+  state.basicStatusActionKey = null;
+  state.samples = [];
+  const select = document.getElementById("resource-select");
+  select.replaceChildren(new Option(t("resource.scan.waiting"), ""));
+  renderBlankLivePanel();
+  setLiveState(t("live_data.status.not_monitoring"));
+  renderSupportedDevices();
+  renderCommands();
+  refreshBasicInputConstraints();
+  refreshElectricalRatingConstraints();
+  updateSelectedCommandState();
+  renderWorkspaceSummary();
+}
+
 function stopLivePreviewSnapshot() {
   const jobId = state.previewJobId;
   closeEventSource("previewEvents");
   state.previewJobId = null;
   if (jobId) {
-    webuiApi.fetchJson(`/api/live/${jobId}/stop`, { method: "POST" }).catch((error) => {
-      console.error("Live preview stop failed", error);
-    });
+    state.previewStoppingJobs.add(jobId);
+    webuiApi.fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })
+      .then(() => waitForLiveTerminal(jobId))
+      .then(() => state.previewStoppingJobs.delete(jobId))
+      .catch((error) => {
+        console.error("Live preview stop failed", error);
+      });
   }
 }
 
 async function refreshSelectedResourcePreview(resource) {
-  if (isNoHardwareMode()) return;
+  const generation = state.backendGeneration;
+  if (isNoHardwareMode() || state.executionModeTransition) return;
   stopLivePreviewSnapshot();
   renderBlankLivePanel();
   if (!resource) {
@@ -1401,7 +1458,7 @@ async function refreshSelectedResourcePreview(resource) {
     return;
   }
   const healthState = await refreshHealth();
-  if (resource !== valueOrNull("resource")) return;
+  if (resource !== valueOrNull("resource") || generation !== state.backendGeneration || state.executionModeTransition) return;
   await startLivePreviewSnapshot(healthState, resource);
 }
 

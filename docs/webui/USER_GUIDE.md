@@ -247,7 +247,7 @@ may also type a known operator-provided VISA resource manually.
 
 Device options include execution mode and, in Real mode, `Expected model`. Leave it on `Auto-detect` for normal
 live use. The **Supported devices** button to the left of the gear icon opens a read-only list of
-Product-open models and WebUI-usable `system_visa` connections (Vendor, Model, Connections). Auto-detect uses the connected instrument IDN. When `Require
+Product-open models and connections for the selected VISA backend (Vendor, Model, Connections), with expandable command and feature details. Auto-detect uses the connected instrument IDN. When `Require
 <model>` is selected, the WebUI uses it for frontend capability planning and
 sends it as an expected-model guard: the connected `*IDN?` model must match
 before setup or write SCPI, and the selection does not force that model's
@@ -267,8 +267,23 @@ Device / Resource summary shows the detected transport/backend scope without
 command-count statistics. The diagnostic can show that commands are pending,
 but it does not enable them. Changing `Expected model` updates
 planning guidance only; it does not rewrite the detected model or connection
-scope. The WebUI uses the normal Product policy and the default system-VISA
-backend; it does not provide a backend selector or validation mode. Pending
+scope. The WebUI uses the normal Product policy and provides no validation mode.
+In Device options, **VISA Backend** selects **System VISA** (default) or
+**PyVISA-py (@py)**. System VISA requires an installed system/vendor VISA runtime,
+explicitly uses IVI, and fails if unavailable; it never automatically falls back
+to PyVISA-py, even when `PYVISA_LIBRARY` selects another backend.
+All Real commands, Scan Device, Identify, and Live Data use the same selection.
+Simulate and Dry-run do not use a real backend.
+
+Switching is blocked while a job is unfinished. Live Data and Preview must stop
+and finish before the switch completes. Switching clears the old scan, detected
+identity, live samples, exact support, and current Workspace results, and reads
+identity again. VISA resource, Expected model, serial settings, command drafts,
+and Job History are retained. Real write authorization is revoked: enable it
+again explicitly after checking the new connection. Backend loading, Scan, or
+Identify success does not grant Product support. PyVISA-py is included but
+currently has no Product-open combinations; Supported devices shows this empty
+state instead of reusing the System VISA list. Pending
 metadata is shown only when the actual runtime transport/backend matches a
 registered pending scope.
 

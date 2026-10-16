@@ -105,7 +105,7 @@ def test_frontend_e3646a_identity_and_capability_gate_uses_actual_resource():
 
         state.livePanel = null;
         state.resourceLiveSupport = { evaluated: true, model_id: "keysight-e3646a" };
-        state.resourceLiveSupportContext = { resource: "RESOURCE-A", model_id: "keysight-e3646a" };
+        state.resourceLiveSupportContext = { resource: "RESOURCE-A", backend_scope: "system_visa", model_id: "keysight-e3646a" };
         strictAssert.equal(basicOutputPresentation().mode, "e3646a-global");
 
         elements.get("resource").value = "RESOURCE-B";

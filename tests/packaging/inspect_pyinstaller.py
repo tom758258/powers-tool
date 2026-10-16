@@ -24,6 +24,7 @@ def inspect_executable(
     for package in required_packages:
         assert package in pyz_names, package
         assert any(name.startswith(f"{package}.") for name in pyz_names), package
+    assert not any(name.startswith("pyvisa_py.testsuite") for name in pyz_names)
     assert not any("keysight_power_" in name for name in (*names, *pyz_names))
 
 
@@ -34,11 +35,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     inspect_executable(
         args.cli_exe,
-        ("powers_tool_core", "powers_tool_cli"),
+        ("powers_tool_core", "powers_tool_cli", "pyvisa_py"),
     )
     inspect_executable(
         args.webui_exe,
-        ("powers_tool_core", "powers_tool_webui"),
+        ("powers_tool_core", "powers_tool_webui", "pyvisa_py"),
     )
     print("Powers Tool PyInstaller archive inspection passed")
     return 0

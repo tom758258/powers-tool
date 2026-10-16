@@ -35,3 +35,44 @@ strictAssert.equal("PowersToolWebUI" in globalThis, false);
 """,
         ("jobs.js",),
     )
+
+
+def test_backend_change_discards_late_job_effects_but_retains_history():
+    run_webui_module_assertions(
+        r"""
+const sources = [];
+globalThis.EventSource = class {
+  constructor() { this.listeners = {}; sources.push(this); }
+  addEventListener(name, callback) { this.listeners[name] = callback; }
+};
+const history = [];
+const effects = [];
+let resolveDetail;
+const detail = new Promise((resolve) => { resolveDetail = resolve; });
+const state = { backendGeneration: 0, workflowControl: { phase: "idle" }, basicJobActions: {} };
+const controller = webuiJobTransport.createJobEventController({
+  state,
+  updateHistory: (id, status) => history.push({ id, status }),
+  closeEventSource: () => effects.push("close"),
+  renderJobDetail: () => detail,
+  jobCommand: () => "list-resources",
+  populateResourceSelect: () => effects.push("scan"),
+  captureResourceScanFailure: () => effects.push("scan-error"),
+  updateResourceModelFromJob: () => effects.push("identity"),
+  captureWorkspaceResult: () => effects.push("workspace"),
+  captureLatestSnapshotDocument: () => effects.push("snapshot"),
+  refreshHealth: () => effects.push("health")
+});
+controller.subscribeToJob("old-scan", "/api/events");
+const completed = sources[0].listeners.finished({ data: JSON.stringify({ type: "finished", data: { result: { resources: ["OLD-RESOURCE"] } } }) });
+const beforeSwitch = [...effects];
+// Returning to the same backend must not revive callbacks from its earlier use.
+state.backendGeneration += 2;
+resolveDetail({ command: "list-resources", runtime: { backend: null }, status: "finished" });
+await completed;
+await sources[0].listeners.failed({ data: JSON.stringify({ type: "failed", data: { error: "old" } }) });
+strictAssert.deepEqual(effects, beforeSwitch);
+strictAssert.deepEqual(history, [{ id: "old-scan", status: "finished" }, { id: "old-scan", status: "failed" }]);
+""",
+        ("jobs.js",),
+    )

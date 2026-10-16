@@ -7,6 +7,7 @@ export function buildWorkspaceResultKey(context) {
     command: context.command || "",
     executionMode: context.executionMode || "real",
     resource: context.resource || "",
+    backend: context.backend || "",
     expectedModelGuard: context.expectedModelGuard || "",
     canonicalModelId: context.canonicalModelId || "",
     planningModelId: context.planningModelId || "",
@@ -38,7 +39,7 @@ export function buildWorkspaceResultContextForJob(job, modelMaps = {}) {
     modelMaps.commandModelByResource?.[resource],
     modelMaps.channelModelByResource?.[resource]
   ].find((value) => typeof value === "string" && value.trim()) || "";
-  return { command: job.command, executionMode, resource, expectedModelGuard: runtime.expected_model_id || "", canonicalModelId };
+  return { command: job.command, executionMode, resource, ...(runtime.backend ? { backend: runtime.backend } : {}), expectedModelGuard: runtime.expected_model_id || "", canonicalModelId };
 }
 
 export function buildCurrentWorkspaceResultContext(snapshot) {
@@ -49,7 +50,7 @@ export function buildCurrentWorkspaceResultContext(snapshot) {
       ? { command, executionMode, planningProfileId: planningIdentity.slice("profile:".length) }
       : { command, executionMode, planningModelId: planningIdentity };
   }
-  return { command, executionMode: "real", resource, expectedModelGuard, canonicalModelId };
+  return { command, executionMode: "real", resource, ...(snapshot.backend ? { backend: snapshot.backend } : {}), expectedModelGuard, canonicalModelId };
 }
 
 export function buildWorkspaceResultEntry(job, modelMaps = {}) {

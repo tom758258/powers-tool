@@ -51,7 +51,7 @@ def test_webui_docs_describe_exact_support_as_product_only_ux():
     guide = read_webui_doc("USER_GUIDE.md")
     text = f"{readme}\n{guide}"
     assert "Product-only" in readme
-    for token in ("expected_model_id", "pending", "system-VISA"):
+    for token in ("expected_model_id", "pending", "System VISA"):
         assert token in text
     assert "--validation-allow-pending-live-support" not in text
     assert "Local/" not in text

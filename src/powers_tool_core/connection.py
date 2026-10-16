@@ -164,12 +164,18 @@ def create_resource_manager(backend: str | None = None) -> ResourceManagerLike:
     except ImportError as exc:  # pragma: no cover - dependency is installed in normal env
         raise VisaConnectionError("PyVISA is not installed") from exc
 
+    selector = {
+        "": "@ivi",
+        "system_visa": "@ivi",
+        "pyvisa_py": "@py",
+        "pyvisa_bt": "@bt",
+    }.get((backend or "").strip().lower(), backend)
     try:
-        if backend:
-            return pyvisa.ResourceManager(backend)
-        return pyvisa.ResourceManager()
+        return pyvisa.ResourceManager(selector)
     except Exception as exc:  # pragma: no cover - depends on local VISA backend
-        raise VisaConnectionError("Could not create PyVISA resource manager") from exc
+        raise VisaConnectionError(
+            f"Could not load VISA backend {selector!r}: {exc}"
+        ) from exc
 
 
 def list_resources(

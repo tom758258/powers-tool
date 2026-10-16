@@ -28,11 +28,17 @@ for current model and connection coverage, and the
 [CLI README](docs/cli/README.md#planning-identities-and-live-expected-model-guards)
 for planning and expected-model behavior.
 
-**Live hardware prerequisite:** Live hardware operation requires a separately
-installed VISA implementation/runtime that PyVISA can load. The `powers-tool`
-distribution installs PyVISA, but PyVISA is the Python API layer rather than a
-complete system or vendor VISA runtime. Powers Tool does not bundle Keysight IO
-Libraries Suite, NI-VISA, or another vendor/system VISA runtime. Simulator,
+**VISA backends:** Python installations and Windows bundles include PyVISA and
+PyVISA-py. System VISA is the default and explicitly selects IVI (`@ivi`),
+requiring a separately installed vendor/system VISA runtime such as Keysight IO
+Libraries Suite or NI-VISA. If IVI cannot load, operation fails with the backend
+error; it never falls back to PyVISA-py, including when `PYVISA_LIBRARY=@py`.
+Select PyVISA-py explicitly with CLI `--backend @py` or WebUI Device options →
+VISA Backend. The base Python backend supports TCPIP without optional USB or
+serial libraries; those extras are not installed or bundled by Powers Tool.
+Loading a backend or identifying an instrument does not grant Product support.
+No PyVISA-py combination is currently Product-open. Custom CLI VISA library
+paths and backend selectors remain available under the existing policy. Simulator,
 dry-run, and normal no-hardware validation do not require a physical instrument
 or vendor VISA runtime. Installing a VISA runtime does not expand support:
 live operation remains limited to the exact model, command, transport, backend,

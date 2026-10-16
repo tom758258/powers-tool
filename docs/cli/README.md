@@ -160,20 +160,21 @@ transport, or backend.
 | Product support | No-hardware availability does not imply live support. | Model-aware live commands follow the exact `model + command + transport + backend + required feature` scope in [Supported Models](../core/supported-models.md). Diagnostic exemptions remain limited to their documented diagnostic purpose. |
 | Safety | Preview and simulator paths do not enable real output. | Output-affecting commands remain subject to the existing confirmation gates and safety limits. |
 
-Omitting `--backend` uses the default System VISA path through
-`pyvisa.ResourceManager()`. In a source checkout, virtual environment, or
-installed Python environment, the CLI can pass an optional PyVISA selector such
-as `--backend "@py"` or `--backend "@bt"`. The corresponding backend package
-must be installed in that environment and loadable by PyVISA.
+Omitting `--backend` explicitly selects System VISA through
+`pyvisa.ResourceManager("@ivi")`. IVI must load successfully; there is no fallback
+to PyVISA-py, even with `PYVISA_LIBRARY=@py`. Python installations and Windows
+bundles include PyVISA-py, selected explicitly with `--backend "@py"`. Other
+explicit selectors and custom VISA libraries remain available; their backend
+packages must be installed and loadable by PyVISA.
 
 `@bt` maps to the distinct `pyvisa_bt` support-policy identity. Backend package
 installation and PyVISA loadability do not themselves grant Product support;
 model-aware live execution still requires an exact Product-open `model +
 command + transport + backend + required feature` scope. No current
 Product-open exact scope uses `pyvisa_bt`, so model-aware Product live execution
-with `--backend "@bt"` fails closed. The packaged
-`powers-tool.exe` does not bundle optional Python backend packages such as
-pyvisa-py or `pyvisa_bt`, and it does not include a BT runtime or service.
+with `--backend "@bt"` fails closed. The packaged `powers-tool.exe` includes
+PyVISA-py without optional USB or serial dependencies. It does not bundle
+`pyvisa_bt` or a BT runtime or service.
 
 ## Install
 
@@ -494,8 +495,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\live-cli-check
   -PlanOnly
 ```
 
-For contributor validation against an installed optional backend such as
-pyvisa-py on an exact registered pending scope, pass the backend selector
+For contributor validation against PyVISA-py on an exact registered pending
+scope, pass the backend selector
 explicitly. The current registered pending validation scope for pyvisa-py is
 E36312A or EDU36311A over TCPIP/LAN, not USB:
 

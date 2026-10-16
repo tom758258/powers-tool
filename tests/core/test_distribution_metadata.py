@@ -41,3 +41,12 @@ def test_webui_static_assets_are_package_resources():
 
     for filename in ("index.html", "styles.css", "app.js"):
         assert static_root.joinpath(filename).is_file()
+
+
+def test_python_backend_is_a_required_loadable_dependency():
+    from pyvisa.highlevel import get_wrapper_class
+    from pyvisa_py.highlevel import PyVisaLibrary
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert any(requirement.startswith("pyvisa-py>=") for requirement in project["dependencies"])
+    assert get_wrapper_class("py") is PyVisaLibrary

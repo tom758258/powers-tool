@@ -212,9 +212,20 @@ storage 不可用，WebUI 會安全 fallback，不影響正常操作。</p>
 <h2 id="資源掃描">資源掃描</h2>
 <p><code>Scan Device</code> 會執行啟用實機資源過濾的 WebUI 資源探索工作。它的目的是顯示目前能回應的資源，而非過時的 VISA 快取項目。</p>
 <p>第一個有效結果會自動選取並複製到 <code>VISA resource</code>，同時執行一次唯讀身分工作，以評估 exact Product live support。改選其他實機資源時會重新執行相同的評估。這個評估不會啟用輸出、不會修改儀器設定，也不需要實機寫入授權。您仍可手動輸入由操作員提供的已知 VISA 資源。</p>
-<p>Device options 包含執行模式；在 Real 模式還會顯示 <code>Expected model</code>。一般實機操作請保留 <code>Auto-detect</code>，由連線儀器的 <code>*IDN?</code> 決定實際型號。齒輪圖示左側的 <strong>Supported devices / 支援裝置</strong> 按鈕會開啟唯讀清單，顯示目前 Product-open 且 WebUI 可使用的 <code>system_visa</code> 連線（廠商、型號、連線方式）。選擇 <code>Require &lt;model&gt;</code> 時，它只用於前端 capability 規劃，並作為 expected-model guard 送出：連線儀器的 <code>*IDN?</code> model 必須相符，才會進行 setup 或 write SCPI；該選擇不會強制使用該型號的 driver。Device / Resource summary 會將偵測到的 live model 與 Expected model 選擇分開顯示，例如 <code>live E3646A / Auto-detect</code> 或 <code>live E3646A / Require E36312A</code>。</p>
+<p>Device options 包含執行模式；在 Real 模式還會顯示 <code>Expected model</code>。一般實機操作請保留 <code>Auto-detect</code>，由連線儀器的 <code>*IDN?</code> 決定實際型號。齒輪圖示左側的 <strong>Supported devices / 支援裝置</strong> 按鈕會開啟唯讀清單，顯示所選 VISA 後端目前 Product-open 的連線（廠商、型號、連線方式），並可展開命令與功能範圍。選擇 <code>Require &lt;model&gt;</code> 時，它只用於前端 capability 規劃，並作為 expected-model guard 送出：連線儀器的 <code>*IDN?</code> model 必須相符，才會進行 setup 或 write SCPI；該選擇不會強制使用該型號的 driver。Device / Resource summary 會將偵測到的 live model 與 Expected model 選擇分開顯示，例如 <code>live E3646A / Auto-detect</code> 或 <code>live E3646A / Require E36312A</code>。</p>
 <p>一般型號選單由 Core 的 Product-active metadata 產生；目前支援的型號與 exact connection／backend scopes 以 <a href="supported-models.zh-TW.html">支援型號</a> 為準。不支援的直接 model 提交仍會被 WebUI backend 與 Core 拒絕。Auto-detect 在有可用 metadata 時仍可使用偵測到的 live model 資訊，但前端狀態永遠不會覆寫 Core 由 IDN 選出的 live driver。</p>
-<p>在 Product-open scope 上成功完成唯讀身分評估後，Device / Resource summary 會顯示偵測到的 transport/backend scope，不含命令數統計。diagnostic 可以顯示命令為 pending，但不會啟用它們。變更 <code>Expected model</code> 只更新規劃指引；它不會改寫偵測到的 model 或連線 scope。WebUI 使用正常 Product policy 與預設 system-VISA backend；沒有 backend selector 或 validation mode。Pending metadata 只在實際 runtime transport/backend 符合已註冊 pending scope 時顯示。</p>
+<p>在 Product-open scope 上成功完成唯讀身分評估後，Device / Resource summary 會顯示偵測到的 transport/backend scope，不含命令數統計。diagnostic 可以顯示命令為 pending，但不會啟用它們。變更 <code>Expected model</code> 只更新規劃指引；它不會改寫偵測到的 model 或連線 scope。WebUI 使用正常 Product policy，沒有 validation mode。</p>
+<p>在裝置設定的 <strong>VISA 後端</strong> 選擇 <strong>System VISA（預設）</strong> 或 <strong>PyVISA-py (@py)</strong>。
+System VISA 需要已安裝的廠商／系統 VISA runtime，明確使用 IVI；無法載入時會失敗，
+不會自動 fallback 至 PyVISA-py，即使 <code>PYVISA_LIBRARY</code> 設定其他後端也不例外。
+所有 Real 命令、Scan Device、Identify 與 Live Data 使用相同選擇；Simulate 與
+Dry-run 不使用實機 backend。</p>
+<p>工作尚未結束時不能切換。Live Data／Preview 必須先停止並完成清理，才會切換。
+成功切換會清除舊掃描、已偵測身分、即時資料、exact support 與目前 Workspace 結果，
+並重新做唯讀身分評估；保留 VISA resource、Expected model、Serial Options、命令草稿
+與 Job History。Real Write Authorization 會撤銷，請確認新連線後再次明確勾選授權。
+Backend 可載入、Scan 或 Identify 成功不等於 Product 支援。PyVISA-py 已內附，但目前
+沒有正式支援組合，支援裝置清單會顯示空狀態，不沿用 System VISA 的清單。Pending metadata 只在實際 runtime transport/backend 符合已註冊 pending scope 時顯示。</p>
 <p>若身分評估在未知或已移出範圍（de-scoped）的儀器上成功，WebUI 會顯示無法解析出 Product-open live scope，而不是顯示 unevaluated 狀態。一般 model-aware live commands 維持停用，且 <code>Expected model</code> 不符時 diagnostic 仍會失敗。</p>
 <p>如果未出現實機存活的資源，請檢查儀器電源、纜線、VISA 驅動程式可見度，以及是否有其他程式佔用了該儀器。</p>
 <h2 id="rs-232-asrl-serial-控制">RS-232 / ASRL Serial 控制</h2>

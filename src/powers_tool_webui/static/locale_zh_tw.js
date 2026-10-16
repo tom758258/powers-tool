@@ -1,4 +1,8 @@
 export const ZH_TW_MESSAGES = Object.freeze({
+  "device.backend.label": "VISA 後端",
+  "device.backend.system": "System VISA（預設）",
+  "supported_devices.empty_backend": "所選後端尚無正式支援組合。",
+  "supported_devices.scope_details": "正式支援的命令與功能",
   "accessibility.switch_theme_to_dark": "切換主題至深色",
   "accessibility.switch_theme_to_light": "切換主題至淺色",
   "accessibility.switch_theme_to_system": "切換主題至系統",

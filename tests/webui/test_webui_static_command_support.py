@@ -116,7 +116,7 @@ const notEvaluatedEn = support.commandMeta("set").live_support_status;
 strictAssert.notEqual(notEvaluatedEn, "");
 strictAssert.match(notEvaluatedEn, /not evaluated/i);
 i18n.setLocale("zh-TW");
-state.resourceLiveSupportContext = { resource: "RESOURCE-A" };
+state.resourceLiveSupportContext = { resource: "RESOURCE-A", backend_scope: "system_visa" };
 state.resourceLiveSupport = {
   evaluated: false,
   reported_model: "UNKNOWN-PSU",

@@ -723,6 +723,7 @@ def test_frontend_device_resource_summary_is_mode_and_identity_aware() -> None:
         };
         state.resourceLiveSupportContext = {
           resource: "ASRL7::INSTR",
+          backend_scope: "system_visa",
           model_id: "keysight-edu36311a"
         };
 
@@ -861,7 +862,7 @@ def test_static_top_bar_uses_live_resource_defaults():
     assert "simulate: false" in app_js
     assert "dry_run: false" in app_js
     assert "timeout_ms: 5000" in app_js
-    assert "backend: null" in app_js
+    assert_static_id(index_html, "visa-backend")
     assert "safety_config: null" in app_js
 
 
@@ -889,16 +890,9 @@ def test_static_resource_selection_refreshes_selected_context():
         't("live_data.status.no_resource"));'
     ) in refresh_preview
     assert "const healthState = await refreshHealth();" in refresh_preview
-    assert 'if (resource !== valueOrNull("resource")) return;' in refresh_preview
     assert "await startLivePreviewSnapshot(healthState, resource);" in refresh_preview
     assert refresh_preview.index("stopLivePreviewSnapshot();") < refresh_preview.index("renderBlankLivePanel();")
     assert refresh_preview.index("renderBlankLivePanel();") < refresh_preview.index("const healthState = await refreshHealth();")
-    assert refresh_preview.index("const healthState = await refreshHealth();") < refresh_preview.index(
-        'if (resource !== valueOrNull("resource")) return;'
-    )
-    assert refresh_preview.index('if (resource !== valueOrNull("resource")) return;') < refresh_preview.index(
-        "await startLivePreviewSnapshot(healthState, resource);"
-    )
 
 
 def test_static_state_indicators_show_webui_command_and_live_state():
@@ -939,7 +933,7 @@ def test_scan_resources_handles_missing_live_only_checkbox():
 
     assert 'command: "list-resources"' in app_js
     assert "parameters: { live_only: true }" in app_js
-    assert 'webuiApi.fetchJson("/api/jobs", { method: "POST", body: JSON.stringify(payload) })' in app_js
+    assert 'fetchJson("/api/jobs", { method: "POST", body: JSON.stringify(payload) })' in read_static_javascript("jobs.js")
     assert 'fetchJson("/api/live", { method: "POST", body: JSON.stringify(payload) })' in live_data_js
     assert 'fetchJson(`/api/live/${jobId}/stop`, { method: "POST" })' in live_data_js
     assert 'selectCommand("list-resources")' not in app_js
