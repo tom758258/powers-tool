@@ -246,6 +246,24 @@ def _drain_ui_queue(app: launcher.LauncherApp) -> None:
         callback()
 
 
+def _port_in_use_error() -> OSError:
+    error = OSError(launcher.errno.EADDRINUSE, "address already in use")
+    error.winerror = 10048
+    return error
+
+
+def _port_access_denied_error() -> PermissionError:
+    error = PermissionError(launcher.errno.EACCES, "bind access denied")
+    error.winerror = 10013
+    return error
+
+
+def _windows_only_bind_error(winerror: int, message: str) -> OSError:
+    error = OSError(message)
+    error.winerror = winerror
+    return error
+
+
 def test_build_local_url_uses_loopback_default_port() -> None:
     assert launcher.DEFAULT_HOST == "127.0.0.1"
     assert launcher.DEFAULT_PORT == 7999
@@ -367,8 +385,27 @@ def test_server_is_ready_rejects_connection_error(monkeypatch) -> None:
     assert launcher._server_is_ready(health_url) is False
 
 
+@pytest.mark.parametrize(
+    ("bind_failures", "expected_port"),
+    [
+        (
+            {7999: _port_in_use_error(), 8000: _port_access_denied_error()},
+            8001,
+        ),
+        ({7999: _port_access_denied_error()}, 8000),
+        (
+            {
+                7999: _windows_only_bind_error(10048, "address already in use"),
+                8000: _windows_only_bind_error(10013, "bind access denied"),
+            },
+            8001,
+        ),
+    ],
+)
 def test_auto_port_uses_first_bound_socket_and_actual_browser_url(
     monkeypatch,
+    bind_failures: dict[int, OSError],
+    expected_port: int,
 ) -> None:
     attempted_ports: list[int] = []
     created_ports: list[int] = []
@@ -378,8 +415,8 @@ def test_auto_port_uses_first_bound_socket_and_actual_browser_url(
 
     def socket_binder(port: int) -> FakeSocket:
         attempted_ports.append(port)
-        if port < 8001:
-            raise OSError(launcher.errno.EADDRINUSE, "in use")
+        if port in bind_failures:
+            raise bind_failures[port]
         return bound_socket
 
     def server_factory(port: int) -> FakeServer:
@@ -407,11 +444,12 @@ def test_auto_port_uses_first_bound_socket_and_actual_browser_url(
         def is_alive(self) -> bool:
             return self._alive
 
+    expected_url = launcher.build_local_url(expected_port)
     app = _launcher_for_startup(
         initial_port=launcher.DEFAULT_PORT,
         socket_binder=socket_binder,
         server_factory=server_factory,
-        readiness_checker=lambda url: url.endswith(":8001/api/health"),
+        readiness_checker=lambda url: url == f"{expected_url}/api/health",
         browser_open=browser_urls.append,
     )
     app._root.withdraw()
@@ -420,18 +458,19 @@ def test_auto_port_uses_first_bound_socket_and_actual_browser_url(
     app.start(auto_port=True)
     _drain_ui_queue(app)
 
-    assert attempted_ports == [7999, 8000, 8001]
-    assert created_ports == [8001]
+    assert attempted_ports == sorted([*bind_failures, expected_port])
+    assert created_ports == [expected_port]
     assert server.config.setup_event_loop_accessed is False
     assert server.served_sockets == [bound_socket]
-    assert browser_urls == ["http://127.0.0.1:8001"]
+    assert browser_urls == [expected_url]
     assert app._root.withdrawn is False
     assert app._root.restored is True
     assert app._config_frame.visible is False
     assert app._start_button.visible is False
     assert app._quit_button.state == "normal"
-    assert app._url_value.value == "http://127.0.0.1:8001"
-    assert app._status_value.value == "Running at http://127.0.0.1:8001"
+    assert app._url_value.value == expected_url
+    assert app._status_value.value == f"Running at {expected_url}"
+    assert app.exit_code == 0
 
 
 @pytest.mark.parametrize(
@@ -474,13 +513,33 @@ def test_launcher_cli_selects_expected_port_candidates(
     assert recorded_ports == [expected_ports]
 
 
-def test_fixed_port_conflict_does_not_increment(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("bind_error", "expected_prefix", "expected_detail"),
+    [
+        (
+            _port_in_use_error(),
+            "Port 9000 is already in use. OSError:",
+            "already in use",
+        ),
+        (
+            _port_access_denied_error(),
+            "Access to bind port 9000 was denied. PermissionError:",
+            "access denied",
+        ),
+    ],
+)
+def test_fixed_port_conflict_does_not_increment(
+    monkeypatch,
+    bind_error: OSError,
+    expected_prefix: str,
+    expected_detail: str,
+) -> None:
     attempted_ports: list[int] = []
     errors: list[tuple[str, str]] = []
 
     def socket_binder(port: int) -> FakeSocket:
         attempted_ports.append(port)
-        raise OSError(launcher.errno.EADDRINUSE, "in use")
+        raise bind_error
 
     app = _launcher_for_startup(
         initial_port=9000,
@@ -502,19 +561,26 @@ def test_fixed_port_conflict_does_not_increment(monkeypatch) -> None:
     assert app.exit_code == 1
     assert len(errors) == 1
     assert errors[0][0] == "Start failed"
-    assert errors[0][1].startswith("Port 9000 is already in use. OSError:")
-    assert "in use" in errors[0][1]
+    assert errors[0][1].startswith(expected_prefix)
+    assert expected_detail in errors[0][1]
 
 
 def test_auto_port_exhaustion_restores_manual_window(monkeypatch) -> None:
     attempted_ports: list[int] = []
     errors: list[tuple[str, str]] = []
+    fatal_bind_error = OSError(launcher.errno.EADDRNOTAVAIL, "unreachable")
+    failures = {
+        7999: _port_in_use_error(),
+        8000: _port_access_denied_error(),
+        8001: _port_in_use_error(),
+        9000: _port_in_use_error(),
+        9001: _port_access_denied_error(),
+        9002: fatal_bind_error,
+    }
 
     def socket_binder(port: int) -> FakeSocket:
         attempted_ports.append(port)
-        if port == 9001:
-            raise PermissionError("bind denied")
-        raise OSError(launcher.errno.EADDRINUSE, "in use")
+        raise failures[port]
 
     app = _launcher_for_startup(
         initial_port=launcher.DEFAULT_PORT,
@@ -556,9 +622,24 @@ def test_auto_port_exhaustion_restores_manual_window(monkeypatch) -> None:
     app.start()
 
     assert attempted_ports == [7999, 8000, 8001, 9000, 9001]
+    assert app._root.destroyed is False
+    assert app._root.restored is True
+    assert app._port_entry.state == "normal"
+    assert app._start_button.state == "normal"
+    assert app.exit_code == 0
+    assert errors[2][0] == "Port unavailable"
+    assert errors[2][1].startswith(
+        "Access to bind port 9001 was denied. PermissionError:"
+    )
+    assert "access denied" in errors[2][1]
+
+    app._port_value.set("9002")
+    app.start()
+
+    assert attempted_ports == [7999, 8000, 8001, 9000, 9001, 9002]
     assert app._root.destroyed is True
     assert app.exit_code == 1
-    assert errors[2] == ("Start failed", "PermissionError: bind denied")
+    assert errors[3] == ("Start failed", f"OSError: {fatal_bind_error}")
 
 
 def test_fallback_success_switches_to_compact_running_window() -> None:
@@ -598,11 +679,15 @@ def test_auto_port_stops_on_non_conflict_error(
     created_ports: list[int] = []
     bound_socket = FakeSocket()
     errors: list[str] = []
+    unexpected_bind_error = OSError(
+        launcher.errno.EAFNOSUPPORT,
+        "address family not supported",
+    )
 
     def socket_binder(port: int) -> FakeSocket:
         attempted_ports.append(port)
         if failure_phase == "bind":
-            raise PermissionError("bind denied")
+            raise unexpected_bind_error
         return bound_socket
 
     def server_factory(port: int) -> FakeServer:
@@ -629,7 +714,7 @@ def test_auto_port_stops_on_non_conflict_error(
     if failure_phase == "bind":
         assert created_ports == []
         assert bound_socket.closed is False
-        assert errors == ["PermissionError: bind denied"]
+        assert errors == [f"OSError: {unexpected_bind_error}"]
     else:
         assert created_ports == [7999]
         assert bound_socket.closed is True
