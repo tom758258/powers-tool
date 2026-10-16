@@ -81,21 +81,23 @@ automatically tries port <code>7999</code> followed by up to 99 higher ports. Wa
 browser to open. After startup succeeds, the launcher shows a compact Running
 window with the actual URL, Running status, and <code>Quit</code>; the port settings and
 <code>Start</code> are hidden.</p>
-<p>Only if every automatic candidate is already in use does the launcher show the
-full port settings window. Enter another local port and click <code>Start</code>. If that
-manually entered port is also in use, the full fallback window stays open and
-lets you edit the port and try again. After a retry succeeds, the launcher
-returns to the compact Running window.</p>
+<p>Only if every automatic candidate is unavailable, because another service already
+uses its address or because Windows refuses to bind it, does the launcher show
+the full port settings window. Enter another local port and click <code>Start</code>. If
+that manually entered port is also unavailable, the full fallback window stays
+open and lets you edit the port and try again. After a retry succeeds, the
+launcher returns to the compact Running window.</p>
 <p>From PowerShell, <code>--port</code> requests one fixed port. It never switches to another
 port unless <code>--auto-port</code> is also supplied:</p>
 <pre><code class="language-powershell">.\dist\powers-tool\powers-tool-webui-launcher.exe --port 9000
 .\dist\powers-tool\powers-tool-webui-launcher.exe --port 9000 --auto-port
 </code></pre>
-<p>A fixed-port conflict reports the selected port and exits instead of opening
-the manual port window. Other startup failures, including application startup,
-server exit, or readiness errors, also report their original details, clean up,
-and exit. Only automatic address-in-use exhaustion opens the manual fallback,
-and only another address-in-use error keeps that fallback window open.
+<p>A fixed port that cannot be bound, whether because its address is already in use
+or because access was denied, reports the selected port and exits instead of
+opening the manual port window. Other startup failures, including application
+startup, server exit, or readiness errors, also report their original details,
+clean up, and exit. Only automatic candidate exhaustion opens the manual
+fallback, and only another unavailable candidate keeps that fallback window open.
 This window presentation does not change port selection, startup failure,
 cleanup, or exit-code behavior.</p>
 <p>If the browser does not open automatically after the launcher reports that the
@@ -290,10 +292,9 @@ and Job History are retained. Real write authorization is revoked: enable it
 again explicitly after checking the new connection. Backend loading, Scan, or
 Identify success does not grant Product support. PyVISA-py is included; its only
 Product-open combinations are E36312A and EDU36311A over TCPIP, with exact
-command and feature checks backed by 2026-10-16 live validation. Supported
-devices shows only those exact combinations for <code>@py</code> rather than reusing
-the System VISA list. Unverified USB + <code>@py</code> remains closed. Pending feature
-metadata is retained where individual actions or sources lack backend evidence.</p>
+command and feature checks. Supported devices shows only those exact
+combinations for <code>@py</code> rather than reusing the System VISA list. USB + <code>@py</code>
+remains closed. Unverified feature values remain pending.</p>
 <p>If identity succeeds for an unknown or de-scoped instrument, the WebUI shows
 that no Product-open live scope could be resolved instead of showing an
 unevaluated state. Normal model-aware live commands remain disabled, and an
@@ -501,10 +502,14 @@ incomplete</code> so you can resolve the problem and try again.</p>
 a port other than <code>7999</code>.</p>
 <h3 id="the-launcher-says-the-port-is-already-in-use">The launcher says the port is already in use</h3>
 <p>The launcher never opens the service that already owns a candidate port.
-Default automatic startup skips address-in-use candidates. A fixed <code>--port</code>
-conflict exits without choosing another port. If the manual fallback window is
-open, choose another port or stop the service that owns the selected port, then
-click <code>Start</code> again.</p>
+Default automatic startup skips address-in-use candidates and candidates Windows
+refuses to bind. A fixed <code>--port</code> that cannot be bound exits without choosing
+another port. If the manual fallback window is open, choose another port or stop
+the service that owns the selected port, then click <code>Start</code> again.</p>
+<p>If the launcher reports that access to bind the port was denied, Windows is
+refusing that specific port, which happens for ports inside a reserved or
+excluded local TCP port range. Choose a different port, or have an administrator
+release the port range.</p>
 <h3 id="scan-device-finds-nothing">Scan Device finds nothing</h3>
 <p>Check that:</p>
 <ul>
