@@ -1056,11 +1056,31 @@ _PSM2010_VERIFIED_BACKEND_NOTE = (
     "Accepted for the exact ASRL / RS-232 system-VISA scope; this does not "
     "validate USB, TCPIP, pyvisa-py, pyvisa-bt, or a custom VISA backend."
 )
-_PENDING_BACKEND_NOTE = (
-    "The model and command are implemented and validated over TCPIP with the "
-    "system VISA backend. The TCPIP/pyvisa-py exact backend scope remains pending "
-    "separate live validation."
+_PYVISA_PY_VERIFIED_BACKEND_NOTE = (
+    "Accepted from the 2026-10-16 full live CLI validation of the exact "
+    "TCPIP/pyvisa-py backend scope; it does not extend to USB, pyvisa-bt, "
+    "or custom backends. Individual Sequence and Trigger features may remain pending."
 )
+_PYVISA_PY_VERIFIED_FEATURE_NOTE = (
+    "Independently validated over TCPIP/pyvisa-py on 2026-10-16."
+)
+_PYVISA_PY_PENDING_FEATURE_NOTE = (
+    "No accepted TCPIP/pyvisa-py live case for this specific feature; "
+    "Validation-only pending feature."
+)
+_PYVISA_PY_VERIFIED_SEQUENCE_ACTIONS = frozenset(
+    {"output-off", "output-on", "output-state", "readback", "set"}
+)
+_PYVISA_PY_VERIFIED_FEATURES = {
+    "keysight-e36312a": {
+        "sequence": _PYVISA_PY_VERIFIED_SEQUENCE_ACTIONS,
+        "trigger-step": frozenset({"bus"}),
+        "trigger-list": frozenset({"bus"}),
+    },
+    "keysight-edu36311a": {
+        "sequence": _PYVISA_PY_VERIFIED_SEQUENCE_ACTIONS,
+    },
+}
 _NO_EXACT_EVIDENCE_NOTE = (
     "The command is profile-supported, but no accepted full-suite live case provides "
     "an exact transport/backend scope for this command."
@@ -1113,6 +1133,11 @@ _PSM2010_V2_PRODUCT_COMMANDS = frozenset(
 _PSM2010_PRODUCT_COMMANDS = (
     _PSM2010_V1_PRODUCT_COMMANDS | _PSM2010_V2_PRODUCT_COMMANDS
 )
+
+_PYVISA_PY_ACCEPTED_EVIDENCE_IDS = {
+    "keysight-e36312a": "keysight-e36312a-tcpip-pyvisa-py-20261016-full",
+    "keysight-edu36311a": "keysight-edu36311a-tcpip-pyvisa-py-20261016-full",
+}
 
 _VERIFIED_COMMAND_EVIDENCE_IDS = {
     (
@@ -1246,21 +1271,19 @@ def _build_registry() -> tuple[ModelSupportPolicy, ...]:
                             ),
                         )
                     )
-                    if transport == TRANSPORT_TCPIP and model_id in {
-                        "keysight-e36312a",
-                        "keysight-edu36311a",
-                    }:
+                    if transport == TRANSPORT_TCPIP and model_id in _PYVISA_PY_ACCEPTED_EVIDENCE_IDS:
                         scopes.append(
                             CommandLiveSupportScope(
-                                validation_status=VALIDATION_STATUS_TRANSPORT_PENDING,
+                                validation_status=VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE,
                                 transport_scope=TRANSPORT_TCPIP,
                                 backend_scope=BACKEND_PYVISA_PY,
-                                candidate_basis_evidence_ids=(evidence_id,),
-                                note=_PENDING_BACKEND_NOTE,
-                                feature_scopes=_feature_scopes_for(
+                                accepted_evidence_ids=(
+                                    _PYVISA_PY_ACCEPTED_EVIDENCE_IDS[model_id],
+                                ),
+                                note=_PYVISA_PY_VERIFIED_BACKEND_NOTE,
+                                feature_scopes=_pyvisa_py_feature_scopes_for(
                                     model_id=model_id,
                                     command=command,
-                                    validation_status=VALIDATION_STATUS_FEATURE_PENDING,
                                 ),
                             )
                         )
@@ -1308,6 +1331,38 @@ def _build_registry() -> tuple[ModelSupportPolicy, ...]:
             )
         model_policies.append(ModelSupportPolicy(model_id=model_id, commands=tuple(policies)))
     return tuple(model_policies)
+
+
+def _pyvisa_py_feature_scopes_for(
+    *, model_id: str, command: str,
+) -> tuple[CommandFeatureSupportScope, ...]:
+    """Open only feature values proved in the backend-specific hardware suite."""
+
+    if command == "sequence":
+        values = supported_sequence_actions_for_model_id(model_id)
+        kind = FEATURE_KIND_SEQUENCE_ACTION
+    elif command in {"trigger-step", "trigger-list"}:
+        values = supported_real_trigger_sources_for_model_id(model_id)
+        kind = FEATURE_KIND_TRIGGER_SOURCE
+    else:
+        return ()
+    accepted = _PYVISA_PY_VERIFIED_FEATURES.get(model_id, {}).get(command, frozenset())
+    return tuple(
+        CommandFeatureSupportScope(
+            feature_kind=kind,
+            feature_value=value,
+            validation_status=(
+                VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+                if value in accepted else VALIDATION_STATUS_FEATURE_PENDING
+            ),
+            inherits_parent_accepted_evidence=(value in accepted),
+            note=(
+                _PYVISA_PY_VERIFIED_FEATURE_NOTE
+                if value in accepted else _PYVISA_PY_PENDING_FEATURE_NOTE
+            ),
+        )
+        for value in sorted(values)
+    )
 
 
 def _feature_scopes_for(
