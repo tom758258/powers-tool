@@ -13,7 +13,9 @@ Product LIVE scope 僅限 ASRL / RS-232 + system VISA，並開放 Core Product
 matrix 所列的 23 個 model-aware commands，包括 setpoint／output、protection、
 snapshot／restore、ramp 與 software sequence workflows。Powers Trigger
 commands 仍不支援；其他 transport 與 backend 仍會 fail closed。完整範圍以
-[Supported Models](../core/supported-models.md) 為準。
+[支援型號](../core/supported-models.zh-TW.md) 為準。E36312A 與 EDU36311A
+另已開放 TCPIP/LAN + pyvisa-py (`@py`) 的精確命令與 feature 範圍；USB + `@py`
+及其他未驗證組合仍會 fail closed。
 
 WebUI 內建於單一 `powers-tool` 發行套件中，同時保留了 `powers_tool_webui` 的 import 邊界。它依賴共用的 `powers_tool_core` runtime 與發行套件的 `webui` extra。其前端由靜態的 `index.html`、`styles.css`，以及以 `app.js` 為 bootstrap／composition root 的原生 JavaScript modules 組成；執行或建置 WebUI frontend 不需要 bundler／npm build pipeline 或 Node toolchain。`app.js` 是 bootstrap 與整合層。`api.js` 擁有共用的 JSON HTTP request/response 邊界；`execution-context.js` 擁有純 execution/workspace context；`state.js` 擁有初始 page-local state。`device-resource.js` 擁有 Device/Resource 與 execution-mode 控制項。`command-form.js` 擁有命令目錄／表單渲染、payload 建構、guidance、accessibility help 與參數限制。`results.js` 擁有 job-result summary 與 Workspace Result 呈現。`jobs.js` 擁有 Job HTTP 提交、SSE transport 與 Job History 狀態及呈現。`live-data.js` 擁有 Live Data 取樣、lifecycle 與通道呈現。
 `json-files.js` 擁有共用的瀏覽器 JSON file picker 與下載 helper。
@@ -184,9 +186,10 @@ uv run python -m powers_tool_webui.server --host 127.0.0.1 --port 7999
 不帶命令列選項時，啟動器會在 `127.0.0.1` 上從 port `7999` 開始，最多嘗試
 100 個 port，通常到 `8098`。啟動器會對每個候選 port 實際 bind server socket；
 無論該 port 是被另一個 Powers Tool WebUI 或其他服務占用，都只會跳過，不會開啟
-已存在的服務。新啟動的 WebUI 通過 `/api/health` readiness 後，才會開啟瀏覽器，
-並顯示包含實際 URL、Running 狀態與 `Quit` 的精簡 Running 視窗；port 設定與
-`Start` 會隱藏。
+已存在的服務。若作業系統拒絕 bind 該候選 port，例如 port 落在本機保留或排除的
+TCP port 範圍內，也同樣會被跳過。新啟動的 WebUI 通過 `/api/health` readiness 後，
+才會開啟瀏覽器，並顯示包含實際 URL、Running 狀態與 `Quit` 的精簡 Running 視窗；
+port 設定與 `Start` 會隱藏。
 
 PowerShell 的 `--port` 會要求固定 port；除非同時提供 `--auto-port`，否則不會
 自動切換到其他 port：
@@ -196,14 +199,15 @@ PowerShell 的 `--port` 會要求固定 port；除非同時提供 `--auto-port`�
 .\.venv\Scripts\powers-tool-webui-launcher.exe --port 9000 --auto-port
 ```
 
-固定 port 衝突會回報選定 port、完成清理並以非零狀態結束，不會改用其他 port
-或開啟手動 port 視窗。加上 `--auto-port` 則明確從選定 port 開始嘗試最多 100 個
-port。只有所有自動候選都因 address-in-use 失敗時，才會開啟完整 port fallback 視窗、
-回報嘗試過的範圍，並允許手動輸入其他 port；`Start` 接著只嘗試該 port。手動重試若也
-遇到 address-in-use，fallback 視窗會保持開啟並重新啟用 port 欄位與 `Start`；成功的
-fallback 重試會回到精簡 Running 視窗。自動候選不會超過 port `65535`。
+固定 port 衝突或 bind 被拒絕時，會回報選定 port、完成清理並以非零狀態結束，不會
+改用其他 port 或開啟手動 port 視窗。加上 `--auto-port` 則明確從選定 port 開始嘗試
+最多 100 個 port。只有所有自動候選都因 address-in-use 或 bind 存取被拒絕而無法使用
+時，才會開啟完整 port fallback 視窗、回報嘗試過的範圍，並允許手動輸入其他 port；
+`Start` 接著只嘗試該 port。手動輸入的 port 若仍無法使用，fallback 視窗會保持開啟
+並重新啟用 port 欄位與 `Start`；訊息會區分該 port 已被占用，或 bind 存取被拒絕。
+成功的 fallback 重試會回到精簡 Running 視窗。自動候選不會超過 port `65535`。
 
-非 address-in-use 的 bind 失敗會立即停止自動選擇。Uvicorn 或 application 初始化失敗、
+其他非上述情況的 bind 失敗會立即停止自動選擇。Uvicorn 或 application 初始化失敗、
 server thread 提前結束與 readiness timeout 也都是 fatal startup failures。啟動器會保留
 原始錯誤細節、要求部分建立的 server 停止、關閉自己持有的 socket、短暫等待其 server
 thread，並以非零狀態結束。這些失敗永不重新開啟 manual port window，包括發生在手動
@@ -350,8 +354,9 @@ diagnostic 失敗。
 當 exact context 已知時，Device / Resource summary 會顯示偵測到的 model、expected-model
 guard、transport/backend scope，以及精簡的 validated/pending/unavailable 計數。Pending
 metadata 只在實際 runtime transport/backend 符合某個已註冊 pending scope 時出現。WebUI
-維持 Product-only，標準瀏覽器使用預設 system-VISA backend；它沒有 validation mode 或
-VISA-backend selector。這些顯示與停用控制項都是 UX；Core 在 IDN 後的 exact-scope gate
+維持 Product-only，預設使用 system VISA，並可在 Device options 明確切換
+PyVISA-py (`@py`)；沒有 validation mode。這些顯示與停用控制項都是 UX；
+Core 在 IDN 後的 exact-scope gate
 仍是 authority。
 
 安全的 Core projection 也可以為 exact scope 包含附加的 `sequence_action` 與
@@ -485,9 +490,9 @@ live driver，也不會讓瀏覽器開啟不同的連線類型。目前已記錄
 只有 Core exact matrix 中的 commands 開放：
 
 - E36312A USB + system VISA
-- E36312A LAN + system VISA
+- E36312A LAN + system VISA 或 pyvisa-py (`@py`)
 - EDU36311A USB + system VISA
-- EDU36311A LAN + system VISA
+- EDU36311A LAN + system VISA 或 pyvisa-py (`@py`)
 - E3646A ASRL / RS-232 + system VISA
 - PSM-2010 ASRL / RS-232 + system VISA
 
