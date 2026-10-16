@@ -272,12 +272,13 @@ def _verified_record(
     accepted_features_by_command: Mapping[str, frozenset[tuple[str, str]]],
     *,
     evidence_date: str,
+    backend_scope: str = "system_visa",
 ) -> SupportEvidenceRecord:
     return SupportEvidenceRecord(
         evidence_id=evidence_id,
         model_id=model_id,
         transport_scope=transport_scope,
-        backend_scope="system_visa",
+        backend_scope=backend_scope,
         evidence_date=evidence_date,
         evidence_kind=EVIDENCE_KIND_VERIFIED_FULL_SUITE,
         artifact_directory=artifact_directory,
@@ -414,6 +415,28 @@ SUPPORT_EVIDENCE_RECORDS = (
         _PSM2010_20260812_VERIFIED_COMMANDS,
         _PSM2010_20260812_VERIFIED_FEATURES,
         evidence_date="2026-08-12",
+    ),
+    _verified_record(
+        "keysight-e36312a-tcpip-pyvisa-py-20261016-full",
+        "keysight-e36312a",
+        "tcpip",
+        ".tmp_tests/live_cli_check/20261016_203916_725_0294cd60_keysight-e36312a_LAN_full/shareable",
+        "e2d29d313b66f0093f692e12f3b62ce6fbe6648bc5ebcc9b92c4819c4f28f897",
+        _E36312A_VERIFIED_COMMANDS,
+        _E36312A_VERIFIED_FEATURES,
+        evidence_date="2026-10-16",
+        backend_scope="pyvisa_py",
+    ),
+    _verified_record(
+        "keysight-edu36311a-tcpip-pyvisa-py-20261016-full",
+        "keysight-edu36311a",
+        "tcpip",
+        ".tmp_tests/live_cli_check/20261016_204802_523_40db748f_keysight-edu36311a_LAN_full/shareable",
+        "5d0c92da50a8a5654e8595e3f7a52071211287b131786e143d15a85d6f51fd36",
+        _EDU36311A_VERIFIED_COMMANDS,
+        _EDU36311A_VERIFIED_FEATURES,
+        evidence_date="2026-10-16",
+        backend_scope="pyvisa_py",
     ),
 )
 
