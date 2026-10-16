@@ -49,7 +49,10 @@ def test_hidden_validation_mode_is_parser_only_and_allows_registered_pending_sco
         parser.parse_args(["--help"])
     assert "--validation-allow-pending-live-support" not in capsys.readouterr().out
 
-    product_session = FakeSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0")
+    product_session = FakeSession(
+        idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
+        query_responses={"MEAS:VOLT?": "1.0", "MEAS:CURR?": "0.05"},
+    )
     monkeypatch.setattr(cli_runtime, "open_resource", lambda *args, **kwargs: product_session)
     assert (
         cli.main(
@@ -64,9 +67,10 @@ def test_hidden_validation_mode_is_parser_only_and_allows_registered_pending_sco
                 "1",
             ]
         )
-        == 2
+        == 0
     )
-    assert_live_scope_rejected(json.loads(capsys.readouterr().out), product_session)
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert product_session.queries == ["*IDN?", "MEAS:VOLT?", "MEAS:CURR?"]
 
     session = FakeSession(
         idn="KEYSIGHT,E36312A,SERIAL0000,1.0",
