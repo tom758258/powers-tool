@@ -69,7 +69,12 @@ Backend selectors normalize independently of Product support: unset or blank
 means `system_visa`, `@py` means `pyvisa_py`, `@bt` means `pyvisa_bt`, and any
 other selector means `custom_visa`. Backend identity does not itself grant
 Product support. No current Product-open exact scope uses `pyvisa_bt`, so
-model-aware Product execution with `@bt` fails closed.
+model-aware Product execution with `@bt` fails closed. The only Product-open
+`pyvisa_py` scopes are E36312A and EDU36311A over TCPIP, accepted from the
+accepted full live CLI validation. USB + `@py` stays closed. On these TCPIP +
+`@py` scopes, only independently validated Sequence actions and E36312A BUS
+Trigger Step/List sources are Product-open; remaining implemented feature values
+are `feature_pending`.
 
 Exact policy evaluation is feature-aware for `sequence_action` and
 `trigger_source`. Sequence validates every distinct instrument-relevant

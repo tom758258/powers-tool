@@ -233,8 +233,12 @@ strictAssert.ok(body.children.length > 0);
 strictAssert.ok(body.children.every((row) => row.children.length === 3));
 state.backend = "@py";
 controller.renderSupportedDevices();
-strictAssert.equal(body.children.length, 1);
-strictAssert.equal(body.children[0].children[0].colSpan, 3);
+strictAssert.equal(body.children.length, 2);
+strictAssert.ok(body.children.every((row) => row.children.length === 3));
+const names = body.children.map((row) => row.children[1].textContent).join("\n");
+strictAssert.match(names, /E36312A/);
+strictAssert.match(names, /EDU36311A/);
+strictAssert.doesNotMatch(names, /E3646A|PSM-2010/);
 // Synthetic metadata ensures the UI does not hardcode PyVISA-py as unsupported.
 state.physicalModels = [{ model_id: "test-model", vendor_display_name: "Test vendor", model_name: "Test model" }];
 const open = { backend_scope: "pyvisa_py", transport_scope: "tcpip", product_open: true };

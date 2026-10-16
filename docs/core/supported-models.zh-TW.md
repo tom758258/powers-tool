@@ -15,8 +15,8 @@ system VISA scope 不會自動延伸到 pyvisa-py、pyvisa-bt 或 custom backend
 
 | Model | 精確 Product connections | Product-open model-aware commands |
 | --- | --- | --- |
-| `keysight-e36312a` (Keysight E36312A) | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `snapshot`, `restore-from-snapshot`, `measure-all`, `log`, `doctor`, `trigger-status`, `trigger-step`, `trigger-list`, `trigger-abort`, `trigger-fire`, `trigger-pulse` |
-| `keysight-edu36311a` (Keysight EDU36311A) | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `log`, `doctor` |
+| `keysight-e36312a` (Keysight E36312A) | USB + system VISA; TCPIP + system VISA; TCPIP + pyvisa-py (`@py`) | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `snapshot`, `restore-from-snapshot`, `measure-all`, `log`, `doctor`, `trigger-status`, `trigger-step`, `trigger-list`, `trigger-abort`, `trigger-fire`, `trigger-pulse` |
+| `keysight-edu36311a` (Keysight EDU36311A) | USB + system VISA; TCPIP + system VISA; TCPIP + pyvisa-py (`@py`) | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `log`, `doctor` |
 | `keysight-e3646a` (Keysight E3646A) | ASRL / RS-232 + system VISA | `measure`, `output-state`, `read-status`, `readback`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `log`, `doctor` |
 | `gw-instek-psm-2010` (GW Instek PSM-2010) | ASRL / RS-232 + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `snapshot`, `restore-from-snapshot`, `log`, `doctor` |
 
@@ -36,9 +36,12 @@ Sequence `wait` 與 `log` 仍是 host-only actions。目前 live trigger sources
 為 `bus` 與 `immediate`（`imm` 會正規化為 `immediate`）；PIN/EXT inputs
 會被拒絕。
 
-在 Product-open connection 上，支援的 actions 與 sources 可供 Product 使用。
-pending 的 connection 或 feature 目前不受支援；缺少某個 action 或 source 的
-支援不代表該功能可用。
+在 Product-open connection 上，只有 individually Product-open 的 actions 與 sources
+可供 Product 使用。E36312A 與 EDU36311A 在 TCPIP + pyvisa-py (`@py`) 下，
+`sequence` 僅開放 `set`、`output-off`、`output-on`、`output-state`、`readback`；
+其餘已實作的 Sequence actions 仍是 `feature_pending`。E36312A 的
+`trigger-step` 與 `trigger-list` 僅開放 `bus` source，`immediate` 仍為
+`feature_pending`。既有 system VISA feature scopes 不變。
 
 ## 目前無法用於 Product 的型號
 
@@ -58,13 +61,15 @@ model。
 
 Product support 以 model、connection、backend、command 與 feature 為 scope。
 
-目前的精確 Product connections 為 E36312A USB 與 LAN、EDU36311A USB 與 LAN，
-以及 E3646A 與 PSM-2010 的 ASRL / RS-232。每個 connection 僅限於 Product
+目前的精確 Product connections 為 E36312A USB 與 LAN、EDU36311A USB 與 LAN
+（這兩個型號另有 TCPIP/LAN + pyvisa-py 的精確支援），以及 E3646A 與
+PSM-2010 的 ASRL / RS-232。每個 connection 僅限於 Product
 matrix 中列出的 commands 與 feature entries。E3646A 與 PSM-2010 的 USB 與
 LAN 不在目前 scope 內。
 
-E36312A 與 EDU36311A 的 TCPIP + pyvisa-py connections 目前無法用於 Product
-use。System VISA 支援不會延伸到 pyvisa-py、pyvisa-bt 或 custom backend。
+E36312A 與 EDU36311A 已分別開放 TCPIP + pyvisa-py (`@py`) 的 Product scope，
+僅適用上方列出的 30 與 21 個精確命令及各自已驗證的 feature。此支援不延伸至
+USB + pyvisa-py、pyvisa-bt、custom backend 或其他型號。
 
 | Model | USB | LAN | ASRL / RS-232 |
 | --- | --- | --- | --- |

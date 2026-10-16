@@ -84,6 +84,18 @@ EXPECTED_VERIFIED_EVIDENCE = {
         "e9df449f532f6759161eeb1cfcf643c700d937ffc3078d8515280a267c3ae9e3",
     ),
 }
+PYVISA_PY_EVIDENCE = {
+    "keysight-e36312a": (
+        "keysight-e36312a-tcpip-pyvisa-py-20261016-full",
+        ".tmp_tests/live_cli_check/20261016_203916_725_0294cd60_keysight-e36312a_LAN_full/shareable",
+        "e2d29d313b66f0093f692e12f3b62ce6fbe6648bc5ebcc9b92c4819c4f28f897",
+    ),
+    "keysight-edu36311a": (
+        "keysight-edu36311a-tcpip-pyvisa-py-20261016-full",
+        ".tmp_tests/live_cli_check/20261016_204802_523_40db748f_keysight-edu36311a_LAN_full/shareable",
+        "5d0c92da50a8a5654e8595e3f7a52071211287b131786e143d15a85d6f51fd36",
+    ),
+}
 NEW_E3646A_LOG_EVIDENCE_ID = "keysight-e3646a-asrl-system-visa-20260807-full"
 PSM2010_V1_EVIDENCE_ID = "gw-instek-psm-2010-asrl-system-visa-20260811-full"
 PSM2010_V2_EVIDENCE_ID = "gw-instek-psm-2010-asrl-system-visa-20260812-full"
@@ -243,8 +255,8 @@ def test_evidence_manifest_and_registry_cannot_drift() -> None:
 
 
 def test_registered_evidence_identities_are_exact() -> None:
-    assert len(SUPPORT_EVIDENCE_RECORDS) == 13
-    assert len(SUPPORT_EVIDENCE_BY_ID) == 13
+    assert len(SUPPORT_EVIDENCE_RECORDS) == 15
+    assert len(SUPPORT_EVIDENCE_BY_ID) == 15
     assert set(SUPPORT_EVIDENCE_BY_ID) == (
         set(EXPECTED_EVIDENCE)
         | set(EXPECTED_VERIFIED_EVIDENCE)
@@ -253,6 +265,7 @@ def test_registered_evidence_identities_are_exact() -> None:
             PSM2010_V1_EVIDENCE_ID,
             PSM2010_V2_EVIDENCE_ID,
         }
+        | {identity[0] for identity in PYVISA_PY_EVIDENCE.values()}
     )
     for evidence_id, (model_id, transport, artifact_directory) in EXPECTED_EVIDENCE.items():
         record = SUPPORT_EVIDENCE_BY_ID[evidence_id]
@@ -317,6 +330,35 @@ def test_verified_evidence_records_are_exact_and_immutable() -> None:
                 {("trigger_source", "bus")}
             )
         assert isinstance(record.accepted_features_by_command, MappingProxyType)
+
+
+@pytest.mark.parametrize("model", sorted(PYVISA_PY_EVIDENCE))
+def test_october_pyvisa_py_evidence_is_exact_and_scoped(model: str) -> None:
+    evidence_id, directory, sha256 = PYVISA_PY_EVIDENCE[model]
+    record = SUPPORT_EVIDENCE_BY_ID[evidence_id]
+    assert record.model_id == model
+    assert record.transport_scope == "tcpip"
+    assert record.backend_scope == BACKEND_PYVISA_PY
+    assert record.evidence_date == "2026-10-16"
+    assert record.evidence_kind == EVIDENCE_KIND_VERIFIED_FULL_SUITE
+    assert record.artifact_directory == directory
+    assert record.report_path == directory + "/report.json"
+    assert record.summary_path == directory + "/summary.md"
+    assert record.report_sha256 == sha256
+    assert record.source_availability == SOURCE_AVAILABILITY_VERIFIED_LOCAL
+    assert record.accepted_commands == EXPECTED_VERIFIED_COMMANDS[model]
+    assert record.accepted_features_by_command["sequence"] == frozenset(
+        ("sequence_action", value)
+        for value in {"output-off", "output-on", "output-state", "readback", "set"}
+    )
+    if model == "keysight-e36312a":
+        assert record.accepted_features_by_command["trigger-step"] == frozenset(
+            {("trigger_source", "bus")}
+        )
+        assert record.accepted_features_by_command["trigger-list"] == frozenset(
+            {("trigger_source", "bus")}
+        )
+    assert isinstance(record.accepted_features_by_command, MappingProxyType)
 
 
 def test_new_e3646a_log_evidence_is_exact_and_historical_record_is_unchanged() -> None:
@@ -568,7 +610,7 @@ def test_policy_accepted_and_candidate_basis_references_are_exact() -> None:
                         for feature in scope.feature_scopes
                     )
     assert accepted_count > 0
-    assert pending_count > 0
+    assert pending_count == 0
 
 
 def test_each_promoted_command_references_its_exact_verified_evidence() -> None:
@@ -580,7 +622,9 @@ def test_each_promoted_command_references_its_exact_verified_evidence() -> None:
             for scope in command_policy.scopes:
                 if scope.validation_status != VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE:
                     continue
-                if model_policy.model_id == "gw-instek-psm-2010":
+                if scope.backend_scope == BACKEND_PYVISA_PY:
+                    expected_id = PYVISA_PY_EVIDENCE[model_policy.model_id][0]
+                elif model_policy.model_id == "gw-instek-psm-2010":
                     expected_id = (
                         PSM2010_V1_EVIDENCE_ID
                         if command_policy.command in PSM2010_V1_COMMANDS
@@ -646,8 +690,17 @@ def test_pending_scope_cannot_claim_accepted_evidence() -> None:
         policy for policy in LIVE_SUPPORT_POLICY_REGISTRY if policy.model_id == "keysight-e36312a"
     )
     command_policy = next(policy for policy in model_policy.commands if policy.command == "measure")
-    pending = next(
-        scope for scope in command_policy.scopes if scope.validation_status == VALIDATION_STATUS_TRANSPORT_PENDING
+    pyvisa_scope = next(
+        scope for scope in command_policy.scopes if scope.backend_scope == BACKEND_PYVISA_PY
+    )
+    pending = replace(
+        pyvisa_scope,
+        validation_status=VALIDATION_STATUS_TRANSPORT_PENDING,
+        accepted_evidence_ids=(),
+        candidate_basis_evidence_ids=(
+            "keysight-e36312a-tcpip-system-visa-20260717-full",
+        ),
+        note="Synthetic unreviewed backend scope.",
     )
     changed_pending = replace(
         pending,
@@ -656,7 +709,7 @@ def test_pending_scope_cannot_claim_accepted_evidence() -> None:
     )
     changed_command = replace(
         command_policy,
-        scopes=tuple(changed_pending if scope is pending else scope for scope in command_policy.scopes),
+        scopes=tuple(changed_pending if scope is pyvisa_scope else scope for scope in command_policy.scopes),
     )
     changed_model = replace(
         model_policy,
@@ -673,14 +726,16 @@ def test_pending_scope_cannot_claim_accepted_evidence() -> None:
         validate_live_support_metadata(registry)
 
 
-def test_validated_features_explicitly_inherit_parent_evidence() -> None:
+def test_only_validated_features_inherit_parent_evidence() -> None:
     for model_policy in LIVE_SUPPORT_POLICY_REGISTRY:
         for command_policy in model_policy.commands:
             for scope in command_policy.scopes:
                 if scope.validation_status != VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE:
                     continue
                 for feature in scope.feature_scopes:
-                    assert feature.inherits_parent_accepted_evidence is True
+                    assert feature.inherits_parent_accepted_evidence is (
+                        feature.validation_status == VALIDATION_STATUS_LIVE_VALIDATED_FULL_SUITE
+                    )
 
 
 def test_public_projection_is_schema_v2_and_redacts_evidence() -> None:

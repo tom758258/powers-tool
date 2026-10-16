@@ -86,8 +86,10 @@ executable from its application root:</p>
 <p>Normal Product use leaves <code>--backend</code> unset and explicitly uses System VISA
 through IVI (<code>@ivi</code>). A missing IVI runtime fails without fallback, regardless
 of <code>PYVISA_LIBRARY</code>. Use <code>--backend @py</code> to explicitly select the included
-PyVISA-py backend. Loading it does not grant Product support; no PyVISA-py
-combination is currently Product-open. Specifying another backend does not unlock Product support; unsupported
+PyVISA-py backend. Loading it does not itself grant Product support. Only E36312A and EDU36311A
+over TCPIP + PyVISA-py (<code>@py</code>) have Product-open scopes,
+with individually validated Sequence and Trigger subfeatures. USB + <code>@py</code>
+remains closed. Specifying another backend does not unlock Product support; unsupported
 model, command, transport, backend, or feature combinations still fail closed.
 For command-specific options, run <code>powers-tool &lt;command&gt; --help</code>.</p>
 <h2 id="built-in-help">Built-in Help</h2>

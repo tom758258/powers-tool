@@ -13,7 +13,9 @@ Product LIVE scope 僅限 ASRL / RS-232 + system VISA，並開放 Core Product
 matrix 所列的 23 個 model-aware commands，包括 setpoint／output、protection、
 snapshot／restore、ramp 與 software sequence workflows。Powers Trigger
 commands 仍不支援；其他 transport 與 backend 仍會 fail closed。完整範圍以
-[Supported Models](../core/supported-models.md) 為準。
+[支援型號](../core/supported-models.zh-TW.md) 為準。E36312A 與 EDU36311A
+另已開放 TCPIP/LAN + pyvisa-py (`@py`) 的精確命令與 feature 範圍；USB + `@py`
+及其他未驗證組合仍會 fail closed。
 
 WebUI 內建於單一 `powers-tool` 發行套件中，同時保留了 `powers_tool_webui` 的 import 邊界。它依賴共用的 `powers_tool_core` runtime 與發行套件的 `webui` extra。其前端由靜態的 `index.html`、`styles.css`，以及以 `app.js` 為 bootstrap／composition root 的原生 JavaScript modules 組成；執行或建置 WebUI frontend 不需要 bundler／npm build pipeline 或 Node toolchain。`app.js` 是 bootstrap 與整合層。`api.js` 擁有共用的 JSON HTTP request/response 邊界；`execution-context.js` 擁有純 execution/workspace context；`state.js` 擁有初始 page-local state。`device-resource.js` 擁有 Device/Resource 與 execution-mode 控制項。`command-form.js` 擁有命令目錄／表單渲染、payload 建構、guidance、accessibility help 與參數限制。`results.js` 擁有 job-result summary 與 Workspace Result 呈現。`jobs.js` 擁有 Job HTTP 提交、SSE transport 與 Job History 狀態及呈現。`live-data.js` 擁有 Live Data 取樣、lifecycle 與通道呈現。
 `json-files.js` 擁有共用的瀏覽器 JSON file picker 與下載 helper。
@@ -352,8 +354,9 @@ diagnostic 失敗。
 當 exact context 已知時，Device / Resource summary 會顯示偵測到的 model、expected-model
 guard、transport/backend scope，以及精簡的 validated/pending/unavailable 計數。Pending
 metadata 只在實際 runtime transport/backend 符合某個已註冊 pending scope 時出現。WebUI
-維持 Product-only，標準瀏覽器使用預設 system-VISA backend；它沒有 validation mode 或
-VISA-backend selector。這些顯示與停用控制項都是 UX；Core 在 IDN 後的 exact-scope gate
+維持 Product-only，預設使用 system VISA，並可在 Device options 明確切換
+PyVISA-py (`@py`)；沒有 validation mode。這些顯示與停用控制項都是 UX；
+Core 在 IDN 後的 exact-scope gate
 仍是 authority。
 
 安全的 Core projection 也可以為 exact scope 包含附加的 `sequence_action` 與
@@ -487,9 +490,9 @@ live driver，也不會讓瀏覽器開啟不同的連線類型。目前已記錄
 只有 Core exact matrix 中的 commands 開放：
 
 - E36312A USB + system VISA
-- E36312A LAN + system VISA
+- E36312A LAN + system VISA 或 pyvisa-py (`@py`)
 - EDU36311A USB + system VISA
-- EDU36311A LAN + system VISA
+- EDU36311A LAN + system VISA 或 pyvisa-py (`@py`)
 - E3646A ASRL / RS-232 + system VISA
 - PSM-2010 ASRL / RS-232 + system VISA
 

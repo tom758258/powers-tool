@@ -28,10 +28,11 @@ powers-tool --version
 
 正常 Product 使用不設定 `--backend`，並明確透過 IVI（`@ivi`）使用 System VISA。
 IVI runtime 無法載入時會失敗，不會 fallback，也不受 `PYVISA_LIBRARY` 覆寫。
-使用 `--backend @py` 明確選擇內附的 PyVISA-py backend；可載入不等於 Product 支援，
-目前沒有 PyVISA-py 正式支援組合。指定其他
-backend 不會解鎖 Product support；不支援的 model、command、transport、backend
-或 feature 組合仍會 fail closed。各命令的專屬選項請使用
+使用 `--backend @py` 明確選擇內附的 PyVISA-py backend；可載入不等於無條件
+取得 Product 支援。只有 E36312A 與 EDU36311A 的 TCPIP + `@py` 開放已接受的
+精確命令及個別驗證的 Sequence／Trigger features。USB + `@py` 仍不支援。
+指定其他 backend 不會解鎖 Product support；不支援的 model、command、
+transport、backend 或 feature 組合仍會 fail closed。各命令的專屬選項請使用
 `powers-tool <command> --help` 查詢。
 
 ## 內建說明

@@ -82,12 +82,12 @@ system VISA scope 不會自動延伸到 pyvisa-py、pyvisa-bt 或 custom backend
 <tbody>
 <tr>
 <td><code>keysight-e36312a</code> (Keysight E36312A)</td>
-<td>USB + system VISA; TCPIP + system VISA</td>
+<td>USB + system VISA; TCPIP + system VISA; TCPIP + pyvisa-py (<code>@py</code>)</td>
 <td><code>measure</code>, <code>output-state</code>, <code>read-status</code>, <code>readback</code>, <code>validate-readonly</code>, <code>capabilities</code>, <code>set</code>, <code>output-on</code>, <code>output-off</code>, <code>safe-off</code>, <code>cycle-output</code>, <code>apply</code>, <code>ramp</code>, <code>smoke-output</code>, <code>ramp-list</code>, <code>sequence</code>, <code>protection-status</code>, <code>protection-set</code>, <code>clear-protection</code>, <code>snapshot</code>, <code>restore-from-snapshot</code>, <code>measure-all</code>, <code>log</code>, <code>doctor</code>, <code>trigger-status</code>, <code>trigger-step</code>, <code>trigger-list</code>, <code>trigger-abort</code>, <code>trigger-fire</code>, <code>trigger-pulse</code></td>
 </tr>
 <tr>
 <td><code>keysight-edu36311a</code> (Keysight EDU36311A)</td>
-<td>USB + system VISA; TCPIP + system VISA</td>
+<td>USB + system VISA; TCPIP + system VISA; TCPIP + pyvisa-py (<code>@py</code>)</td>
 <td><code>measure</code>, <code>output-state</code>, <code>read-status</code>, <code>readback</code>, <code>validate-readonly</code>, <code>capabilities</code>, <code>set</code>, <code>output-on</code>, <code>output-off</code>, <code>safe-off</code>, <code>cycle-output</code>, <code>apply</code>, <code>ramp</code>, <code>smoke-output</code>, <code>ramp-list</code>, <code>sequence</code>, <code>protection-status</code>, <code>protection-set</code>, <code>clear-protection</code>, <code>log</code>, <code>doctor</code></td>
 </tr>
 <tr>
@@ -114,9 +114,12 @@ Powers Tool 會逐一檢查 Sequence step actions 與 Trigger Step/List sources�
 Sequence <code>wait</code> 與 <code>log</code> 仍是 host-only actions。目前 live trigger sources
 為 <code>bus</code> 與 <code>immediate</code>（<code>imm</code> 會正規化為 <code>immediate</code>）；PIN/EXT inputs
 會被拒絕。</p>
-<p>在 Product-open connection 上，支援的 actions 與 sources 可供 Product 使用。
-pending 的 connection 或 feature 目前不受支援；缺少某個 action 或 source 的
-支援不代表該功能可用。</p>
+<p>在 Product-open connection 上，只有 individually Product-open 的 actions 與 sources
+可供 Product 使用。E36312A 與 EDU36311A 在 TCPIP + pyvisa-py (<code>@py</code>) 下，
+<code>sequence</code> 僅開放 <code>set</code>、<code>output-off</code>、<code>output-on</code>、<code>output-state</code>、<code>readback</code>；
+其餘已實作的 Sequence actions 仍是 <code>feature_pending</code>。E36312A 的
+<code>trigger-step</code> 與 <code>trigger-list</code> 僅開放 <code>bus</code> source，<code>immediate</code> 仍為
+<code>feature_pending</code>。既有 system VISA feature scopes 不變。</p>
 <h2 id="目前無法用於-product-的型號">目前無法用於 Product 的型號</h2>
 <p>以下 catalog-known model IDs 目前不是有效的 Product planning 或 live
 expected-model identities：<code>keysight-e36313a</code>、<code>keysight-e36233a</code>、
@@ -129,12 +132,14 @@ live model-aware operations 中都會被拒絕，且不會退回使用 <code>gen
 model。</p>
 <h2 id="依連線範圍區分的-product-支援">依連線範圍區分的 Product 支援</h2>
 <p>Product support 以 model、connection、backend、command 與 feature 為 scope。</p>
-<p>目前的精確 Product connections 為 E36312A USB 與 LAN、EDU36311A USB 與 LAN，
-以及 E3646A 與 PSM-2010 的 ASRL / RS-232。每個 connection 僅限於 Product
+<p>目前的精確 Product connections 為 E36312A USB 與 LAN、EDU36311A USB 與 LAN
+（這兩個型號另有 TCPIP/LAN + pyvisa-py 的精確支援），以及 E3646A 與
+PSM-2010 的 ASRL / RS-232。每個 connection 僅限於 Product
 matrix 中列出的 commands 與 feature entries。E3646A 與 PSM-2010 的 USB 與
 LAN 不在目前 scope 內。</p>
-<p>E36312A 與 EDU36311A 的 TCPIP + pyvisa-py connections 目前無法用於 Product
-use。System VISA 支援不會延伸到 pyvisa-py、pyvisa-bt 或 custom backend。</p>
+<p>E36312A 與 EDU36311A 已分別開放 TCPIP + pyvisa-py (<code>@py</code>) 的 Product scope，
+僅適用上方列出的 30 與 21 個精確命令及各自已驗證的 feature。此支援不延伸至
+USB + pyvisa-py、pyvisa-bt、custom backend 或其他型號。</p>
 <table>
 <thead>
 <tr>

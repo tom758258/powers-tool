@@ -9,7 +9,6 @@ import powers_tool_cli.commands.inspection as inspection
 from tests.cli.cli_test_helpers import (
     OUTPUT_RESOURCE,
     FakeSession,
-    assert_live_scope_rejected,
 )
 
 
@@ -217,7 +216,7 @@ def test_resource_backed_capabilities_uses_exact_live_scope(monkeypatch, capsys)
     assert session.writes == []
     assert session.closed is True
 
-def test_resource_backed_capabilities_rejects_pyvisa_py_pending_scope(monkeypatch, capsys) -> None:
+def test_resource_backed_capabilities_accepts_verified_pyvisa_py_scope(monkeypatch, capsys) -> None:
     session = FakeSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0")
     monkeypatch.setattr(cli_runtime, "open_resource", lambda *args, **kwargs: session)
 
@@ -232,10 +231,14 @@ def test_resource_backed_capabilities_rejects_pyvisa_py_pending_scope(monkeypatc
                 "@py",
             ]
         )
-        == 2
+        == 0
     )
 
-    assert_live_scope_rejected(json.loads(capsys.readouterr().out), session)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["data"]["driver"]["class"] == "E36312APowerSupply"
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
 
 def test_resource_backed_doctor_is_not_a_live_policy_exemption(monkeypatch, capsys) -> None:
     session = FakeSession(idn="KEYSIGHT,E36312A,SERIAL0000,1.0")

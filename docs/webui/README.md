@@ -419,8 +419,9 @@ locked after the new identity is read until the operator enables it again.
 Asynchronous callbacks from earlier backend generations cannot update the
 current connection. Supported devices uses `live_support_by_model_id` from
 Core and shows only Product-open connections for the selected backend, with
-command and feature details; pending entries are excluded. PyVISA-py currently
-has no Product-open combinations.
+command and feature details; pending entries are excluded. PyVISA-py Product
+support is limited to E36312A and EDU36311A over TCPIP, with individually
+pending features still disabled.
 
 The serial fields are optional; blank fields are omitted from the runtime
 payload and do not override VISA backend or Connection Expert settings.
@@ -667,9 +668,9 @@ different connection type. Current recorded opening status is connection-
 scoped; only commands in the Core exact matrix are opened:
 
 - E36312A USB + system VISA
-- E36312A LAN + system VISA
+- E36312A LAN + system VISA or pyvisa-py (`@py`)
 - EDU36311A USB + system VISA
-- EDU36311A LAN + system VISA
+- EDU36311A LAN + system VISA or pyvisa-py (`@py`)
 - E3646A ASRL / RS-232 + system VISA
 - PSM-2010 ASRL / RS-232 + system VISA
 

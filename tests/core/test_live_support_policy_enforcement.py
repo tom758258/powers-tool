@@ -240,8 +240,6 @@ def test_validated_measure_scopes_authorize_after_idn(idn: str, resource: str) -
 @pytest.mark.parametrize(
     ("idn", "resource", "backend", "status"),
     [
-        ("KEYSIGHT,E36312A,SN,1.0", "TCPIP0::192.0.2.1::INSTR", "@py", "transport_pending"),
-        ("KEYSIGHT,EDU36311A,SN,1.0", "TCPIP0::192.0.2.1::INSTR", "@py", "transport_pending"),
         ("KEYSIGHT,E3646A,SN,1.0", "USB0::1::INSTR", None, "profile_validated"),
         ("KEYSIGHT,E36312A,SN,1.0", "GPIB0::1::INSTR", None, "profile_validated"),
         ("KEYSIGHT,E36312A,SN,1.0", "TCPIP0::192.0.2.1::INSTR", "@ivi", "profile_validated"),
@@ -257,14 +255,15 @@ def test_rejected_measure_scope_only_queries_idn(idn: str, resource: str, backen
 
 
 @pytest.mark.parametrize("model", ["E36312A", "EDU36311A"])
-def test_validation_mode_allows_registered_tcpip_pyvisa_py_measure_scope(model: str) -> None:
+@pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
+def test_both_modes_allow_verified_tcpip_pyvisa_py_measure_scope(model: str, mode: str) -> None:
     session = FakeSession(f"KEYSIGHT,{model},SN,1.0")
     data = run_instrument_io(
         _request(
             "measure",
             "TCPIP0::192.0.2.1::INSTR",
             backend="@py",
-            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            support_policy_mode=mode,
         ),
         opener=lambda *args, **kwargs: session,
     )
@@ -572,34 +571,22 @@ def test_exempt_clear_keeps_its_existing_no_idn_behavior() -> None:
     assert session.writes == ["*CLS"]
 
 
-def test_trigger_abort_pending_scope_rejects_in_product_and_runs_in_validation_mode() -> None:
-    product_session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
-    product_request = TriggerRequest(
-        "trigger-abort",
-        RuntimeOptions(resource="TCPIP0::192.0.2.1::INSTR", backend="@py"),
-        {"channel": 1},
-    )
-    with pytest.raises(LiveSupportPolicyError, match="transport_pending"):
-        run_trigger(product_request, opener=lambda *args, **kwargs: product_session)
-    assert product_session.queries == ["*IDN?"]
-    assert product_session.writes == []
-    assert product_session.closed
-
-    validation_session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
-    validation_request = TriggerRequest(
+@pytest.mark.parametrize("mode", [SUPPORT_POLICY_MODE_PRODUCT, SUPPORT_POLICY_MODE_VALIDATION])
+def test_trigger_abort_verified_pyvisa_py_scope_is_product_open(mode: str) -> None:
+    session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
+    request = TriggerRequest(
         "trigger-abort",
         RuntimeOptions(
-            resource="TCPIP0::192.0.2.1::INSTR",
-            backend="@py",
-            support_policy_mode=SUPPORT_POLICY_MODE_VALIDATION,
+            resource="TCPIP0::192.0.2.1::INSTR", backend="@py",
+            support_policy_mode=mode,
         ),
         {"channel": 1},
     )
-    data = run_trigger(validation_request, opener=lambda *args, **kwargs: validation_session)
-    assert data["channels"] == [1]
-    assert validation_session.queries[0] == "*IDN?"
-    assert validation_session.writes == ["ABOR (@1)"]
-    assert validation_session.closed
+    result = run_trigger(request, opener=lambda *args, **kwargs: session)
+    assert result["channels"] == [1]
+    assert session.queries[0] == "*IDN?"
+    assert session.writes == ["ABOR (@1)"]
+    assert session.closed
 
 
 def test_trigger_source_feature_pending_rejects_product_before_setup_and_runs_in_validation(
@@ -617,7 +604,7 @@ def test_trigger_source_feature_pending_rejects_product_before_setup_and_runs_in
         RuntimeOptions(resource="TCPIP0::192.0.2.1::INSTR", backend="@py"),
         parameters,
     )
-    with pytest.raises(LiveSupportPolicyError, match="transport_pending"):
+    with pytest.raises(LiveSupportPolicyError, match="feature_pending"):
         run_trigger(product_request, opener=lambda *args, **kwargs: product_session)
     assert product_session.queries == ["*IDN?"]
     assert product_session.writes == []
@@ -723,19 +710,18 @@ def _restore_document(
     }
 
 
-def test_product_mode_restore_rejects_pending_pyvisa_scope_before_restore_scpi() -> None:
+def test_product_mode_restore_pyvisa_keeps_snapshot_serial_guard() -> None:
     session = FakeSession("KEYSIGHT,E36312A,SN,1.0")
     request = OperationRequest(
         "restore-from-snapshot",
         RuntimeOptions(
             resource="TCPIP0::192.0.2.1::INSTR",
-            backend="@py",
-            confirm=True,
+            backend="@py", confirm=True,
             support_policy_mode=SUPPORT_POLICY_MODE_PRODUCT,
         ),
-        {"document": _restore_document(), "channel": 1},
+        {"document": _restore_document(serial="OTHER"), "channel": 1},
     )
-    with pytest.raises(LiveSupportPolicyError, match="transport_pending"):
+    with pytest.raises(CoreValidationError, match="does not match snapshot serial"):
         run_restore(request, opener=lambda *args, **kwargs: session)
     assert session.queries == ["*IDN?"]
     assert session.writes == []

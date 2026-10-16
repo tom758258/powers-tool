@@ -16,8 +16,8 @@ The current Product-open command inventories are:
 
 | Model | Exact product connections | Product-open model-aware commands |
 | --- | --- | --- |
-| `keysight-e36312a` (Keysight E36312A) | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `snapshot`, `restore-from-snapshot`, `measure-all`, `log`, `doctor`, `trigger-status`, `trigger-step`, `trigger-list`, `trigger-abort`, `trigger-fire`, `trigger-pulse` |
-| `keysight-edu36311a` (Keysight EDU36311A) | USB + system VISA; TCPIP + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `log`, `doctor` |
+| `keysight-e36312a` (Keysight E36312A) | USB + system VISA; TCPIP + system VISA; TCPIP + pyvisa-py (`@py`) | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `snapshot`, `restore-from-snapshot`, `measure-all`, `log`, `doctor`, `trigger-status`, `trigger-step`, `trigger-list`, `trigger-abort`, `trigger-fire`, `trigger-pulse` |
+| `keysight-edu36311a` (Keysight EDU36311A) | USB + system VISA; TCPIP + system VISA; TCPIP + pyvisa-py (`@py`) | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `log`, `doctor` |
 | `keysight-e3646a` (Keysight E3646A) | ASRL / RS-232 + system VISA | `measure`, `output-state`, `read-status`, `readback`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `log`, `doctor` |
 | `gw-instek-psm-2010` (GW Instek PSM-2010) | ASRL / RS-232 + system VISA | `measure`, `output-state`, `read-status`, `readback`, `validate-readonly`, `capabilities`, `set`, `output-on`, `output-off`, `safe-off`, `cycle-output`, `apply`, `ramp`, `smoke-output`, `ramp-list`, `sequence`, `protection-status`, `protection-set`, `clear-protection`, `snapshot`, `restore-from-snapshot`, `log`, `doctor` |
 
@@ -38,9 +38,13 @@ sources individually. Sequence `wait` and `log` remain host-only actions.
 Current live trigger sources are `bus` and `immediate` (`imm` normalizes to
 `immediate`); PIN/EXT inputs are rejected.
 
-On a Product-open connection, supported actions and sources are available for
-Product use. A pending connection or feature is not currently supported;
-missing support for an action or source does not make it available.
+On a Product-open connection, only individually Product-open actions and sources
+are available for Product use. On the TCPIP + pyvisa-py scopes,
+`sequence` allows `set`, `output-off`, `output-on`, `output-state`, and `readback`;
+other implemented Sequence actions remain `feature_pending`. For E36312A
+`trigger-step` and `trigger-list`, BUS is Product-open, but `immediate`
+remains `feature_pending`. The corresponding broader system-VISA scopes are
+unchanged. Missing support for an action or source does not make it available.
 
 ## Models Not Currently Available For Product Use
 
@@ -62,13 +66,15 @@ physical live model.
 Product support is scoped by model, connection, backend, command, and feature.
 
 The current exact Product connections are E36312A USB and LAN, EDU36311A USB
-and LAN, and E3646A and PSM-2010 ASRL / RS-232. Each connection remains limited
+and LAN (including independently accepted LAN + pyvisa-py for those two models),
+and E3646A and PSM-2010 ASRL / RS-232. Each connection remains limited
 to the commands and feature entries listed in the Product matrix. E3646A and
 PSM-2010 USB and LAN are outside the current scope.
 
-The E36312A and EDU36311A TCPIP + pyvisa-py connections are not currently
-available for Product use. System VISA support does not extend to pyvisa-py or
-pyvisa-bt or a custom backend.
+E36312A and EDU36311A now have independently accepted TCPIP + pyvisa-py Product
+scopes, limited to the 30 and 21 exact commands shown above and
+the separately validated feature values. This does not extend to USB + pyvisa-py,
+pyvisa-bt, custom VISA, or any other model/backend combination.
 
 | Model | USB | LAN | ASRL / RS-232 |
 | --- | --- | --- | --- |

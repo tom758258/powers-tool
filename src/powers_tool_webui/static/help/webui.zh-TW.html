@@ -225,8 +225,11 @@ Dry-run 不使用實機 backend。</p>
 成功切換會清除舊掃描、已偵測身分、即時資料、exact support 與目前 Workspace 結果，
 並重新做唯讀身分評估；保留 VISA resource、Expected model、Serial Options、命令草稿
 與 Job History。Real Write Authorization 會撤銷，請確認新連線後再次明確勾選授權。
-Backend 可載入、Scan 或 Identify 成功不等於 Product 支援。PyVISA-py 已內附，但目前
-沒有正式支援組合，支援裝置清單會顯示空狀態，不沿用 System VISA 的清單。Pending metadata 只在實際 runtime transport/backend 符合已註冊 pending scope 時顯示。</p>
+Backend 可載入、Scan 或 Identify 成功不等於 Product 支援。PyVISA-py 已內附，
+只有 E36312A 與 EDU36311A 的 TCPIP + <code>@py</code> 有精確 Product-open scope，
+且僅開放逐項驗證的 command 與 feature。支援裝置清單會依目前所選 backend
+顯示這兩個型號的精確支援，不沿用 System VISA 的清單。USB + <code>@py</code> 與
+未驗證的 feature 仍會關閉。</p>
 <p>若身分評估在未知或已移出範圍（de-scoped）的儀器上成功，WebUI 會顯示無法解析出 Product-open live scope，而不是顯示 unevaluated 狀態。一般 model-aware live commands 維持停用，且 <code>Expected model</code> 不符時 diagnostic 仍會失敗。</p>
 <p>如果未出現實機存活的資源，請檢查儀器電源、纜線、VISA 驅動程式可見度，以及是否有其他程式佔用了該儀器。</p>
 <h2 id="rs-232-asrl-serial-控制">RS-232 / ASRL Serial 控制</h2>

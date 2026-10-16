@@ -3154,17 +3154,17 @@ def test_live_cli_check_plan_artifact_redacts_resource_and_command_paths():
     assert str(Path.cwd()) not in report_text
     assert report["resource"] == "LAN:<redacted-resource>"
     assert all("<redacted-resource>" not in command["arguments"] for command in report["commands"])
-    assert report["support_policy_mode"] == "validation"
-    assert report["pending_live_support_allowed"] is True
-    assert report["candidate_evidence_only"] is True
+    assert report["support_policy_mode"] == "product"
+    assert report["pending_live_support_allowed"] is False
+    assert report["candidate_evidence_only"] is False
     assert report["promotes_live_support"] is False
     summary = report_path.with_name("summary.md").read_text(encoding="utf-8")
-    assert "Support policy mode: `validation`" in summary
-    assert "Pending live support allowed: `true`" in summary
-    assert "Candidate evidence only: `true`" in summary
+    assert "Support policy mode: `product`" in summary
+    assert "Pending live support allowed: `false`" in summary
+    assert "Candidate evidence only: `false`" in summary
     assert "Promotes product support: `false`" in summary
-    assert "candidate validation evidence only" in summary
-    assert "regression validation of an already Product-open exact scope" not in summary
+    assert "candidate validation evidence only" not in summary
+    assert "regression validation of an already Product-open exact scope" in summary
 
 
 @pytest.mark.windows_powershell
