@@ -455,8 +455,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\live-cli-check
 ```
 
 若要在 exact registered pending scope 上以 PyVISA-py
-E36312A 與 EDU36311A 的 TCPIP/LAN + pyvisa-py (`@py`) 已依 2026-10-16
-實機 full-suite 驗證開啟 Product scope。請明確指定 backend selector；
+E36312A 與 EDU36311A 的 TCPIP/LAN + pyvisa-py (`@py`) 已依實機 full-suite 驗證開啟 Product scope。請明確指定 backend selector；
 USB + `@py` 仍未開啟：
 
 ```powershell
