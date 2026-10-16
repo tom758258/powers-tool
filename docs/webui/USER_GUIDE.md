@@ -281,11 +281,12 @@ identity, live samples, exact support, and current Workspace results, and reads
 identity again. VISA resource, Expected model, serial settings, command drafts,
 and Job History are retained. Real write authorization is revoked: enable it
 again explicitly after checking the new connection. Backend loading, Scan, or
-Identify success does not grant Product support. PyVISA-py is included but
-currently has no Product-open combinations; Supported devices shows this empty
-state instead of reusing the System VISA list. Pending
-metadata is shown only when the actual runtime transport/backend matches a
-registered pending scope.
+Identify success does not grant Product support. PyVISA-py is included; its only
+Product-open combinations are E36312A and EDU36311A over TCPIP, with exact
+command and feature checks backed by 2026-10-16 live validation. Supported
+devices shows only those exact combinations for `@py` rather than reusing
+the System VISA list. Unverified USB + `@py` remains closed. Pending feature
+metadata is retained where individual actions or sources lack backend evidence.
 
 If identity succeeds for an unknown or de-scoped instrument, the WebUI shows
 that no Product-open live scope could be resolved instead of showing an
