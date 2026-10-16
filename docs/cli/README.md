@@ -495,10 +495,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\live-cli-check
   -PlanOnly
 ```
 
-For contributor validation against PyVISA-py on an exact registered pending
-scope, pass the backend selector
-explicitly. The current registered pending validation scope for pyvisa-py is
-E36312A or EDU36311A over TCPIP/LAN, not USB:
+For a TCPIP/LAN connection to E36312A or EDU36311A, PyVISA-py (`@py`) is
+Product-open for the commands and feature values accepted on 2026-10-16.
+Select the backend explicitly. USB + `@py` remains closed:
 
 ```powershell
 $env:E36312A_LAN_RESOURCE = "TCPIP0::...::INSTR"
@@ -683,7 +682,7 @@ Product LIVE support is command-exact, not feature-family-wide. See the
 [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix).
 The `output-on`, `measure-all`, `trigger-pulse`, `trigger-fire`, `log`,
 resource-backed `doctor`, and `restore-from-snapshot` scopes are Product-open
-only for the exact model/transport/system-VISA combinations in that matrix.
+only for the exact model/transport/backend combinations in that matrix.
 Other combinations remain fail-closed. Accepted commands
 such as `set`, `output-off`, `safe-off`, `apply`, `ramp`, and model-appropriate
 read/protection/trigger commands still require an exact accepted
@@ -1097,8 +1096,8 @@ Use `--dry-run --model keysight-e36312a` or a deterministic E36312A SIM resource
 preview trigger SCPI without opening VISA. Trigger dry-run and simulator
 behavior is E36312A-only; unsupported models do not expose trigger
 no-hardware behavior. The final `*TRG` may also trigger any already armed
-BUS-triggered instrument behavior. `trigger-pulse` is Product-open only for
-E36312A USB/TCPIP + system VISA in the documented exact scope. Live trigger behavior
+BUS-triggered instrument behavior. `trigger-pulse` is Product-open for E36312A USB/TCPIP + system VISA and
+E36312A TCPIP + pyvisa-py (`@py`) in the documented exact scopes. Live trigger behavior
 for accepted commands remains IDN-driven; a live `--model` only requires the
 connected IDN model to match and never overrides connected hardware.
 
@@ -1156,8 +1155,8 @@ uv run powers-tool output-on --dry-run --json --model keysight-e36312a --channel
 uv run powers-tool output-on --simulate --json --resource USB0::SIM::E36312A::INSTR --channel all
 ```
 
-`output-on` is Product-open only for E36312A and EDU36311A USB/TCPIP + system
-VISA and E3646A ASRL + system VISA. Other scopes fail closed. E3646A uses one
+`output-on` is Product-open for E36312A and EDU36311A USB/TCPIP + system
+VISA, those two models over TCPIP + pyvisa-py (`@py`), and E3646A ASRL + system VISA. Other scopes fail closed. E3646A uses one
 global output switch after programming both channels; it is not an independent
 per-channel output relay.
 
