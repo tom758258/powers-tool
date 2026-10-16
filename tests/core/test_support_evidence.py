@@ -709,7 +709,7 @@ def test_pending_scope_cannot_claim_accepted_evidence() -> None:
     )
     changed_command = replace(
         command_policy,
-        scopes=tuple(changed_pending if scope is pending else scope for scope in command_policy.scopes),
+        scopes=tuple(changed_pending if scope is pyvisa_scope else scope for scope in command_policy.scopes),
     )
     changed_model = replace(
         model_policy,
