@@ -71,7 +71,7 @@ other selector means `custom_visa`. Backend identity does not itself grant
 Product support. No current Product-open exact scope uses `pyvisa_bt`, so
 model-aware Product execution with `@bt` fails closed. The only Product-open
 `pyvisa_py` scopes are E36312A and EDU36311A over TCPIP, accepted from the
-2026-10-16 full live CLI reports. USB + `@py` stays closed. On these TCPIP +
+accepted full live CLI validation. USB + `@py` stays closed. On these TCPIP +
 `@py` scopes, only independently validated Sequence actions and E36312A BUS
 Trigger Step/List sources are Product-open; remaining implemented feature values
 are `feature_pending`.
