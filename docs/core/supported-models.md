@@ -39,7 +39,7 @@ Current live trigger sources are `bus` and `immediate` (`imm` normalizes to
 `immediate`); PIN/EXT inputs are rejected.
 
 On a Product-open connection, only individually Product-open actions and sources
-are available for Product use. On the new TCPIP + pyvisa-py scopes (2026-10-16),
+are available for Product use. On the TCPIP + pyvisa-py scopes,
 `sequence` allows `set`, `output-off`, `output-on`, `output-state`, and `readback`;
 other implemented Sequence actions remain `feature_pending`. For E36312A
 `trigger-step` and `trigger-list`, BUS is Product-open, but `immediate`
@@ -72,7 +72,7 @@ to the commands and feature entries listed in the Product matrix. E3646A and
 PSM-2010 USB and LAN are outside the current scope.
 
 E36312A and EDU36311A now have independently accepted TCPIP + pyvisa-py Product
-scopes from 2026-10-16, limited to the 30 and 21 exact commands shown above and
+scopes, limited to the 30 and 21 exact commands shown above and
 the separately validated feature values. This does not extend to USB + pyvisa-py,
 pyvisa-bt, custom VISA, or any other model/backend combination.
 
