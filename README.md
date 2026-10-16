@@ -39,7 +39,7 @@ for TCPIP discovery across network interfaces and `zeroconf` for HiSLIP
 discovery. Optional USB and serial libraries are not installed or bundled by
 Powers Tool.
 Loading a backend or identifying an instrument does not grant Product support.
-E36312A and EDU36311A now have independently validated TCPIP + PyVISA-py (`@py`) Product-open scopes from 2026-10-16. USB + `@py` and all other model/backend combinations stay closed; exact Sequence and Trigger subfeatures remain scoped. Custom CLI VISA library
+E36312A and EDU36311A now have independently validated TCPIP + PyVISA-py (`@py`) Product-open scopes. USB + `@py` and all other model/backend combinations stay closed; exact Sequence and Trigger subfeatures remain scoped. Custom CLI VISA library
 paths and backend selectors remain available under the existing policy. Simulator,
 dry-run, and normal no-hardware validation do not require a physical instrument
 or vendor VISA runtime. Installing a VISA runtime does not expand support:
