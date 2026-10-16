@@ -21,7 +21,7 @@ def inspect_executable(
     if pyz_name is None:
         raise AssertionError(f"{path} does not contain PYZ.pyz")
     pyz_names = set(archive.open_embedded_archive(pyz_name).toc)
-    for package in required_packages:
+    for package in (*required_packages, "psutil", "zeroconf", "ifaddr"):
         assert package in pyz_names, package
         assert any(name.startswith(f"{package}.") for name in pyz_names), package
     assert not any(name.startswith("pyvisa_py.testsuite") for name in pyz_names)
@@ -39,6 +39,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     inspect_executable(
         args.webui_exe,
+        ("powers_tool_core", "powers_tool_webui", "pyvisa_py"),
+    )
+    inspect_executable(
+        args.webui_exe.with_name("powers-tool-webui-host.exe"),
         ("powers_tool_core", "powers_tool_webui", "pyvisa_py"),
     )
     print("Powers Tool PyInstaller archive inspection passed")

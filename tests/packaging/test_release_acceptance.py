@@ -170,6 +170,12 @@ class _FakeCArchive:
                 "powers_tool_webui.server",
                 "pyvisa_py",
                 "pyvisa_py.highlevel",
+                "psutil",
+                "psutil._common",
+                "zeroconf",
+                "zeroconf._core",
+                "ifaddr",
+                "ifaddr._win32",
             }
         else:
             self.pyz_names = pyz_names
@@ -670,7 +676,7 @@ def test_distribution_inspector_resolves_future_version_from_fixture_pyproject(
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_pyinstaller_cli_inspects_cli_and_webui_executables(
+def test_pyinstaller_cli_inspects_cli_launcher_and_host_executables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     archive = _FakeCArchive()
@@ -682,7 +688,20 @@ def test_pyinstaller_cli_inspects_cli_and_webui_executables(
 
     monkeypatch.setattr(inspect_pyinstaller, "CArchiveReader", fake_reader)
     assert inspect_pyinstaller.main(["cli.exe", "webui.exe"]) == 0
-    assert calls == ["cli.exe", "webui.exe"]
+    assert calls == ["cli.exe", "webui.exe", "powers-tool-webui-host.exe"]
+
+
+@pytest.mark.parametrize("package", ("psutil", "zeroconf", "ifaddr"))
+def test_pyinstaller_inspector_rejects_missing_discovery_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+    package: str,
+) -> None:
+    archive = _FakeCArchive()
+    archive.pyz_names.remove(package)
+    monkeypatch.setattr(inspect_pyinstaller, "CArchiveReader", lambda path: archive)
+
+    with pytest.raises(AssertionError, match=package):
+        inspect_pyinstaller.main(["cli.exe", "webui.exe"])
 
 
 def test_pyinstaller_inspector_retains_package_and_legacy_checks(

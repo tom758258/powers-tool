@@ -34,8 +34,10 @@ requiring a separately installed vendor/system VISA runtime such as Keysight IO
 Libraries Suite or NI-VISA. If IVI cannot load, operation fails with the backend
 error; it never falls back to PyVISA-py, including when `PYVISA_LIBRARY=@py`.
 Select PyVISA-py explicitly with CLI `--backend @py` or WebUI Device options →
-VISA Backend. The base Python backend supports TCPIP without optional USB or
-serial libraries; those extras are not installed or bundled by Powers Tool.
+VISA Backend. Python installations and Windows bundles also include `psutil`
+for TCPIP discovery across network interfaces and `zeroconf` for HiSLIP
+discovery. Optional USB and serial libraries are not installed or bundled by
+Powers Tool.
 Loading a backend or identifying an instrument does not grant Product support.
 No PyVISA-py combination is currently Product-open. Custom CLI VISA library
 paths and backend selectors remain available under the existing policy. Simulator,

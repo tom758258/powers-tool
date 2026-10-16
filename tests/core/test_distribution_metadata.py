@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from importlib import metadata, resources
+from importlib import import_module, metadata, resources
 from pathlib import Path
+
+from packaging.requirements import Requirement
 
 try:  # pragma: no cover - branch depends on Python version
     import tomllib
@@ -43,10 +45,18 @@ def test_webui_static_assets_are_package_resources():
         assert static_root.joinpath(filename).is_file()
 
 
-def test_python_backend_is_a_required_loadable_dependency():
+def test_python_backend_and_discovery_dependencies_are_required_and_loadable():
     from pyvisa.highlevel import get_wrapper_class
     from pyvisa_py.highlevel import PyVisaLibrary
 
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    assert any(requirement.startswith("pyvisa-py>=") for requirement in project["dependencies"])
+    for requirements in (project["dependencies"], metadata.requires("powers-tool")):
+        required = {
+            requirement.name
+            for value in requirements
+            if (requirement := Requirement(value)).marker is None
+        }
+        assert {"pyvisa-py", "psutil", "zeroconf"} <= required
+    for module in ("psutil", "zeroconf"):
+        import_module(module)
     assert get_wrapper_class("py") is PyVisaLibrary
