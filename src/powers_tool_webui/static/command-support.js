@@ -255,7 +255,7 @@ function transportScopeLabel(scope) {
 }
 
 function backendScopeLabel(scope) {
-  return ({ system_visa: "system VISA", pyvisa_py: "pyvisa-py", custom_visa: "custom VISA" })[scope] || "--";
+  return ({ system_visa: "system VISA", pyvisa_py: "PyVISA-py", custom_visa: "custom VISA" })[scope] || "--";
 }
 
 function supportedChannelsForCurrentModel() {
