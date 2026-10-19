@@ -209,7 +209,7 @@ Device options 包含執行模式；在 Real 模式還會顯示 `Expected model`
 
 在 Product-open scope 上成功完成唯讀身分評估後，Device / Resource summary 會顯示偵測到的 transport/backend scope，不含命令數統計。diagnostic 可以顯示命令為 pending，但不會啟用它們。變更 `Expected model` 只更新規劃指引；它不會改寫偵測到的 model 或連線 scope。WebUI 使用正常 Product policy，沒有 validation mode。
 
-在裝置設定的 **VISA 後端** 選擇 **System VISA（預設）** 或 **PyVISA-py (@py)**。
+在裝置設定的 **VISA 後端** 選擇 **System VISA（預設）** 或 **PyVISA-py**。
 System VISA 需要已安裝的廠商／系統 VISA runtime，明確使用 IVI；無法載入時會失敗，
 不會自動 fallback 至 PyVISA-py，即使 `PYVISA_LIBRARY` 設定其他後端也不例外。
 所有 Real 命令、Scan Device、Identify 與 Live Data 使用相同選擇；Simulate 與

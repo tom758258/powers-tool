@@ -216,7 +216,7 @@ storage 不可用，WebUI 會安全 fallback，不影響正常操作。</p>
 <p>Device options 包含執行模式；在 Real 模式還會顯示 <code>Expected model</code>。一般實機操作請保留 <code>Auto-detect</code>，由連線儀器的 <code>*IDN?</code> 決定實際型號。齒輪圖示左側的 <strong>Supported devices / 支援裝置</strong> 按鈕會開啟唯讀清單，顯示所選 VISA 後端目前 Product-open 的連線（廠商、型號、連線方式），並可展開命令與功能範圍。選擇 <code>Require &lt;model&gt;</code> 時，它只用於前端 capability 規劃，並作為 expected-model guard 送出：連線儀器的 <code>*IDN?</code> model 必須相符，才會進行 setup 或 write SCPI；該選擇不會強制使用該型號的 driver。Device / Resource summary 會將偵測到的 live model 與 Expected model 選擇分開顯示，例如 <code>live E3646A / Auto-detect</code> 或 <code>live E3646A / Require E36312A</code>。</p>
 <p>一般型號選單由 Core 的 Product-active metadata 產生；目前支援的型號與 exact connection／backend scopes 以 <a href="supported-models.zh-TW.html">支援型號</a> 為準。不支援的直接 model 提交仍會被 WebUI backend 與 Core 拒絕。Auto-detect 在有可用 metadata 時仍可使用偵測到的 live model 資訊，但前端狀態永遠不會覆寫 Core 由 IDN 選出的 live driver。</p>
 <p>在 Product-open scope 上成功完成唯讀身分評估後，Device / Resource summary 會顯示偵測到的 transport/backend scope，不含命令數統計。diagnostic 可以顯示命令為 pending，但不會啟用它們。變更 <code>Expected model</code> 只更新規劃指引；它不會改寫偵測到的 model 或連線 scope。WebUI 使用正常 Product policy，沒有 validation mode。</p>
-<p>在裝置設定的 <strong>VISA 後端</strong> 選擇 <strong>System VISA（預設）</strong> 或 <strong>PyVISA-py (@py)</strong>。
+<p>在裝置設定的 <strong>VISA 後端</strong> 選擇 <strong>System VISA（預設）</strong> 或 <strong>PyVISA-py</strong>。
 System VISA 需要已安裝的廠商／系統 VISA runtime，明確使用 IVI；無法載入時會失敗，
 不會自動 fallback 至 PyVISA-py，即使 <code>PYVISA_LIBRARY</code> 設定其他後端也不例外。
 所有 Real 命令、Scan Device、Identify 與 Live Data 使用相同選擇；Simulate 與

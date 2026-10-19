@@ -271,7 +271,7 @@ but it does not enable them. Changing `Expected model` updates
 planning guidance only; it does not rewrite the detected model or connection
 scope. The WebUI uses the normal Product policy and provides no validation mode.
 In Device options, **VISA Backend** selects **System VISA** (default) or
-**PyVISA-py (@py)**. System VISA requires an installed system/vendor VISA runtime,
+**PyVISA-py**. System VISA requires an installed system/vendor VISA runtime,
 explicitly uses IVI, and fails if unavailable; it never automatically falls back
 to PyVISA-py, even when `PYVISA_LIBRARY` selects another backend.
 All Real commands, Scan Device, Identify, and Live Data use the same selection.
