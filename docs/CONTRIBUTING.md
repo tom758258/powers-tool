@@ -234,5 +234,5 @@ artifacts remain ignored and must not be committed.
 - [ ] Real validation artifacts are complete, redacted, and include failures
       or partial evidence when applicable.
 - [ ] The pull request does not claim automatic promotion from a passing run.
-- [ ] English documentation is updated when required; localized documentation
-      is deferred unless explicitly requested.
+- [ ] English and Traditional Chinese documentation are semantically aligned and
+      updated together where required.
