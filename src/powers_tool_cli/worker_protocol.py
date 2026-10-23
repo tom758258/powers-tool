@@ -63,7 +63,13 @@ PROTECTION_COMMANDS = {cmd for cmd, cat in _WORKER_COMMAND_TAXONOMY.items() if c
 TRIGGER_COMMANDS = {cmd for cmd, cat in _WORKER_COMMAND_TAXONOMY.items() if cat == "trigger"}
 ALLOWED_COMMANDS = READ_ONLY_COMMANDS | OUTPUT_COMMANDS | PROTECTION_COMMANDS | TRIGGER_COMMANDS
 OUTPUT_AFFECTING_COMMANDS = OUTPUT_COMMANDS | PROTECTION_COMMANDS
-WORKER_SCHEMA_VERSION = 2
+WORKER_SCHEMA_VERSION = 3
+ARTIFACT_SCHEMA_VERSION = 2
+CANCELLABLE_COMMANDS = ("ramp", "ramp-list", "sequence", "log")
+RUNTIME_FEATURES = {
+    "common.async_jobs": {"contract_version": 1},
+    "common.job_cancel": {"contract_version": 1, "commands": list(CANCELLABLE_COMMANDS)},
+}
 REQUEST_KEYS = {"schema_version", "command", "arguments", "job_id", "context"}
 CONTEXT_KEYS = {
     "mode",
@@ -97,12 +103,30 @@ _FORBIDDEN_VALIDATION_MODE_ARGUMENTS = {
 _FORBIDDEN_VALIDATION_MODE_SETTINGS = _FORBIDDEN_VALIDATION_MODE_ARGUMENTS
 
 
+def common_error(category: str, error: dict[str, Any]) -> dict[str, Any]:
+    """Retain the Power diagnostic inside the shared error envelope."""
+    return {
+        "category": category,
+        "code": error["code"],
+        "message": error["message"],
+        "details": {"domain_error": error},
+    }
+
+
 def _command_response(status: str, command: Any, job_id: Any, **extra: Any) -> dict[str, Any]:
+    state = extra.pop("_state", None)
+    error_category = extra.pop("_error_category", "admission" if status == "rejected" else "validation")
+    error = extra.pop("error", None)
     payload = {
         "schema_version": WORKER_SCHEMA_VERSION,
+        "run_id": state.run_id if state is not None else None,
         "status": status,
         "command": command,
         "job_id": job_id,
+        "kind": "async_job" if isinstance(command, str) and command in ALLOWED_COMMANDS else None,
+        "worker_job_id": None,
+        "error": common_error(error_category, error)
+        if error is not None else None,
     }
     payload.update(extra)
     return payload
@@ -175,6 +199,13 @@ def _command_parameters(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[str, Any]]:
+    code, payload = _validate_command_body_impl(body, state)
+    if code != 202:
+        payload["run_id"] = state.run_id
+    return code, payload
+
+
+def _validate_command_body_impl(body: Any, state: "WorkerState") -> tuple[int, dict[str, Any]]:
     from powers_tool_cli.worker_config import _serial_options_from_settings
 
     if not isinstance(body, dict):
@@ -182,7 +213,7 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
             "error",
             None,
             None,
-            error={"code": "invalid_request", "message": "POST /command body must be a JSON object"},
+            error={"code": "invalid_request", "message": "POST /command body must be a JSON object"}, _state=state,
         )
     schema_version = body.get("schema_version")
     if type(schema_version) is not int or schema_version != WORKER_SCHEMA_VERSION:
@@ -192,8 +223,9 @@ def _validate_command_body(body: Any, state: "WorkerState") -> tuple[int, dict[s
             body.get("job_id") if isinstance(body.get("job_id"), str) else None,
             error={
                 "code": "unsupported_schema_version",
-                "message": "POST /command requires integer schema_version=2",
+                "message": "POST /command requires integer schema_version=3",
             },
+            _state=state,
         )
     unknown = sorted(set(body) - REQUEST_KEYS)
     command = body.get("command")

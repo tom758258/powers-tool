@@ -1,6 +1,6 @@
 # Power Worker Contract
 
-Schema version: `2`
+Worker runtime schema version: `3` (v3-only). Manifest and independent artifact schemas remain `2`.
 
 This contract extends `common-worker-protocol.md` for Powers Tool power-supply operations.
 
@@ -13,12 +13,13 @@ This contract extends `common-worker-protocol.md` for Powers Tool power-supply o
 
 `/trigger`, `trigger_url`, `--default-action`, and default-action config are not supported.
 
-`POST /cancel` requires exactly schema version 2 and the active
+`POST /cancel` requires exactly integer-token schema version 3 and the active
 `worker_job_id` (plus an optional string reason). Wrong, stale, completed, or
 non-cancellable identity fails closed. Ramp, Ramp List, Sequence, and bounded
 telemetry `log` cancellation does not shut down the Worker; successful cleanup
 or normal log session close returns it to `ready`.
-`GET /status` does not need a `cancel_url` because the route is fixed.
+`ready` and successful `GET /status` declare `cancel_url` and the same runtime
+features and control URLs.
 
 ## Power Stop Cleanup
 
@@ -27,8 +28,12 @@ It performs no VISA I/O, cleanup, or HTTP-server shutdown in the handler.
 The runner must finish command safety cleanup before the Worker stops the HTTP
 server or emits the final `summary`.
 
-A successful `POST /stop` returns HTTP `200` with a JSON object containing
-`ok: true` and a non-empty string `message`. It acknowledges the cooperative
+An empty body, `{}`, or an object containing only optional integer-token
+`schema_version: 3` and string `reason` is accepted by `POST /stop`. Invalid
+versions, types, JSON, and unknown fields return `400` before changing stop
+state. Repeated stop requests do not repeat the stop-request side effects.
+A successful `POST /stop` preserves HTTP `200` and returns `schema_version: 3`,
+`run_id`, `status: "accepted"`, and `error: null`. It acknowledges the cooperative
 stop request only; it does not indicate that cleanup or shutdown has finished.
 
 Stop-only cleanup results use Power status values `succeeded`, `unsupported`,
@@ -65,7 +70,7 @@ The request body is a strict JSON object:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "command": "read-status",
   "arguments": { "channel": "all" },
   "job_id": "optional-orchestrator-id",
@@ -77,7 +82,7 @@ The request body is a strict JSON object:
 ```
 
 Allowed top-level fields are `schema_version`, `command`, `arguments`, `job_id`,
-and `context`. `schema_version` is required and must be the exact integer `2`;
+and `context`. `schema_version` is required and must be the exact integer token `3`;
 booleans, strings, floats, missing versions, and unsupported integers are
 rejected. `context` is required. Unknown fields, malformed JSON, a non-object
 body, a missing/non-string command, non-object `arguments`, non-string `job_id`,
@@ -94,8 +99,13 @@ must be exact values; explicit `null`, alias conflicts, unknown fields, and
 fields that belong to a different command are rejected before a hardware lock
 or VISA session is acquired.
 
-Every `/command` response is a JSON object with integer `schema_version: 2`,
-`status`, `command`, and `job_id`. In the HTTP response, `command` is the
+Every `/command` response is a JSON object with integer `schema_version: 3`,
+`run_id`, `status`, `command`, `job_id`, `kind`, `worker_job_id`, and `error`.
+All exposed Power commands have kind `async_job`; an unidentifiable command
+has null kind. A rejected or invalid request has null `worker_job_id`.
+Accepted responses have null `error`. Other responses carry a Common Error
+with `category`, `code`, `message`, and object `details`; original diagnostics
+are retained in `details.domain_error`. In the HTTP response, `command` is the
 submitted command string, for example `"read-status"`.
 
 - Accepted commands return `202` with `status: "accepted"` and a non-empty
@@ -104,6 +114,9 @@ submitted command string, for example `"read-status"`.
   because no job artifact directory exists.
 - Validation failures return `400` with `status: "error"`.
 - Admission/safety rejections return `409` with `status: "rejected"` and one of the Power rejection reasons.
+- Request handling or artifact initialization failures return `500` with
+  `status: "error"` and a Worker-category Common Error. `429` is reserved for
+  queue/rate rejection; Powers retains its single-slot `409` busy policy.
 
 Power rejection reasons are `busy`, `run_not_ready`, `output_confirmation_required`, and `output_changes_not_allowed`.
 
@@ -133,19 +146,74 @@ Power Worker job states are:
 `GET /status` is non-mutating. It must not open VISA, execute a domain
 command, mutate the queue, request stop, or create artifacts.
 
-The response includes integer `schema_version: 2`, exact string
+The response includes integer `schema_version: 3`, exact string
 `service: "powers-tool"`, non-empty strings `run_id`, `command_url`,
-`status_url`, `stop_url`, and `timestamp_utc`, Worker `status`, non-negative
+`status_url`, `stop_url`, `cancel_url`, and `timestamp_utc`, runtime `features`,
+Common `worker_state`, Worker `status`, non-negative
 integer `queue_size`, plus `active_job`, `last_job`, and `fatal_error` objects
 or `null`. Worker status is one of `ready`, `busy`, `stopping`, or `error`.
 
-`active_job` and `last_job`, when present, include job correlation and status
-fields. A terminal job also includes `artifact_available`; `artifact_path` is
-present only when the result artifact is available. An artifact-write failure
-therefore reports `artifact_available: false` and omits `artifact_path`. In
-`memory` mode a terminal `last_job` instead includes `result`, holding the
-complete result envelope described under Artifacts, plus `error` for failures.
-Top-level `job_id` is not used for domain job identity.
+Common `worker_state` is `running` for Power `ready`/`busy`, `stopping`
+for Worker shutdown, and `failed` for a fatal Worker failure. `failed` requires
+a non-null Common `fatal_error`; ordinary job failure does not fail the Worker.
+A status handler failure instead returns HTTP `500` with `schema_version: 3`,
+`run_id`, `status: "error"`, and a Worker-category Common Error.
+
+`active_job` includes `worker_job_id`, `job_id` (string or null), `command`,
+`state` (`queued` or `running`), and `timestamp_utc`. Existing Power `status`,
+artifact, and progress fields remain available.
+`last_job` is the complete terminal snapshot described below; only active
+and last jobs are retained. Top-level `job_id` is not domain job identity.
+
+## Manifest and Runtime Declarations
+
+The Manifest retains schema `2`, declares `worker_protocol.compatibility_policy:
+"v3-only"` and `schema_versions: [3]`, and uses `execution.model: "multi_job"`
+with `context_binding: "per_command"`. Every exposed Power command is declared
+as `kind: "async_job"`; Core still owns parameter admission. Multi-job means
+sequential reuse of the Worker, with one active/queued slot and the existing
+busy rejection policy.
+
+Manifest and runtime features adopt `common.async_jobs` with `contract_version:
+1` and `common.job_cancel` with `contract_version: 1` and commands `ramp`,
+`ramp-list`, `sequence`, and `log`. Powers does not adopt `common.streaming`.
+Ready includes the runtime `run_id`, control URLs, `cancel_url`, and these
+features. All runtime JSONL events use schema `3` and the same `run_id`.
+
+## Async Job Terminal
+
+Every normally controllable accepted job emits exactly one `job_finished`
+event, including failures and cancellation. The terminal includes `run_id`,
+`worker_job_id`, `job_id`, `command`, `state`, `ok`, `result`, `error`, and
+`timestamp_utc`. State is `succeeded`, `failed`, or `cancelled`; only success
+has `ok: true` and null error. Failures require a Common Error, and cancellation
+preserves its diagnostic. Existing stop-induced classification is retained.
+
+The JSONL terminal and `last_job` preserve the same identity, state, result,
+error, and fixed terminal creation timestamp. Polling changes only the outer
+status observation time. Existing partial results and artifact diagnostics are
+retained. No job history, persistence, or rescheduling is added.
+
+## Summary and Process Exit
+
+Normal controllable shutdown emits `summary` with schema `3`, `run_id`,
+`timestamp_utc`, `ok`, `fatal_error`, and integer `exit_code`, plus Power
+cleanup diagnostics and `last_job`. Ordinary command failure can leave a
+multi-job Worker healthy. Known fatal/runtime or cleanup failure makes
+`summary.ok` false, supplies a Common fatal error, and exits `3`. Cleanup
+failure cannot be overwritten by a normal stop.
+
+Worker success exits `0`; Worker configuration/static validation failure exits
+`2`; HTTP bind, runtime startup, and Worker runtime failure exit `3`. Early
+failures retain stderr diagnostics and do not emit false ready or successful
+summary events. General CLI exit meanings are unchanged.
+
+Lifecycle clients validate v3 response envelopes. `wait-ready` requires a valid
+Common Status, `worker_state: "running"`, `fatal_error: null`, complete job
+snapshots, and valid runtime features and control URLs. Stop clients accept
+valid Common `200` or `202` acknowledgements. Client diagnostics retain
+`request_sent`, `reachable`, `http_status`, and `error_phase`; failed or lost
+command responses never cause automatic command resubmission.
 
 ## Commands
 
@@ -436,14 +504,19 @@ above. Startup creates no artifact directory (including no placeholder) and no
 `artifact_mode: "memory"`. Accepted responses omit `artifact_path`, and no
 per-job directory, `request.json`, or `result.json` is created.
 
-Memory-mode terminal events carry the final outcome. `job_finished` includes a
-`result` object with the same schema as the `files`-mode `result.json`;
-`job_failed` and `job_cancelled` keep their existing `error` semantics and also
-include that `result` object. A terminal `last_job` mirrors the same `status`,
-`error`, and `result` fields. Only `active_job` and `last_job` are retained;
-no job history collection exists.
+Memory-mode `job_finished` events carry the final outcome for all three
+terminal states. Their `result` object keeps the schema-2 CLI-style envelope
+used by `files`-mode `result.json`, inside the schema-3 runtime event. The
+Common outer error retains the original domain error in `details.domain_error`
+and available partial result data in `details.partial_result`; the embedded
+envelope keeps its existing error shape. A terminal `last_job` mirrors the same state,
+`status`, `ok`, `error`, and `result` fields. In files mode, terminal `result`
+retains available domain/partial result data and `artifact_available` reports
+result artifact availability; `artifact_path` is present only when available.
+Artifact failures preserve `artifact_error` and omit unavailable paths. Only
+`active_job` and `last_job` are retained; no job history collection exists.
 
-Memory-mode `log` streams each telemetry row as one schema-2 `sample` stdout
+Memory-mode `log` streams each telemetry row as one schema-3 `sample` stdout
 JSONL event containing `run_id`, the optional client `job_id`, `worker_job_id`,
 and the Core telemetry row under `sample`. No `telemetry.csv` or
 `telemetry.jsonl` is created; samples are consumed live from stdout while the

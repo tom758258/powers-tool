@@ -10,11 +10,11 @@ from typing import Any
 from powers_tool_cli import cli_parser as parser_helpers
 from powers_tool_cli.cli_io import SCHEMA_VERSION
 from powers_tool_cli.cli_runtime import _package_version
-from powers_tool_cli.worker_protocol import WORKER_SCHEMA_VERSION
+from powers_tool_cli.worker_protocol import ALLOWED_COMMANDS, RUNTIME_FEATURES, WORKER_SCHEMA_VERSION
 
 MANIFEST_EVENT = "tool_manifest"
 TOOL_ID = "powers"
-WORKER_COMPATIBILITY_POLICY = "v2-only"
+WORKER_COMPATIBILITY_POLICY = "v3-only"
 
 
 def register_commands(
@@ -40,6 +40,9 @@ def build_manifest(
             "compatibility_policy": WORKER_COMPATIBILITY_POLICY,
             "schema_versions": [WORKER_SCHEMA_VERSION],
         },
+        "execution": {"model": "multi_job", "context_binding": "per_command"},
+        "features": RUNTIME_FEATURES,
+        "commands": {command: {"kind": "async_job"} for command in sorted(ALLOWED_COMMANDS)},
     }
 
 

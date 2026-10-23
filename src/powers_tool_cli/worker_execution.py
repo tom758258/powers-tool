@@ -34,8 +34,9 @@ from powers_tool_cli.worker_config import _serial_options_from_settings
 from powers_tool_cli.worker_http import request_worker_shutdown
 from powers_tool_cli.worker_io import _write_json_artifact_atomic, emit_event
 from powers_tool_cli.worker_protocol import (
-    WORKER_SCHEMA_VERSION,
+    ARTIFACT_SCHEMA_VERSION,
     _command_parameters,
+    common_error,
     validate_worker_context,
 )
 from powers_tool_cli.worker_state import WorkerState
@@ -48,6 +49,9 @@ def record_cleanup_result(state: WorkerState, result: StopCleanupResult) -> None
         if result.status == "failed":
             state.cleanup_failed = True
             state.status = "error"
+            state.fatal_error = common_error("worker", {
+                "code": "cleanup_failed", "message": result.message,
+            })
     emit_event(state.config, "power_cleanup", {"run_id": state.run_id, "cleanup": payload})
 
 
@@ -142,7 +146,29 @@ def job_runner(state: WorkerState) -> None:
             state.next_job = None
 
         if job:
-            _run_job_impl(state, job)
+            try:
+                _run_job_impl(state, job)
+            except Exception as exc:
+                # Infrastructure failures outside domain execution must not leave
+                # an accepted job pending or let shutdown report success.
+                error = common_error("worker", {
+                    "code": "runtime_failed", "message": f"Worker job runtime failed: {exc}",
+                })
+                with state.lock:
+                    state.status = "error"
+                    state.fatal_error = error
+                    state.shutdown_flag = True
+                    if state.pending_terminal_event is None:
+                        terminal = {
+                            "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+                            "worker_job_id": job["worker_job_id"],
+                            "job_id": job.get("job_id"),
+                            "command": job["command"],
+                            "state": "failed", "status": "failed", "ok": False,
+                            "result": None, "error": error,
+                        }
+                        state.last_job = terminal
+                        state.pending_terminal_event = ("job_finished", terminal)
 
             should_shutdown = False
             terminal_event: tuple[str, dict[str, Any]] | None = None
@@ -185,6 +211,8 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             state.active_job = {
                 **state.active_job,
                 "status": "stopping" if state.job_cancel_event.is_set() else "running",
+                "state": "running",
+                "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
                 "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
             }
     emit_event(
@@ -535,7 +563,7 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
 
     # Compile CLI JSON contract compliant envelope
     envelope = {
-        "schema_version": WORKER_SCHEMA_VERSION,
+        "schema_version": ARTIFACT_SCHEMA_VERSION,
         "run_id": state.run_id,
         "worker_job_id": worker_job_id,
         "ok": ok,
@@ -582,84 +610,31 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             except Exception:
                 artifact_path = None
 
-    if memory_artifacts:
-        # Terminal events and last_job carry the full result envelope so
-        # orchestrators consume outcomes without per-job artifacts.
-        event_payload: dict[str, Any] = {
-            "job_id": client_job_id,
-            "worker_job_id": worker_job_id,
-            "command": cmd,
-            "result": envelope,
-        }
-        memory_last_job: dict[str, Any] = {
-            "job_id": client_job_id,
-            "worker_job_id": worker_job_id,
-            "command": cmd,
-            "status": final_status,
-            "result": envelope,
-        }
-        if not ok:
-            event_payload["error"] = error_payload
-            memory_last_job["error"] = error_payload
-        with state.lock:
-            state.last_job = memory_last_job
-            state.pending_terminal_event = (
-                "job_finished"
-                if ok
-                else ("job_cancelled" if final_status == "cancelled" else "job_failed"),
-                event_payload,
-            )
-        return
-
-    # Emit completion events
-    artifact_dir = str(job_dir.resolve())
-    if ok:
-        event_payload = {
-            "job_id": client_job_id,
-            "worker_job_id": worker_job_id,
-            "command": cmd,
-            "artifact_available": artifact_path is not None,
-        }
-        if artifact_path is not None:
-            event_payload["artifact_path"] = artifact_dir
-        with state.lock:
-            state.last_job = {
-                "job_id": client_job_id,
-                "worker_job_id": worker_job_id,
-                "command": cmd,
-                "status": "succeeded",
-                "artifact_available": artifact_path is not None,
-                "artifact_path": artifact_dir,
-            }
-        with state.lock:
-            state.pending_terminal_event = ("job_finished", event_payload)
-    else:
-        event_payload = {
-            "job_id": client_job_id,
-            "worker_job_id": worker_job_id,
-            "command": cmd,
-            "error": error_payload,
-            "artifact_available": artifact_path is not None and artifact_error is None,
-        }
+    terminal: dict[str, Any] = {
+        "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "job_id": client_job_id,
+        "worker_job_id": worker_job_id,
+        "command": cmd,
+        "state": final_status,
+        "status": final_status,
+        "ok": ok,
+        "result": envelope if memory_artifacts else result_data,
+        "error": common_error(
+            "worker" if error_payload["code"] == "artifact_error" else "execution",
+            error_payload,
+        ) if error_payload is not None else None,
+    }
+    if not memory_artifacts:
+        terminal["artifact_available"] = artifact_path is not None and artifact_error is None
         if artifact_error is not None:
-            event_payload["artifact_error"] = artifact_error
+            terminal["artifact_error"] = artifact_error
         elif artifact_path is not None:
-            event_payload["artifact_path"] = artifact_dir
-        with state.lock:
-            state.last_job = {
-                "job_id": client_job_id,
-                "worker_job_id": worker_job_id,
-                "command": cmd,
-                "status": final_status,
-                "error": error_payload,
-                "artifact_available": artifact_path is not None and artifact_error is None,
-            }
-            if artifact_error is not None:
-                state.last_job["artifact_error"] = artifact_error
-            elif artifact_path is not None:
-                state.last_job["artifact_path"] = artifact_dir
-        with state.lock:
-            state.pending_terminal_event = (
-                "job_cancelled" if final_status == "cancelled" else "job_failed",
-                event_payload,
-            )
+            terminal["artifact_path"] = str(job_dir.resolve())
+    if final_status == "failed" and terminal["error"] is None:
+        terminal["error"] = common_error("execution", {
+            "code": "execution_failed", "message": "Power command failed"})
+    if terminal["error"] is not None and result_data is not None:
+        terminal["error"]["details"]["partial_result"] = result_data
+    with state.lock:
+        state.last_job = terminal
+        state.pending_terminal_event = ("job_finished", terminal)

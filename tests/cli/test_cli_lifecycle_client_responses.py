@@ -37,24 +37,30 @@ def _body(payload: object) -> bytes:
 
 def _accepted_response(*, command: str = "read-status", job_id: str | None = None) -> dict[str, object]:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
+        "run_id": "run-1",
         "status": "accepted",
         "command": command,
         "job_id": job_id,
         "worker_job_id": "worker-job-1",
+        "kind": "async_job",
+        "error": None,
         "artifact_path": "C:/artifacts/jobs/worker-job-1",
     }
 
 
 def _status_response(*, status: str = "ready") -> dict[str, object]:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "service": "powers-tool",
         "run_id": "run-1",
         "status": status,
+        "worker_state": "running",
         "command_url": "http://127.0.0.1:9000/command",
         "stop_url": "http://127.0.0.1:9000/stop",
         "status_url": "http://127.0.0.1:9000/status",
+        "cancel_url": "http://127.0.0.1:9000/cancel",
+        "features": {"common.async_jobs": {"contract_version": 1}, "common.job_cancel": {"contract_version": 1, "commands": ["ramp", "ramp-list", "sequence", "log"]}},
         "queue_size": 0,
         "active_job": None,
         "last_job": None,
@@ -117,8 +123,9 @@ def test_send_command_accepts_only_documented_response(monkeypatch: pytest.Monke
         (202, _body({**_accepted_response(), "status": "queued"})),
         (202, _body(_accepted_response(command="identify"))),
         (202, _body({key: value for key, value in _accepted_response().items() if key != "worker_job_id"})),
+        (202, _body({key: value for key, value in _accepted_response().items() if key != "job_id"})),
     ],
-    ids=("empty", "unexpected-status", "malformed", "array", "invalid-status", "wrong-command", "missing-worker-id"),
+    ids=("empty", "unexpected-status", "malformed", "array", "invalid-status", "wrong-command", "missing-worker-id", "missing-client-id"),
 )
 def test_send_command_rejects_invalid_success_response(
     monkeypatch: pytest.MonkeyPatch,
@@ -149,14 +156,15 @@ def test_send_command_rejects_invalid_success_response(
     assert stderr == ""
 
 
-def test_stop_accepts_documented_200_response_in_text_mode(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    _install_response(monkeypatch, 200, _body({"ok": True, "message": "Stop requested"}))
+@pytest.mark.parametrize("http_status", [200, 202])
+def test_stop_accepts_documented_ack_in_text_mode(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], http_status: int) -> None:
+    _install_response(monkeypatch, http_status, _body({"schema_version": 3, "run_id": "run-1", "status": "accepted", "error": None}))
 
     exit_code = cli.main(["stop", "--url", "http://127.0.0.1:9000/stop"])
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert captured.out == "OK\n"
+    assert captured.out == "Status: accepted\n"
     assert captured.err == ""
 
 
@@ -237,20 +245,20 @@ def test_status_accepts_documented_200_response(monkeypatch: pytest.MonkeyPatch,
     assert stderr == ""
 
 
-def test_status_accepts_lifecycle_identity_without_display_fields(
+def test_status_rejects_missing_runtime_declarations(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _install_response(
         monkeypatch,
         200,
-        _body({"schema_version": 2, "service": "powers-tool", "run_id": "run-1", "status": "ready"}),
+        _body({"schema_version": 3, "service": "powers-tool", "run_id": "run-1", "status": "ready"}),
     )
 
     exit_code, payload, stderr = _run_json(capsys, ["status", "--url", "http://127.0.0.1:9000/status"])
 
-    assert exit_code == 0
-    assert payload["status"] == "ready"
+    assert exit_code == 3
+    assert payload["error"]["code"] == "invalid_response"
     assert stderr == ""
 
 
@@ -259,14 +267,18 @@ def test_status_accepts_artifact_failure_without_path_and_additive_fields(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     response = {
-        **_status_response(status="error"),
+        **_status_response(),
         "last_job": {
             "worker_job_id": "worker-job-1",
             "job_id": None,
             "command": "read-status",
+            "state": "failed",
+            "timestamp_utc": "2026-07-21T00:00:00Z",
+            "ok": False,
+            "result": None,
             "status": "failed",
             "artifact_available": False,
-            "error": {"code": "artifact_error"},
+            "error": {"category": "execution", "code": "artifact_error", "message": "Artifact failed", "details": {}},
             "artifact_error": {"code": "artifact_error"},
             "future_job_field": "accepted",
         },
@@ -289,8 +301,12 @@ def test_status_accepts_artifact_failure_without_path_and_additive_fields(
         (200, b""),
         (202, _body(_status_response())),
         (200, _body({**_status_response(), "status": "unknown"})),
+        (200, _body({**_status_response(), "last_job": {"state": "succeeded"}})),
+        (200, _body({key: value for key, value in _status_response().items() if key != "fatal_error"})),
+        (200, _body({**_status_response(), "timestamp_utc": "not-a-time"})),
+        (200, _body({**_status_response(), "cancel_url": "http://127.0.0.1:9001/cancel"})),
     ],
-    ids=("empty", "unexpected-status", "invalid-worker-status"),
+    ids=("empty", "unexpected-status", "invalid-worker-status", "incomplete-terminal", "missing-fatal-error", "invalid-time", "mixed-origin"),
 )
 def test_status_rejects_invalid_success_response(
     monkeypatch: pytest.MonkeyPatch,
@@ -348,8 +364,31 @@ def test_wait_ready_validates_each_status_response(
 
 
 @pytest.mark.parametrize(
+    ("worker_state", "power_status", "fatal_error", "expected_exit"),
+    [
+        ("running", "busy", None, 0),
+        ("starting", "ready", None, 3),
+        ("running", "ready", {"category": "worker", "code": "fatal", "message": "failed", "details": {}}, 3),
+    ],
+)
+def test_wait_ready_uses_common_state_and_fatal_error(monkeypatch, capsys, worker_state, power_status, fatal_error, expected_exit):
+    _install_response(monkeypatch, 200, _body({
+        **_status_response(status=power_status),
+        "worker_state": worker_state, "fatal_error": fatal_error,
+    }))
+    exit_code, payload, stderr = _run_json(capsys, [
+        "wait-ready", "--url", "http://127.0.0.1:9000/status",
+        "--wait-timeout-ms", "100", "--poll-ms", "1",
+    ])
+    assert exit_code == expected_exit
+    if expected_exit:
+        assert payload["error"]["code"] == "wait_timeout"
+    assert stderr == ""
+
+
+@pytest.mark.parametrize(
     ("http_status", "expected_exit"),
-    [(400, 2), (409, 3), (429, 3)],
+    [(400, 2), (409, 3), (429, 3), (500, 3)],
 )
 def test_send_command_preserves_http_error_exit_mapping(
     monkeypatch: pytest.MonkeyPatch,
@@ -364,7 +403,12 @@ def test_send_command_preserves_http_error_exit_mapping(
             http_status,
             "error",
             None,
-            io.BytesIO(_body({"status": "error", "error": {"code": "worker_error", "message": "failed"}})),
+            io.BytesIO(_body({
+                **_accepted_response(),
+                "status": "rejected" if http_status in {409, 429} else "error",
+                "worker_job_id": None,
+                "error": {"category": "admission" if http_status in {409, 429} else "worker" if http_status == 500 else "validation", "code": "worker_error", "message": "failed", "details": {}},
+            })),
         ),
     )
 

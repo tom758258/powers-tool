@@ -7,6 +7,7 @@ from pathlib import Path
 import powers_tool_cli.cli as cli
 import powers_tool_cli.cli_runtime as cli_runtime
 from powers_tool_cli.commands.manifest import build_manifest
+from powers_tool_cli.worker_protocol import ALLOWED_COMMANDS
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,9 +18,17 @@ EXPECTED_MANIFEST = {
     "tool_id": "powers",
     "tool_version": cli_runtime._package_version(),
     "worker_protocol": {
-        "compatibility_policy": "v2-only",
-        "schema_versions": [2],
+        "compatibility_policy": "v3-only",
+        "schema_versions": [3],
     },
+    "execution": {"model": "multi_job", "context_binding": "per_command"},
+    "features": {
+        "common.async_jobs": {"contract_version": 1},
+        "common.job_cancel": {
+            "contract_version": 1, "commands": ["ramp", "ramp-list", "sequence", "log"],
+        },
+    },
+    "commands": {command: {"kind": "async_job"} for command in sorted(ALLOWED_COMMANDS)},
 }
 
 
@@ -50,7 +59,7 @@ def test_manifest_text_mode_prints_short_human_output(capsys) -> None:
 
     assert captured.err == ""
     assert cli_runtime._package_version() in captured.out
-    assert "v2-only" in captured.out
+    assert "v3-only" in captured.out
 
 
 def test_manifest_build_uses_single_version_provider() -> None:

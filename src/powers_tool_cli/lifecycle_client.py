@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import time
 import urllib.error
@@ -73,7 +74,7 @@ def run_worker_stop_client(args: argparse.Namespace) -> int:
     url = _lifecycle_url(args, "/stop")
     if url is None:
         return _lifecycle_error(args, 2, "argument_error", "--port is required when --url is omitted")
-    response = _worker_http_json(args, "POST", url, {"reason": args.reason})
+    response = _worker_http_json(args, "POST", url, {"schema_version": 3, "reason": args.reason})
     return _lifecycle_response_exit(args, response)
 
 
@@ -87,7 +88,7 @@ def run_wait_ready_client(args: argparse.Namespace) -> int:
         response = _worker_http_json(args, "GET", url, None, quiet_errors=True)
         if response.get("_http_ok"):
             last = response["data"]
-            if isinstance(last, dict) and last.get("status") == "ready":
+            if isinstance(last, dict) and last.get("worker_state") == "running" and last.get("fatal_error") is None:
                 return _lifecycle_output(args, last)
         elif response.get("_diagnostics", {}).get("error_phase") == "invalid_response":
             return _lifecycle_response_exit(args, response)
@@ -164,9 +165,38 @@ def _worker_http_json(
         try:
             parsed = json.loads(exc.read().decode("utf-8"))
         except Exception:
-            parsed = {"error": {"code": "invalid_response", "message": "worker error body was not valid JSON"}}
+            return _invalid_lifecycle_response(
+                diagnostics, exc.code, elapsed_ms, "worker error body was not valid JSON"
+            )
         if not isinstance(parsed, dict):
-            parsed = {"error": {"code": "invalid_response", "message": "worker error body JSON was not an object"}}
+            return _invalid_lifecycle_response(
+                diagnostics, exc.code, elapsed_ms, "worker error body JSON was not an object"
+            )
+        expected_status = "rejected" if exc.code in {409, 429} else "error"
+        if (
+            not _valid_version_and_run(parsed)
+            or parsed.get("status") != expected_status
+            or not _valid_common_error(parsed.get("error"))
+        ):
+            return _invalid_lifecycle_response(
+                diagnostics,
+                exc.code,
+                elapsed_ms,
+                "worker error response must contain a valid v3 error envelope",
+            )
+        if args.command == "send-command" and (
+            any(field not in parsed for field in ("command", "job_id", "kind", "worker_job_id"))
+            or parsed["worker_job_id"] is not None
+            or parsed["command"] not in (None, payload.get("command"))
+            or parsed["job_id"] not in (None, payload.get("job_id"))
+            or parsed["kind"] not in (None, "async_job")
+        ):
+            return _invalid_lifecycle_response(
+                diagnostics,
+                exc.code,
+                elapsed_ms,
+                "worker command error response has invalid identity",
+            )
         return {
             "_http_ok": False,
             "status_code": exc.code,
@@ -228,48 +258,177 @@ def _validate_lifecycle_success_response(
     data: dict[str, Any],
     payload: dict[str, Any] | None,
 ) -> str | None:
-    expected_status = {"send-command": 202, "stop": 200, "status": 200, "wait-ready": 200}.get(command)
+    expected_status = {
+        "send-command": (202,),
+        "stop": (200, 202),
+        "status": (200,),
+        "wait-ready": (200,),
+    }.get(command)
     if expected_status is None:
         return "worker response command was not recognized"
-    if status_code != expected_status:
+    if status_code not in expected_status:
         return f"worker response status {status_code} was not the expected {expected_status} for {command}"
     if command == "send-command":
         return _validate_accepted_command_response(data, payload or {})
     if command == "stop":
-        if data.get("ok") is not True:
-            return "worker stop response must contain ok: true"
-        if not _is_nonempty_string(data.get("message")):
-            return "worker stop response must contain a non-empty string message"
+        if (
+            not _valid_version_and_run(data)
+            or data.get("status") != "accepted"
+            or "error" not in data
+            or data["error"] is not None
+        ):
+            return "worker stop response must contain a valid v3 acknowledgement"
         return None
     return _validate_worker_status_response(data)
 
 
-def _validate_accepted_command_response(data: dict[str, Any], payload: dict[str, Any]) -> str | None:
-    if type(data.get("schema_version")) is not int or data["schema_version"] != 2:
-        return "worker command response must contain integer schema_version: 2"
+def _validate_accepted_command_response(
+    data: dict[str, Any], payload: dict[str, Any]
+) -> str | None:
+    if not _valid_version_and_run(data):
+        return "worker command response must contain integer schema_version: 3 and run_id"
     if data.get("status") != "accepted":
         return "worker command response must contain status: accepted"
     if data.get("command") != payload.get("command"):
         return "worker command response command did not match the submitted command"
-    if data.get("job_id") != payload.get("job_id"):
+    if "job_id" not in data or data["job_id"] != payload.get("job_id"):
         return "worker command response job_id did not match the submitted job_id"
+    if data.get("kind") != "async_job" or "error" not in data or data["error"] is not None:
+        return "worker command response must identify an accepted async job without error"
     if not _is_nonempty_string(data.get("worker_job_id")):
         return "worker command response must contain a non-empty worker_job_id"
-    if not _is_nonempty_string(data.get("artifact_path")):
-        return "worker command response must contain a non-empty artifact_path"
+    if "artifact_path" in data and not _is_nonempty_string(data["artifact_path"]):
+        return "worker command response artifact_path must be non-empty when present"
     return None
 
 
 def _validate_worker_status_response(data: dict[str, Any]) -> str | None:
-    if type(data.get("schema_version")) is not int or data["schema_version"] != 2:
-        return "worker status response must contain integer schema_version: 2"
+    if not _valid_version_and_run(data):
+        return "worker status response must contain integer schema_version: 3 and run_id"
     if data.get("service") != "powers-tool":
         return "worker status response must contain service: powers-tool"
-    if not _is_nonempty_string(data.get("run_id")):
-        return "worker status response must contain a non-empty run_id"
-    if data.get("status") not in {"ready", "busy", "stopping", "error"}:
+    if data.get("worker_state") not in ("starting", "running", "stopping", "failed"):
+        return "worker status response contained an unknown worker_state"
+    if not _valid_utc_timestamp(data.get("timestamp_utc")) or "fatal_error" not in data:
+        return "worker status response must contain timestamp_utc and fatal_error"
+    if data.get("fatal_error") is not None and not _valid_common_error(data["fatal_error"]):
+        return "worker status response fatal_error is invalid"
+    if data["worker_state"] == "failed" and data["fatal_error"] is None:
+        return "failed worker status requires fatal_error"
+    origin = None
+    for field, path in (
+        ("status_url", "/status"),
+        ("command_url", "/command"),
+        ("stop_url", "/stop"),
+        ("cancel_url", "/cancel"),
+    ):
+        if not _is_nonempty_string(data.get(field)):
+            return f"worker status response must contain a valid {field}"
+        try:
+            url = urllib.parse.urlparse(data[field])
+            current_origin = (url.scheme, url.hostname, url.port or 80)
+            if (
+                url.scheme != "http"
+                or url.hostname not in {"127.0.0.1", "localhost", "::1"}
+                or url.port == 0
+                or url.path != path
+                or url.username is not None
+                or url.password is not None
+                or url.query
+                or url.fragment
+            ):
+                return f"worker status response must contain a valid {field}"
+        except ValueError:
+            return f"worker status response must contain a valid {field}"
+        if origin is not None and current_origin != origin:
+            return "worker status response URLs must share one origin"
+        origin = current_origin
+    features = data.get("features")
+    if not isinstance(features, dict):
+        return "worker status response has invalid runtime features"
+    for name in ("common.async_jobs", "common.job_cancel"):
+        feature = features.get(name)
+        if (
+            not isinstance(feature, dict)
+            or type(feature.get("contract_version")) is not int
+            or feature["contract_version"] != 1
+        ):
+            return "worker status response has invalid runtime features"
+    commands = features["common.job_cancel"].get("commands")
+    if (
+        not isinstance(commands, list)
+        or any(not isinstance(command, str) for command in commands)
+        or len(commands) != 4
+        or set(commands) != {"ramp", "ramp-list", "sequence", "log"}
+    ):
+        return "worker status response has invalid cancellation commands"
+    if "common.streaming" in features:
+        return "worker status response declares unsupported streaming"
+    if "active_job" not in data or "last_job" not in data:
+        return "worker status response must contain job snapshots"
+    for field in ("active_job", "last_job"):
+        if data[field] is not None and not _valid_job_snapshot(
+            data[field], terminal=field == "last_job"
+        ):
+            return f"worker status response contained an invalid {field} snapshot"
+    if data.get("status") not in ("ready", "busy", "stopping", "error"):
         return "worker status response contained an unknown status"
     return None
+
+
+def _valid_version_and_run(data: dict[str, Any]) -> bool:
+    return (
+        type(data.get("schema_version")) is int
+        and data["schema_version"] == 3
+        and _is_nonempty_string(data.get("run_id"))
+    )
+
+
+def _valid_common_error(error: Any) -> bool:
+    return (
+        isinstance(error, dict)
+        and error.get("category") in ("validation", "admission", "execution", "worker")
+        and _is_nonempty_string(error.get("code"))
+        and _is_nonempty_string(error.get("message"))
+        and isinstance(error.get("details"), dict)
+    )
+
+
+def _valid_utc_timestamp(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return datetime.datetime.fromisoformat(
+            value.replace("Z", "+00:00")
+        ).utcoffset() == datetime.timedelta(0)
+    except ValueError:
+        return False
+
+
+def _valid_job_snapshot(job: Any, *, terminal: bool) -> bool:
+    if (
+        not isinstance(job, dict)
+        or not _is_nonempty_string(job.get("worker_job_id"))
+        or not _is_nonempty_string(job.get("command"))
+        or "job_id" not in job
+        or (job["job_id"] is not None and not isinstance(job["job_id"], str))
+        or not _valid_utc_timestamp(job.get("timestamp_utc"))
+    ):
+        return False
+    if not terminal:
+        return job.get("state") in ("queued", "running")
+    if (
+        job.get("state") not in ("succeeded", "failed", "cancelled")
+        or type(job.get("ok")) is not bool
+        or "result" not in job
+        or "error" not in job
+    ):
+        return False
+    if job["state"] == "succeeded":
+        return job["ok"] and job["error"] is None
+    return not job["ok"] and (
+        job["error"] is None and job["state"] == "cancelled" or _valid_common_error(job["error"])
+    )
 
 
 def _is_nonempty_string(value: Any) -> bool:

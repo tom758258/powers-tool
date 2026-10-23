@@ -38,6 +38,8 @@ def emit_event(
             "timestamp_utc": timestamp,
             "sequence": _sequence_counter,
         }
+        if config.get("_worker_run_id"):
+            payload["run_id"] = config["_worker_run_id"]
         if extra:
             payload.update(extra)
         _sequence_counter += 1

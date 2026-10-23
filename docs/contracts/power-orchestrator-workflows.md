@@ -1,12 +1,12 @@
 # Power Orchestrator Workflows
 
-Schema version: `2`
+Worker runtime schema version: `3`
 
 This document extends `common-orchestrator-workflows.md` with Power-specific examples and safety policy.
 
 ## Startup
 
-Start the Worker with `powers-tool worker`. Wait for the `ready` event and use `command_url`, `status_url`, and `stop_url`. If `ready` is missed, poll `GET /status`. Do not expect `trigger_url` or `default_action`.
+Start the Worker with `powers-tool worker`. Wait for the `ready` event and validate runtime features and use `command_url`, `status_url`, `stop_url`, and `cancel_url`. If `ready` is missed, poll `GET /status`. Do not expect `trigger_url` or `default_action`.
 
 The Worker is file-backed by default. Orchestrators can opt into
 `powers-tool worker --artifact-mode memory` to run without artifact or event
@@ -18,7 +18,7 @@ Use `GET /status` only for Worker lifecycle state. Use `POST /command` with `com
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "command": "read-status",
   "arguments": { "channel": "all" },
   "context": {
@@ -36,7 +36,7 @@ The optional expected model remains a live mismatch guard.
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "command": "apply",
   "arguments": {
     "channel": 1,
@@ -181,7 +181,7 @@ try:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         status = run_client("status", "--port", port, "--json")
-        if status.get("last_job", {}).get("worker_job_id") == accepted["worker_job_id"]:
+        if (status.get("last_job") or {}).get("worker_job_id") == accepted["worker_job_id"]:
             break
         result_path = artifact_dir / "result.json"
         if result_path.exists():

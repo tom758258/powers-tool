@@ -71,8 +71,8 @@ def _worker_snapshot_document() -> dict:
     )
 
 
-@pytest.mark.parametrize("schema_version", [None, 1, 3, "2", 2.0, True, False])
-def test_worker_command_requires_exact_integer_schema_2(tmp_path: Path, schema_version: object) -> None:
+@pytest.mark.parametrize("schema_version", [None, 1, 2, "3", 3.0, True, False])
+def test_worker_command_requires_exact_integer_schema_3(tmp_path: Path, schema_version: object) -> None:
     state = _worker_validation_state(tmp_path)
     body = {"command": "read-status", "arguments": {}}
     if schema_version is not None:
@@ -81,7 +81,7 @@ def test_worker_command_requires_exact_integer_schema_2(tmp_path: Path, schema_v
     status, payload = _validate_command_body(body, state)
 
     assert status == 400
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["error"]["code"] == "unsupported_schema_version"
     assert state.next_job is None
     assert not (tmp_path / "jobs").exists()
@@ -113,7 +113,7 @@ def test_worker_context_matrix(
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "read-status",
             "arguments": {},
             "context": context,
@@ -168,7 +168,7 @@ def test_worker_rejects_invalid_context_before_admission(
 ) -> None:
     state = _worker_validation_state(tmp_path, mode=startup_mode)
     body = {
-        "schema_version": 2,
+        "schema_version": 3,
         "command": "read-status",
         "arguments": {},
     }
@@ -192,7 +192,7 @@ def test_worker_rejects_malformed_restore_boolean_before_artifacts(
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "restore-from-snapshot",
             "context": SIMULATE_CONTEXT,
             "arguments": {
@@ -205,7 +205,7 @@ def test_worker_rejects_malformed_restore_boolean_before_artifacts(
     )
 
     assert status == 400
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["error"]["code"] == "argument_error"
     assert "restore_output_state must be a boolean" in payload["error"]["message"]
     assert state.next_job is None
@@ -219,7 +219,7 @@ def test_worker_rejects_malformed_snapshot_boolean_before_artifacts(tmp_path: Pa
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "restore-from-snapshot",
             "context": SIMULATE_CONTEXT,
             "arguments": {"document": snapshot, "channel": 1},
@@ -228,7 +228,7 @@ def test_worker_rejects_malformed_snapshot_boolean_before_artifacts(tmp_path: Pa
     )
 
     assert status == 400
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert "outputs[].enabled must be a boolean" in payload["error"]["message"]
     assert state.next_job is None
     assert not (tmp_path / "jobs").exists()
@@ -243,7 +243,7 @@ def test_worker_rejects_coercible_channel_before_artifacts(
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "set",
             "context": SIMULATE_CONTEXT,
             "arguments": {"channel": channel, "voltage": 1.0},
@@ -252,7 +252,7 @@ def test_worker_rejects_coercible_channel_before_artifacts(
     )
 
     assert status == 400
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["error"]["code"] == "argument_error"
     assert "channel must be a positive integer" in payload["error"]["message"]
     assert state.next_job is None
@@ -276,7 +276,7 @@ def test_worker_rejects_false_protection_all_before_artifacts(
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": command,
             "arguments": arguments,
             "context": SIMULATE_CONTEXT,
@@ -295,7 +295,7 @@ def test_worker_restore_requires_channel_before_artifacts(tmp_path: Path) -> Non
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "restore-from-snapshot",
             "context": SIMULATE_CONTEXT,
             "arguments": {"document": _worker_snapshot_document()},
@@ -314,7 +314,7 @@ def test_worker_queues_restore_admitted_runtime(tmp_path: Path) -> None:
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "restore-from-snapshot",
             "context": SIMULATE_CONTEXT,
             "arguments": {"document": _worker_snapshot_document(), "channel": "all"},
@@ -331,7 +331,7 @@ def test_worker_queues_restore_admitted_runtime(tmp_path: Path) -> None:
 def test_worker_uses_core_admission_for_multi_channel_ramp(tmp_path: Path) -> None:
     state = _worker_validation_state(tmp_path)
     body = {
-        "schema_version": 2,
+        "schema_version": 3,
         "command": "ramp",
         "context": DRY_RUN_CONTEXT,
         "arguments": {
@@ -363,7 +363,7 @@ def test_worker_rejects_invalid_completion_pulse_channel_before_artifacts(
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "ramp",
             "context": DRY_RUN_CONTEXT,
             "arguments": {
@@ -391,7 +391,7 @@ def test_worker_uses_core_contract_for_inapplicable_parameter(tmp_path: Path) ->
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "set",
             "context": SIMULATE_CONTEXT,
             "arguments": {"channel": 1, "voltage": 1.0, "duration_ms": 1},
@@ -411,7 +411,7 @@ def test_worker_rejects_completion_pulse_channel_without_pins_before_artifacts(t
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "ramp",
             "context": DRY_RUN_CONTEXT,
             "arguments": {
@@ -441,7 +441,7 @@ def test_worker_accepts_valid_completion_pulse_channel(
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "ramp",
             "context": DRY_RUN_CONTEXT,
             "arguments": {
@@ -470,7 +470,7 @@ def test_worker_rejects_incomplete_protection_inventory_before_artifacts(tmp_pat
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "restore-from-snapshot",
             "context": SIMULATE_CONTEXT,
             "arguments": {"document": snapshot, "channel": "all"},
@@ -479,7 +479,7 @@ def test_worker_rejects_incomplete_protection_inventory_before_artifacts(tmp_pat
     )
 
     assert status == 400
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert "protection_settings does not contain channel 1" in payload["error"]["message"]
     assert state.next_job is None
     assert not (tmp_path / "jobs").exists()
@@ -503,7 +503,7 @@ def test_worker_rejects_validation_mode_request_arguments(field: str) -> None:
     )
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "measure",
             "arguments": {"channel": 1, field: "validation"},
             "context": LIVE_CONTEXT,
@@ -586,7 +586,7 @@ def test_worker_rejects_context_arguments_before_queue_mutation(
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "measure",
             "arguments": {"channel": 1, field: "E36312A"},
             "context": LIVE_CONTEXT,
@@ -1029,12 +1029,26 @@ def test_worker_status_endpoint(running_worker):
     with urllib.request.urlopen(url) as response:
         assert response.status == 200
         data = json.loads(response.read().decode("utf-8"))
-        assert data["schema_version"] == 2
+        assert data["schema_version"] == 3
         assert data["service"] == "powers-tool"
         assert data["status"] == "ready"
+        assert data["worker_state"] == "running"
+        assert data["fatal_error"] is None
+        assert data["run_id"]
+        assert data["active_job"] is None and data["last_job"] is None
+        assert data["features"]["common.async_jobs"] == {"contract_version": 1}
+        assert data["features"]["common.job_cancel"] == {
+            "contract_version": 1, "commands": ["ramp", "ramp-list", "sequence", "log"],
+        }
+        assert data["cancel_url"] == f"http://127.0.0.1:{port}/cancel"
         assert data["queue_size"] == 0
         assert "command_url" in data
         assert "trigger_url" not in data
+        ready = json.loads(running_worker["events_jsonl"].read_text(encoding="utf-8").splitlines()[0])
+        assert ready["event"] == "ready"
+        assert all(ready[field] == data[field] for field in (
+            "run_id", "features", "command_url", "status_url", "stop_url", "cancel_url",
+        ))
 
 
 def test_worker_command_execution(running_worker):
@@ -1044,7 +1058,7 @@ def test_worker_command_execution(running_worker):
     
     url = f"http://127.0.0.1:{port}/command"
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "command": "read-status",
         "arguments": {"channel": 1},
         "context": SIMULATE_CONTEXT,
@@ -1058,7 +1072,7 @@ def test_worker_command_execution(running_worker):
     with urllib.request.urlopen(req) as response:
         assert response.status == 202
         data = json.loads(response.read().decode("utf-8"))
-        assert data["schema_version"] == 2
+        assert data["schema_version"] == 3
         assert data["status"] == "accepted"
         job_id = data["worker_job_id"]
         assert Path(data["artifact_path"]).name == job_id
@@ -1089,7 +1103,8 @@ def test_worker_command_execution(running_worker):
         if line.strip()
     ]
     assert events
-    assert all(event["schema_version"] == 2 for event in events)
+    assert all(event["schema_version"] == 3 for event in events)
+    assert all(event["run_id"] == result_data["run_id"] for event in events)
 
 
 def test_worker_simulated_log_writes_worker_owned_telemetry(running_worker) -> None:
@@ -1099,7 +1114,7 @@ def test_worker_simulated_log_writes_worker_owned_telemetry(running_worker) -> N
         f"http://127.0.0.1:{port}/command",
         data=json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "command": "log",
                 "arguments": {
                     "channels": [1, 3],
@@ -1151,7 +1166,7 @@ def test_memory_worker_command_keeps_result_in_state_without_files(
         f"http://127.0.0.1:{handle['port']}/command",
         data=json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "command": "measure",
                 "arguments": {"channel": 2},
                 "context": SIMULATE_CONTEXT,
@@ -1162,7 +1177,7 @@ def test_memory_worker_command_keeps_result_in_state_without_files(
     with urllib.request.urlopen(request) as response:
         accepted = json.loads(response.read().decode("utf-8"))
 
-    assert accepted["schema_version"] == 2
+    assert accepted["schema_version"] == 3
     assert accepted["status"] == "accepted"
     worker_job_id = accepted["worker_job_id"]
     assert worker_job_id
@@ -1195,7 +1210,7 @@ def test_memory_worker_log_streams_samples_without_telemetry_files(
         f"http://127.0.0.1:{handle['port']}/command",
         data=json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "command": "log",
                 "arguments": {"channels": [1], "interval_sec": 0.01, "samples": 2},
                 "context": SIMULATE_CONTEXT,
@@ -1261,7 +1276,7 @@ def test_worker_rejects_invalid_log_before_artifacts(
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "log",
             "arguments": arguments,
             "context": context,
@@ -1283,7 +1298,7 @@ def test_worker_log_cancel_preserves_complete_cycles_without_safe_off(
         f"http://127.0.0.1:{port}/command",
         data=json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "command": "log",
                 "arguments": {
                     "channel": "all",
@@ -1314,7 +1329,7 @@ def test_worker_log_cancel_preserves_complete_cycles_without_safe_off(
     cancel_request = urllib.request.Request(
         f"http://127.0.0.1:{port}/cancel",
         data=json.dumps(
-            {"schema_version": 2, "worker_job_id": worker_job_id}
+            {"schema_version": 3, "worker_job_id": worker_job_id}
         ).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
@@ -1356,7 +1371,7 @@ def test_worker_invalid_command(running_worker):
     port = running_worker["port"]
     url = f"http://127.0.0.1:{port}/command"
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "command": "invalid_command_name"
     }
     req = urllib.request.Request(
@@ -1373,7 +1388,7 @@ def test_worker_invalid_command(running_worker):
 def test_worker_rejects_removed_ramp_native_fields_before_artifact(running_worker, field):
     url = f"http://127.0.0.1:{running_worker['port']}/command"
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "command": "ramp",
         "context": DRY_RUN_CONTEXT,
         "arguments": {
@@ -1399,7 +1414,7 @@ def test_worker_rejects_removed_ramp_native_fields_before_artifact(running_worke
 def test_worker_rejects_invalid_ramp_loop_count_before_artifact(running_worker, loop_count):
     url = f"http://127.0.0.1:{running_worker['port']}/command"
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "command": "ramp",
         "context": DRY_RUN_CONTEXT,
         "arguments": {
@@ -1636,7 +1651,7 @@ def test_worker_readonly_dry_run_does_not_open_live_resource(tmp_path, monkeypat
             rejected = urllib.request.Request(
                 f"http://127.0.0.1:{actual_port}/command",
                 data=json.dumps({
-                    "schema_version": 2,
+                    "schema_version": 3,
                     "command": command,
                     "arguments": arguments,
                     "context": DRY_RUN_CONTEXT,
@@ -1655,7 +1670,7 @@ def test_worker_readonly_dry_run_does_not_open_live_resource(tmp_path, monkeypat
         req = urllib.request.Request(
             f"http://127.0.0.1:{actual_port}/command",
             data=json.dumps({
-                "schema_version": 2,
+                "schema_version": 3,
                 "command": "read-status",
                 "arguments": {},
                 "context": DRY_RUN_CONTEXT,
@@ -1688,7 +1703,7 @@ def test_worker_measure_all_rejects_channel_filter(running_worker):
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/command",
         data=json.dumps({
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "measure-all",
             "arguments": {"channel": 1},
             "context": SIMULATE_CONTEXT,
@@ -1713,7 +1728,7 @@ def test_worker_output_commands_accept_all_channel_dry_run(running_worker, comma
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/command",
         data=json.dumps({
-            "schema_version": 2,
+            "schema_version": 3,
             "command": command,
             "arguments": arguments,
             "context": DRY_RUN_CONTEXT,
@@ -1781,7 +1796,7 @@ def test_worker_simulate_planning_model_id_resource_mismatch_fails(tmp_path):
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "output-on",
             "arguments": {"channel": 1},
             "context": {
@@ -1833,6 +1848,7 @@ def test_worker_result_artifact_write_failure_reports_artifact_error_without_fak
 
     assert state.last_job["status"] == "failed"
     assert state.last_job["error"]["code"] == "artifact_error"
+    assert state.last_job["error"]["category"] == "worker"
     assert state.last_job["artifact_available"] is False
     assert "artifact_path" not in state.last_job
     assert state.last_job["artifact_error"]["code"] == "artifact_error"
@@ -1895,7 +1911,7 @@ def test_worker_live_output_sequence_validation(tmp_path):
     try:
         url = f"http://127.0.0.1:{actual_port}/command"
         payload = {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "sequence",
             "context": LIVE_CONTEXT,
             "arguments": {
@@ -1933,7 +1949,7 @@ def test_worker_simulate_numeric_parity(running_worker):
     
     url = f"http://127.0.0.1:{port}/command"
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "command": "measure-all",
         "context": SIMULATE_CONTEXT,
     }
@@ -2005,7 +2021,7 @@ def test_worker_model_unsupported_error_mapping(running_worker):
     try:
         url = f"http://127.0.0.1:{edu_port}/command"
         payload = {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "measure-all",
             "context": {
                 "mode": "simulate",
@@ -2021,7 +2037,7 @@ def test_worker_model_unsupported_error_mapping(running_worker):
             urllib.request.urlopen(req)
         assert exc_info.value.code == 400
         response = json.loads(exc_info.value.read().decode("utf-8"))
-        assert response["schema_version"] == 2
+        assert response["schema_version"] == 3
         assert response["error"]["code"] == "argument_error"
         assert "not supported" in response["error"]["message"]
         assert not (edu_art_dir / "jobs").exists()
@@ -2117,6 +2133,8 @@ def test_worker_job_cancel_validates_identity_without_shutdown(tmp_path):
         "worker_job_id": "worker-1",
         "command": "ramp",
         "status": "running",
+        "state": "running",
+        "timestamp_utc": "2026-10-23T00:00:00Z",
     }
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -2125,7 +2143,7 @@ def test_worker_job_cancel_validates_identity_without_shutdown(tmp_path):
         wrong = urllib.request.Request(
             cancel_url,
             data=json.dumps({
-                "schema_version": 2,
+                "schema_version": 3,
                 "worker_job_id": "stale-worker-id",
             }).encode("utf-8"),
             headers={"Content-Type": "application/json"},
@@ -2138,7 +2156,7 @@ def test_worker_job_cancel_validates_identity_without_shutdown(tmp_path):
         valid = urllib.request.Request(
             cancel_url,
             data=json.dumps({
-                "schema_version": 2,
+                "schema_version": 3,
                 "worker_job_id": "worker-1",
             }).encode("utf-8"),
             headers={"Content-Type": "application/json"},
@@ -2146,10 +2164,18 @@ def test_worker_job_cancel_validates_identity_without_shutdown(tmp_path):
         with urllib.request.urlopen(valid) as response:
             payload = json.loads(response.read().decode("utf-8"))
         assert response.status == 202
-        assert payload["status"] == "stopping"
+        assert payload["status"] == "accepted"
         assert state.job_cancel_event.is_set() is True
         assert state.active_job["status"] == "stopping"
         assert state.shutdown_flag is False
+        events = [json.loads(line) for line in Path(config["events_jsonl"]).read_text(encoding="utf-8").splitlines()]
+        status_event = next(event for event in events if event["event"] == "status")
+        assert status_event["worker_state"] == "running"
+        assert status_event["fatal_error"] is None
+        assert status_event["run_id"] == state.run_id
+        assert status_event["active_job"]["state"] == "running"
+        assert status_event["active_job"]["timestamp_utc"] == "2026-10-23T00:00:00Z"
+        assert status_event["last_job"] is None
     finally:
         server.shutdown()
         server.server_close()
@@ -2163,7 +2189,7 @@ def test_sequence_stop_wait_interrupt(running_worker):
     
     url = f"http://127.0.0.1:{port}/command"
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "command": "sequence",
         "context": SIMULATE_CONTEXT,
         "arguments": {
@@ -2211,7 +2237,7 @@ def test_worker_ramp_list_requires_document_or_file():
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "ramp-list",
             "arguments": {},
             "context": SIMULATE_CONTEXT,
@@ -2229,7 +2255,7 @@ def test_worker_rejects_invalid_static_parameter_before_enqueue():
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "set",
             "arguments": {"channel": 1, "voltage": -1, "current": 0.1},
             "context": SIMULATE_CONTEXT,
@@ -2248,7 +2274,7 @@ def test_worker_accepts_partial_set_before_enqueue():
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "set",
             "arguments": {"channel": 1, "voltage": 1.0},
             "context": DRY_RUN_CONTEXT,
@@ -2267,7 +2293,7 @@ def test_worker_rejects_empty_set_before_enqueue():
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "set",
             "arguments": {"channel": 1},
             "context": DRY_RUN_CONTEXT,
@@ -2286,7 +2312,7 @@ def test_worker_rejects_arm_only_trigger_list_before_enqueue():
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "trigger-list",
             "arguments": {"channel": 1, "source": "bus"},
             "context": SIMULATE_CONTEXT,
@@ -2314,7 +2340,7 @@ def test_worker_rejects_invalid_trigger_control_before_enqueue(command, argument
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": command,
             "arguments": {"channel": 1, **arguments},
             "context": SIMULATE_CONTEXT,
@@ -2334,7 +2360,7 @@ def test_worker_rejects_trigger_fire_wait_without_abort_target_before_enqueue():
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "trigger-fire",
             "arguments": {"wait_complete": True},
             "context": SIMULATE_CONTEXT,
@@ -2354,7 +2380,7 @@ def test_worker_rejects_trigger_list_pulse_without_output_pins_before_enqueue():
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "trigger-list",
             "context": SIMULATE_CONTEXT,
             "arguments": {
@@ -2383,7 +2409,7 @@ def test_worker_ramp_list_rejects_invalid_document_before_enqueue():
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "ramp-list",
             "context": SIMULATE_CONTEXT,
             "arguments": {
@@ -2408,7 +2434,7 @@ def test_worker_ramp_list_v1_is_rejected_before_artifact_creation(running_worker
         f"http://127.0.0.1:{running_worker['port']}/command",
         data=json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "command": "ramp-list",
                 "context": SIMULATE_CONTEXT,
                 "arguments": {
@@ -2432,7 +2458,7 @@ def test_worker_ramp_list_v1_is_rejected_before_artifact_creation(running_worker
 
     assert exc_info.value.code == 400
     payload = json.loads(exc_info.value.read().decode("utf-8"))
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["error"]["code"] == "argument_error"
     assert "unsupported ramp-list version: 1" in payload["error"]["message"]
     jobs_dir = running_worker["artifacts_dir"] / "jobs"
@@ -2451,7 +2477,7 @@ def test_worker_ramp_list_rejects_invalid_version_type_before_enqueue(version):
 
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "ramp-list",
             "context": SIMULATE_CONTEXT,
             "arguments": {
@@ -2470,7 +2496,7 @@ def test_worker_ramp_list_rejects_invalid_version_type_before_enqueue(version):
     )
 
     assert status == 400
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["error"]["code"] == "argument_error"
     assert "unsupported ramp-list version" in payload["error"]["message"]
     assert state.next_job is None
@@ -2486,7 +2512,7 @@ def test_worker_live_ramp_list_requires_output_confirmation():
     state = WorkerState(config, 0)
     status, payload = _validate_command_body(
         {
-            "schema_version": 2,
+            "schema_version": 3,
             "command": "ramp-list",
             "context": LIVE_CONTEXT,
             "arguments": {
@@ -2511,7 +2537,7 @@ def test_worker_live_ramp_list_requires_output_confirmation():
     )
 
     assert status == 409
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["reason"] == "output_confirmation_required"
 
 
@@ -2522,7 +2548,7 @@ def test_worker_simulate_ramp_list_document(running_worker):
         f"http://127.0.0.1:{port}/command",
         data=json.dumps(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "command": "ramp-list",
                 "context": SIMULATE_CONTEXT,
                 "arguments": {

@@ -13,9 +13,12 @@ import uuid
 
 from powers_tool_cli.worker_io import emit_event
 from powers_tool_cli.worker_protocol import (
+    ARTIFACT_SCHEMA_VERSION,
+    CANCELLABLE_COMMANDS,
     WORKER_SCHEMA_VERSION,
     _command_response,
     _validate_command_body,
+    common_error,
 )
 from powers_tool_cli.worker_state import WorkerState
 
@@ -56,27 +59,14 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         state = self.state
         if self.path == "/status":
-            with state.lock:
-                now = (
-                    datetime.datetime.now(datetime.timezone.utc)
-                    .isoformat()
-                    .replace("+00:00", "Z")
-                )
-                res = {
-                    "schema_version": WORKER_SCHEMA_VERSION,
-                    "service": "powers-tool",
-                    "run_id": state.run_id,
-                    "status": state.status,
-                    "command_url": f"http://127.0.0.1:{state.port}/command",
-                    "stop_url": f"http://127.0.0.1:{state.port}/stop",
-                    "status_url": f"http://127.0.0.1:{state.port}/status",
-                    "queue_size": 1 if state.next_job is not None else 0,
-                    "active_job": state.active_job,
-                    "last_job": state.last_job,
-                    "fatal_error": state.fatal_error,
-                    "timestamp_utc": now,
-                }
-            self._send_json(200, res)
+            try:
+                self._send_json(200, state.status_snapshot())
+            except Exception as exc:
+                self._send_json(500, {
+                    "schema_version": WORKER_SCHEMA_VERSION, "run_id": state.run_id,
+                    "status": "error", "error": common_error("worker", {
+                        "code": "status_failed", "message": f"Status request failed: {exc}"}),
+                })
         else:
             self._send_json(
                 404,
@@ -87,9 +77,34 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
             )
 
     def do_POST(self) -> None:
+        try:
+            self._handle_post()
+        except Exception as exc:
+            error = {"code": "request_failed", "message": f"Request handling failed: {exc}"}
+            if self.path == "/command":
+                self._send_json(500, _command_response(
+                    "error", None, None, _state=self.state,
+                    _error_category="worker", error=error,
+                ))
+            else:
+                self._send_json(500, self._control_response(
+                    "error", self.path, None, common_error("worker", error),
+                ))
+
+    def _handle_post(self) -> None:
         state = self.state
-        content_length = int(self.headers.get("Content-Length", 0))
-        body_data: dict[str, Any] = {}
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            if content_length < 0:
+                raise ValueError("negative Content-Length")
+        except ValueError:
+            error = {"code": "invalid_request", "message": "Invalid Content-Length"}
+            if self.path == "/command":
+                self._send_json(400, _command_response("error", None, None, _state=state, error=error))
+            else:
+                self._send_json(400, self._control_response("error", self.path, None, common_error("validation", error)))
+            return
+        body_data: Any = {}
         if content_length > 0:
             try:
                 body_data = json.loads(self.rfile.read(content_length).decode("utf-8"))
@@ -101,6 +116,7 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                             "error",
                             None,
                             None,
+                            _state=state,
                             error={
                                 "code": "invalid_json",
                                 "message": f"Invalid JSON body: {exc}",
@@ -108,30 +124,37 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                         ),
                     )
                 else:
-                    self._send_json(
-                        400,
-                        {
-                            "ok": False,
-                            "error": {
-                                "code": "invalid_json",
-                                "message": f"Invalid JSON body: {exc}",
-                            },
-                        },
-                    )
+                    self._send_json(400, self._control_response(
+                        "error", self.path, None,
+                        common_error("validation", {"code": "invalid_json", "message": f"Invalid JSON body: {exc}"}),
+                    ))
                 return
 
         if self.path == "/stop":
+            if not isinstance(body_data, dict) or set(body_data) - {"schema_version", "reason"} or (
+                "schema_version" in body_data and
+                (type(body_data["schema_version"]) is not int or body_data["schema_version"] != WORKER_SCHEMA_VERSION)
+            ) or ("reason" in body_data and not isinstance(body_data["reason"], str)):
+                self._send_json(400, self._control_response("error", "/stop", None,
+                    common_error("validation", {"code": "invalid_stop_request", "message": "Invalid stop request"})))
+                return
             # The handler only publishes cooperative stop state and wakes the runner.
             reason = body_data.get("reason", "manual stop")
-            state.stop_event.set()
-            emit_event(state.config, "stop_requested", {"reason": reason})
             with state.lock:
+                already_requested = state.stop_event.is_set()
+                state.stop_event.set()
                 state.shutdown_flag = True
                 state.lock.notify_all()
-            self._send_json(200, {"ok": True, "message": "Stop requested"})
+            if not already_requested:
+                emit_event(state.config, "stop_requested", {"reason": reason})
+            self._send_json(200, self._control_response("accepted", "/stop", None, None))
             return
 
         if self.path == "/cancel":
+            if not isinstance(body_data, dict):
+                self._send_json(400, self._control_response("error", "/cancel", None,
+                    common_error("validation", {"code": "invalid_cancel_request", "message": "cancel body must be a JSON object"})))
+                return
             allowed_fields = {"schema_version", "worker_job_id", "reason"}
             schema_version = body_data.get("schema_version")
             worker_job_id = body_data.get("worker_job_id")
@@ -142,31 +165,13 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                 or not isinstance(worker_job_id, str)
                 or not worker_job_id
             ):
-                self._send_json(
-                    400,
-                    {
-                        "schema_version": WORKER_SCHEMA_VERSION,
-                        "ok": False,
-                        "error": {
-                            "code": "invalid_cancel_request",
-                            "message": "cancel requires schema_version 2 and a non-empty worker_job_id",
-                        },
-                    },
-                )
+                self._send_json(400, self._control_response("error", "/cancel", worker_job_id,
+                    common_error("validation", {"code": "invalid_cancel_request", "message": "cancel requires schema_version 3 and a non-empty worker_job_id"})))
                 return
             reason = body_data.get("reason", "user cancellation")
             if not isinstance(reason, str):
-                self._send_json(
-                    400,
-                    {
-                        "schema_version": WORKER_SCHEMA_VERSION,
-                        "ok": False,
-                        "error": {
-                            "code": "invalid_cancel_request",
-                            "message": "cancel reason must be a string",
-                        },
-                    },
-                )
+                self._send_json(400, self._control_response("error", "/cancel", worker_job_id,
+                    common_error("validation", {"code": "invalid_cancel_request", "message": "cancel reason must be a string"})))
                 return
             with state.lock:
                 active = state.active_job
@@ -174,20 +179,10 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                     state.status != "busy"
                     or active is None
                     or active.get("worker_job_id") != worker_job_id
-                    or active.get("command")
-                    not in {"ramp", "ramp-list", "sequence", "log"}
+                    or active.get("command") not in CANCELLABLE_COMMANDS
                 ):
-                    self._send_json(
-                        409,
-                        {
-                            "schema_version": WORKER_SCHEMA_VERSION,
-                            "ok": False,
-                            "error": {
-                                "code": "job_not_active",
-                                "message": "worker_job_id does not identify an active cancellable workflow",
-                            },
-                        },
-                    )
+                    self._send_json(409, self._control_response("rejected", "/cancel", worker_job_id,
+                        common_error("admission", {"code": "job_not_active", "message": "worker_job_id does not identify an active cancellable workflow"})))
                     return
                 already_requested = state.job_cancel_event.is_set()
                 state.job_cancel_event.set()
@@ -202,6 +197,7 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                     state.config,
                     "status",
                     {
+                        **state.status_snapshot(),
                         "status": "stopping",
                         "job_id": active.get("job_id"),
                         "worker_job_id": worker_job_id,
@@ -216,12 +212,7 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                 )
             self._send_json(
                 202,
-                {
-                    "schema_version": WORKER_SCHEMA_VERSION,
-                    "ok": True,
-                    "status": "stopping",
-                    "worker_job_id": worker_job_id,
-                },
+                self._control_response("accepted", "/cancel", worker_job_id, None),
             )
             return
 
@@ -245,6 +236,7 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                             "rejected",
                             cmd,
                             client_job_id,
+                            _state=state,
                             reason="busy",
                             error={
                                 "code": "busy",
@@ -268,7 +260,7 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                     try:
                         job_dir.mkdir(parents=True, exist_ok=True)
                         artifact_request = {
-                            "schema_version": WORKER_SCHEMA_VERSION,
+                            "schema_version": ARTIFACT_SCHEMA_VERSION,
                             "command": cmd,
                             "arguments": arguments,
                             "context": context,
@@ -284,6 +276,8 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                                 "error",
                                 cmd,
                                 client_job_id,
+                                _state=state,
+                                _error_category="worker",
                                 error={
                                     "code": "artifact_error",
                                     "message": f"Could not create job directory or request artifact: {exc}",
@@ -307,6 +301,8 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                     "worker_job_id": worker_job_id,
                     "command": cmd,
                     "status": "queued",
+                    "state": "queued",
+                    "timestamp_utc": now,
                     **({"artifact_path": artifact_path} if artifact_path is not None else {}),
                     "accepted_at": now,
                 }
@@ -341,6 +337,7 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
                     "accepted",
                     cmd,
                     client_job_id,
+                    _state=state,
                     **accepted_extra,
                 ),
             )
@@ -354,10 +351,18 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
             )
 
 
+    def _control_response(self, status: str, path: str, worker_job_id: Any, error: Any) -> dict[str, Any]:
+        result = {"schema_version": WORKER_SCHEMA_VERSION, "run_id": self.state.run_id,
+                  "status": status, "error": error}
+        if path == "/cancel":
+            result["worker_job_id"] = worker_job_id if isinstance(worker_job_id, str) and worker_job_id else None
+        return result
+
+
 def request_worker_shutdown(server: WorkerHTTPServer, state: WorkerState) -> None:
     """Helper to cleanly stop the server loop from any thread without deadlocking."""
     with state.lock:
-        if state.status != "stopping":
+        if state.status not in {"stopping", "error"}:
             state.status = "stopping"
             emit_event(state.config, "worker_stopping")
     threading.Thread(target=server.shutdown, daemon=True).start()

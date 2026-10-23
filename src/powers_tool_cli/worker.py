@@ -35,6 +35,8 @@ from powers_tool_cli.worker_protocol import (
     RUNTIME_ARGUMENT_KEYS,
     TRIGGER_COMMANDS,
     WORKER_SCHEMA_VERSION,
+    RUNTIME_FEATURES,
+    common_error,
     validate_worker_argument_context_fields,
     validate_worker_context,
 )
@@ -72,15 +74,21 @@ def run_worker(args: argparse.Namespace) -> int:
     """Entry point for worker subcommand execution."""
     try:
         config = load_worker_config(args)
-        _validate_event_sink(config)
+        art_dir = Path(config["artifacts_dir"])
+        if config.get("events_jsonl") is not None:
+            Path(config["events_jsonl"])
     except Exception as exc:
         print(f"Configuration validation failed: {exc}", file=sys.stderr)
-        return 1
+        return 2
 
-    art_dir = Path(config["artifacts_dir"])
     memory_artifacts = config["artifact_mode"] == "memory"
-    if not memory_artifacts:
-        art_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        _validate_event_sink(config)
+        if not memory_artifacts:
+            art_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        print(f"Failed to initialize Worker artifacts/event sink: {exc}", file=sys.stderr)
+        return 3
 
     host = config["control_host"]
     req_port = config["control_port"]
@@ -89,17 +97,19 @@ def run_worker(args: argparse.Namespace) -> int:
         server = WorkerHTTPServer((host, req_port), WorkerHTTPHandler)
     except Exception as exc:
         print(f"Failed to bind HTTP server on {host}:{req_port}: {exc}", file=sys.stderr)
-        return 1
+        return 3
 
     actual_port = server.server_address[1]
-    state = WorkerState(config, actual_port)
-
-    # Cross reference references
-    server.state = state
-    state.server = server
-
-    runner_thread = threading.Thread(target=job_runner, args=(state,), daemon=True)
-    runner_thread.start()
+    try:
+        state = WorkerState(config, actual_port)
+        server.state = state
+        state.server = server
+        runner_thread = threading.Thread(target=job_runner, args=(state,), daemon=True)
+        runner_thread.start()
+    except Exception as exc:
+        server.server_close()
+        print(f"Failed to start Worker runtime: {exc}", file=sys.stderr)
+        return 3
 
     ready_extra: dict[str, object] = {
         "run_id": state.run_id,
@@ -109,6 +119,8 @@ def run_worker(args: argparse.Namespace) -> int:
         "command_url": f"http://127.0.0.1:{actual_port}/command",
         "stop_url": f"http://127.0.0.1:{actual_port}/stop",
         "status_url": f"http://127.0.0.1:{actual_port}/status",
+        "cancel_url": f"http://127.0.0.1:{actual_port}/cancel",
+        "features": RUNTIME_FEATURES,
         "allowed_commands": sorted(list(ALLOWED_COMMANDS)),
     }
     if memory_artifacts:
@@ -121,6 +133,11 @@ def run_worker(args: argparse.Namespace) -> int:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    except Exception as exc:
+        state.status = "error"
+        state.fatal_error = common_error("worker", {
+            "code": "runtime_failed", "message": f"Worker runtime failed: {exc}"})
+        print(f"Worker runtime failed: {exc}", file=sys.stderr)
     finally:
         state.stop_event.set()
         with state.lock:
@@ -131,16 +148,20 @@ def run_worker(args: argparse.Namespace) -> int:
         with state.lock:
             state.lock.notify_all()
         runner_thread.join()
-        ok = state.status != "error" and not state.cleanup_failed
+        server.server_close()
+        ok = state.status != "error" and state.fatal_error is None and not state.cleanup_failed
+        exit_code = 0 if ok else 3
         emit_event(
             config,
             "summary",
             {
                 "run_id": state.run_id,
                 "ok": ok,
+                "fatal_error": state.fatal_error,
+                "exit_code": exit_code,
                 "last_job": state.last_job,
                 "cleanup": state.cleanup_results,
             },
         )
 
-    return 0 if ok else 3
+    return exit_code
