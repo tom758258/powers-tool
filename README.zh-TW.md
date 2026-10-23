@@ -327,6 +327,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\release-accept
 
 若提供 `-OutputRoot`，必須解析到 repository 內的 `.tmp_tests` 或其子目錄。
 
+手動 GitHub Actions **Build Windows** workflow 提供 `bundle`、`desktop`、
+`release` 與 `release-acceptance` 四種模式。前三種只提供建置產物下載。
+`release-acceptance` 執行相同的完整驗收腳本，將已驗證的發布檔案與
+`report.json`、`summary.md` 分開保存。只有在 `main` 使用
+`release-acceptance` 並設定 `create_draft=true`，才會在報告、Commit、版本與
+checksum 驗證成功後建立 Draft Release。Draft 使用原始驗收產物及對應的
+CHANGELOG 版本內容；Publish 仍由使用者自行審查後執行。
+
 此 acceptance script 不會進行 VISA discovery、開啟 resource 或送出 SCPI；
 執行期間 HEAD 或 source working tree 變動會使其失敗。它不會發佈 release，
 也不會重新命名 repository。

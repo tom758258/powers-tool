@@ -8,20 +8,12 @@ Contract revision: `3.0`
 
 Compatibility policy: `v3-only`
 
-The Common v3.0 specification is finalized, with its major contract design
-frozen. Specification, implementation, conformance, and release are distinct:
-
-| Status | Common v3.0 |
-| --- | --- |
-| Specification | Finalized |
-| Implementation | Pending across the five Tool projects and Orchestrator (six projects) |
-| Conformance | Pending test verification |
-| Release | No formal v3 cutover |
-
-The five Tools' existing v2 implementations continue under Common v2, contract
-revision `2.2`. These finalized requirements do not upgrade those runtimes or
-establish v3 implementation, conformance, or release. Implementation and
-no-hardware acceptance require separate authorization.
+Common v3.0 defines the shared lifecycle contract. Runtime adoption is
+project-specific: consumers must inspect each Tool's Manifest and validate its
+runtime declarations rather than infer compatibility from package versions or
+publication of these documents. A Tool's adoption does not establish migration
+or conformance of other Tools or the Orchestrator. Tool-specific contracts define
+implemented domain behavior and supported optional features.
 
 This protocol is lifecycle-only: it defines shared communication, control,
 and job handling, not domain commands, device operations, session management,

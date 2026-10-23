@@ -724,6 +724,32 @@ uv run powers-tool ramp-list --json --resource "$env:POWERS_TOOL_RESOURCE" --seg
 
 ## Power Worker Daemon
 
+### 從 Worker v2 升級
+
+Powers Tool 4.0.0 要求 Worker protocol 3（`v3-only`）；v2-only client 必須先升級
+才能連線。使用 `manifest --json` 檢查 schema-2 Manifest 中的
+`worker_protocol.schema_versions: [3]`、`execution`、`features` 與 command kinds。
+這不代表其他 Tools 或 Orchestrator 已完成 v3 遷移。
+
+- Worker command/cancel request 使用整數 token `schema_version: 3`。
+  Mode 與 planning/expected identity 放在 top-level `context`，不可放在
+  `arguments`；dry-run 使用 `context.mode: "dry_run"`。
+- 驗證 schema-3 HTTP envelope 與 Common Error。原始 acceptance 使用
+  `status: "accepted"`、`kind: "async_job"` 與 `worker_job_id`；只有 CLI client
+  會加入 diagnostic `ok`。Client `job_id` 只供 correlation，不是路徑或 retry key。
+  請透過 `artifact_path` 或 `worker_job_id` 定位檔案。
+- 所有 terminal outcome 都使用 `job_finished`，檢查其 `state`、`ok`、`result`
+  與 `error`，或對應的完整 `last_job` snapshot。核對 `run_id` 與
+  `worker_job_id`，保留固定的 terminal timestamp。
+- Readiness 要求 Common `worker_state: "running"`、null `fatal_error`，以及
+  有效的 runtime features/URLs。Stop 接受 Common `200`/`202` acknowledgment；
+  shutdown 必須另外確認 summary、EOF 與 exit。Stop 接受後，新 command 會以
+  `run_not_ready` 拒絕。
+- 一般 CLI、Manifest、request/result artifacts 與 memory result 內層 envelope
+  維持 schema 2；Worker runtime `sample` event 使用 schema 3。取消支援 Ramp、
+  Ramp List、Sequence 與有界 `log`，不代表採用 Common streaming，也不改變既有
+  硬體安全規則。
+
 Power Worker 以 machine mode 提供本機 lifecycle 與 command submission。`GET /status`
 只代表 control-plane health/progress，不是儀器 `read-status`；`POST /command` 的
 accepted／HTTP `202` 只代表 job 已接受或進入 queue，不代表 domain command 已完成。
@@ -757,7 +783,7 @@ handler thread 執行 VISA I/O、cleanup 或 server shutdown。Worker 會等 run
 安全清理後，才送出 final `summary` 並停止 HTTP server；stop acknowledgment 不代表
 cleanup 或 shutdown 已完成。
 
-`POST /cancel` 是固定的 job-specific cancellation endpoint，要求 schema 2 與 exact
+`POST /cancel` 是固定的 job-specific cancellation endpoint，要求 schema 3 與 exact
 active `worker_job_id`；missing、stale 或 mismatched identity 會 fail closed。它可取消
 Ramp、Ramp List、Sequence 與有界 Worker `log`，但不會關閉 Worker。前三種 workflow
 依既有安全清理執行 safe-off；`log` 會完成已開始的 sample cycle、保留 telemetry，
@@ -768,7 +794,7 @@ CLI `powers-tool log` 使用呼叫者指定的 CSV/JSONL 路徑。Worker `log` �
 唯讀、非 output-affecting 的非同步 job。在 `files` mode，它會在自己的 job
 directory 寫入固定的 `telemetry.csv` 與 `telemetry.jsonl`，並在取消或失敗後
 保留已完成的 telemetry evidence。在 `memory` mode，它不建立 telemetry files；
-每筆 telemetry row 會以 schema-2 `sample` stdout JSONL event 輸出，terminal
+每筆 telemetry row 會以 schema-3 `sample` stdout JSONL event 輸出，terminal
 result 只保留 bounded summary。它不是 background telemetry，也不能和另一個
 active Worker job 並行。Sequence action `log` 仍是 host-side message，
 `--log-scpi` 則仍是 SCPI traffic tracing，而非 telemetry。
@@ -777,9 +803,9 @@ Worker 預設為 file-backed（`--artifact-mode files`）：啟動時建立 arti
 `events.jsonl`，每個 accepted job 在 `jobs/<worker_job_id>/` 寫入 `request.json`
 與 `result.json`。Orchestrator 可明確選用 `--artifact-mode memory`：啟動不建立
 任何 artifact 目錄、事件檔或 request/result/telemetry 檔案；accepted 回應省略
-`artifact_path`；終端事件 `job_finished`／`job_failed`／`job_cancelled` 與
+`artifact_path`；所有終端狀態的 `job_finished` 事件與
 `GET /status` 的 `last_job` 直接帶入完整 result envelope；`log` 的每筆
-telemetry row 改以 schema-2 `sample` stdout JSONL 事件輸出。memory 模式會拒絕
+telemetry row 改以 schema-3 `sample` stdout JSONL 事件輸出。memory 模式會拒絕
 明確的 `--events-jsonl`，因為 stdout 是唯一事件流。詳細欄位語意請參閱
 [Power Worker 契約](../contracts/power-worker-contract.md)。
 

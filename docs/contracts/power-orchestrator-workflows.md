@@ -4,6 +4,11 @@ Worker runtime schema version: `3`
 
 This document extends `common-orchestrator-workflows.md` with Power-specific examples and safety policy.
 
+For v2 clients, follow the [migration guide](../cli/README.md#upgrading-from-worker-v2)
+before starting this flow. HTTP acceptance and job completion are separate;
+observe `job_finished` or the complete matching `last_job` snapshot. Confirm
+Worker shutdown separately using summary, EOF, and actual exit.
+
 ## Startup
 
 Start the Worker with `powers-tool worker`. Wait for the `ready` event and validate runtime features and use `command_url`, `status_url`, `stop_url`, and `cancel_url`. If `ready` is missed, poll `GET /status`. Do not expect `trigger_url` or `default_action`.
@@ -134,7 +139,7 @@ proc = subprocess.Popen(
         "--control-port",
         "0",
         "--artifacts-dir",
-        ".tmp/power-worker",
+        ".tmp_tests/power-worker",
     ],
     text=True,
     stdout=subprocess.PIPE,

@@ -12,8 +12,9 @@ on:
           - bundle
           - desktop
           - release
+          - release-acceptance
       create_draft:
-        description: "Create GitHub Draft Release (release mode only)"
+        description: "Create GitHub Draft Release (release-acceptance mode, main only)"
         type: boolean
         required: true
         default: false
@@ -32,6 +33,8 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
       artifact_name: ${{ steps.meta.outputs.artifact_name }}
+      acceptance_verified: ${{ steps.acceptance.outputs.verified }}
+      source_commit: ${{ steps.acceptance.outputs.source_commit }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,8 +42,8 @@ jobs:
       - name: Validate options
         shell: pwsh
         run: |
-          if ('${{ inputs.create_draft }}' -eq 'true' -and '${{ inputs.build_mode }}' -ne 'release') {
-            throw "Draft Releases require build_mode=release."
+          if ('${{ inputs.create_draft }}' -eq 'true' -and '${{ inputs.build_mode }}' -ne 'release-acceptance') {
+            throw "Draft Releases require build_mode=release-acceptance."
           }
           if ('${{ inputs.create_draft }}' -eq 'true' -and '${{ github.ref }}' -ne 'refs/heads/main') {
             throw "Draft Releases can only be created from main."
@@ -65,10 +68,24 @@ jobs:
         shell: pwsh
         run: uv sync --python 3.13 --all-extras --locked --link-mode=copy
 
+      - name: Prepare acceptance output directory
+        if: ${{ inputs.build_mode == 'release-acceptance' }}
+        shell: pwsh
+        run: |
+          $root = ".tmp_tests/actions-release-acceptance/${{ github.run_id }}-${{ github.run_attempt }}"
+          if (Test-Path -LiteralPath $root) { throw "Acceptance output already exists: $root" }
+          New-Item -ItemType Directory -Path $root | Out-Null
+          "ACCEPTANCE_ROOT=$root" >> $env:GITHUB_ENV
+
       - name: Build with existing PowerShell script
         shell: pwsh
         run: |
           $mode = '${{ inputs.build_mode }}'
+          if ($mode -eq 'release-acceptance') {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/release-acceptance.ps1 -OutputRoot $env:ACCEPTANCE_ROOT
+            if ($LASTEXITCODE -ne 0) { throw "Release acceptance failed with exit code $LASTEXITCODE" }
+            exit 0
+          }
           $script = switch ($mode) {
             'bundle' { 'scripts/build_windows_bundle.ps1' }
             'desktop' { 'scripts/build_desktop.ps1' }
@@ -77,6 +94,126 @@ jobs:
           }
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script
           if ($LASTEXITCODE -ne 0) { throw "$script failed with exit code $LASTEXITCODE" }
+
+      - name: Verify acceptance report and release artifacts
+        id: acceptance
+        if: ${{ inputs.build_mode == 'release-acceptance' }}
+        shell: python
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          try:
+              import tomllib
+          except ModuleNotFoundError:  # Python 3.10 validation
+              import tomli as tomllib
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(message)
+
+          version = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+          root = Path(os.environ["ACCEPTANCE_ROOT"])
+          # Only direct run directories belong to this invocation; pytest may contain fixture reports.
+          reports = list(root.glob("*/report.json"))
+          require(len(reports) == 1, "Expected exactly one acceptance run report")
+          report_path = reports[0]
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          require(isinstance(report, dict), "Invalid report object")
+          require(type(report.get("schema_version")) is int and report["schema_version"] == 1,
+                  "Unsupported report schema")
+          require(report.get("kind") == "powers-tool-release-acceptance", "Invalid report kind")
+          require(report.get("ok") is True and report.get("full_acceptance_completed") is True,
+                  "Full acceptance did not succeed")
+          require(report.get("acceptance_mode") == "committed-clean-head", "Invalid acceptance mode")
+          require(report.get("distribution_name") == "powers-tool", "Distribution mismatch")
+          require(report.get("project_version") == version, "Acceptance version mismatch")
+          require(report.get("source_commit") == os.environ["EXPECTED_COMMIT"], "Acceptance commit mismatch")
+          for field in ("initial_worktree_status", "final_worktree_status"):
+              require(report.get(field) == [], f"Missing or dirty {field}")
+          for field in ("failed_step", "failure_message"):
+              require(field in report and report[field] is None, f"Acceptance failure: {field}")
+          commands = report.get("commands")
+          require(isinstance(commands, list) and commands, "Missing acceptance commands")
+          for command in commands:
+              require(isinstance(command, dict) and type(command.get("exit_code")) is int
+                      and command["exit_code"] == 0, "Failed or invalid acceptance command")
+          required_commands = {
+              "python-metadata", "uv-lock-check", "pytest-full-no-hardware", "build-versioned-release",
+              "create-wheel-environment", "install-final-wheel", "inspect-wheel-install",
+              "create-sdist-environment", "install-final-sdist", "inspect-sdist-install",
+              "sdist-powers-tool-version", "sdist-powers-tool-help", "sdist-powers-tool-webui-version", "sdist-powers-tool-webui-help",
+              "sdist-powers-tool-webui-launcher-version", "sdist-powers-tool-webui-launcher-help",
+              "packaged-cli-version", "packaged-webui-launcher-version",
+              "preflight-cli-all-smoke", "preflight-cli-deep-representatives",
+              "live-cli-plan-only", "git-diff-check",
+          }
+          require(required_commands <= {c.get("name") for c in commands}, "Incomplete acceptance commands")
+          payloads = {
+              f"powers-tool-{version}-windows-x64.zip",
+              f"powers_tool-{version}-py3-none-any.whl",
+              f"powers_tool-{version}.tar.gz",
+          }
+          required_checks = {
+              "artifact_checks": {"versioned release folder contents", "checksum artifact coverage",
+                                  "checksums UTF-8 without BOM", *{f"SHA-256 {name}" for name in payloads}},
+              "install_checks": {f"{kind} package identity, contents, and bundled Help"
+                                 for kind in ("wheel", "sdist")},
+              "entry_point_checks": {f"{entry} --{option}" for entry in
+                                     ("powers-tool", "powers-tool-webui", "powers-tool-webui-launcher")
+                                     for option in ("version", "help")},
+              "standalone_checks": {"CLI --version", "WebUI --version"},
+          }
+          for field, names in required_checks.items():
+              checks = report.get(field)
+              require(isinstance(checks, list) and checks, f"Missing {field}")
+              require(all(isinstance(c, dict) and c.get("passed") is True for c in checks),
+                      f"Failed or invalid {field}")
+              require(names <= {c.get("name") for c in checks}, f"Incomplete {field}")
+          run_dir = report_path.parent
+          require((run_dir / "summary.md").is_file(), "Missing acceptance summary")
+          release_dir = run_dir / "artifacts" / "release" / version
+          expected = payloads | {"checksums.txt"}
+          entries = list(release_dir.iterdir())
+          require({p.name for p in entries} == expected, "Unexpected release artifact set")
+          require(all(p.is_file() and not p.is_symlink() and p.stat().st_size > 0 for p in entries),
+                  "Missing or empty release artifact")
+          recorded = report.get("build_artifacts")
+          require(isinstance(recorded, list) and len(recorded) == 4 and set(recorded) == {
+              f"artifacts/release/{version}/{name}" for name in expected
+          }, "Report artifact paths do not match this run")
+          hashes = {}
+          for line in (release_dir / "checksums.txt").read_text(encoding="utf-8").splitlines():
+              match = re.fullmatch(r"([0-9a-fA-F]{64})  (.+)", line)
+              require(match is not None, "Invalid checksum line")
+              digest, name = match.groups()
+              require(name in payloads and name not in hashes, "Invalid checksum coverage")
+              hashes[name] = digest.lower()
+          require(set(hashes) == payloads, "Incomplete checksum coverage")
+          for name, digest in hashes.items():
+              with (release_dir / name).open("rb") as stream:
+                  hasher = hashlib.sha256()
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                      hasher.update(chunk)
+                  actual = hasher.hexdigest()
+              require(actual == digest, f"Checksum mismatch: {name}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"verified=true\nsource_commit={report['source_commit']}\nrelease_dir={release_dir.as_posix()}\n")
+
+      - name: Upload acceptance evidence
+        if: ${{ always() && inputs.build_mode == 'release-acceptance' && env.ACCEPTANCE_ROOT != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: powers-tool-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.ACCEPTANCE_ROOT }}/*/report.json
+            ${{ env.ACCEPTANCE_ROOT }}/*/summary.md
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Package artifacts and extract version
         id: meta
@@ -106,8 +243,8 @@ jobs:
               Copy-Item -Path "$source/*" -Destination $staging -Recurse -Force
               Compress-Archive -LiteralPath $staging -DestinationPath "action-artifacts/powers-tool-desktop-windows-x64.zip"
             }
-            'release' {
-              $source = "release/$version"
+            { $_ -in @('release', 'release-acceptance') } {
+              $source = if ($mode -eq 'release-acceptance') { '${{ steps.acceptance.outputs.release_dir }}' } else { "release/$version" }
               if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw "Missing release directory: $source" }
               $expected = @(
                 "powers-tool-$version-windows-x64.zip",
@@ -120,7 +257,9 @@ jobs:
                   throw "Missing release file: $name"
                 }
               }
-              Copy-Item -Path "$source/*" -Destination "action-artifacts" -Force
+              foreach ($name in $expected) {
+                Copy-Item -LiteralPath (Join-Path $source $name) -Destination "action-artifacts"
+              }
             }
           }
           Get-ChildItem action-artifacts | Select-Object Name,Length
@@ -137,7 +276,7 @@ jobs:
   draft-release:
     name: Create Draft Release
     needs: build
-    if: ${{ inputs.build_mode == 'release' && inputs.create_draft }}
+    if: ${{ needs.build.result == 'success' && inputs.build_mode == 'release-acceptance' && inputs.create_draft && github.ref == 'refs/heads/main' && needs.build.outputs.acceptance_verified == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -152,6 +291,23 @@ jobs:
         with:
           name: ${{ needs.build.outputs.artifact_name }}
           path: release-assets
+
+      - name: Prepare changelog release notes
+        shell: python
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          import os
+          from pathlib import Path
+          import re
+
+          version = os.environ["VERSION"]
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          section = re.search(rf"(?ms)^## {re.escape(version)}\s*\n(.*?)(?=^## |\Z)", changelog)
+          if section is None or not section[1].strip():
+              raise SystemExit(f"Missing CHANGELOG notes for {version}")
+          Path(".tmp_tests").mkdir(exist_ok=True)
+          Path(".tmp_tests/release-notes.md").write_text(section[1].strip() + "\n", encoding="utf-8")
 
       - name: Check release tag is unused
         env:
@@ -174,12 +330,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.build.outputs.version }}
+          ACCEPTED_COMMIT: ${{ needs.build.outputs.source_commit }}
         shell: bash
         run: |
           set -euo pipefail
+          cd release-assets
+          sha256sum --strict --check checksums.txt
+          cd ..
           gh release create "v${VERSION}" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
+            --target "$ACCEPTED_COMMIT" \
             --title "v${VERSION}" \
             --draft \
-            --notes "Windows x64 bundle and Python distribution artifacts. Check checksums.txt before publishing."
+            --notes-file .tmp_tests/release-notes.md

@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+## 4.0.0
+
+### Breaking Changes
+
+- Upgrades the Powers Worker from Common Worker Protocol v2 to v3-only.
+  Worker HTTP requests/responses and runtime JSONL use schema 3; v2 clients
+  must migrate. Manifest, ordinary CLI, and request/result artifact schemas
+  remain 2. The Manifest declares execution/context binding, async command
+  kinds, and independently versioned async-job and cancellation features.
+- Standardizes HTTP acceptance/rejection, Common Errors, lifecycle status,
+  and stop acknowledgements. All job outcomes now emit `job_finished` with
+  terminal state, result, error, and a matching fixed-timestamp `last_job`.
+  Job completion is distinct from Worker shutdown; shutdown confirmation
+  requires summary, EOF, and actual exit. Stop acceptance closes admission
+  to new commands; startup/runtime failures retain exit codes 2/3.
+- Clients must send schema 3 and per-command `context`, correlate `run_id`
+  and `worker_job_id`, and use the new envelopes and terminal rules. See the
+  [Worker v2 migration guide](docs/cli/README.md#upgrading-from-worker-v2)
+  ([Traditional Chinese](docs/cli/README.zh-TW.md#從-worker-v2-升級)). Other Tools and the
+  Orchestrator require their own migration; this release does not establish it.
+
+### Added
+
+- Includes PyVISA-py with explicit `--backend @py` and WebUI backend selection,
+  plus TCPIP discovery dependencies. E36312A and EDU36311A support independently
+  validated TCPIP + PyVISA-py Product scopes. USB + PyVISA-py and other
+  model/backend combinations remain closed; Sequence actions and E36312A
+  Trigger sources remain individually scoped. See [Supported Models](docs/core/supported-models.md).
+- Adds manual Windows build downloads and a `release-acceptance` mode that
+  runs the complete clean-HEAD release gate. Only this mode, from `main` and
+  with explicit opt-in, can create a Draft Release using verified report data,
+  original artifacts, checksums, and this changelog's version notes.
+
+### Changed
+
+- System VISA explicitly selects IVI (`@ivi`) without fallback to PyVISA-py.
+  Optional USB/serial backend libraries remain separately installed.
+- Removes the optional repository orchestration Skill and its wrapper examples;
+  use the documented Worker API and maintained simulator smoke example.
+- Validation scripts retain minimal artifacts by default, with detailed
+  diagnostics available through `-DebugArtifacts`. CI separates focused
+  Windows validation and packaging smoke from formal release acceptance.
+
+### Fixed
+
+- Rejects new Worker commands after Stop acceptance, including the admission
+  race while cleanup is pending; preserves startup failure exit meanings.
+- Prevents dry-run diagnostics and WebUI capability inspection from opening
+  VISA, and fixes races during backend changes and TCPIP discovery setup.
+- Handles access-denied ports when the WebUI launcher selects an automatic port.
+- Corrects validation snapshot/comparison evidence and artifact cleanup guards.
+
 ## 3.1.2
 
 - Fixes the browser and Electron Desktop window title to use the canonical

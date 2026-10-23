@@ -176,9 +176,11 @@ try {
 
     $ready = Wait-WorkerReady -Path $EventsJsonl -TimeoutSec $ReadyTimeoutSec
     $body = @{
-        schema_version = 2
+        schema_version = 3
         command = "read-status"
-        arguments = @{ dry_run = $true }
+        arguments = @{ channel = "all" }
+        job_id = "orchestrator-read-status"
+        context = @{ mode = "dry_run"; planning_model_id = "keysight-e36312a" }
     } | ConvertTo-Json -Depth 4
     $accepted = Invoke-RestMethod `
         -Method Post `
@@ -186,14 +188,20 @@ try {
         -ContentType "application/json" `
         -Body $body
 
-    if (-not $accepted.ok) {
-        throw "Worker did not accept dry-run command."
+    if ($accepted.schema_version -ne 3 -or $accepted.status -ne "accepted" -or
+        $accepted.kind -ne "async_job" -or $null -ne $accepted.error -or
+        $accepted.run_id -ne $ready.run_id -or
+        $accepted.job_id -ne "orchestrator-read-status" -or
+        -not $accepted.worker_job_id -or -not $accepted.artifact_path) {
+        throw "Worker did not accept the v3 dry-run command."
     }
 
-    $resultPath = Join-Path $ready.artifacts_dir "jobs\$($accepted.job_id)\result.json"
+    $resultPath = Join-Path $accepted.artifact_path "result.json"
     $result = Wait-ResultArtifact -Path $resultPath -TimeoutSec $ResultTimeoutSec
 
-    if (-not $result.ok) {
+    if ($result.schema_version -ne 2 -or $result.run_id -ne $ready.run_id -or
+        $result.worker_job_id -ne $accepted.worker_job_id -or
+        $result.status -ne "succeeded" -or -not $result.ok) {
         throw "Dry-run result was not ok: $($result | ConvertTo-Json -Depth 8)"
     }
     if (-not $result.execution.dry_run) {
@@ -207,7 +215,7 @@ try {
     }
 
     Write-Host "Worker orchestrator smoke passed."
-    Write-Host "Job: $($accepted.job_id)"
+    Write-Host "Job: $($accepted.worker_job_id)"
     Write-Host "Result: $resultPath"
 }
 finally {

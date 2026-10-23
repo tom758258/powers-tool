@@ -1,6 +1,6 @@
 # Power CLI JSONL Contract
 
-Schema version: `2`
+CLI and Manifest schema version: `2`; Worker runtime schema version: `3`
 
 This contract extends `common-cli-jsonl-contract.md` with Power command names and payload shapes.
 
@@ -78,11 +78,16 @@ Success prints exactly one machine-readable JSON object to stdout and exits
 `0`:
 
 - `event`: fixed `tool_manifest`.
-- `schema_version`: integer `2`, the current Common schema version.
+- `schema_version`: integer `2`, the independent Manifest schema version.
 - `tool_id`: fixed `powers`.
 - `tool_version`: the installed single-distribution version.
-- `worker_protocol.compatibility_policy`: fixed `v2-only`.
-- `worker_protocol.schema_versions`: `[2]`.
+- `worker_protocol.compatibility_policy`: fixed `v3-only`.
+- `worker_protocol.schema_versions`: `[3]`.
+- `execution`: `model: "multi_job"`, `context_binding: "per_command"`.
+- `features`: `common.async_jobs` and `common.job_cancel`, both contract version
+  `1`; cancellation lists `ramp`, `ramp-list`, `sequence`, and `log`.
+- `commands`: exposed command names with `kind: "async_job"`. Powers does not
+  adopt `common.streaming`.
 
 Consumers must ignore unknown fields. Usage and validation failures follow the
 shared exit-code rules. `manifest` describes the executable itself; the
@@ -103,9 +108,10 @@ Worker stream. Every non-empty stdout line from the Worker is a JSON object
 line. Human-readable diagnostics, warnings, and logging must be written to
 stderr so stdout remains directly parseable as JSONL.
 
-Power CLI JSON success/error envelopes and Worker runtime JSONL events use
-integer `schema_version: 2` and include
-`timestamp_utc`. The runtime event names are:
+Ordinary Power CLI JSON success/error envelopes retain integer
+`schema_version: 2`. Worker runtime JSONL events use integer
+`schema_version: 3`; both include `timestamp_utc`. Direct lifecycle client
+passthrough retains the Worker schema. The runtime event names include:
 
 - `ready`
 - `status`
@@ -114,20 +120,31 @@ integer `schema_version: 2` and include
 - `summary`
 - `dry_run`
 - `power_cleanup`
+- `job_accepted`, `job_started`, `job_progress`, and `job_finished`
+- `sample` for memory-mode telemetry
+
+All three job outcomes use exactly one `job_finished` terminal with `state`
+`succeeded`, `failed`, or `cancelled`, identity, `ok`, `result`, and Common
+`error`. The old `job_failed` and `job_cancelled` terminal event names are not
+used. Terminal `last_job` snapshots preserve the same outcome and fixed terminal
+timestamp. Job completion and Worker shutdown are separate observations.
 
 Each non-dry-run Worker session creates one `run_id`. Runtime events,
 `GET /status`, accepted job status, and job result artifacts use that same
 `run_id`. Dry-run output that does not create a runtime session omits
 `run_id`.
 
-The Worker emits `ready` only after `POST /command`, `GET /status`, and
-`POST /stop` can accept requests. `ready` contains `schema_version: 2`,
-`timestamp_utc`, `run_id`, `service`, `host`, `port`, `command_url`,
-`status_url`, and `stop_url`. It never contains `trigger_url`.
+The Worker emits `ready` only after `POST /command`, `GET /status`,
+`POST /stop`, and `POST /cancel` can accept requests. `ready` contains
+`schema_version: 3`, `timestamp_utc`, `run_id`, `service`, `host`, `port`,
+`command_url`, `status_url`, `stop_url`, `cancel_url`, and runtime `features`.
+It never contains `trigger_url`.
 
-Normal Worker shutdown emits a final `summary`. Fatal failure emits
-`summary.ok: false`, includes `fatal_error`, and exits `3`. A missing final
-summary is incomplete.
+Normal Worker shutdown emits a final `summary` with `ok`, Common `fatal_error`,
+intended integer `exit_code`, and the last job snapshot. Known fatal/runtime or
+cleanup failure makes `summary.ok: false` and exits `3`. Shutdown confirmation
+requires summary, stdout EOF, and actual process exit; a missing final summary
+is incomplete. Ordinary job failure need not terminate the reusable Worker.
 
 `power_cleanup` is Power-specific and contains a `cleanup` object with
 `operation`, `status`, and `message`. Cleanup status is one of `succeeded`,
@@ -151,20 +168,26 @@ Exit mapping:
 Successful non-dry lifecycle client responses are endpoint-specific. The client
 accepts only a non-empty JSON object with the documented fields and types:
 
-- `send-command`: HTTP `202`, `schema_version: 2`, `status: "accepted"`, the
-  submitted `command` and `job_id`, and non-empty string `worker_job_id` and
-  `artifact_path`.
-- `stop`: HTTP `200`, `ok: true`, and a non-empty string `message`.
-- `status`: HTTP `200` and a status object with `schema_version: 2`,
-  `service: "powers-tool"`, a non-empty `run_id`, and a documented Worker
-  lifecycle `status`.
-- `wait-ready`: each successful `GET /status` poll is HTTP `200` and has the
-  same lifecycle identity fields; readiness remains `status: "ready"`.
+- `send-command`: HTTP `202`, `schema_version: 3`, matching `run_id`,
+  `status: "accepted"`, submitted `command` and `job_id`, `kind: "async_job"`,
+  non-empty `worker_job_id`, and null `error`. Files mode includes
+  `artifact_path`; memory mode omits it.
+- `stop`: HTTP `200` or `202`, `schema_version: 3`, non-empty `run_id`,
+  `status: "accepted"`, and null `error`. Powers emits `200`; this acknowledges
+  the request, not completed cleanup or shutdown.
+- `status`: HTTP `200`, `schema_version: 3`, `service: "powers-tool"`, a
+  non-empty `run_id`, Common `worker_state`, `fatal_error`, runtime features,
+  control URLs, and valid active/last job snapshots.
+- `wait-ready`: validates the same Common Status and requires
+  `worker_state: "running"` with `fatal_error: null`. Power `ready` and `busy`
+  both map to Common `running`; readiness does not promise an idle queue.
 
-The lifecycle client does not duplicate validation of display and progress
-fields such as URLs, queue details, or nested job objects. Those fields remain
-defined by the Worker contract and are passed through, including additive
-fields and failed jobs without an artifact path.
+Lifecycle clients validate the Common envelopes, runtime declarations, control
+URLs, and nested job snapshots. Display/progress extensions remain governed by
+the Worker contract and unknown optional fields pass through. Common Errors
+contain `category`, `code`, `message`, and object `details`, preserving domain
+diagnostics. A failed or lost command response must never trigger automatic
+resubmission.
 
 An empty body, malformed JSON, JSON value other than an object, unexpected
 success HTTP status, or object that does not meet its endpoint response

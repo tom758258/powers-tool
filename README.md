@@ -357,6 +357,15 @@ acceptance output; it is not streamed line by line.
 If `-OutputRoot` is provided, it must resolve to `.tmp_tests` or one of its
 subdirectories within the repository.
 
+The manual GitHub Actions **Build Windows** workflow offers `bundle`,
+`desktop`, `release`, and `release-acceptance` modes. The first three provide
+build downloads only. `release-acceptance` runs this same complete script and
+retains the verified release files separately from `report.json` and
+`summary.md`. Set `create_draft=true` only in `release-acceptance` mode on
+`main` to create a Draft Release after report, commit, version, and checksum
+verification. The Draft uses the original accepted artifacts and the matching
+CHANGELOG section; publishing remains a manual review step.
+
 This acceptance script never performs VISA discovery, opens a resource, or
 sends SCPI. It fails if HEAD or the source working tree changes during the run.
 It does not publish a release or rename the repository.

@@ -4,6 +4,14 @@ Worker runtime schema version: `3` (v3-only). Manifest and independent artifact 
 
 This contract extends `common-worker-protocol.md` for Powers Tool power-supply operations.
 
+## Migration from Worker v2
+
+Worker v2 requests and runtime envelopes are incompatible with this v3-only
+runtime. Update clients using the [CLI migration guide](../cli/README.md#upgrading-from-worker-v2)
+([Traditional Chinese](../cli/README.zh-TW.md#從-worker-v2-升級)). Manifest,
+ordinary CLI results, and request/result artifacts retain schema 2. A package
+major version is not a protocol negotiation mechanism; inspect declarations.
+
 ## Endpoints
 
 - `GET /status`: lifecycle status only. It is non-mutating and never opens VISA.

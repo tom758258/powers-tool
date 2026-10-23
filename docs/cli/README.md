@@ -796,6 +796,32 @@ uv run powers-tool ramp-list --json --resource "$env:POWERS_TOOL_RESOURCE" --seg
 
 ## Power Worker Daemon
 
+### Upgrading from Worker v2
+
+Powers Tool 4.0.0 requires Worker protocol 3 (`v3-only`); v2-only clients must
+upgrade before connecting. Check `manifest --json` for schema-2 Manifest fields
+`worker_protocol.schema_versions: [3]`, `execution`, `features`, and command
+kinds. This does not establish v3 migration of other Tools or the Orchestrator.
+
+- Send integer-token `schema_version: 3` in Worker command/cancel requests.
+  Put mode and planning/expected identity in top-level `context`, never in
+  `arguments`; dry-run uses `context.mode: "dry_run"`.
+- Validate schema-3 HTTP envelopes and Common Errors. Raw acceptance uses
+  `status: "accepted"`, `kind: "async_job"`, and `worker_job_id`; only the CLI
+  client adds diagnostic `ok`. Client `job_id` is correlation, not a path or
+  retry key. Locate files through `artifact_path` or `worker_job_id`.
+- Consume `job_finished` for every terminal outcome and inspect its `state`,
+  `ok`, `result`, and `error`, or the matching complete `last_job` snapshot.
+  Correlate `run_id` and `worker_job_id`; retain the fixed terminal timestamp.
+- Read readiness from Common `worker_state: "running"`, null `fatal_error`,
+  and valid runtime features/URLs. Stop accepts a Common `200`/`202`
+  acknowledgement; confirm shutdown separately with summary, EOF, and exit.
+  After Stop is accepted, new commands are rejected as `run_not_ready`.
+- Keep ordinary CLI, Manifest, request/result artifacts, and embedded memory
+  result envelopes at schema 2. Worker runtime `sample` events use schema 3.
+  Cancellation supports Ramp, Ramp List, Sequence, and bounded `log`; it does
+  not add Common streaming or change existing hardware safety rules.
+
 The Powers Tool Worker is a local background service that listens on
 localhost and accepts HTTP commands to control supported DC power supplies
 asynchronously.
@@ -825,7 +851,7 @@ runner. The Worker emits structured `power_cleanup` JSONL events and does not
 emit its final `summary` or stop the HTTP server until runner cleanup finishes.
 
 `POST /cancel` is the fixed job-specific cancellation endpoint. It requires
-schema 2 and the exact active `worker_job_id`; missing, stale, or mismatched
+schema 3 and the exact active `worker_job_id`; missing, stale, or mismatched
 identity fails closed. It safely cancels Ramp, Ramp List, Sequence, or bounded
 Worker `log` without shutting down the Worker. Workflow cancellation performs
 safe-off; `log` instead finishes its active sample cycle, preserves telemetry,
@@ -837,7 +863,7 @@ CLI `powers-tool log` writes caller-selected CSV/JSONL paths. Worker `log` is a
 bounded, read-only asynchronous job. In `files` mode it writes fixed
 `telemetry.csv` and `telemetry.jsonl` files in its own job directory and retains
 completed telemetry evidence after cancellation or failure. In `memory` mode it
-creates no telemetry files; each telemetry row is emitted as a schema-2 `sample`
+creates no telemetry files; each telemetry row is emitted as a schema-3 `sample`
 stdout JSONL event, and the terminal result retains only a bounded summary. It
 is not background telemetry and cannot run beside another active Worker job.
 The Sequence action named `log` remains a host-side message, and `--log-scpi`
@@ -849,9 +875,9 @@ the artifact directory and `events.jsonl`, and each accepted job writes
 opt into `--artifact-mode memory`, which creates no artifact directory, event
 file, request/result artifacts, or telemetry files. In memory mode the accepted
 response omits `artifact_path`, terminal
-`job_finished`/`job_failed`/`job_cancelled` events and `GET /status` `last_job`
+`job_finished` events for all terminal states and `GET /status` `last_job`
 carry the full result envelope, and `log` streams each telemetry row as a
-schema-2 `sample` stdout JSONL event. Memory mode rejects an explicit
+schema-3 `sample` stdout JSONL event. Memory mode rejects an explicit
 `--events-jsonl` path because stdout is the only event stream.
 
 When started, it outputs a `ready` event on stdout containing the dynamically

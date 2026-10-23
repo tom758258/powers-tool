@@ -8,20 +8,12 @@ Contract revision: `3.0`
 
 Compatibility policy: `v3-only`
 
-The Common v3.0 specification is finalized, with its major contract design
-frozen. Specification, implementation, conformance, and release are distinct:
-
-| Status | Common v3.0 |
-| --- | --- |
-| Specification | Finalized |
-| Implementation | Pending across the five Tool projects and Orchestrator (six projects) |
-| Conformance | Pending test verification |
-| Release | No formal v3 cutover |
-
-The five Tools' existing v2 implementations continue under Common v2, contract
-revision `2.2`. These finalized requirements do not upgrade those runtimes or
-establish v3 implementation, conformance, or release. Implementation and
-no-hardware acceptance require separate authorization.
+Common v3.0 defines the shared lifecycle contract. Runtime adoption is
+project-specific: consumers must inspect each Tool's Manifest and validate its
+runtime declarations rather than infer compatibility from package versions or
+publication of these documents. A Tool's adoption does not establish migration
+or conformance of other Tools or the Orchestrator. Tool-specific contracts define
+implemented domain behavior and supported optional features.
 
 This document defines shared consumer behavior for Worker subprocesses.
 The [Worker protocol](common-worker-protocol.md) owns discovery and HTTP;
@@ -412,7 +404,6 @@ new capture, cancellation, streaming, queue, or session features. Loopback
 restrictions remain limited to managed local connections.
 
 Specification acceptance, implementation completion, validation success, and
-release are separate decisions. Implementations and a compatible release set
-require separate authorization and verification. This finalized specification
-freezes the major contract design; it does not establish implementation,
-conformance, or a v3 release cutover.
+release are separate decisions. Verify each integration and the compatible
+release set independently; this specification alone does not establish runtime
+conformance or a coordinated v3 release.
