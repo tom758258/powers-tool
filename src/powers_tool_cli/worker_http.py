@@ -229,6 +229,22 @@ class WorkerHTTPHandler(BaseHTTPRequestHandler):
             client_job_id = body_data.get("job_id")
 
             with state.lock:
+                if state.stop_event.is_set() or state.shutdown_flag:
+                    self._send_json(
+                        409,
+                        _command_response(
+                            "rejected",
+                            cmd,
+                            client_job_id,
+                            _state=state,
+                            reason="run_not_ready",
+                            error={
+                                "code": "run_not_ready",
+                                "message": "Worker shutdown has been requested",
+                            },
+                        ),
+                    )
+                    return
                 if state.status != "ready":
                     self._send_json(
                         409,

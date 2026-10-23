@@ -2050,6 +2050,104 @@ def test_worker_model_unsupported_error_mapping(running_worker):
         edu_thread.join(timeout=1.0)
 
 
+@pytest.mark.parametrize(
+    ("status", "stop_request", "expected_code", "reason"),
+    [
+        ("ready", "none", 202, None),
+        ("busy", "none", 409, "busy"),
+        ("ready", "event", 409, "run_not_ready"),
+        ("ready", "flag", 409, "run_not_ready"),
+        ("busy", "event", 409, "run_not_ready"),
+        ("busy", "flag", 409, "run_not_ready"),
+        ("ready", "http", 409, "run_not_ready"),
+    ],
+)
+def test_worker_command_admission_after_stop(
+    tmp_path, monkeypatch, capsys, status, stop_request, expected_code, reason
+):
+    state = _worker_validation_state(tmp_path)
+    state.status = status
+    if status == "busy":
+        state.active_job = {"worker_job_id": "existing", "command": "read-status"}
+        state.next_job = {"worker_job_id": "existing"}
+    active_job, next_job = state.active_job, state.next_job
+    open_resource = Mock(side_effect=AssertionError("Unexpected device access"))
+    run_command = Mock(side_effect=AssertionError("Unexpected command execution"))
+    monkeypatch.setattr(worker_execution_mod, "open_resource", open_resource)
+    monkeypatch.setattr(worker_execution_mod, "run_core_command", run_command)
+    monkeypatch.setattr(state.sim_mgr, "open_resource", open_resource)
+
+    server = WorkerHTTPServer(("127.0.0.1", 0), WorkerHTTPHandler)
+    state.port = server.server_address[1]
+    server.state = state
+    # No runner: status cannot change between Stop acknowledgement and Command.
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def post(path, payload):
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{state.port}{path}",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            response = urllib.request.urlopen(request, timeout=2)
+        except urllib.error.HTTPError as exc:
+            response = exc
+        with response:
+            return response.code, json.loads(response.read())
+
+    try:
+        if stop_request == "event":
+            state.stop_event.set()
+        elif stop_request == "flag":
+            state.shutdown_flag = True
+        elif stop_request == "http":
+            for _ in range(2):
+                assert post("/stop", {}) == (200, {
+                    "schema_version": 3, "run_id": state.run_id,
+                    "status": "accepted", "error": None,
+                })
+            assert state.status == "ready"
+            assert state.stop_event.is_set() and state.shutdown_flag
+
+        code, response = post("/command", {
+            "schema_version": 3, "command": "read-status", "job_id": "client-next",
+            "arguments": {"channel": 1}, "context": SIMULATE_CONTEXT,
+        })
+        assert code == expected_code
+        assert type(response["schema_version"]) is int and response["schema_version"] == 3
+        assert response["run_id"] == state.run_id
+        assert response["command"] == "read-status" and response["job_id"] == "client-next"
+        assert response["kind"] == "async_job"
+        events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+        if reason is not None:
+            assert response["status"] == "rejected" and response["reason"] == reason
+            assert response["worker_job_id"] is None
+            assert response["error"]["category"] == "admission"
+            assert response["error"]["code"] == reason
+            assert response["error"]["message"]
+            assert isinstance(response["error"]["details"], dict)
+            assert state.active_job is active_job and state.next_job is next_job
+            assert state.last_job is None and state.status == status
+            assert list(tmp_path.iterdir()) == []
+            assert not any(event["event"] == "job_accepted" for event in events)
+        else:
+            assert response["status"] == "accepted" and response["error"] is None
+            assert response["worker_job_id"] == state.next_job["worker_job_id"]
+            assert state.active_job["worker_job_id"] == response["worker_job_id"]
+            assert len([event for event in events if event["event"] == "job_accepted"]) == 1
+        if stop_request == "http":
+            assert len([event for event in events if event["event"] == "stop_requested"]) == 1
+        assert state.cleanup_results == []
+        open_resource.assert_not_called()
+        run_command.assert_not_called()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_worker_stop_shutdown_lifecycle(tmp_path):
     # Verify POST /stop terminates the server gracefully and shuts down the worker process
     artifacts_dir = tmp_path / "artifacts"

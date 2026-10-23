@@ -120,6 +120,12 @@ submitted command string, for example `"read-status"`.
 
 Power rejection reasons are `busy`, `run_not_ready`, `output_confirmation_required`, and `output_changes_not_allowed`.
 
+Once Stop has been accepted, subsequent valid commands return HTTP `409` with
+`status: "rejected"` and `reason: "run_not_ready"`, even while Power `status`
+still reports `ready` or `busy`. Rejection creates no job, queue entry, job
+artifact, or `job_accepted` event and performs no device I/O. Jobs accepted
+before Stop retain their existing execution, terminal, and cleanup behavior.
+
 `POST /command` HTTP `202` means only that the request was accepted and
 enqueued. It does not mean the Power command has succeeded. In `files` mode,
 before returning HTTP `202`, the Worker must create the job artifact directory
