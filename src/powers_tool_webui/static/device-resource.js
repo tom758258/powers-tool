@@ -62,6 +62,8 @@ export function createDeviceResourceController({
   renderBlankLivePanel,
   onBackendChanged
 }) {
+let supportedDevicesBackend = null;
+
 function setDeviceOptionsExpanded(expanded) {
   const panel = document.getElementById("device-options-panel");
   const button = document.getElementById("device-options-toggle");
@@ -74,6 +76,10 @@ function setSupportedDevicesExpanded(expanded) {
   const button = document.getElementById("supported-devices-toggle");
   if (!panel || !button) {
     return;
+  }
+  if (expanded) {
+    supportedDevicesBackend = state.backend === "@py" ? "@py" : "";
+    renderSupportedDevices();
   }
   panel.hidden = !expanded;
   button.setAttribute("aria-expanded", String(expanded));
@@ -94,7 +100,15 @@ function renderSupportedDevices() {
   if (!body) {
     return;
   }
-  const backendScope = state.backend === "@py" ? "pyvisa_py" : "system_visa";
+  const backend = supportedDevicesBackend ?? (state.backend === "@py" ? "@py" : "");
+  const backendScope = backend === "@py" ? "pyvisa_py" : "system_visa";
+  document.querySelectorAll("[data-support-backend]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.supportBackend === backend));
+    button.onclick = () => {
+      supportedDevicesBackend = button.dataset.supportBackend;
+      renderSupportedDevices();
+    };
+  });
   const devices = (state.physicalModels || []).flatMap((model) => {
     const commands = state.liveSupportByModel?.[model.model_id]?.commands || {};
     const connections = [...new Set(Object.values(commands).flatMap((command) =>
@@ -106,17 +120,14 @@ function renderSupportedDevices() {
         : []
     ))];
     return connections.length ? [{
-      vendor: model.vendor_display_name,
       model: model.model_name,
-      connections,
-      commands
+      connections
     }] : [];
   });
   body.replaceChildren(
     ...devices.map((device) => {
       const row = document.createElement("tr");
       for (const value of [
-        device.vendor,
         device.model,
         (device.connections || [])
           .map(supportedDeviceConnectionLabel)
@@ -126,30 +137,13 @@ function renderSupportedDevices() {
         cell.textContent = value;
         row.appendChild(cell);
       }
-      const details = document.createElement("details");
-      const summary = document.createElement("summary");
-      summary.textContent = t("supported_devices.scope_details");
-      details.appendChild(summary);
-      for (const [name, command] of Object.entries(device.commands)) {
-        if (command.profile_supported !== true || command.policy_exempt || command.offline_only) continue;
-        for (const scope of command.scopes || []) {
-          if (scope.backend_scope !== backendScope || scope.product_open !== true || scope.pending
-            || (scope.features?.length && !scope.features.some((feature) => feature.product_open === true && !feature.pending))) continue;
-          const features = (scope.features || []).filter((feature) => feature.product_open === true && !feature.pending)
-            .map((feature) => `${feature.feature_kind}=${feature.feature_value}`);
-          const line = document.createElement("div");
-          line.textContent = `${supportedDeviceConnectionLabel(scope.transport_scope)}: ${name}${scope.features ? ` [${features.join(", ")}]` : ""}`;
-          details.appendChild(line);
-        }
-      }
-      row.lastChild.appendChild(details);
       return row;
     })
   );
   if (!devices.length) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 3;
+    cell.colSpan = 2;
     cell.textContent = t("supported_devices.empty_backend");
     row.appendChild(cell);
     body.appendChild(row);

@@ -370,7 +370,6 @@ def test_static_ui_exposes_advanced_serial_controls():
     assert_static_attr(html, "supported-devices-toggle", "aria-controls", "supported-devices-panel")
     assert_static_attr(html, "supported-devices-toggle", "aria-expanded", "false")
     for expected in (
-        'data-i18n="supported_devices.vendor"',
         'data-i18n="supported_devices.model"',
         'data-i18n="supported_devices.connections"',
     ):

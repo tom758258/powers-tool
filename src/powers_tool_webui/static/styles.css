@@ -310,8 +310,7 @@ button, input, select, textarea { font: inherit; }
   flex: 0 0 auto;
 }
 
-.device-options,
-.supported-devices {
+.device-options {
   position: relative;
 }
 
@@ -329,8 +328,60 @@ button.resource-collapse-toggle {
   box-shadow: none;
 }
 
-.supported-devices-panel {
+.device-options-panel.supported-devices-panel {
   width: min(440px, calc(100vw - 48px));
+}
+
+.supported-devices-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.supported-devices-header h2 {
+  margin: 0;
+}
+
+.supported-devices-backends {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.supported-devices-backends button {
+  height: 28px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  font-size: 12px;
+  box-shadow: none;
+}
+
+/* One border owns the divider, independently of selection and focus. */
+.supported-devices-backends button + button {
+  border-left: 1px solid var(--line);
+}
+
+.supported-devices-backends button[aria-pressed="true"] {
+  background: var(--surface-selected);
+  color: var(--accent-strong);
+}
+
+.supported-devices-backends button:hover,
+.supported-devices-backends button:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.supported-devices-backends button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
 }
 
 .supported-devices-table-wrap {
@@ -339,6 +390,7 @@ button.resource-collapse-toggle {
 
 .supported-devices-table {
   width: 100%;
+  min-width: 0;
   border-collapse: collapse;
   font-size: 12px;
   text-align: left;
