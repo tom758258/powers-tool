@@ -214,6 +214,7 @@ jobs:
               - 'scripts/ci_packaging_smoke.py'
               - 'tests/packaging/inspect_*.py'
               - 'tests/packaging/_inspector_utils.py'
+              - 'tests/tooling/test_ci_workflow_contracts.py'
               - 'pyproject.toml'
               - 'uv.lock'
               - '.github/workflows/tests.yml'
@@ -322,6 +323,17 @@ jobs:
         run: python -m pip install --upgrade uv
       - name: Install locked dependencies
         run: uv sync --python 3.13 --all-extras --locked --link-mode=copy
+      - name: Require PowerShell 7
+        shell: pwsh
+        run: |
+          if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) { throw "PowerShell 7 is required" }
+      - name: Windows build workflow contracts (no real hardware)
+        shell: pwsh
+        run: >-
+          .\.venv\Scripts\python.exe -m pytest -q -rs --strict-markers
+          -m "windows_powershell and not hardware"
+          --basetemp .tmp_tests/ci-windows-build-workflow
+          tests/tooling/test_ci_workflow_contracts.py
       - name: Build Desktop once
         if: needs.detect-validation-changes.outputs.release_layout != 'true'
         run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_desktop.ps1

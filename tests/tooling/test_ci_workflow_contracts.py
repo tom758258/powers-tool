@@ -90,6 +90,19 @@ def test_windows_powershell_jobs_are_focused_and_independent() -> None:
         assert command.split()[-1] == test_file
 
 
+def test_windows_build_workflow_contracts_have_one_ci_owner() -> None:
+    jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    owners = []
+    for job_id, job in jobs.items():
+        for step in job["steps"]:
+            command = step.get("run", "")
+            if ("tests/tooling/test_ci_workflow_contracts.py" in command
+                    and '-m "windows_powershell and not hardware"' in command):
+                owners.append(job_id)
+                assert "--strict-markers" in command
+    assert owners == ["windows-packaging-smoke"]
+
+
 def test_change_paths_only_start_relevant_windows_jobs() -> None:
     filters = change_filters(WORKFLOW.read_text(encoding="utf-8"))
     expected = {
@@ -116,6 +129,7 @@ def test_change_paths_only_start_relevant_windows_jobs() -> None:
         "tests/cli/test_live_cli_check_script.py": (True, False, False),
         "tests/packaging/test_release_acceptance.py": (True, False, False),
         "tests/packaging/inspect_windows_bundle.py": (False, True, False),
+        "tests/tooling/test_ci_workflow_contracts.py": (False, True, False),
         "docs/help/help.css": (False, True, False),
         ".github/workflows/tests.yml": (True, True, False),
         ".github/workflows/build-windows.yml": (False, True, True),
@@ -365,7 +379,12 @@ def test_draft_job_requires_verified_acceptance_and_preserves_evidence_boundary(
     assert "sha256sum --strict --check checksums.txt" in create["run"]
     evidence = build_step("Upload acceptance evidence")
     assert "always()" in evidence["if"]
-    assert "report.json" in evidence["with"]["path"] and "summary.md" in evidence["with"]["path"]
+    assert set(evidence["with"]["path"].splitlines()) == {
+        "${{ env.ACCEPTANCE_ROOT }}/*/report.json",
+        "${{ env.ACCEPTANCE_ROOT }}/*/summary.md",
+    }
+    assert evidence["with"]["include-hidden-files"] is True
+    assert evidence["with"]["if-no-files-found"] == "error"
     upload = build_step("Upload downloadable ZIP artifact")
     assert upload["with"]["path"] == "action-artifacts/*"
 

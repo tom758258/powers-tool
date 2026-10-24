@@ -212,7 +212,8 @@ jobs:
           path: |
             ${{ env.ACCEPTANCE_ROOT }}/*/report.json
             ${{ env.ACCEPTANCE_ROOT }}/*/summary.md
-          if-no-files-found: warn
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 30
 
       - name: Package artifacts and extract version

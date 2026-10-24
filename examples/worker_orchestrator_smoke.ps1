@@ -111,7 +111,8 @@ function Wait-ResultArtifact {
 function Stop-Worker {
     param(
         [object]$ReadyEvent,
-        [System.Diagnostics.Process]$Process
+        [System.Diagnostics.Process]$Process,
+        [switch]$RequireGracefulStop
     )
 
     if ($null -ne $ReadyEvent -and $ReadyEvent.stop_url) {
@@ -123,6 +124,7 @@ function Stop-Worker {
                 -Body "{}" | Out-Null
         }
         catch {
+            if ($RequireGracefulStop) { throw }
             Write-Warning "Could not request worker stop: $($_.Exception.Message)"
         }
     }
@@ -130,7 +132,10 @@ function Stop-Worker {
     if ($null -ne $Process -and -not $Process.HasExited) {
         if (-not $Process.WaitForExit(3000)) {
             Write-Warning "Worker did not exit after /stop; stopping local smoke process."
-            Stop-Process -Id $Process.Id -Force
+            # uv owns the Worker child; terminate the whole local process tree on failure.
+            & taskkill.exe /PID $Process.Id /T /F | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Could not terminate local smoke process tree." }
+            if ($RequireGracefulStop) { throw "Worker did not shut down gracefully within 3 seconds." }
         }
     }
 }
@@ -169,6 +174,8 @@ try {
             -RedirectStandardError $StderrLog `
             -PassThru `
             -WindowStyle Hidden
+        # Cache the handle before exit so Windows PowerShell retains the exit code.
+        $null = $worker.Handle
     }
     finally {
         Pop-Location
@@ -214,11 +221,36 @@ try {
         throw "Dry-run result did not include data.plan."
     }
 
+    Stop-Worker -ReadyEvent $ready -Process $worker -RequireGracefulStop
+    if ($worker.ExitCode -cne 0) {
+        throw "Worker process exited with code $($worker.ExitCode)."
+    }
+    $summaries = @(Read-JsonLines -Path $EventsJsonl | Where-Object { $_.event -eq "summary" })
+    if ($summaries.Count -ne 1) {
+        throw "Expected exactly one final Worker summary."
+    }
+    $summary = $summaries[0]
+    if ($summary.schema_version -ne 3 -or $summary.run_id -cne $ready.run_id -or
+        $summary.ok -isnot [bool] -or $summary.ok -ne $true -or
+        ($summary.exit_code -isnot [int] -and $summary.exit_code -isnot [long]) -or
+        $summary.exit_code -ne 0) {
+        throw "Worker shutdown summary was not successful: $($summary | ConvertTo-Json -Depth 8)"
+    }
+
     Write-Host "Worker orchestrator smoke passed."
     Write-Host "Job: $($accepted.worker_job_id)"
     Write-Host "Result: $resultPath"
 }
 finally {
-    Stop-Worker -ReadyEvent $ready -Process $worker
-    $env:UV_CACHE_DIR = $previousUvCacheDir
+    try {
+        if ($null -ne $worker -and -not $worker.HasExited) {
+            Stop-Worker -ReadyEvent $ready -Process $worker
+        }
+    }
+    catch {
+        Write-Warning "Worker cleanup failed: $($_.Exception.Message)"
+    }
+    finally {
+        $env:UV_CACHE_DIR = $previousUvCacheDir
+    }
 }
