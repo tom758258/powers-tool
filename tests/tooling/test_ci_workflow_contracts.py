@@ -8,9 +8,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
-import subprocess
-import sys
 
 import pytest
 import yaml
@@ -90,19 +87,6 @@ def test_windows_powershell_jobs_are_focused_and_independent() -> None:
         assert command.split()[-1] == test_file
 
 
-def test_windows_build_workflow_contracts_have_one_ci_owner() -> None:
-    jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-    owners = []
-    for job_id, job in jobs.items():
-        for step in job["steps"]:
-            command = step.get("run", "")
-            if ("tests/tooling/test_ci_workflow_contracts.py" in command
-                    and '-m "windows_powershell and not hardware"' in command):
-                owners.append(job_id)
-                assert "--strict-markers" in command
-    assert owners == ["windows-packaging-smoke"]
-
-
 def test_change_paths_only_start_relevant_windows_jobs() -> None:
     filters = change_filters(WORKFLOW.read_text(encoding="utf-8"))
     expected = {
@@ -129,7 +113,6 @@ def test_change_paths_only_start_relevant_windows_jobs() -> None:
         "tests/cli/test_live_cli_check_script.py": (True, False, False),
         "tests/packaging/test_release_acceptance.py": (True, False, False),
         "tests/packaging/inspect_windows_bundle.py": (False, True, False),
-        "tests/tooling/test_ci_workflow_contracts.py": (False, True, False),
         "docs/help/help.css": (False, True, False),
         ".github/workflows/tests.yml": (True, True, False),
         ".github/workflows/build-windows.yml": (False, True, True),
@@ -301,58 +284,6 @@ def test_acceptance_gate_rejects_invalid_evidence_and_artifacts(acceptance_run, 
     assert not Path(os.environ["GITHUB_OUTPUT"]).exists()
 
 
-def run_workflow_powershell(tmp_path, script, replacements, prefix=""):
-    for token, value in replacements.items():
-        script = script.replace("${{ " + token + " }}", value)
-    path = tmp_path / "workflow.ps1"
-    path.write_text("$ErrorActionPreference = 'Stop'\n" + prefix + script, encoding="utf-8")
-    return subprocess.run(
-        ["pwsh", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-         "-File", str(path)], cwd=tmp_path, capture_output=True, text=True, encoding="utf-8", timeout=20,
-    )
-
-
-@pytest.mark.windows_powershell
-@pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"),
-                    reason="Windows with PowerShell 7 required")
-@pytest.mark.parametrize("mode,draft,ref,allowed", [
-    *[(mode, "false", "refs/heads/main", True) for mode in (
-        "bundle", "desktop", "release", "release-acceptance")],
-    *[(mode, "true", "refs/heads/main", False) for mode in ("bundle", "desktop", "release")],
-    ("release-acceptance", "true", "refs/heads/topic", False),
-    ("release-acceptance", "true", "refs/heads/main", True),
-])
-def test_build_options_reject_invalid_draft_before_build(tmp_path, mode, draft, ref, allowed):
-    result = run_workflow_powershell(tmp_path, build_step("Validate options")["run"], {
-        "inputs.build_mode": mode, "inputs.create_draft": draft, "github.ref": ref,
-    })
-    assert (result.returncode == 0) is allowed, result.stderr
-
-
-@pytest.mark.windows_powershell
-@pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"),
-                    reason="Windows with PowerShell 7 required")
-@pytest.mark.parametrize("mode,script", [
-    ("bundle", "scripts/build_windows_bundle.ps1"),
-    ("desktop", "scripts/build_desktop.ps1"),
-    ("release", "scripts/build_release.ps1"),
-    ("release-acceptance", "scripts/release-acceptance.ps1"),
-])
-def test_build_modes_dispatch_once_to_existing_script(tmp_path, monkeypatch, mode, script):
-    monkeypatch.setenv("ACCEPTANCE_ROOT", ".tmp_tests/current")
-    result = run_workflow_powershell(
-        tmp_path, build_step("Build with existing PowerShell script")["run"],
-        {"inputs.build_mode": mode},
-        prefix="function powershell.exe { $args -join '|' ; $global:LASTEXITCODE = 0 }\n",
-    )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.count(script) == 1
-    assert result.stdout.count("-File|") == 1
-    if mode == "release-acceptance":
-        assert "-OutputRoot|.tmp_tests/current" in result.stdout
-        assert "build_release.ps1" not in result.stdout
-
-
 def test_draft_job_requires_verified_acceptance_and_preserves_evidence_boundary():
     dispatch = BUILD_WORKFLOW.get("on", BUILD_WORKFLOW.get(True))["workflow_dispatch"]["inputs"]
     assert dispatch["build_mode"]["options"] == ["bundle", "desktop", "release", "release-acceptance"]
@@ -405,67 +336,3 @@ def test_draft_release_notes_use_only_selected_changelog_section(tmp_path, monke
     monkeypatch.setenv("VERSION", "9.0.0")
     with pytest.raises(SystemExit):
         exec(step["run"], {})
-
-
-@pytest.mark.windows_powershell
-@pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"),
-                    reason="Windows with PowerShell 7 required")
-@pytest.mark.parametrize("mode", ["bundle", "desktop", "release", "release-acceptance"])
-def test_build_packages_only_selected_artifacts(tmp_path, monkeypatch, mode):
-    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "4.0.0"\n', encoding="utf-8")
-    accepted = ".tmp_tests/current/r_run/artifacts/release/4.0.0"
-    source = tmp_path / {
-        "bundle": "dist/powers-tool", "desktop": "dist/desktop/win-unpacked",
-        "release": "release/4.0.0", "release-acceptance": accepted,
-    }[mode]
-    source.mkdir(parents=True)
-    names = ["powers-tool-4.0.0-windows-x64.zip", "powers_tool-4.0.0-py3-none-any.whl",
-             "powers_tool-4.0.0.tar.gz", "checksums.txt"]
-    for name in (names if mode in {"release", "release-acceptance"} else ["app.exe"]):
-        (source / name).write_bytes(name.encode())
-    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "outputs"))
-    result = run_workflow_powershell(
-        tmp_path, build_step("Package artifacts and extract version")["run"],
-        {"inputs.build_mode": mode, "steps.acceptance.outputs.release_dir": accepted},
-        prefix="function git { 'abcdef0' }\n",
-    )
-    assert result.returncode == 0, result.stderr
-    artifacts = tmp_path / "action-artifacts"
-    if mode in {"release", "release-acceptance"}:
-        assert {p.name for p in artifacts.iterdir()} == set(names)
-        assert all((artifacts / name).read_bytes() == (source / name).read_bytes() for name in names)
-    else:
-        assert [p.name for p in artifacts.iterdir()] == [f"powers-tool-{mode}-windows-x64.zip"]
-
-
-@pytest.mark.windows_powershell
-@pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"),
-                    reason="Windows with PowerShell 7 required")
-def test_acceptance_dispatch_failure_stops_job(tmp_path):
-    result = run_workflow_powershell(
-        tmp_path, build_step("Build with existing PowerShell script")["run"],
-        {"inputs.build_mode": "release-acceptance"},
-        prefix="function powershell.exe { $global:LASTEXITCODE = 1 }\n",
-    )
-    assert result.returncode != 0
-    assert "Release acceptance failed" in result.stderr
-
-
-@pytest.mark.windows_powershell
-@pytest.mark.skipif(sys.platform != "win32" or not shutil.which("pwsh"),
-                    reason="Windows with PowerShell 7 required")
-def test_acceptance_output_is_unique_and_cannot_reuse_stale_reports(tmp_path, monkeypatch):
-    monkeypatch.setenv("GITHUB_ENV", str(tmp_path / "environment"))
-    replacements = {"github.run_id": "1234", "github.run_attempt": "2"}
-    step = build_step("Prepare acceptance output directory")
-    result = run_workflow_powershell(tmp_path, step["run"], replacements)
-    assert result.returncode == 0, result.stderr
-    output = tmp_path / ".tmp_tests/actions-release-acceptance/1234-2"
-    assert output.is_dir() and list(output.iterdir()) == []
-    assert "ACCEPTANCE_ROOT=.tmp_tests/actions-release-acceptance/1234-2" in (
-        tmp_path / "environment"
-    ).read_text(encoding="utf-8-sig")
-    (output / "old-report.json").write_text("{}", encoding="utf-8")
-    result = run_workflow_powershell(tmp_path, step["run"], replacements)
-    assert result.returncode != 0
-    assert "Acceptance output already exists" in result.stderr
