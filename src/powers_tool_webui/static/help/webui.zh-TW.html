@@ -288,7 +288,7 @@ latches。</p>
 <p>Advanced Diagnostics 也包含 <code>Get capabilities</code>、<code>Read device information</code>
 與 <code>Read errors</code>。這些是 inspection/diagnostic 工具，不是 output workflow。
 讀取 error queue 會移除此次回傳的 entries。</p>
-<p>Snapshot 是 state-capture workflow。Restore 可能重新套用保存的 setpoints、
+<p>Snapshot 是 state-capture workflow。Restore 可能重新套用已儲存的 setpoints、
 output state 與 protection state，因此在實機執行前請先檢查所選 snapshot，
 可行時先使用 Dry-run。</p>
 <h3 id="trigger-與-pulse-workflows">Trigger 與 Pulse Workflows</h3>
@@ -326,7 +326,7 @@ selector；All 會寫成明確的 channel list。多通道 Segment 以 lockstep 
 <p>典型的工作狀態包括 accepted (已接受)、started (已啟動)、progress (進行中)、finished (已完成)、failed (失敗)、cancel requested (已請求取消) 與 cancelled (已取消)。失敗的工作應在結果 payload 中包含錯誤訊息。</p>
 <p>Device options 提供 Simulate 與 Dry-run 控制項。這兩種模式會停用 VISA resource、掃描、序列設定與 Live Data，且不會開啟或鎖定真實硬體。Simulate 只接受 physical planning model；Dry-run 可接受 physical planning model 或 planning profile。對 live raw API jobs，<code>runtime.expected_model_id</code> 是可選的 canonical safety guard，會在 manufacturer 加 model 的 IDN 解析後檢查；不符時在 setup 或 write SCPI 前失敗。瀏覽器從 scan/job IDN metadata 學習 live model 支援；fake resource 字串不代表任何 model。瀏覽器的停用或隱藏狀態不是安全邊界；當 model、command 或 mode 不受支援時，直接提交 <code>/api/jobs</code> 仍會被 WebUI backend 與 Core 拒絕。</p>
 <p>Raw runtime JSON 採嚴格型別：boolean 欄位要求 JSON boolean，諸如 <code>"false"</code> 的字串會被拒絕而不是被當成確認。Raw job 的 channel 要求正整數 JSON integer；exact <code>"all"</code> 只被支援全通道選擇的命令接受。boolean、浮點數與數字字串的 channel 值都會被拒絕。
-Model-specific dry-run/simulator 請求若沒有明確或 deterministic-SIM planning identity，會在 job 建立前被拒絕。Snapshot restore 只接受具備 <code>schema_version: 2</code>、<code>kind: "powers-tool-snapshot"</code>、且分開記錄 reported 與 canonical resolved identity 的文件。Restore request flags 與保存的 output/protection 狀態也要求 exact JSON boolean。snapshot 的 <code>outputs</code>、<code>readback</code> 與 <code>protection_settings</code> 區塊必須非空且包含完全相同的 channels；每個通道都需要一筆 protection record，即使其選用值都是 null。未知與刻意不支援的 <code>/api/jobs</code> 命令會在 job 或背景任務建立前被拒絕。</p>
+Model-specific dry-run/simulator 請求若沒有明確或 deterministic-SIM planning identity，會在 job 建立前被拒絕。Snapshot restore 只接受具備 <code>schema_version: 2</code>、<code>kind: "powers-tool-snapshot"</code>、且分開記錄 reported 與 canonical resolved identity 的文件。Restore request flags 與已儲存的 output/protection 狀態也要求 exact JSON boolean。snapshot 的 <code>outputs</code>、<code>readback</code> 與 <code>protection_settings</code> 區塊必須非空且包含完全相同的 channels；每個通道都需要一筆 protection record，即使其選用值都是 null。未知與刻意不支援的 <code>/api/jobs</code> 命令會在 job 或背景任務建立前被拒絕。</p>
 <h2 id="停止與取消">停止與取消</h2>
 <p>如果工作尚未啟動，取消動作能很快完成。如果真實的硬體工作已經在執行中，取消將採協作模式：WebUI 請求取消並等待 Core 清理完成。</p>
 <p>除非有外部安全考量，否則請勿關閉瀏覽器或強制終止程序來打斷正常的清理過程。清理與 release/local (解除遠端/轉為本機) 的行為由 Core 處理，可能需要一些時間。</p>

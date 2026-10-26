@@ -277,7 +277,7 @@ protection state，應只在已了解 trip 原因後使用。可行時，先使�
 protection 變更。
 
 `snapshot` 會擷取 instrument state，不會刻意啟用 output；`snapshot-diff` 用於比較
-保存的狀態。`restore-from-snapshot` 可能重新套用保存的 setpoints、output state 與
+已儲存的狀態。`restore-from-snapshot` 可能重新套用已儲存的 setpoints、output state 與
 protection state，因此在實機使用前，請先檢查 snapshot 並預覽 restore plan。
 
 Native Trigger STEP/LIST 與 rear-panel pulse 都是具有 exact model/connection scope

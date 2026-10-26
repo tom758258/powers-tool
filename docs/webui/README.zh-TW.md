@@ -252,7 +252,7 @@ metadata 不會被暴露。
 
 WebUI 不會 import `powers_tool_cli`，也不會執行直接的 VISA 或 SCPI 操作。它會將 HTTP payload 對應到 core 的 `RuntimeOptions` 與請求物件，接著呼叫 `powers_tool_core.command_runner`。
 
-真實硬體工作會由單一硬體鎖進行序列化。Simulate (模擬)、dry-run (預演)、離線 metadata 命令與 live-data 工作不會占用該鎖定。同步的 core 執行運行於 worker 執行緒，因此 FastAPI 的事件迴圈能繼續提供 health、工作狀態、取消與 SSE 端點的服務。
+真實硬體工作會由單一硬體鎖進行序列化。Simulate (模擬)、dry-run (預演)、離線 metadata 命令與 live-data 工作不會占用該鎖定。同步的 Core 操作會在 worker 執行緒中執行，因此 FastAPI 的事件迴圈能繼續提供 health、工作狀態、取消與 SSE 端點的服務。
 
 Raw `/api/jobs` payload 使用 V2 runtime identity 欄位。Dry-run 只接受
 `runtime.planning_model_id` 或 `runtime.planning_profile_id` 其中之一；simulator mode
@@ -284,7 +284,7 @@ Legacy 的 `runtime.model_profile` 與 `runtime.model` 欄位會被拒絕。WebU
 deterministic SIM resource（例如 `USB0::SIM::E36312A::INSTR`）。WebUI 的 live resource
 支援由 scan/job IDN metadata 學習而來。瀏覽器提供 page-local 的 Real、Simulate 與
 Dry-run execution modes；一律以 Real mode 重新載入，且絕不將 mode、identity 或 write
-authorization 保存在 browser storage。Simulate 需要 canonical physical planning model；
+authorization 儲存於 browser storage。Simulate 需要 canonical physical planning model；
 Dry-run 接受 physical planning model 或 planning profile。No-hardware 請求會省略 live
 resource、serial settings、expected-model guard 與 confirmation。
 
@@ -455,7 +455,7 @@ Trigger Fire 會對每個已經 arm 的 BUS 觸發發送全域 `*TRG`。其 Abor
 
 ### Trigger List 工作區
 
-Trigger List 使用專屬的三通道工作區編輯器。每個通道保有自己的計數以及 1 到 100 個步驟列，包含 Voltage、Current、Dwell、BOST 與 EOST。Run 僅提交所選的通道。Load/Save 使用嚴格的 `powers-tool-trigger-list-workspace` 版本 1 JSON，並保存所有三個通道草稿及共用控制項。啟用的 BOST/EOST 步驟列需要有 LIST 輸出腳位。
+Trigger List 使用專屬的三通道工作區編輯器。每個通道保有自己的計數以及 1 到 100 個步驟列，包含 Voltage、Current、Dwell、BOST 與 EOST。Run 僅提交所選的通道。Load/Save 使用嚴格的 `powers-tool-trigger-list-workspace` 版本 1 JSON，並儲存所有三個通道草稿及共用控制項。啟用的 BOST/EOST 步驟列需要有 LIST 輸出腳位。
 
 當選擇了 Wait complete 且關閉 Leave configured 時，完成後會寫回執行前的 Trigger 設定與 LIST 表格。執行中的表格在還原前可能會短暫可見。選擇 Leave configured 可保留新表格與 Trigger 設定。
 Live Data 樣本包含已解析的型號身分及各通道的 OVP/OCP 觸發狀態 (trip state)。有效的 Live Data 型號能修復所選資源的命令支援快取；缺乏型號的結果不會取代已知的型號。
@@ -482,7 +482,7 @@ WebUI 只顯示目前 policy 的安全 Core projection，不暴露 evidence path
 Suite 名稱是 evidence 分組，不會開放 feature family 中的所有命令。Core 要求 exact 的
 canonical `model_id`、command、transport、backend 與 required-feature scope；缺少與
 pending scope 都 fail closed。權威的目前命令清單是
-[Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix)。
+[Product LIVE exact-scope matrix](../core/supported-models.zh-TW.md#product-live-exact-scope-matrix)。
 WebUI 的隱藏或停用仍僅是 UX；backend/Core 拒絕才是不受支援直接提交的安全邊界。
 
 WebUI expected-model 欄位只是 safety guard 與 planning hint，不會改變由 IDN 選出的

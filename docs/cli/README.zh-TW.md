@@ -9,7 +9,7 @@ null，以及用來代替 exact boolean、integer 或 finite numeric field 的�
 字串或數字。
 
 這是用於控制支援之直流電源供應器的 vendor-neutral CLI adapter。目前
-Product-active 型號以 [Supported Models](../core/supported-models.md) 所列 exact
+Product-active 型號以 [Supported Models](../core/supported-models.zh-TW.md) 所列 exact
 model scopes 為準；未知 live hardware 會 fail closed。
 
 CLI 包含在單一 `powers-tool` distribution 中，保留 `powers_tool_cli` import
@@ -117,7 +117,7 @@ aliases 與 adapter error text 都是 CLI adapter concerns，不屬於 Core sche
 ## 需求
 
 根目錄的 [README 安裝指南](../../README.zh-TW.md#安裝) 是 canonical setup
-reference。[Supported Models](../core/supported-models.md) 是 exact Product
+reference。[Supported Models](../core/supported-models.zh-TW.md) 是 exact Product
 support matrix；本節不會為其他 model、transport 或 backend 增加支援。
 
 | 需求 | No-hardware | Live operation |
@@ -126,7 +126,7 @@ support matrix；本節不會為其他 model、transport 或 backend 增加支�
 | Core/CLI runtime | 安裝目前的 `powers-tool` distribution。 | 安裝目前的 `powers-tool` distribution。 |
 | No-hardware | simulator、dry-run、CLI help 與一般測試不需要實體儀器或 vendor VISA runtime。 | 不適用。 |
 | Live hardware | 不適用。 | 需要受支援的實體儀器、PyVISA 可載入的外部 VISA implementation/runtime，以及適用且已接受的 connection/backend scope。Resource-specific live commands 需要 operator 明確選定的 VISA resource；discovery commands 可在沒有預先提供 resource 時列舉 resources。 |
-| Product support | No-hardware 可用不代表 live 支援。 | Model-aware live commands 遵循 [Supported Models](../core/supported-models.md) 中 exact `model + command + transport + backend + required feature` scope。Diagnostic exemptions 僅限其文件化的 diagnostic purpose。 |
+| Product support | No-hardware 可用不代表 live 支援。 | Model-aware live commands 遵循 [Supported Models](../core/supported-models.zh-TW.md) 中 exact `model + command + transport + backend + required feature` scope。Diagnostic exemptions 僅限其文件化的 diagnostic purpose。 |
 | Safety | Preview 與 simulator 路徑不會啟用真實輸出。 | 影響輸出的命令仍受既有 confirmation gate 與 safety limit 約束。 |
 
 省略 `--backend` 時，CLI 會透過 `pyvisa.ResourceManager("@ivi")` 明確選擇 System
@@ -185,7 +185,7 @@ resource、不會送出 SCPI、不會修改實體儀器狀態，也不會啟用�
 
 一般操作員工作流程請接續閱讀 [CLI 使用者指南](USER_GUIDE.zh-TW.md)。本機瀏覽器
 介面請參閱 [WebUI 使用者指南](../webui/USER_GUIDE.zh-TW.md)。Exact live model
-與 connection coverage 請參閱 [Supported Models](../core/supported-models.md)。
+與 connection coverage 請參閱 [Supported Models](../core/supported-models.zh-TW.md)。
 
 `powers-tool manifest --json` 提供純靜態的 tool introspection，供 orchestrator
 在不接觸儀器的情況下靜態確認工具本身：
@@ -323,7 +323,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\preflight-cli.
 Preflight artifacts 預設寫入 `.tmp_tests\cli_preflight`，自訂 `-OutputRoot`
 仍必須位於 `.tmp_tests` 下。每次執行只為實際執行的各型號保留
 `shareable/report.json` 與 `shareable/summary.md`，不另外產生頂層彙總報告。
-逐案例的 assertions 與失敗原因保存在報告中。一般 CLI 輸出優先在記憶體擷取；
+逐案例的 assertions 與失敗原因記錄於報告中。一般 CLI 輸出優先在記憶體擷取；
 必要的 Sequence、Snapshot 檔案僅作暫存。指定 `-DebugArtifacts` 時，
 則保留完整 private 原始檔及詳細遮蔽後的 shareable 附件。
 
@@ -332,7 +332,7 @@ Preflight artifacts 預設寫入 `.tmp_tests\cli_preflight`，自訂 `-OutputRoo
 `scripts\live-cli-check.ps1` 是維護中的實機 validation wrapper。它要求明確的
 `-Target`、`-Connection` 與 `-Resource`，不會掃描或猜測 live resource。執行此腳本
 只產生 validation evidence；它不會自行將 pending support 提升為 Product-open，也不會
-改變 [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix)。
+改變 [Product LIVE exact-scope matrix](../core/supported-models.zh-TW.md#product-live-exact-scope-matrix)。
 
 Live 與 PlanOnly 預設採用記憶體優先的 Minimal 模式，當次執行最後只保留
 `shareable/report.json` 與 `shareable/summary.md`。CSV／JSONL、Snapshot、
@@ -503,7 +503,7 @@ status。
   standalone 命令。
 
 完整的 Product-open command inventory 以
-[Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix)
+[Product LIVE exact-scope matrix](../core/supported-models.zh-TW.md#product-live-exact-scope-matrix)
 為準。只有該 matrix 中明確列出的 commands 才會在對應 connections 上開放一般 LIVE
 使用。E3646A 與 PSM-2010 的 live use 仍限於 ASRL / RS-232 + system VISA；兩者的
 USB 與 LAN 路徑不在目前 scope 內。PSM-2010 對 Core Product matrix 所列的 23 個
@@ -583,7 +583,7 @@ uv run powers-tool set --model keysight-e36312a --resource "$env:POWER_USB_RESOU
 這要求連線儀器的 `*IDN?` model 必須是 `E36312A`。
 
 接受的 physical planning IDs 由 Core Product-active metadata 定義，並記錄於
-[Supported Models](../core/supported-models.md)。在 `--simulate` 模式下，`--model`
+[Supported Models](../core/supported-models.zh-TW.md)。在 `--simulate` 模式下，`--model`
 可以推導出對應的 deterministic simulator resource。獨立的 `generic-scpi` profile
 僅限 dry-run，不是 live expected model。若同時提供 `--model` 與 SIM resource，
 兩者的 model 必須相符。不支援的 models（包括 EDU36311A）不會暴露 trigger dry-run
@@ -618,7 +618,7 @@ range-dependent voltage/current-limit ranges。此 metadata 不會新增 CLI ran
 selector，不會靜默 round 或 truncate setpoints，也不實作硬性小數位數拒絕。
 
 Product LIVE support 以 command 為單位，不是整個 feature family。請參閱
-[Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix)。
+[Product LIVE exact-scope matrix](../core/supported-models.zh-TW.md#product-live-exact-scope-matrix)。
 `output-on`、`measure-all`、`trigger-pulse`、`trigger-fire`、`log`、resource-backed
 `doctor` 與 `restore-from-snapshot` scopes 只在該 matrix 文件化的 exact
 model/transport/system-VISA 組合下 Product-open；其他組合維持 fail-closed。
@@ -640,7 +640,7 @@ envelope、`--save-json` 與 exit-code mapping。
 `snapshot` 產生 schema-2 `powers-tool-snapshot` 文件，`reported_identity` 下保留原始
 manufacturer/model/serial/firmware，並在 `resolved_identity` 下提供 canonical 的
 `vendor_id`／`model_id`。`restore-from-snapshot` 只接受該版本化文件；legacy、未版本化
-與任意 CLI-envelope 文件都會被拒絕。`snapshot --snapshot-json PATH` 寫入原始保存的
+與任意 CLI-envelope 文件都會被拒絕。`snapshot --snapshot-json PATH` 寫入原始
 snapshot，而 `--json --save-json PATH` 寫入完整 CLI schema-2 envelope；同時使用兩個
 選項時路徑必須不同。Core 不會從單獨的 reported model 字串還原 model identity。
 
@@ -704,7 +704,7 @@ Version 3 要求 `enable_output` 並隱含單次 iteration。Version 4 要求 ex
 這些版本的每個 Segment 使用一個 `channel`。Version 5 是最新格式，要求 `channels`、
 `enable_output` 與 `loop_count`；`channels` 是非空、由唯一正整數組成的清單。
 Version 1、格式錯誤值、未知欄位與未來版本都會被拒絕，沒有 fallback。Inline 的
-`--segment CHANNEL ...` 語法不變，但會以 `channels: [CHANNEL]` 建 v5 並明確保存
+`--segment CHANNEL ...` 語法不變，但會以 `channels: [CHANNEL]` 建 v5 並明確寫入
 `loop_count`（包括 1）。
 
 Core 將 Ramp、Ramp List 與 Sequence 限制在 1,000,000 個 logical execution units。
@@ -1136,7 +1136,7 @@ uv run powers-tool ramp --json --resource "$env:POWERS_TOOL_RESOURCE" --channels
 uv run powers-tool ramp --json --resource "$env:POWERS_TOOL_RESOURCE" --channel 1 --start-voltage 0 --stop-voltage 1 --step-voltage 0.5 --current 0.05 --loop-count 2 --completion-pulse-timing loop --completion-pulse-pins 1 --log-scpi
 ```
 
-驗證 sequence file，或在不开啟 VISA 下預覽確定性的 write SCPI：
+驗證 sequence file，或在不開啟 VISA 下預覽確定性的 write SCPI：
 
 ```powershell
 uv run powers-tool sequence --lint --json --resource "USB0::SIM::E36312A::INSTR" --file examples\sequence-readonly.yaml
@@ -1218,7 +1218,7 @@ JSON success 與 error envelope 都包含 `metadata.duration_ms`。
 
 - 影響輸出的行為必須明確要求。
 - 真實 product execution 僅限
-  [Product LIVE exact-scope matrix](../core/supported-models.md#product-live-exact-scope-matrix)
+  [Product LIVE exact-scope matrix](../core/supported-models.zh-TW.md#product-live-exact-scope-matrix)
   中明確記載的 commands 與 connections。Feature family、dry-run、simulator 或 parser
   支援都不會擴大它。
 - 文件記載的 `output-on`、`measure-all`、`trigger-pulse`、`trigger-fire`、`log`、

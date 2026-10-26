@@ -7,7 +7,7 @@ Powers Tool 是用於支援之直流電源供應器的 vendor-neutral Python 控
 import package：`powers_tool_core`、`powers_tool_cli` 與 `powers_tool_webui`。
 
 本架構是 vendor-neutral，但目前 Product support 僅限
-[Supported Models](docs/core/supported-models.md) 所記載、已註冊且文件化的
+[Supported Models](docs/core/supported-models.zh-TW.md) 所記載、已註冊且文件化的
 model scope。Vendor-neutral 架構不代表任意或未知電源供應器都受支援；
 未註冊或無法解析的 live hardware 會 fail closed。Vendor-specific driver、alias、
 手冊、SCPI 行為、evidence
@@ -21,7 +21,7 @@ USB、LAN 與明確設定的 RS-232/ASRL 通訊，並提供安全優先的 dry-r
 
 Live hardware 會從 `*IDN?` 解析，且在文件所述 exact support scope 之外保持
 fail closed。當前型號與 connection coverage 請參閱
-[Supported Models](docs/core/supported-models.md)。
+[Supported Models](docs/core/supported-models.zh-TW.md)。
 
 **VISA 後端：** Python 安裝與 Windows bundle 均包含 PyVISA 和 PyVISA-py。
 預設 System VISA 明確選用 IVI（`@ivi`），需另行安裝 Keysight IO Libraries Suite、
@@ -33,7 +33,7 @@ CLI 使用 `--backend @py`，或在 WebUI 裝置設定 → VISA 後端明確選�
 正式支援組合。CLI 仍保留自訂 VISA library 路徑與 backend selector，並受既有 policy 限制。
 Simulator、dry-run 與一般 no-hardware validation 不需要實體儀器或 vendor VISA
 runtime。安裝 VISA runtime 不會擴大支援範圍；live operation 仍受
-[Supported Models](docs/core/supported-models.md) 所記載的 exact model、command、
+[Supported Models](docs/core/supported-models.zh-TW.md) 所記載的 exact model、command、
 transport、backend 與 required-feature scope 限制。
 
 ## 功能特性
@@ -330,7 +330,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\release-accept
 手動 GitHub Actions **Build Windows** workflow 提供 `bundle`、`desktop`、
 `release` 與 `release-acceptance` 四種模式。前三種只提供建置產物下載。
 `release-acceptance` 執行相同的完整驗收腳本，將已驗證的發布檔案與
-`report.json`、`summary.md` 分開保存。只有在 `main` 使用
+`report.json`、`summary.md` 分開儲存。只有在 `main` 使用
 `release-acceptance` 並設定 `create_draft=true`，才會在報告、Commit、版本與
 checksum 驗證成功後建立 Draft Release。Draft 使用原始驗收產物及對應的
 CHANGELOG 版本內容；Publish 仍由使用者自行審查後執行。
@@ -380,7 +380,7 @@ Scripted no-hardware、live validation 與 release acceptance 工作流程記錄
 ## 文件
 
 - [Core README](docs/core/README.zh-TW.md)
-- [Supported Models](docs/core/supported-models.md)
+- [Supported Models](docs/core/supported-models.zh-TW.md)
 - [CLI 使用者指南](docs/cli/USER_GUIDE.zh-TW.md)
 - [CLI README](docs/cli/README.zh-TW.md)
 - [WebUI README](docs/webui/README.zh-TW.md)
