@@ -8,13 +8,6 @@ Contract revision: `3.0`
 
 Compatibility policy: `v3-only`
 
-Common v3.0 defines the shared lifecycle contract. Runtime adoption is
-project-specific: consumers must inspect each Tool's Manifest and validate its
-runtime declarations rather than infer compatibility from package versions or
-publication of these documents. A Tool's adoption does not establish migration
-or conformance of other Tools or the Orchestrator. Tool-specific contracts define
-implemented domain behavior and supported optional features.
-
 This protocol is lifecycle-only: it defines shared communication, control,
 and job handling, not domain commands, device operations, session management,
 queue scheduling, or output safety. Tool-specific contracts retain those
@@ -29,11 +22,6 @@ The four Common documents are manually synchronized:
 | [CLI JSON / JSONL contract](common-cli-jsonl-contract.md) | Runtime envelopes, events, job terminals, summary, EOF, and exit |
 | [Streaming extension](common-streaming-extension.md) | Optional source adoption, state, ordering, and termination |
 | [Orchestrator workflows](common-orchestrator-workflows.md) | Capability validation, shared job tracking, completion, local connections, and adapter boundaries |
-
-Common schemas, fixtures, and conformance tests remain part of the verification
-approach. This contract introduces no central repository, shared Worker SDK,
-document synchronization system, cross-repository text comparison, or document
-hash verification.
 
 ## Versions and compatibility
 

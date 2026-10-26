@@ -8,13 +8,6 @@ Contract revision: `3.0`
 
 Compatibility policy: `v3-only`
 
-Common v3.0 defines the shared lifecycle contract. Runtime adoption is
-project-specific: consumers must inspect each Tool's Manifest and validate its
-runtime declarations rather than infer compatibility from package versions or
-publication of these documents. A Tool's adoption does not establish migration
-or conformance of other Tools or the Orchestrator. Tool-specific contracts define
-implemented domain behavior and supported optional features.
-
 This document owns Worker event envelopes, terminal events, summary, EOF, and
 process exit. The [Worker protocol](common-worker-protocol.md) owns discovery,
 HTTP, Common Error, and job snapshots. The
@@ -398,8 +391,6 @@ not standalone envelopes:
 Schema checks validate structure. Raw JSON fixtures check representation
 details such as exact version tokens. Behavioral conformance checks cover
 event ordering, races, and completion decisions. None replaces the others.
-These requirements are validation criteria, not claims that v3 has passed
-them.
 
 ## Client diagnostics
 

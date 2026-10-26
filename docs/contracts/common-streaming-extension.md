@@ -10,13 +10,6 @@ Compatibility policy: `v3-only`
 
 Feature: `common.streaming`, `contract_version: 1`
 
-Common v3.0 defines the shared lifecycle contract. Runtime adoption is
-project-specific: consumers must inspect each Tool's Manifest and validate its
-runtime declarations rather than infer compatibility from package versions or
-publication of these documents. A Tool's adoption does not establish migration
-or conformance of other Tools or the Orchestrator. Tool-specific contracts define
-implemented domain behavior and supported optional features.
-
 This optional contract defines source readiness, data output ordering, and
 logical stream termination for one data stream per Worker runtime. It builds
 on the [Common Worker Protocol](common-worker-protocol.md). Wire fields and
@@ -221,8 +214,3 @@ timestamps across or within tools.
 | Delayed active status after an observed ended state | Do not regress the state |
 | Natural end omits Worker stopping | Valid; do not add a stop operation |
 | Ended and successful summary followed by known cleanup failure | Retain the failure; do not report complete workflow success |
-
-SIM, existing streaming fakes, and controlled delayed snapshots validate these
-requirements without introducing hardware observations. They do not establish
-real-device readiness or timing guarantees. V3 implementation and validation
-remain separate from publication of this specification.
