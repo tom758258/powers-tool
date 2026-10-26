@@ -239,7 +239,7 @@ tracing，不是 telemetry。</p>
 protection state，應只在已了解 trip 原因後使用。可行時，先使用 dry-run 預覽支援的
 protection 變更。</p>
 <p><code>snapshot</code> 會擷取 instrument state，不會刻意啟用 output；<code>snapshot-diff</code> 用於比較
-保存的狀態。<code>restore-from-snapshot</code> 可能重新套用保存的 setpoints、output state 與
+已儲存的狀態。<code>restore-from-snapshot</code> 可能重新套用已儲存的 setpoints、output state 與
 protection state，因此在實機使用前，請先檢查 snapshot 並預覽 restore plan。</p>
 <p>Native Trigger STEP/LIST 與 rear-panel pulse 都是具有 exact model/connection scope
 的進階操作。在 E36312A 上，BUS <code>*TRG</code> 是 instrument-wide，可能同時影響其他已經

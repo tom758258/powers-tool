@@ -13,7 +13,7 @@ Core 內建於單一 `powers-tool` 發行套件中，同時保留了 `powers_too
 
 這是用於安全控制支援之直流電源供應器的 vendor-neutral Core library 與 driver
 layer。Product support 由文件化的 exact scope 決定；未知 live hardware 會保持
-closed。目前公開支援的型號矩陣請參閱[支援型號](supported-models.md)。
+closed。目前公開支援的型號矩陣請參閱[支援型號](supported-models.zh-TW.md)。
 
 ## 用途
 
@@ -228,7 +228,7 @@ selected channel。
 
 Ramp、Ramp List 與 Sequence 支援 strict `loop_count` 總執行次數 `1..10000`。
 舊 Ramp List v2/v3 與 Sequence v1 代表一次執行；Ramp List v4/v5 與 Sequence v2
-會保存 `loop_count`。結果的 `segment_count` 與 `step_count` 仍以單次 iteration
+會儲存 `loop_count`。結果的 `segment_count` 與 `step_count` 仍以單次 iteration
 計算；`completed_loops` 只計算完整成功的 iteration，而 segment/step execution
 計數則跨 iteration 累計。
 

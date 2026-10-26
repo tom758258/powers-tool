@@ -310,7 +310,7 @@ Advanced Diagnostics 也包含 `Get capabilities`、`Read device information`
 與 `Read errors`。這些是 inspection/diagnostic 工具，不是 output workflow。
 讀取 error queue 會移除此次回傳的 entries。
 
-Snapshot 是 state-capture workflow。Restore 可能重新套用保存的 setpoints、
+Snapshot 是 state-capture workflow。Restore 可能重新套用已儲存的 setpoints、
 output state 與 protection state，因此在實機執行前請先檢查所選 snapshot，
 可行時先使用 Dry-run。
 
@@ -363,7 +363,7 @@ selector；All 會寫成明確的 channel list。多通道 Segment 以 lockstep 
 Device options 提供 Simulate 與 Dry-run 控制項。這兩種模式會停用 VISA resource、掃描、序列設定與 Live Data，且不會開啟或鎖定真實硬體。Simulate 只接受 physical planning model；Dry-run 可接受 physical planning model 或 planning profile。對 live raw API jobs，`runtime.expected_model_id` 是可選的 canonical safety guard，會在 manufacturer 加 model 的 IDN 解析後檢查；不符時在 setup 或 write SCPI 前失敗。瀏覽器從 scan/job IDN metadata 學習 live model 支援；fake resource 字串不代表任何 model。瀏覽器的停用或隱藏狀態不是安全邊界；當 model、command 或 mode 不受支援時，直接提交 `/api/jobs` 仍會被 WebUI backend 與 Core 拒絕。
 
 Raw runtime JSON 採嚴格型別：boolean 欄位要求 JSON boolean，諸如 `"false"` 的字串會被拒絕而不是被當成確認。Raw job 的 channel 要求正整數 JSON integer；exact `"all"` 只被支援全通道選擇的命令接受。boolean、浮點數與數字字串的 channel 值都會被拒絕。
-Model-specific dry-run/simulator 請求若沒有明確或 deterministic-SIM planning identity，會在 job 建立前被拒絕。Snapshot restore 只接受具備 `schema_version: 2`、`kind: "powers-tool-snapshot"`、且分開記錄 reported 與 canonical resolved identity 的文件。Restore request flags 與保存的 output/protection 狀態也要求 exact JSON boolean。snapshot 的 `outputs`、`readback` 與 `protection_settings` 區塊必須非空且包含完全相同的 channels；每個通道都需要一筆 protection record，即使其選用值都是 null。未知與刻意不支援的 `/api/jobs` 命令會在 job 或背景任務建立前被拒絕。
+Model-specific dry-run/simulator 請求若沒有明確或 deterministic-SIM planning identity，會在 job 建立前被拒絕。Snapshot restore 只接受具備 `schema_version: 2`、`kind: "powers-tool-snapshot"`、且分開記錄 reported 與 canonical resolved identity 的文件。Restore request flags 與已儲存的 output/protection 狀態也要求 exact JSON boolean。snapshot 的 `outputs`、`readback` 與 `protection_settings` 區塊必須非空且包含完全相同的 channels；每個通道都需要一筆 protection record，即使其選用值都是 null。未知與刻意不支援的 `/api/jobs` 命令會在 job 或背景任務建立前被拒絕。
 
 ## 停止與取消
 
