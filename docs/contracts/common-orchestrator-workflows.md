@@ -404,6 +404,7 @@ new capture, cancellation, streaming, queue, or session features. Loopback
 restrictions remain limited to managed local connections.
 
 Specification acceptance, implementation completion, validation success, and
-release are separate decisions. Verify each integration and the compatible
-release set independently; this specification alone does not establish runtime
-conformance or a coordinated v3 release.
+release are separate decisions. Implementations and a compatible release set
+require separate authorization and verification. This finalized specification
+freezes the major contract design; it does not establish implementation,
+conformance, or a v3 release cutover.
