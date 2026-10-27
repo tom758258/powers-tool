@@ -2,67 +2,55 @@
 
 # Powers Tool
 
-Powers Tool 是用於支援之直流電源供應器的 vendor-neutral Python 控制工具。
-它提供單一可安裝發行套件 `powers-tool`，並保留三個獨立的
-import package：`powers_tool_core`、`powers_tool_cli` 與 `powers_tool_webui`。
+Powers Tool 是以安全為優先、供已支援直流電源供應器使用的 vendor-neutral Python 控制工具。
+單一發行套件 `powers-tool` 包含三個獨立 import package：`powers_tool_core`、
+`powers_tool_cli`、`powers_tool_webui`。透過 VISA 支援已登錄的 USB、LAN 與明確設定的
+RS-232/ASRL 通訊，並提供 dry-run、模擬器及 JSON/JSONL 自動化工作流程。
 
-本架構是 vendor-neutral，但目前 Product support 僅限
-[Supported Models](docs/core/supported-models.zh-TW.md) 所記載、已註冊且文件化的
-model scope。Vendor-neutral 架構不代表任意或未知電源供應器都受支援；
-未註冊或無法解析的 live hardware 會 fail closed。Vendor-specific driver、alias、
-手冊、SCPI 行為、evidence
-與 support table 保留正確的 vendor 名稱。
+Core 負責儀器識別、Driver、SCPI、安全驗證和精確的實機支援決策；CLI 與 WebUI 是平行
+Adapter，Power Worker 則提供相同 Core 命令邊界給本機自動化。實機以 `*IDN?` 識別，
+未知、未註冊或不符精確支援範圍的型號、命令、傳輸、Backend 與功能皆 fail closed。
+Vendor-specific Driver、Alias、手冊、SCPI 與支援資訊仍保留正確的廠商名稱。
+確切範圍參閱 [支援型號](docs/core/supported-models.zh-TW.md)；規劃及預期型號防護參閱
+[CLI README](docs/cli/README.zh-TW.md#planning-identities-與-live-expected-model-guards)。
 
-共用 Core runtime 負責 identity resolution、driver、SCPI 行為、安全性與 exact
-live-support 決策。CLI 與 WebUI 是建立在 Core 之上的平行 adapter；Power Worker
-則將相同的 Core command boundary 提供給本機 automation。專案透過 VISA 支援
-USB、LAN 與明確設定的 RS-232/ASRL 通訊，並提供安全優先的 dry-run、simulator
-與 machine-readable workflow。
+**VISA 後端：** Python 安裝及 Windows Bundle 都包含 PyVISA、PyVISA-py，另有支援
+TCPIP 網路介面探索的 `psutil` 和 HiSLIP 探索的 `zeroconf`。System VISA 預設選用
+IVI (`@ivi`)，需另行安裝 Keysight IO Libraries Suite、NI-VISA 等執行環境；
+載入失敗不會回退到 `@py`，即使設定 `PYVISA_LIBRARY=@py` 也是如此。可透過 CLI
+`--backend @py` 或 WebUI「裝置選項 → VISA 後端」明確選擇 PyVISA-py；CLI 也保留
+受政策限制的自訂 VISA Library 路徑與 Backend 選項。不隨附選用的 USB／Serial 函式庫。
 
-Live hardware 會從 `*IDN?` 解析，且在文件所述 exact support scope 之外保持
-fail closed。當前型號與 connection coverage 請參閱
-[Supported Models](docs/core/supported-models.zh-TW.md)。
-
-**VISA 後端：** Python 安裝與 Windows bundle 均包含 PyVISA 和 PyVISA-py。
-預設 System VISA 明確選用 IVI（`@ivi`），需另行安裝 Keysight IO Libraries Suite、
-NI-VISA 等廠商／系統 VISA runtime。IVI 無法載入時會回報 backend 錯誤，不會自動
-fallback 到 PyVISA-py，即使設定 `PYVISA_LIBRARY=@py` 也不例外。
-CLI 使用 `--backend @py`，或在 WebUI 裝置設定 → VISA 後端明確選用 PyVISA-py。
-基礎 Python backend 可使用 TCPIP；Powers Tool 不預裝或打包選用的 USB／serial
-額外函式庫。Backend 可載入或儀器可識別不等於 Product 支援，目前沒有 PyVISA-py
-正式支援組合。CLI 仍保留自訂 VISA library 路徑與 backend selector，並受既有 policy 限制。
-Simulator、dry-run 與一般 no-hardware validation 不需要實體儀器或 vendor VISA
-runtime。安裝 VISA runtime 不會擴大支援範圍；live operation 仍受
-[Supported Models](docs/core/supported-models.zh-TW.md) 所記載的 exact model、command、
-transport、backend 與 required-feature scope 限制。
+E36312A 和 EDU36311A 的 **TCPIP + PyVISA-py (`@py`)** 已有經驗證的 Product-open
+精確支援範圍；USB + `@py` 及其他型號／Backend 組合不得據此推論為支援，Sequence
+與 Trigger 子功能亦受個別限制。Backend 可載入、儀器可辨識，或已安裝 VISA Runtime，
+均不代表已取得 Product 支援。dry-run、Simulator 和一般無硬體測試不需要實體儀器或
+廠商 VISA Runtime；實機限制詳見 [支援型號](docs/core/supported-models.zh-TW.md)。
 
 ## 功能特性
 
-- 透過 VISA 使用 USB、LAN 或明確的 RS-232/ASRL 設定控制支援的直流電源
-  供應器。
-- 可使用 `powers-tool` CLI 或本機 `powers-tool-webui` 儀表板。
-- WebUI 支援 English 與繁體中文，可在 runtime 切換語言，且不需 reload；
-  語言切換只改變 presentation，machine-facing values、API payloads 與 raw
-  diagnostics 保持原值。
-- 使用 dry-run 模式在開啟 VISA 前預覽會影響硬體的命令。
-- 使用內建模擬器在沒有硬體時測試流程。
-- 設定電壓/電流限制、控制輸出狀態，並讀取即時儀器資料。
-- 透過共用 Core runtime 執行 ramp、ramp-list、sequence、trigger、
-  snapshot、restore 與 protection 流程。
-- 產生 JSON 與 JSONL 輸出，供自動化、agent 與 orchestrator 使用。
-- 保持真實硬體輸出為選用 (opt-in)；預設測試與模擬流程不會啟用儀器輸出。
+- 透過 VISA 使用 USB、LAN 或明確設定的 RS-232/ASRL 控制支援的直流電源供應器
+- 透過 `powers-tool` CLI 或本機 `powers-tool-webui` 儀表板操作
+- 在 WebUI 即時切換英文與繁體中文、不重新載入頁面，且不改變 Machine-facing 值、API Payload 或原始診斷資訊
+- 使用 dry-run 在開啟 VISA 前預覽會影響硬體的命令
+- 使用內建模擬器在無硬體環境測試流程
+- 設定電壓／電流限制、控制輸出狀態並讀取即時儀器資料
+- 透過共用 Core 執行 Ramp、Ramp-list、Sequence、Trigger、Snapshot、Restore 與 Protection 工作流程
+- 輸出 JSON／JSONL，供自動化、Agent 和 Orchestrator 使用
+- 實機輸出必須明確 Opt-in；預設測試及模擬流程不啟用儀器輸出
 
 ## 專案結構
 
-此 repository 使用單一發行套件與單一版本號。在範例中，`<version>` 代表
-根目錄 `pyproject.toml` 中的 `[project].version`：
+單一 `powers-tool` Distribution 的 `<version>` 由根目錄 `pyproject.toml` 的
+`[project].version` 定義：
 
 - 發行套件：`powers-tool` `<version>`
 - Core import：`powers_tool_core`
 - CLI import：`powers_tool_cli`
 - WebUI import：`powers_tool_webui`
 
-import 路徑彼此獨立。請不要使用 `keysight_power.*` namespace package。
+import 路徑彼此獨立；請不要使用 `powers_tool.*` namespace package 或已淘汰的
+`keysight_power.*` namespace。
 
 ```text
 src/
@@ -94,88 +82,73 @@ scripts/
 
 ## 安裝
 
-先開啟 PowerShell 並進入專案根目錄：
+在 PowerShell 進入專案根目錄：
 
 ```powershell
 cd path\to\powers-tool
 ```
 
-如果尚未安裝 uv，先安裝：
+如尚未安裝 uv，先安裝並確認版本：
 
 ```powershell
 py -m pip install --user uv
 ```
 
-確認 uv 可用：
-
 ```powershell
 uv --version
 ```
 
-在專案資料夾建立虛擬環境：
+建立虛擬環境，並依 `uv.lock` 同步開發／測試相依套件：
 
 ```powershell
 uv venv .venv
 ```
 
-依照 `uv.lock` 同步可重現的開發與測試環境：
-
 ```powershell
 uv sync --all-extras --link-mode=copy
 ```
 
-CI 或嚴格本機檢查可要求已提交的 lock file 不被改動：
+CI 或嚴格的本機驗證應鎖定已提交的相依套件版本：
 
 ```powershell
 uv sync --all-extras --locked --link-mode=copy
 ```
 
-本專案支援 Python `>=3.10`。`uv venv .venv` 會使用可用的相容 Python。
-如果需要指定版本，請明確指定：
+支援 Python `>=3.10`；uv 會選擇相容版本，也可明確指定：
 
 ```powershell
 uv venv .venv --python 3.12
 ```
 
-lock file 將本機專案記錄為 `powers-tool`。安裝的 command wrappers 為
-`powers-tool`、`powers-tool-webui` 與 `powers-tool-webui-launcher`；舊有的
-distribution、package 與 command 名稱不是相容 alias。
-
-Windows 會建立虛擬環境 console wrapper，例如
-`.\.venv\Scripts\powers-tool.exe` 與
-`.\.venv\Scripts\powers-tool-webui.exe`。WebUI 啟動器的 wrapper 是
-`.\.venv\Scripts\powers-tool-webui-launcher.exe`。
-
-一般 setup 只需要既有 `uv sync` workflow。若 sync 成功但其中一個 wrapper
-缺失或尚未更新，請在 repository 根目錄執行以下命令，強制 uv 重新安裝
-`powers-tool` distribution 並重建 project console wrappers：
+`uv.lock` 記錄 `powers-tool` Distribution。Windows 在 `.venv\Scripts\` 建立
+`powers-tool.exe`、`powers-tool-webui.exe`、`powers-tool-webui-launcher.exe`；舊名稱
+不作為相容別名。如既有環境同步成功但 Wrapper 遺失或未更新，僅重裝專案套件：
 
 ```powershell
 uv sync --all-extras --link-mode=copy --reinstall-package powers-tool
 ```
 
-安裝完成後，請使用 [CLI Quick Start](docs/cli/README.zh-TW.md#快速開始)
-進行安全的 no-hardware 檢查，或參閱
-[WebUI 使用者指南](docs/webui/USER_GUIDE.zh-TW.md) 啟動本機瀏覽器介面。
+一般安裝只需 `uv sync`；更多無硬體操作參閱
+[CLI Quick Start](docs/cli/README.zh-TW.md#快速開始) 和
+[WebUI 使用者指南](docs/webui/USER_GUIDE.zh-TW.md)。
 
 ## 快速開始
 
-以下入口都是安全的 no-hardware 或本機操作；不會搜尋 VISA resource，
-也不會啟用儀器輸出。
+下列範例僅執行無硬體或本機工作；不會搜尋 VISA 資源或開啟實機輸出。
 
-執行 simulator CLI smoke：
+執行 CLI 模擬器診斷：
 
 ```powershell
 uv run powers-tool doctor --simulate --json
 ```
 
-啟動本機 WebUI launcher：
+啟動本機 WebUI Launcher：
 
 ```powershell
 uv run powers-tool-webui-launcher
 ```
 
-啟動 source-mode Electron Desktop shell：
+從 `desktop/` 啟動 Electron 開發 Shell：
 
 ```powershell
 Set-Location .\desktop
@@ -183,58 +156,43 @@ npm ci
 npm start
 ```
 
-詳細 CLI 操作請參閱 [CLI README](docs/cli/README.zh-TW.md)；瀏覽器與 Desktop
-操作請參閱 [WebUI 使用者指南](docs/webui/USER_GUIDE.zh-TW.md)。
-
-## 內建說明
-
-Powers Tool 內建產品 Help，不需要另外開啟 repository 文件：
-
-- CLI：`powers-tool user-guide`
-- Traditional Chinese CLI Help：`powers-tool user-guide --language zh-TW`
-- WebUI/Desktop：使用右上角的 `Help`。
-
-Bundled Help 由本機提供，並與已安裝或已發行的產品版本相匹配。
+詳細指令與介面操作請參閱 [CLI README](docs/cli/README.zh-TW.md) 及
+[WebUI 使用者指南](docs/webui/USER_GUIDE.zh-TW.md)。
 
 ## 建置
 
-建置 wheel 與 source distribution。這會使用前面安裝的 `dev` extra 中的
-`build` 套件：
+使用 `dev` Extra 中的 `build` 套件建立單一 Wheel 與 Sdist：
 
 ```powershell
 .\.venv\Scripts\python.exe -m build
 ```
 
-這只會產生一個 Python 發行套件：
+產物：
 
 ```text
 dist\powers_tool-<version>-py3-none-any.whl
 dist\powers_tool-<version>.tar.gz
 ```
 
-Product distribution inspector 會排除 repository validation scripts、private
-fixtures、candidate evidence 與 internal-only tests，並驗證 Python wheel 與
-source distribution；Desktop application 會另外組裝至 Windows ZIP。
+Distribution Inspector 會檢查 Wheel／Sdist，排除 Validation Scripts、Private Fixtures、
+Candidate Evidence 及 Internal Tests。Windows Bundle 另以 PyInstaller Onedir 建立。
 
-請先準備包含 PyInstaller 的 locked development environment，再建置 Windows
-application artifacts：
+先準備包含 PyInstaller 的鎖定開發環境：
 
 ```powershell
 uv sync --all-extras --locked --link-mode=copy
 ```
 
-建置包含 CLI、WebUI 啟動器與 private Desktop Host 的 Windows shared onedir bundle：
+建立共用 CLI、WebUI Launcher 和私有 Desktop Host Bundle：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_windows_bundle.ps1
 ```
 
-Windows WebUI Launcher 使用 Tkinter，因此用於建置 shared Windows bundle
-的 Python 環境必須提供可正常使用的 Tcl/Tk runtime。建置腳本會在啟動
-PyInstaller 前先檢查這項 prerequisite。
+**Windows 建置必要條件：** WebUI Launcher 使用 Tkinter；Python 環境必須具備可用的
+Tcl/Tk Runtime，腳本會在啟動 PyInstaller 前檢查。
 
-預設情況下，此命令會產生包含三個執行檔與一個共用 supporting-files
-目錄的 application directory：
+輸出共用目錄：
 
 ```text
 dist\powers-tool\
@@ -244,16 +202,11 @@ dist\powers-tool\
   _internal\
 ```
 
-這個 shared Windows onedir bundle 包含 CLI、WebUI Launcher，以及供 Desktop
-shell 使用的 private Desktop Host。`powers-tool-webui-host.exe` 不是新的
-公開 CLI entry point；三者共用同一個 `_internal` 目錄。
+Bundle 的 Launcher 與安裝後的 `powers-tool-webui-launcher` 都使用
+`powers_tool_webui.launcher:main`。`powers-tool-webui-host.exe` 僅供 Desktop 使用，
+不是公開 CLI 入口；三個執行檔共用單一 `_internal`。
 
-本機 `powers-tool-webui-launcher.exe` 與已安裝的
-`powers-tool-webui-launcher` console entry point 分開；兩者都使用現有的
-`powers_tool_webui.launcher:main` launcher implementation。
-
-Source-mode Desktop shell 使用 Electron 呈現現有 WebUI，不建立第二套
-WebUI 實作。從 repository root 執行：
+開發 Desktop 時，可在 `desktop/` 啟動重用 WebUI 的 Electron Shell：
 
 ```powershell
 Set-Location .\desktop
@@ -261,38 +214,33 @@ npm ci
 npm start
 ```
 
-Desktop shell 會啟動 private WebUI Host，開啟初始 1920x1080 並依 primary
-display work area 進行 clamp，並支援 System、Light、Dark 主題。選定的主題
-會套用至主要的 panels、cards、fields 與 status surfaces，不只改變頁面背景。
-深色主題下，主要控制項、狀態文字，以及不可用或停用的控制項，會在深色
-surface 上維持足夠辨識度。
-允許同時執行多個 Desktop instance，因此不同 instance 可以操作不同的實體儀器；
-但不同 client 仍不可同時操作同一個 physical instrument resource。
+Desktop 使用私有 WebUI Host，視窗會依顯示器工作區調整，並支援 System／Light／Dark
+主題；外觀詳見 [WebUI README](docs/webui/README.zh-TW.md)。允許多個 Instance 控制
+**不同**的儀器，但不得由不同 Client 同時操作同一個實體儀器 Resource。
 
-建置整合 shared Python bundle 的 Electron Windows directory application：
+建立包含共用 Python Bundle 的 Windows Desktop 目錄：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_desktop.ps1
 ```
 
-產生的 application directory 包含 `Powers Tool.exe`、三個 Python 執行檔、
-Electron runtime files，以及位於 root 的單一共用 `_internal` 目錄。正式
-Windows release 會將同一個 application directory 放入帶版本號的 ZIP。
+產生 `Powers Tool.exe`、三個 Python 執行檔、Electron Runtime，以及共用
+`_internal`；正式版以相同目錄製作 Windows ZIP。
 
-在不接觸硬體的情況下，快速測試建置完成的 CLI 執行檔：
+使用封裝的 CLI 進行無硬體 Smoke：
 
 ```powershell
 .\dist\powers-tool\powers-tool.exe --version
 .\dist\powers-tool\powers-tool.exe doctor --simulate --json
 ```
 
-建置包含 wheel、sdist 與 unified Desktop Windows ZIP 的版本化發佈資料夾：
+組裝帶版本號的 Wheel、Sdist、Windows ZIP 與 SHA-256 Checksums：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_release.ps1
 ```
 
-這會產生以所選專案版本命名的發佈產物：
+產物：
 
 ```text
 release\<version>\powers-tool-<version>-windows-x64.zip
@@ -301,52 +249,36 @@ release\<version>\powers_tool-<version>.tar.gz
 release\<version>\checksums.txt
 ```
 
-ZIP 內只有一個 `powers-tool-<version>\` application root，包含 Electron
-shell、CLI、WebUI launcher、private WebUI Host、Electron runtime files，以及
-共用的 `_internal\` 目錄。`checksums.txt` 只計算 ZIP、wheel 與 sdist 的
-hash。
+ZIP 含單一 `powers-tool-<version>\`，共用 `_internal`；`checksums.txt` 僅涵蓋
+ZIP、Wheel 與 Sdist。
 
-正式 release acceptance 必須從 clean、fully committed source working tree 執行。
-腳本使用既有 `.venv`、檢查 working tree 與 committed HEAD 一致並驗證 `uv.lock`，
-完整執行一次 no-hardware 測試套件，接著呼叫一次 `build_release.ps1` 產生最終
-版本化 artifacts，檢查 wheel、sdist 與 unified Desktop ZIP，在單一乾淨環境安裝
-最終 sdist，確認所有 console entry points、驗證 checksums、對每個 Product-active
-model 執行快速 CLI smoke，對 capability 代表性 model 執行較深的 CLI workflow，
-並檢查 simulator `PlanOnly` contract。
-新的 model 只有在引入尚未被代表的 capability family 或硬體結構時，才需要另一個
-deep representative。腳本會在 ignored 的輸出根目錄下寫出 `report.json` 與
-`summary.md`：
+從 **乾淨、已提交且執行期間不變的 HEAD** 執行正式無硬體 Release Acceptance：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\release-acceptance.ps1
 ```
 
-每個 recorded command 都會先顯示 `[start]`，完成後顯示 `[passed]` 或
-`[failed]` 以及 `duration=<seconds>s`。child-process stdout/stderr 仍會在命令
-完成後收集並印出或寫入 acceptance output，不會逐行即時串流。
+驗收使用既有 `.venv`、驗證 `uv.lock`、完整執行一次無硬體測試並只建置一次 Release；
+檢查 Wheel／Sdist／Desktop ZIP、三筆 SHA-256，分別在乾淨環境安裝最終 Wheel 與 Sdist，
+確認兩者的內建 Help，以及 Sdist 的全部 Console Entry Points。另對每個 Product-active
+型號執行快速 CLI Smoke、對具代表性的 Capability／硬體結構執行較深入流程，
+並檢查模擬器 `PlanOnly`。只有新增尚未涵蓋的 Capability Family 或硬體結構，
+才需要額外的深度代表型號。報告存於被忽略的輸出目錄（`report.json`、`summary.md`）；
+如指定 `-OutputRoot`，必須位於專案的 `.tmp_tests/` 內。
 
-若提供 `-OutputRoot`，必須解析到 repository 內的 `.tmp_tests` 或其子目錄。
-
-手動 GitHub Actions **Build Windows** workflow 提供 `bundle`、`desktop`、
-`release` 與 `release-acceptance` 四種模式。前三種只提供建置產物下載。
-`release-acceptance` 執行相同的完整驗收腳本，將已驗證的發布檔案與
-`report.json`、`summary.md` 分開儲存。只有在 `main` 使用
-`release-acceptance` 並設定 `create_draft=true`，才會在報告、Commit、版本與
-checksum 驗證成功後建立 Draft Release。Draft 使用原始驗收產物及對應的
-CHANGELOG 版本內容；Publish 仍由使用者自行審查後執行。
-
-此 acceptance script 不會進行 VISA discovery、開啟 resource 或送出 SCPI；
-執行期間 HEAD 或 source working tree 變動會使其失敗。它不會發佈 release，
-也不會重新命名 repository。
+手動 GitHub Actions **Build Windows** 提供 `bundle`、`desktop`、`release` 與
+`release-acceptance`；前三者僅供下載 Build Artifacts。只有從 `main` 使用
+`release-acceptance` 並明確設定 `create_draft=true`，在報告、Commit、版本及
+Checksums 驗證成功後，才能由已驗收的原始產物及對應 CHANGELOG 建立 Draft Release；
+正式發布仍需人工審查。此驗收不做 VISA 探索、開啟 Resource、送出 SCPI，
+不會自動發布；HEAD 或工作樹改變時驗收失敗。
 
 ## 測試
 
-Pytest 預設使用已忽略的 repository-local `.tmp_pytest` 目錄，因此無硬體測試
-不依賴 Windows 系統暫存目錄權限。請從 repository 根目錄執行 pytest。
-如果單次執行需要獨立 basetemp，請使用 `--basetemp .tmp_tests/<purpose>`。
-不要把 pytest 暫存資料或測試產物寫到 `Local/`。
+Pytest 預設使用已忽略的專案內 `.tmp_pytest/`；從根目錄執行。若單次測試需獨立
+暫存位置，使用 `--basetemp .tmp_tests/<purpose>`，不得寫入私人 `Local/`。
 
-開發迭代時可先跑 focused tests：
+開發時先執行各元件的 Focused Tests：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\core -q -p no:cacheprovider
@@ -354,31 +286,29 @@ Pytest 預設使用已忽略的 repository-local `.tmp_pytest` 目錄，因此�
 .\.venv\Scripts\python.exe -m pytest tests\webui -q -p no:cacheprovider
 ```
 
-執行 CI 使用的靜態檢查：
+執行 CI 使用的 Ruff：
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check src tests
 ```
 
-執行 fast no-hardware 測試：
+執行快速無硬體測試（排除指定 Windows Wrapper 和 Release Acceptance Contract Tests）：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests -q -p no:cacheprovider --ignore=tests\cli\test_cli_wrappers.py --ignore=tests\packaging\test_release_acceptance.py
 ```
 
-CI 也會檢查 tracked WebUI JavaScript syntax、執行必要的 WebUI Node runtime
-tests，在 Linux 與 Windows 建置 Python package，並執行 package import 以及
-CLI、WebUI、Launcher smoke。Windows Python 3.13 job 也會建置 Desktop directory。
-Wrapper contracts 會在獨立的 Windows job 執行。完整的
-`release-acceptance.ps1` gate、distribution inspection 與 release acceptance
-tests 仍保留給 release validation，不屬於一般 pull-request CI。
+CI 另外驗證文字編碼／空白、WebUI JavaScript 與 Node Runtime Tests、跨版本 Python
+測試、封裝及 Console Entry Points；Windows PowerShell Contracts 與 Windows
+Packaging Smoke 依變更路徑條件執行。完整 Release Acceptance 不屬一般 PR CI。
+詳見 [測試指南](docs/testing-guidelines.md)。
 
-Scripted no-hardware、live validation 與 release acceptance 工作流程記錄在
-[CLI README](docs/cli/README.zh-TW.md#scripted-validation)。Hardware validation
-屬於明確 opt-in，且需要使用者提供 VISA resource。
+腳本化與實機驗證請參閱 [CLI README](docs/cli/README.zh-TW.md#scripted-validation)。
+實機測試必須由使用者明確選擇並提供 VISA Resource，絕不由一般測試自動啟動。
 
 ## 文件
 
+- [版本紀錄](CHANGELOG.md)
 - [Core README](docs/core/README.zh-TW.md)
 - [Supported Models](docs/core/supported-models.zh-TW.md)
 - [CLI 使用者指南](docs/cli/USER_GUIDE.zh-TW.md)
@@ -389,6 +319,7 @@ Scripted no-hardware、live validation 與 release acceptance 工作流程記錄
 - [Help 維護](docs/help/README.md)
 - [Repository Layout](docs/architecture/monorepo-layout.md)
 - [測試指南](docs/testing-guidelines.md)
+- [貢獻指南](docs/CONTRIBUTING.md)
 - [Public Contracts](docs/contracts)
 - [Power CLI JSONL Contract](docs/contracts/power-cli-jsonl-contract.md)
 - [Power Worker Contract](docs/contracts/power-worker-contract.md)

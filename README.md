@@ -2,81 +2,61 @@
 
 # Powers Tool
 
-Powers Tool is a vendor-neutral Python toolkit for controlling supported DC
-power supplies. It provides one installable distribution,
-`powers-tool`, with three import packages: `powers_tool_core`,
-`powers_tool_cli`, and `powers_tool_webui`.
+Powers Tool is a safety-first, vendor-neutral Python toolkit for supported DC power
+supplies. The single `powers-tool` distribution contains independent
+`powers_tool_core`, `powers_tool_cli`, and `powers_tool_webui` import packages. It
+uses VISA for registered USB, LAN, and explicitly configured RS-232/ASRL connections,
+with dry-run, simulation, and machine-readable JSON/JSONL workflows.
 
-The framework is vendor-neutral, but current Product support is limited to
-the registered and documented model scopes in
-[Supported Models](docs/core/supported-models.md). Vendor-neutral architecture
-does not mean arbitrary or unknown power supplies are supported: unregistered
-or unresolved live hardware fails closed.
-Vendor-specific drivers, aliases, manuals, SCPI behavior, evidence, and support
-tables retain their correct vendor names.
+Core owns instrument identification, drivers, SCPI, safety validation, and exact live
+support. CLI and WebUI are parallel adapters; the Power Worker exposes the same Core
+command boundary for local automation. Live devices are identified through `*IDN?`;
+unknown, unregistered, or out-of-scope models, commands, transports, backends, and
+features fail closed. Vendor-specific drivers, aliases, manuals, SCPI, and support
+records retain their proper vendor names. See [Supported Models](docs/core/supported-models.md)
+and [CLI planning/expected-model guidance](docs/cli/README.md#planning-identities-and-live-expected-model-guards).
 
-The shared Core runtime owns identity resolution, drivers, SCPI behavior,
-safety, and exact live-support decisions. The CLI and WebUI are parallel
-adapters over Core, while the Power Worker exposes the same Core command
-boundary to local automation. The project supports USB, LAN, and explicit
-RS-232/ASRL communication through VISA, with safety-first dry-run, simulator,
-and machine-readable workflows.
+**VISA backends:** Python installs and Windows bundles include PyVISA and PyVISA-py,
+plus `psutil` for TCPIP interface discovery and `zeroconf` for HiSLIP discovery.
+System VISA defaults to IVI (`@ivi`) and requires a separately installed runtime
+(e.g., Keysight IO Libraries Suite or NI-VISA). Load failures never fall back to
+PyVISA-py, even with `PYVISA_LIBRARY=@py`. Select PyVISA-py explicitly through CLI
+`--backend @py` or WebUI Device options → VISA Backend. Custom CLI VISA library paths
+and backend selectors remain subject to support policy; optional USB/serial backend
+libraries are not bundled.
 
-Live hardware is identified from `*IDN?` and remains fail closed outside the
-documented exact support scope. See [Supported Models](docs/core/supported-models.md)
-for current model and connection coverage, and the
-[CLI README](docs/cli/README.md#planning-identities-and-live-expected-model-guards)
-for planning and expected-model behavior.
-
-**VISA backends:** Python installations and Windows bundles include PyVISA and
-PyVISA-py. System VISA is the default and explicitly selects IVI (`@ivi`),
-requiring a separately installed vendor/system VISA runtime such as Keysight IO
-Libraries Suite or NI-VISA. If IVI cannot load, operation fails with the backend
-error; it never falls back to PyVISA-py, including when `PYVISA_LIBRARY=@py`.
-Select PyVISA-py explicitly with CLI `--backend @py` or WebUI Device options →
-VISA Backend. Python installations and Windows bundles also include `psutil`
-for TCPIP discovery across network interfaces and `zeroconf` for HiSLIP
-discovery. Optional USB and serial libraries are not installed or bundled by
-Powers Tool.
-Loading a backend or identifying an instrument does not grant Product support.
-E36312A and EDU36311A now have independently validated TCPIP + PyVISA-py (`@py`) Product-open scopes. USB + `@py` and all other model/backend combinations stay closed; exact Sequence and Trigger subfeatures remain scoped. Custom CLI VISA library
-paths and backend selectors remain available under the existing policy. Simulator,
-dry-run, and normal no-hardware validation do not require a physical instrument
-or vendor VISA runtime. Installing a VISA runtime does not expand support:
-live operation remains limited to the exact model, command, transport, backend,
-and required-feature scopes in [Supported Models](docs/core/supported-models.md).
+E36312A and EDU36311A have independently validated, exact Product-open TCPIP +
+PyVISA-py (`@py`) scopes. USB + `@py` and other model/backend combinations remain
+closed; Sequence and Trigger subfeatures have separate scope limits. Backend loading,
+device identification, or runtime installation does not expand Product support.
+Dry-run, simulation, and ordinary no-hardware checks require no physical instrument
+or vendor VISA runtime. See [Supported Models](docs/core/supported-models.md).
 
 ## Features
 
-- Control supported DC power supplies over USB, LAN, or explicit
-  RS-232/ASRL settings using VISA
-- Use either the `powers-tool` CLI or the local `powers-tool-webui`
-  dashboard
-- Use the WebUI in English or Traditional Chinese, switching at runtime
-  without reload while keeping machine-facing values, API payloads, and raw
-  diagnostics unchanged
-- Preview hardware-affecting commands with dry-run mode before opening VISA
-- Test workflows without hardware using the built-in simulator
-- Set voltage/current limits, control output state, and read back live
-  instrument data
-- Run ramp, ramp-list, sequence, trigger, snapshot, restore, and protection
-  workflows through the shared Core runtime
-- Produce JSON and JSONL output for automation, agents, and orchestrators
-- Keep real hardware output opt-in; default tests and simulator flows do not
-  enable instrument output
+- Control supported DC supplies over USB, LAN, or explicitly configured RS-232/ASRL via VISA
+- Operate through the `powers-tool` CLI or local `powers-tool-webui` dashboard
+- Switch WebUI between English and Traditional Chinese without reload or changes to
+  machine-facing values, API payloads, or raw diagnostics
+- Preview hardware-affecting commands with dry-run before opening VISA
+- Test workflows without hardware with the built-in simulator
+- Set voltage/current limits, control output state, and read live instrument data
+- Run ramp, ramp-list, sequence, trigger, snapshot, restore, and protection workflows through Core
+- Produce JSON/JSONL for automation, agents, and orchestrators
+- Keep real output opt-in; default tests and simulator runs never enable instrument output
 
 ## Project Structure
 
-The normal Product release has one distribution and one version number. In
-examples, `<version>` means `[project].version` from the root `pyproject.toml`:
+The single `powers-tool` distribution takes `<version>` from `[project].version`
+in the root `pyproject.toml`:
 
 - Distribution: `powers-tool` `<version>`
 - Core import: `powers_tool_core`
 - CLI import: `powers_tool_cli`
 - WebUI import: `powers_tool_webui`
 
-The import paths remain independent. Do not use a `keysight_power.*`
-namespace package.
+The import paths remain independent. Do not use a `powers_tool.*` namespace package
+or the retired `keysight_power.*` namespace.
 
 ```text
 src/
@@ -108,92 +88,75 @@ scripts/
 
 ## Install
 
-Open PowerShell and enter the project root first:
+From the repository root in PowerShell:
 
 ```powershell
 cd path\to\powers-tool
 ```
 
-Install uv if it is not already available:
+Install uv if necessary, then verify it:
 
 ```powershell
 py -m pip install --user uv
 ```
 
-Verify uv:
-
 ```powershell
 uv --version
 ```
 
-Create the project virtual environment in the project folder:
+Create the virtual environment and sync development/test dependencies from `uv.lock`:
 
 ```powershell
 uv venv .venv
 ```
 
-Sync the reproducible development and test environment from `uv.lock`:
-
 ```powershell
 uv sync --all-extras --link-mode=copy
 ```
 
-For CI or strict local checks, require the committed lock file to stay
-unchanged:
+For CI or strict local checks, keep the committed lockfile unchanged:
 
 ```powershell
 uv sync --all-extras --locked --link-mode=copy
 ```
 
-This project supports Python `>=3.10`. `uv venv .venv` uses an available
-compatible Python. If you need a specific Python version, request it explicitly:
+Python `>=3.10` is supported; uv selects an available compatible version, or specify one:
 
 ```powershell
 uv venv .venv --python 3.12
 ```
 
-The lock file records the local project as `powers-tool`. Installed command
-wrappers are `powers-tool`, `powers-tool-webui`, and
-`powers-tool-webui-launcher`; former distribution, package, and command names
-are not compatibility aliases.
-
-Windows creates virtualenv console wrappers such as
-`.\.venv\Scripts\powers-tool.exe` and
-`.\.venv\Scripts\powers-tool-webui.exe`. The WebUI launcher wrapper is
-`.\.venv\Scripts\powers-tool-webui-launcher.exe`.
-
-Normal setup only requires the existing `uv sync` workflow. If sync succeeds but
-one of these wrappers is missing or has not been updated, run this from the
-repository root to force uv to reinstall the `powers-tool` distribution and
-recreate the project console wrappers:
+`uv.lock` identifies the `powers-tool` distribution. Windows installs
+`powers-tool.exe`, `powers-tool-webui.exe`, and `powers-tool-webui-launcher.exe`
+under `.venv\Scripts\`; former names are not compatibility aliases. If an existing
+synced environment has missing or stale wrappers, reinstall only the project:
 
 ```powershell
 uv sync --all-extras --link-mode=copy --reinstall-package powers-tool
 ```
 
-After installation, use the [CLI Quick Start](docs/cli/README.md#quick-start)
-for a safe no-hardware check, or see the
-[WebUI User Guide](docs/webui/USER_GUIDE.md) to start the local browser
-interface.
+Normal setup needs only `uv sync`. For more safe entry points, see the
+[CLI Quick Start](docs/cli/README.md#quick-start) and
+[WebUI User Guide](docs/webui/USER_GUIDE.md).
 
 ## Quick Start
 
-These entry points are safe no-hardware or local-only checks. They do not
-discover VISA resources or enable instrument output.
+These no-hardware and local-only examples never discover VISA resources or enable
+real output.
 
-Run a simulator CLI smoke:
+Run the CLI simulator diagnostic:
 
 ```powershell
 uv run powers-tool doctor --simulate --json
 ```
 
-Start the local WebUI launcher:
+Start the local WebUI Launcher:
 
 ```powershell
 uv run powers-tool-webui-launcher
 ```
 
-Start the source-mode Electron Desktop shell:
+Start the Electron development shell from `desktop/`:
 
 ```powershell
 Set-Location .\desktop
@@ -201,62 +164,44 @@ npm ci
 npm start
 ```
 
-For detailed CLI operation, see the [CLI README](docs/cli/README.md). For
-browser and Desktop usage, see the [WebUI User Guide](docs/webui/USER_GUIDE.md).
-
-## Built-in Help
-
-Powers Tool includes built-in product Help without requiring repository
-documentation:
-
-- CLI: `powers-tool user-guide`
-- Traditional Chinese CLI Help: `powers-tool user-guide --language zh-TW`
-- WebUI/Desktop: use `Help` in the upper-right corner.
-
-The bundled Help is local and version-matched to the installed or released
-product.
+For details, see the [CLI README](docs/cli/README.md) and
+[WebUI User Guide](docs/webui/USER_GUIDE.md).
 
 ## Build
 
-Build the wheel and source distribution. This uses the `build` package from
-the `dev` extra installed above:
+Build one Python wheel and source distribution with the `dev` extra's `build` package:
 
 ```powershell
 .\.venv\Scripts\python.exe -m build
 ```
 
-This produces only one Python distribution:
+Output:
 
 ```text
 dist\powers_tool-<version>-py3-none-any.whl
 dist\powers_tool-<version>.tar.gz
 ```
 
-The Product distribution inspector rejects repository validation scripts,
-private fixtures, candidate evidence, and internal-only tests. It validates the
-Python wheel and source distribution; the Desktop application is assembled
-separately for the Windows ZIP.
+The distribution inspector validates the wheel/sdist and rejects validation scripts,
+private fixtures, candidate evidence, and internal-only tests. The Windows Bundle is
+assembled separately using PyInstaller onedir.
 
-Prepare the locked development environment, which includes PyInstaller, before
-building Windows application artifacts:
+Prepare the locked development environment, including PyInstaller:
 
 ```powershell
 uv sync --all-extras --locked --link-mode=copy
 ```
 
-Build the shared Windows onedir bundle containing the CLI, WebUI launcher, and
-private Desktop Host:
+Build the shared CLI, WebUI Launcher, and private Desktop Host bundle:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_windows_bundle.ps1
 ```
 
-The Windows WebUI Launcher uses Tkinter, so the Python environment used to
-build the shared Windows bundle must provide a working Tcl/Tk runtime. The
-build script checks this prerequisite before starting PyInstaller.
+**Windows prerequisite:** The Launcher uses Tkinter; the build script checks that
+Python has a working Tcl/Tk runtime before PyInstaller starts.
 
-By default, this command produces one shared Python application directory with
-three executables and one shared supporting-files directory:
+Shared output:
 
 ```text
 dist\powers-tool\
@@ -266,15 +211,11 @@ dist\powers-tool\
   _internal\
 ```
 
-The local `powers-tool-webui-launcher.exe` artifact is distinct from the
-installed `powers-tool-webui-launcher` console entry point; both invoke the
-existing `powers_tool_webui.launcher:main` launcher implementation. The
-`powers-tool-webui-host.exe` artifact is a private console executable for the
-Desktop shell, not a new public CLI entry point. All three executables share
-the same `_internal` directory.
+The bundle's Launcher and installed `powers-tool-webui-launcher` both call
+`powers_tool_webui.launcher:main`. The private `powers-tool-webui-host.exe` is not a
+public CLI entry point; all three executables share one `_internal` directory.
 
-The source-mode Desktop shell is the existing WebUI presented in Electron; it
-does not create a second WebUI implementation. From the repository root:
+For Desktop development, start the Electron shell that reuses the existing WebUI:
 
 ```powershell
 Set-Location .\desktop
@@ -282,42 +223,34 @@ npm ci
 npm start
 ```
 
-The shell starts the private WebUI Host, opens a 1920x1080 window clamped to
-the primary display work area, and supports System, Light, and Dark themes.
-The selected theme applies to the main panels, cards, fields, and status
-surfaces, not only the page background.
-Dark theme keeps primary controls, status text, and unavailable or disabled
-controls visually distinguishable against dark surfaces.
-Multiple Desktop instances are allowed, so separate instances can operate
-different physical instruments. Do not use different clients concurrently on
-the same physical instrument resource.
+The Desktop launches the private WebUI Host, fits the window to the display work area,
+and supports System/Light/Dark themes; see the [WebUI README](docs/webui/README.md)
+for UI details. Multiple instances may control **different** instruments, but separate
+clients must not concurrently use the same physical instrument resource.
 
-Build the Electron Windows directory application, including the shared Python
-bundle:
+Build the Windows Desktop directory with the shared Python bundle:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_desktop.ps1
 ```
 
-The resulting application directory contains `Powers Tool.exe`, the three
-Python executables, Electron runtime files, and one shared root `_internal`
-directory. The formal Windows release uses the same application directory in a
-versioned ZIP.
+It contains `Powers Tool.exe`, the three Python executables, Electron runtime, and
+one shared `_internal` directory; the same layout ships in the Windows ZIP.
 
-Check the built CLI executable without touching hardware:
+Smoke the packaged CLI without hardware:
 
 ```powershell
 .\dist\powers-tool\powers-tool.exe --version
 .\dist\powers-tool\powers-tool.exe doctor --simulate --json
 ```
 
-Build the versioned Python distributions and unified Desktop Windows ZIP:
+Assemble versioned wheel, sdist, Windows ZIP, and SHA-256 checksums:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_release.ps1
 ```
 
-This produces artifacts named with the selected project version:
+Output:
 
 ```text
 release\<version>\powers-tool-<version>-windows-x64.zip
@@ -326,59 +259,38 @@ release\<version>\powers_tool-<version>.tar.gz
 release\<version>\checksums.txt
 ```
 
-The ZIP contains one `powers-tool-<version>\` application root with the
-Electron shell, CLI, WebUI launcher, private WebUI Host, Electron runtime
-files, and the shared `_internal\` directory. `checksums.txt` hashes the ZIP,
-wheel, and sdist only.
+The ZIP has one `powers-tool-<version>\` root with shared `_internal`;
+`checksums.txt` covers only the ZIP, wheel, and sdist.
 
-Run the final no-hardware release acceptance from a clean, fully committed
-source working tree. The script uses the existing `.venv`, checks that the
-working tree matches committed HEAD, verifies `uv.lock`, and runs the complete
-no-hardware test suite once. It then calls `build_release.ps1` once to produce
-the final versioned artifacts, inspects the wheel, sdist, and unified Desktop
-ZIP, installs the final wheel and sdist in separate clean environments,
-verifies bundled Help in both, checks all console entry points from the sdist,
-verifies checksums, runs fast CLI smoke for every
-Product-active model, runs deeper CLI workflows for capability-representative
-models, and checks a simulator `PlanOnly` contract. A new model needs another
-deep representative only when it introduces a capability family or hardware
-structure not already represented. The script writes `report.json` and
-`summary.md` under the ignored output root:
+Run formal no-hardware Release Acceptance on a **clean, committed, unchanged HEAD**:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\release-acceptance.ps1
 ```
 
-For each recorded command, it prints a `[start]` line followed by a `[passed]`
-or `[failed]` line with `duration=<seconds>s`. Child-process stdout/stderr
-remains collected after the command completes and is printed or written to the
-acceptance output; it is not streamed line by line.
+Acceptance uses the existing `.venv`, checks `uv.lock`, runs the entire no-hardware
+suite once, and builds the release once. It validates the wheel/sdist/Desktop ZIP and
+three SHA-256 hashes, installs the final wheel and sdist in separate clean environments,
+checks bundled Help in both and every sdist console entry point, then runs CLI smoke for
+all Product-active models, deeper capability-representative workflows, and simulator
+`PlanOnly`. Add another deep representative only for a new capability family or hardware
+structure. Reports (`report.json`, `summary.md`) are stored under the ignored output
+root; a custom `-OutputRoot` must stay inside `.tmp_tests/`.
 
-If `-OutputRoot` is provided, it must resolve to `.tmp_tests` or one of its
-subdirectories within the repository.
-
-The manual GitHub Actions **Build Windows** workflow offers `bundle`,
-`desktop`, `release`, and `release-acceptance` modes. The first three provide
-build downloads only. `release-acceptance` runs this same complete script and
-retains the verified release files separately from `report.json` and
-`summary.md`. Set `create_draft=true` only in `release-acceptance` mode on
-`main` to create a Draft Release after report, commit, version, and checksum
-verification. The Draft uses the original accepted artifacts and the matching
-CHANGELOG section; publishing remains a manual review step.
-
-This acceptance script never performs VISA discovery, opens a resource, or
-sends SCPI. It fails if HEAD or the source working tree changes during the run.
-It does not publish a release or rename the repository.
+The manual **Build Windows** workflow offers `bundle`, `desktop`, `release`, and
+`release-acceptance`; the first three only provide downloads. Only the last mode on
+`main`, with explicit `create_draft=true`, may create a Draft Release from verified
+report, commit, version, hashes, original accepted artifacts, and matching CHANGELOG.
+Publication remains a manual review step. Acceptance never discovers VISA, opens a
+resource, sends SCPI, or publishes a release; changed HEAD or worktree fails the gate.
 
 ## Test
 
-Pytest uses the ignored repository-local `.tmp_pytest` directory by default,
-so no-hardware tests do not depend on access to the Windows system temporary
-directory. Run pytest from the repository root. If a specific run needs a
-separate basetemp, use `--basetemp .tmp_tests/<purpose>`. Do not write pytest
-temporary data or generated test artifacts under `Local/`.
+Pytest defaults to the ignored local `.tmp_pytest/` directory; run it from the
+repository root. Use `--basetemp .tmp_tests/<purpose>` for isolated runs and never
+place generated artifacts in private `Local/`.
 
-Run focused tests while iterating:
+Run focused component tests during development:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests\core -q -p no:cacheprovider
@@ -386,31 +298,31 @@ Run focused tests while iterating:
 .\.venv\Scripts\python.exe -m pytest tests\webui -q -p no:cacheprovider
 ```
 
-Run the static checks used by CI:
+Run CI's Ruff check:
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check src tests
 ```
 
-Run the fast no-hardware suite:
+Run the fast no-hardware suite (excluding Windows wrapper and release-acceptance
+contract tests):
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tests -q -p no:cacheprovider --ignore=tests\cli\test_cli_wrappers.py --ignore=tests\packaging\test_release_acceptance.py
 ```
 
-CI also checks tracked WebUI JavaScript syntax, runs the focused WebUI Node
-runtime tests, builds the Python package on Linux and Windows, and runs package
-import plus CLI, WebUI, and Launcher smokes. The Windows Python 3.13 job also
-builds the Desktop directory. Windows PowerShell wrapper and validation-script contracts run in a conditional Windows validation job. Actual Desktop/Windows release-layout packaging smoke runs in another conditional Windows job, using the changed paths; Linux Python 3.13 runs the primary no-hardware suite and the remaining Python versions run selected compatibility, platform and safety contracts.
-The complete `release-acceptance.ps1` gate, distribution inspection, and release
-acceptance tests remain release validation rather than ordinary pull-request CI.
+CI also checks tracked-text hygiene, whitespace, WebUI JavaScript/Node runtime,
+cross-version Python contracts, packaging, and console entry points. Windows PowerShell
+contracts and packaging smoke are conditional on changed paths; formal Release
+Acceptance is not regular PR CI. See [Testing Guidelines](docs/testing-guidelines.md).
 
-For scripted validation, live hardware checks, and release acceptance, see the
-[CLI README](docs/cli/README.md#scripted-validation). Hardware validation is
-explicit opt-in and requires a user-provided VISA resource.
+For scripted and live validation, see the
+[CLI README](docs/cli/README.md#scripted-validation). Live hardware runs are explicit
+opt-in and require a user-provided VISA resource.
 
 ## Documentation
 
+- [Changelog](CHANGELOG.md)
 - [Core README](docs/core/README.md)
 - [Supported Models](docs/core/supported-models.md)
 - [CLI User Guide](docs/cli/USER_GUIDE.md)
@@ -421,6 +333,7 @@ explicit opt-in and requires a user-provided VISA resource.
 - [Help Maintenance](docs/help/README.md)
 - [Repository Layout](docs/architecture/monorepo-layout.md)
 - [Testing Guidelines](docs/testing-guidelines.md)
+- [Contributing Guide](docs/CONTRIBUTING.md)
 - [Public Contracts](docs/contracts)
 - [Power CLI JSONL Contract](docs/contracts/power-cli-jsonl-contract.md)
 - [Power Worker Contract](docs/contracts/power-worker-contract.md)
