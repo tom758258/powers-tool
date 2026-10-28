@@ -80,6 +80,24 @@ docs/
 scripts/
 ```
 
+## 主要依賴
+
+Powers Tool 使用下列主要開源元件（非完整依賴清單）：
+
+| 元件 | 用途 |
+| --- | --- |
+| [PyVISA](https://pyvisa.readthedocs.io/) | 與支援的儀器進行 VISA 通訊 |
+| [PyVISA-py](https://pyvisa-py.readthedocs.io/) | 支援連線範圍所使用的 Python VISA 後端 |
+| [PyYAML](https://pyyaml.org/) | YAML 設定與工作流程檔案 |
+| [psutil](https://github.com/giampaolo/psutil)／[zeroconf](https://github.com/python-zeroconf/python-zeroconf) | TCPIP 網路介面與 HiSLIP 資源探索 |
+| [FastAPI](https://fastapi.tiangolo.com/)／[Uvicorn](https://www.uvicorn.org/) | 本機 WebUI 後端服務 |
+| [Electron](https://www.electronjs.org/) | Desktop 應用程式外殼 |
+
+Python 依賴宣告與鎖定版本分別位於 [pyproject.toml](pyproject.toml)、
+[uv.lock](uv.lock)；Desktop 依賴則位於
+[desktop/package.json](desktop/package.json)、
+[desktop/package-lock.json](desktop/package-lock.json)。
+
 ## 安裝
 
 在 PowerShell 進入專案根目錄：
@@ -334,6 +352,8 @@ evidence。
 ## 授權條款與免責聲明
 
 本專案採用 MIT License。詳見 [LICENSE](LICENSE)。
+隨附的第三方授權聲明請參閱
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)。
 
 應用程式圖示：Powers Tool 應用程式圖示使用 ChatGPT 中的 OpenAI 圖像生成功能產生，
 並由專案維護者審閱及選定。

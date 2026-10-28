@@ -32,11 +32,25 @@ def inspect_bundle(
         raise AssertionError(f"shared bundle directory does not exist: {bundle}")
 
     root_entries = {path.name for path in bundle.iterdir()}
-    expected_root_entries = {*EXPECTED_EXECUTABLES, "_internal"}
+    expected_root_entries = {
+        *EXPECTED_EXECUTABLES,
+        "_internal",
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.txt",
+        "third_party",
+    }
     assert root_entries == expected_root_entries, (
         f"expected shared bundle root entries {sorted(expected_root_entries)!r}, "
         f"found {sorted(root_entries)!r}"
     )
+
+    # These are required redistribution notices, not optional extra assets.
+    for notice in (
+        bundle / "LICENSE",
+        bundle / "THIRD_PARTY_NOTICES.txt",
+        bundle / "third_party" / "licenses" / "zeroconf-COPYING",
+    ):
+        assert notice.is_file(), f"missing bundled license notice: {notice}"
 
     internal = bundle / "_internal"
     assert internal.is_dir(), internal

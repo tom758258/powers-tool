@@ -1,0 +1,45 @@
+Powers Tool - Third-Party Notices
+
+Powers Tool itself is licensed under the MIT License; see LICENSE.
+
+zeroconf 0.151.5 (python-zeroconf)
+-----------------------------------
+License: GNU Lesser General Public License, version 2.1 or later
+         (LGPL-2.1-or-later).
+Upstream project: https://github.com/python-zeroconf/python-zeroconf
+Corresponding source: https://github.com/python-zeroconf/python-zeroconf/tree/0.151.5
+Original copyright notices and complete LGPL license text:
+    third_party/licenses/zeroconf-COPYING
+
+The Windows application includes zeroconf. You may modify this LGPL library
+and rebuild Powers Tool with a modified version. Obtain the corresponding
+Powers Tool source code and Windows build scripts from
+https://github.com/tom758258/powers-tool.
+
+Rebuild the Windows application with a modified zeroconf
+-------------------------------------------------------
+On Windows x64, use Python 3.13 and Node.js 22 (the GitHub Actions toolchain).
+
+1. Obtain the Powers Tool source matching the distributed version and the
+   corresponding zeroconf 0.151.5 source from the URL above. Build your
+   modified zeroconf as a Windows-compatible wheel, keeping its package
+   metadata version at 0.151.5 so the notices and version check stay correct.
+2. In the Powers Tool source root, create or sync the locked environment:
+
+       uv sync --python 3.13 --all-extras --locked --link-mode=copy
+
+3. Replace the zeroconf installed in that environment with your modified wheel:
+
+       uv pip install --python .venv/Scripts/python.exe --no-deps --reinstall <MODIFIED_ZEROCONF_WHEEL>
+
+4. Rebuild the Windows release using the installed replacement:
+
+       powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/build_release.ps1
+
+   Do not run "uv sync" between steps 3 and 4, or the locked dependency may
+   replace the modified wheel. The rebuilt release will contain your modified
+   library. The rebuilt distribution is not the official Powers Tool release.
+
+This file highlights the included LGPL library; it is not an exhaustive list
+of transitive dependencies. The Desktop already includes Electron's and
+Chromium's own redistributed license files, which remain in place.

@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 INSPECTOR_PATH = Path(__file__).with_name("inspect_windows_bundle.py")
@@ -112,6 +114,15 @@ def test_bundle_inspector_compares_the_complete_static_tree(tmp_path: Path) -> N
     (bundle / "powers-tool.exe").write_bytes(b"")
     (bundle / "powers-tool-webui-launcher.exe").write_bytes(b"")
     (bundle / "powers-tool-webui-host.exe").write_bytes(b"")
+    for relative_path in (
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.txt",
+        "third_party/licenses/zeroconf-COPYING",
+    ):
+        notice = bundle / relative_path
+        notice.parent.mkdir(parents=True, exist_ok=True)
+        notice.write_text("fixture license notice\n", encoding="utf-8")
+
     metadata_dir = bundle / "_internal" / "powers_tool-2.0.0.dist-info"
     metadata_dir.mkdir(parents=True)
     (metadata_dir / "METADATA").write_text(
@@ -124,3 +135,15 @@ def test_bundle_inspector_compares_the_complete_static_tree(tmp_path: Path) -> N
         source_cli_help=source_cli_help,
         expected_version="2.0.0",
     )
+
+    # A missing file inside the otherwise permitted third_party directory must
+    # still fail the inspector, not just missing top-level root entries.
+    copying = bundle / "third_party" / "licenses" / "zeroconf-COPYING"
+    copying.unlink()
+    with pytest.raises(AssertionError, match="missing bundled license notice"):
+        inspector.inspect_bundle(
+            bundle,
+            source_static=source_static,
+            source_cli_help=source_cli_help,
+            expected_version="2.0.0",
+        )
