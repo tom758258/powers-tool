@@ -61,6 +61,12 @@ if (Test-Path -LiteralPath $bundlePath) {
 $specPath = Join-Path $RepoRoot "scripts\powers-tool-windows.spec"
 $workPath = Join-Path $RepoRoot "build\pyinstaller-windows"
 
+# Keep the bundled LGPL library version aligned with the reviewed notice.
+$zeroconfVersion = & $Python -c "from importlib.metadata import version; print(version('zeroconf'))"
+if ($LASTEXITCODE -ne 0 -or "$zeroconfVersion".Trim() -ne "0.151.5") {
+    throw "Installed zeroconf version '$zeroconfVersion' differs from the reviewed 0.151.5 license notice. Update notices before building."
+}
+
 & $Python -m PyInstaller `
     --noconfirm `
     --clean `
@@ -70,4 +76,27 @@ $workPath = Join-Path $RepoRoot "build\pyinstaller-windows"
 
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
+}
+
+# Preserve project and LGPL library license notices in the shared onedir
+# bundle; Desktop and release packaging copy this directory unchanged.
+$noticePaths = @(
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.txt",
+    "third_party/licenses/zeroconf-COPYING"
+)
+if (-not (Test-Path -LiteralPath $bundlePath -PathType Container)) {
+    throw "Windows bundle directory not found: $bundlePath"
+}
+foreach ($relativePath in $noticePaths) {
+    $sourceNotice = Join-Path $RepoRoot $relativePath
+    if (-not (Test-Path -LiteralPath $sourceNotice -PathType Leaf)) {
+        throw "Required license notice not found: $sourceNotice"
+    }
+    $targetNotice = Join-Path $bundlePath $relativePath
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $targetNotice) | Out-Null
+    Copy-Item -LiteralPath $sourceNotice -Destination $targetNotice -Force
+    if (-not (Test-Path -LiteralPath $targetNotice -PathType Leaf)) {
+        throw "License notice was not copied into the bundle: $targetNotice"
+    }
 }
