@@ -12,7 +12,7 @@ Windows Release 提供三種操作入口。請依使用情境選擇介面；不�
 | `powers-tool-webui-launcher.exe` | 在本機瀏覽器使用 WebUI。 |
 | `Powers Tool.exe` | 以桌面視窗使用相同的 WebUI。 |
 
-本指南介紹 CLI。若要操作圖形介面，請參閱 [WebUI 使用者指南](https://github.com/tom758258/powers-tool/blob/main/docs/webui/USER_GUIDE.zh-TW.md)（需連線）；離線時可從圖形介面開啟內建 Help。`powers-tool-webui-host.exe` 是 Desktop 內部程式，並非另一種操作入口。
+本指南介紹 CLI。若要操作圖形介面，請啟動 Browser WebUI 或 Desktop 並開啟其內建 Help。`powers-tool-webui-host.exe` 是 Desktop 內部程式，並非另一種操作入口。
 
 ## 啟動 CLI
 
