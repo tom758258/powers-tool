@@ -18,7 +18,7 @@ The Windows release has three operator entry points. Choose the interface for yo
 | `powers-tool-webui-launcher.exe` | Browser WebUI on the local computer. |
 | `Powers Tool.exe` | Desktop window showing the same WebUI. |
 
-This guide covers the CLI. For graphical operation, see the [WebUI User Guide](https://github.com/tom758258/powers-tool/blob/main/docs/webui/USER_GUIDE.md) (online); offline, open the Help bundled with the graphical application. `powers-tool-webui-host.exe` is an internal Desktop helper, not an additional operator entry point.
+This guide covers the CLI. For graphical operation, open the browser or Desktop WebUI and use its bundled Help. `powers-tool-webui-host.exe` is an internal Desktop helper, not an additional operator entry point.
 
 ## Start The CLI
 
