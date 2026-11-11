@@ -8,6 +8,18 @@ It focuses on normal product operation, important limits, and safe behavior.
 For command-specific options and usage, run
 `powers-tool <command> --help`.
 
+## Choose Your Interface
+
+The Windows release has three operator entry points. Choose the interface for your workflow; do not use separate clients to control the same physical supply at once.
+
+| Program | Use |
+| --- | --- |
+| `powers-tool.exe` | CLI commands, scripts, and automation. |
+| `powers-tool-webui-launcher.exe` | Browser WebUI on the local computer. |
+| `Powers Tool.exe` | Desktop window showing the same WebUI. |
+
+This guide covers the CLI. For graphical operation, see the [WebUI User Guide](https://github.com/tom758258/powers-tool/blob/main/docs/webui/USER_GUIDE.md) (online); offline, open the Help bundled with the graphical application. `powers-tool-webui-host.exe` is an internal Desktop helper, not an additional operator entry point.
+
 ## Start The CLI
 
 Open PowerShell in the folder that contains the CLI executable and check it:
@@ -63,6 +75,16 @@ These commands open the bundled CLI User Guide in the default browser. The Help
 is local/offline content bundled with the installed or released product, so it
 matches that product version. For one command's arguments and options, use
 `powers-tool <command> --help` instead.
+
+## Choose A First Check
+
+Without a connected supply, start with the simulator diagnostic. It does not open VISA or enable real instrument output:
+
+```powershell
+.\powers-tool.exe doctor --simulate --json
+```
+
+For a connected supply, follow [First Live Check](#first-live-check) and start with read-only commands. See [No-Hardware Checks](#no-hardware-checks) for more simulation and dry-run examples.
 
 ## First Live Check
 
@@ -263,6 +285,15 @@ caller:
 ```powershell
 .\powers-tool.exe log --simulate --model keysight-e36312a --channel all --interval-sec 1 --samples 5 --csv telemetry.csv --jsonl telemetry.jsonl
 ```
+
+The following CSV illustrates one telemetry row, not a real measurement or the complete output of the `--channel all` example:
+
+```csv
+timestamp,resource,resource_alias,model,serial,channel,programmed_voltage,programmed_current,measured_voltage,measured_current,output_enabled,errors
+2026-01-01T00:00:00+00:00,USB0::SIM::E36312A::INSTR,,E36312A,,1,0.0,0.0,0.0,0.0,False,
+```
+
+Check the timestamp, channel, programmed values, measured values, output state, and errors. A successful `--channel all` run can write multiple channel rows per sample cycle.
 
 Sequence `log` is only a message/note action; `--log-scpi` traces SCPI traffic
 and is not telemetry.
