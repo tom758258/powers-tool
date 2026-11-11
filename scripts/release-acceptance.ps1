@@ -549,6 +549,15 @@ assert opened[0].startswith("file:")
         -Arguments @("--version") -WorkingDirectory $script:RunRoot -TimeoutSeconds 30
     Add-Check -Target $script:StandaloneChecks -Name "CLI --version" `
         -Passed ($cliVersion.Trim() -eq "powers-tool $projectVersion") -Detail $cliVersion.Trim()
+    $script:CurrentStep = "packaged CLI User Guide smoke"
+    Invoke-Recorded -Name "packaged-cli-user-guide" -FilePath $python `
+        -Arguments @(
+            (Join-Path $script:RepoRoot "scripts\smoke_cli_user_guide.py"),
+            "--exe", $packagedCli,
+            "--help-root", (Join-Path $extractedBundleDir "_internal\powers_tool_cli\help"),
+            "--language-option=--language"
+        ) -WorkingDirectory $script:RunRoot -TimeoutSeconds 120 | Out-Null
+    $script:CurrentStep = "final packaged smoke"
     $webuiVersion = Invoke-Recorded -Name "packaged-webui-launcher-version" -FilePath $packagedLauncher `
         -Arguments @("--version") -WorkingDirectory $script:RunRoot -TimeoutSeconds 30
     $webuiDetail = $webuiVersion.Trim()

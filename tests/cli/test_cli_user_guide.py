@@ -88,3 +88,19 @@ def test_cli_user_guide_opens_bundled_help(monkeypatch, capsys) -> None:
     assert "Could not open" in captured.err or "Could not open" in captured.out or len(captured.err) > 0
     # stderr should contain manual path
     assert "cli.html" in captured.err
+
+
+def test_cli_user_guide_uses_package_location_in_packaged_layout(monkeypatch, tmp_path) -> None:
+    import powers_tool_cli.cli as cli
+
+    package_dir = tmp_path / "_internal" / "powers_tool_cli"
+    help_dir = package_dir / "help"
+    help_dir.mkdir(parents=True)
+    (help_dir / "cli.html").write_text("fixture", encoding="utf-8")
+    monkeypatch.setattr(cli.powers_tool_cli, "__file__", str(package_dir / "__init__.py"))
+    monkeypatch.setattr(cli, "__file__", str(tmp_path / "_internal" / "cli.py"))
+
+    opened = []
+    monkeypatch.setattr(cli.webbrowser, "open", lambda uri: opened.append(uri) or True)
+    assert cli.main(["user-guide"]) == 0
+    assert opened == [(help_dir / "cli.html").as_uri()]

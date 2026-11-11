@@ -47,6 +47,10 @@ def desktop_smoke(version: str) -> None:
         str(desktop / "powers-tool-webui-launcher.exe"))
     run(str(desktop / "powers-tool.exe"), "identify", "--simulate", "--json",
         "--resource", "USB0::SIM::E36312A::INSTR")
+    run(sys.executable, "scripts/smoke_cli_user_guide.py",
+        "--exe", str(desktop / "powers-tool.exe"),
+        "--help-root", str(desktop / "_internal" / "powers_tool_cli" / "help"),
+        "--language-option=--language")
     run(str(desktop / "powers-tool-webui-launcher.exe"), "--version")
 
 def release_smoke(version: str) -> None:

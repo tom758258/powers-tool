@@ -8,6 +8,8 @@ import time
 import webbrowser
 from collections.abc import Sequence
 from pathlib import Path
+
+import powers_tool_cli
 from powers_tool_cli import cli_rendering
 
 import powers_tool_core.restore as restore_core
@@ -151,13 +153,15 @@ COMMAND_NAMES = frozenset(
 
 LOG_CSV_FIELDS = TELEMETRY_ROW_FIELDS
 
-CLI_HELP_DIR = Path(__file__).resolve().parent / "help"
+
+def _cli_help_dir() -> Path:
+    return Path(powers_tool_cli.__file__).resolve().parent / "help"
 
 
 def _run_user_guide(args: argparse.Namespace) -> int:
     language = getattr(args, "language", "en")
     filename = {"en": "cli.html", "zh-TW": "cli.zh-TW.html"}[language]
-    help_path = (CLI_HELP_DIR / filename).resolve()
+    help_path = (_cli_help_dir() / filename).resolve()
     if not help_path.is_file():
         print(
             f"Could not open the bundled CLI user guide automatically. Open this file manually: {help_path}",
