@@ -5,6 +5,18 @@
 的架構不綁定特定廠牌；目前硬體支援範圍以 [支援型號](../core/supported-models.zh-TW.md)
 所記載的 Product scopes 為準；未知或未註冊的 live hardware 會 fail closed。
 
+## 選擇操作介面
+
+Windows Release 提供三種操作入口。Browser WebUI 與 Desktop 顯示相同的 WebUI；不要讓不同程式同時控制同一台實體電源供應器。
+
+| 程式 | 用途 |
+| --- | --- |
+| `powers-tool.exe` | CLI 指令、腳本與自動化。 |
+| `powers-tool-webui-launcher.exe` | 在本機瀏覽器使用 WebUI。 |
+| `Powers Tool.exe` | 以桌面視窗使用相同的 WebUI。 |
+
+本指南介紹 Browser WebUI 與 Desktop。若要使用命令列，請啟動 `powers-tool.exe`，並使用其內建 `user-guide` 命令開啟說明。`powers-tool-webui-host.exe` 是 Desktop 內部 Host，並非另一種操作入口。
+
 ## 啟動 WebUI
 
 使用本機 shared onedir build 時，請雙擊 bundle 中的 WebUI 啟動器：
@@ -236,20 +248,15 @@ overrides。目前 Product LIVE 的 ASRL scopes 包含 E3646A 與 PSM-2010，且
 system VISA；精確 command scope 請參閱
 [支援型號](../core/supported-models.zh-TW.md)。
 
-Serial 欄位留空時會保留目前 VISA 或 Connection Expert 的設定。只有在儀器環境
-確實需要明確覆寫時，才填入對應欄位。
+下表整理 Device options 的 serial 欄位。只有儀器設定需要明確覆寫時才填入；留空會保留目前 VISA 或 Connection Expert 的設定。
 
-可用欄位包括 Baud rate、Data bits、Parity、Stop bits、Flow control、
-Read termination 與 Write termination。Read/write termination 接受
-`CR`、`LF`、`CRLF` 與 `NONE`；`NONE`、空白或省略都代表 Powers Tool
-不覆寫該 termination setting。
+| 欄位 | 行為 |
+| --- | --- |
+| `Baud rate`、`Data bits`、`Parity`、`Stop bits`、`Flow control` | 選用的 serial 覆寫設定。 |
+| `Read termination`、`Write termination` | 接受 `CR`、`LF`、`CRLF` 與 `NONE`；`NONE`、空白或省略都不覆寫 termination setting。 |
+| `Serial remote`、`Local on close` | 在支援時影響 remote/local 行為；僅在操作程序需要時使用。 |
 
-E3646A 文件中的 factory 範例為 9600 baud、8 data bits、none parity、
-2 stop bits 與 DTR/DSR handshake，但實際 front-panel settings 可能不同。
-不要假設這些值也適用於 PSM-2010；請依實際儀器與 VISA configuration 操作。
-
-`Serial remote` 與 `Local on close` 會在支援時影響 remote/local 行為。
-只有操作程序確實需要這種 state change 時才使用。
+E3646A 文件中的 factory 範例為 9600 baud、8 data bits、none parity、2 stop bits 與 DTR/DSR handshake，但實際 front-panel settings 可能不同。不要假設這些值也適用於 PSM-2010；請依實際儀器與 VISA configuration 操作。
 
 ## 即時資料 (Live Data)
 

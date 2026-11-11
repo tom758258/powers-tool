@@ -6,6 +6,18 @@ framework is vendor-neutral, while current hardware support is defined by the
 documented [Product scopes](../core/supported-models.md). This guide covers normal product
 operation, screen workflows, and safety behavior.
 
+## Choose Your Interface
+
+The Windows release has three operator entry points. Browser WebUI and Desktop display the same WebUI; do not use separate clients to control the same physical supply at once.
+
+| Program | Use |
+| --- | --- |
+| `powers-tool.exe` | CLI commands, scripts, and automation. |
+| `powers-tool-webui-launcher.exe` | Browser WebUI on the local computer. |
+| `Powers Tool.exe` | Desktop window showing the same WebUI. |
+
+This guide covers the browser and Desktop interfaces. For command-line operation, start `powers-tool.exe` and use its bundled `user-guide` command for instructions. `powers-tool-webui-host.exe` is a private Desktop host, not another operator entry point.
+
 ## Start The WebUI
 
 For a local shared onedir build, double-click the WebUI launcher in the bundle:
@@ -304,23 +316,15 @@ serial overrides. Current Product LIVE ASRL scopes include E3646A and PSM-2010
 with system VISA; see [Supported Models](../core/supported-models.md) for the
 exact command scope.
 
-Leave a serial field blank to keep the current VISA or Connection Expert
-setting. Only fill a field when the instrument setup requires an explicit
-override.
+The Device options serial controls are summarized below. Leave a field blank to keep its current VISA or Connection Expert setting; enter an override only when the instrument setup requires it.
 
-The available fields are Baud rate, Data bits, Parity, Stop bits, Flow control,
-Read termination, and Write termination. Read/write termination accepts
-`CR`, `LF`, `CRLF`, and `NONE`. `NONE`, blank, or omitted means that Powers
-Tool does not override that termination setting.
+| Setting | Behavior |
+| --- | --- |
+| `Baud rate`, `Data bits`, `Parity`, `Stop bits`, `Flow control` | Optional serial overrides. |
+| `Read termination`, `Write termination` | Accept `CR`, `LF`, `CRLF`, and `NONE`; `NONE`, blank, or omitted does not override the termination setting. |
+| `Serial remote`, `Local on close` | Affect remote/local state where supported; use only when the procedure requires that change. |
 
-For E3646A, the documented factory example is 9600 baud, 8 data bits, none
-parity, 2 stop bits, and DTR/DSR handshake, but the actual front-panel settings
-may differ. Do not assume those values apply to PSM-2010; use the actual
-instrument and VISA configuration.
-
-`Serial remote` and `Local on close` affect remote/local behavior where
-supported. Use them only when the operating procedure requires that state
-change.
+For E3646A, the documented factory example is 9600 baud, 8 data bits, none parity, 2 stop bits, and DTR/DSR handshake, but the actual front-panel settings may differ. Do not assume those values apply to PSM-2010; use the actual instrument and VISA configuration.
 
 ## Live Data
 

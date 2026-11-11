@@ -2,6 +2,18 @@
 
 本指南針對取得已建置之 CLI 執行檔或已安裝 `powers-tool` 命令的操作員，說明正常產品操作、重要限制與安全行為。目前硬體支援以 [支援型號](../core/supported-models.zh-TW.md) 所列 exact Product scope 為準。各命令的專屬選項與使用方式可使用 `powers-tool <command> --help` 查詢。
 
+## 選擇操作介面
+
+Windows Release 提供三種操作入口。請依使用情境選擇介面；不要讓不同程式同時控制同一台實體電源供應器。
+
+| 程式 | 用途 |
+| --- | --- |
+| `powers-tool.exe` | CLI 指令、腳本與自動化。 |
+| `powers-tool-webui-launcher.exe` | 在本機瀏覽器使用 WebUI。 |
+| `Powers Tool.exe` | 以桌面視窗使用相同的 WebUI。 |
+
+本指南介紹 CLI。若要操作圖形介面，請啟動 Browser WebUI 或 Desktop 並開啟其內建 Help。`powers-tool-webui-host.exe` 是 Desktop 內部程式，並非另一種操作入口。
+
 ## 啟動 CLI
 
 在包含 CLI 執行檔的資料夾中開啟 PowerShell 並檢查：
@@ -54,6 +66,16 @@ powers-tool user-guide --language zh-TW
 這些命令會在預設瀏覽器開啟 bundled CLI User Guide。Help 是隨已安裝或已發行
 產品提供的本機／離線內容，因此會與該產品版本相匹配。若只需要單一命令的
 參數與選項，請改用 `powers-tool <command> --help`。
+
+## 選擇首次檢查方式
+
+尚未連接電源供應器時，可先執行模擬器診斷；此命令不會開啟 VISA，也不會啟用實體儀器輸出：
+
+```powershell
+.\powers-tool.exe doctor --simulate --json
+```
+
+已連接儀器時，請依照 [首次實機檢查](#首次實機檢查-first-live-check) 從唯讀命令開始。更多模擬與 Dry-run 範例請參閱 [無硬體檢查](#無硬體檢查)。
 
 ## 首次實機檢查 (First Live Check)
 
@@ -233,6 +255,15 @@ CLI `log` 執行有界的唯讀 telemetry，並寫入呼叫者選擇的路徑：
 ```powershell
 .\powers-tool.exe log --simulate --model keysight-e36312a --channel all --interval-sec 1 --samples 5 --csv telemetry.csv --jsonl telemetry.jsonl
 ```
+
+以下 CSV 示意其中一筆 telemetry 資料，並非真實量測結果，也不是上述 `--channel all` 命令的完整輸出：
+
+```csv
+timestamp,resource,resource_alias,model,serial,channel,programmed_voltage,programmed_current,measured_voltage,measured_current,output_enabled,errors
+2026-01-01T00:00:00+00:00,USB0::SIM::E36312A::INSTR,,E36312A,,1,0.0,0.0,0.0,0.0,False,
+```
+
+可檢查時間、通道、設定值、實測值、輸出狀態與 errors。使用 `--channel all` 時，每次採樣可能寫入多個通道的資料列。
 
 Sequence `log` 只是 message/note action；`--log-scpi` 是 SCPI traffic
 tracing，不是 telemetry。

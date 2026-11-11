@@ -63,6 +63,31 @@
   <main class="help-content" id="help-content">
 <h1 id="powers-tool-cli-使用者指南">Powers Tool CLI 使用者指南</h1>
 <p>本指南針對取得已建置之 CLI 執行檔或已安裝 <code>powers-tool</code> 命令的操作員，說明正常產品操作、重要限制與安全行為。目前硬體支援以 <a href="supported-models.zh-TW.html">支援型號</a> 所列 exact Product scope 為準。各命令的專屬選項與使用方式可使用 <code>powers-tool &lt;command&gt; --help</code> 查詢。</p>
+<h2 id="選擇操作介面">選擇操作介面</h2>
+<p>Windows Release 提供三種操作入口。請依使用情境選擇介面；不要讓不同程式同時控制同一台實體電源供應器。</p>
+<table>
+<thead>
+<tr>
+<th>程式</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>powers-tool.exe</code></td>
+<td>CLI 指令、腳本與自動化。</td>
+</tr>
+<tr>
+<td><code>powers-tool-webui-launcher.exe</code></td>
+<td>在本機瀏覽器使用 WebUI。</td>
+</tr>
+<tr>
+<td><code>Powers Tool.exe</code></td>
+<td>以桌面視窗使用相同的 WebUI。</td>
+</tr>
+</tbody>
+</table>
+<p>本指南介紹 CLI。若要操作圖形介面，請啟動 Browser WebUI 或 Desktop 並開啟其內建 Help。<code>powers-tool-webui-host.exe</code> 是 Desktop 內部程式，並非另一種操作入口。</p>
 <h2 id="啟動-cli">啟動 CLI</h2>
 <p>在包含 CLI 執行檔的資料夾中開啟 PowerShell 並檢查：</p>
 <pre><code class="language-powershell">.\powers-tool.exe --version
@@ -96,6 +121,11 @@ powers-tool user-guide --language zh-TW
 <p>這些命令會在預設瀏覽器開啟 bundled CLI User Guide。Help 是隨已安裝或已發行
 產品提供的本機／離線內容，因此會與該產品版本相匹配。若只需要單一命令的
 參數與選項，請改用 <code>powers-tool &lt;command&gt; --help</code>。</p>
+<h2 id="選擇首次檢查方式">選擇首次檢查方式</h2>
+<p>尚未連接電源供應器時，可先執行模擬器診斷；此命令不會開啟 VISA，也不會啟用實體儀器輸出：</p>
+<pre><code class="language-powershell">.\powers-tool.exe doctor --simulate --json
+</code></pre>
+<p>已連接儀器時，請依照 <a href="#首次實機檢查-first-live-check">首次實機檢查</a> 從唯讀命令開始。更多模擬與 Dry-run 範例請參閱 <a href="#無硬體檢查">無硬體檢查</a>。</p>
 <h2 id="首次實機檢查-first-live-check">首次實機檢查 (First Live Check)</h2>
 <p>在檢查新電腦、VISA runtime、連線或電源供應器設定時，請使用此流程。</p>
 <ol>
@@ -215,6 +245,11 @@ operating range。</p>
 <p>CLI <code>log</code> 執行有界的唯讀 telemetry，並寫入呼叫者選擇的路徑：</p>
 <pre><code class="language-powershell">.\powers-tool.exe log --simulate --model keysight-e36312a --channel all --interval-sec 1 --samples 5 --csv telemetry.csv --jsonl telemetry.jsonl
 </code></pre>
+<p>以下 CSV 示意其中一筆 telemetry 資料，並非真實量測結果，也不是上述 <code>--channel all</code> 命令的完整輸出：</p>
+<pre><code class="language-csv">timestamp,resource,resource_alias,model,serial,channel,programmed_voltage,programmed_current,measured_voltage,measured_current,output_enabled,errors
+2026-01-01T00:00:00+00:00,USB0::SIM::E36312A::INSTR,,E36312A,,1,0.0,0.0,0.0,0.0,False,
+</code></pre>
+<p>可檢查時間、通道、設定值、實測值、輸出狀態與 errors。使用 <code>--channel all</code> 時，每次採樣可能寫入多個通道的資料列。</p>
 <p>Sequence <code>log</code> 只是 message/note action；<code>--log-scpi</code> 是 SCPI traffic
 tracing，不是 telemetry。</p>
 <h2 id="影響輸出的工作流程">影響輸出的工作流程</h2>
