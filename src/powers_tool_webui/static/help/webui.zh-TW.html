@@ -66,6 +66,31 @@
 說明支援之直流電源供應器的正常產品操作、畫面工作流程與安全行為。Powers Tool
 的架構不綁定特定廠牌；目前硬體支援範圍以 <a href="supported-models.zh-TW.html">支援型號</a>
 所記載的 Product scopes 為準；未知或未註冊的 live hardware 會 fail closed。</p>
+<h2 id="選擇操作介面">選擇操作介面</h2>
+<p>Windows Release 提供三種操作入口。Browser WebUI 與 Desktop 顯示相同的 WebUI；不要讓不同程式同時控制同一台實體電源供應器。</p>
+<table>
+<thead>
+<tr>
+<th>程式</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>powers-tool.exe</code></td>
+<td>CLI 指令、腳本與自動化。</td>
+</tr>
+<tr>
+<td><code>powers-tool-webui-launcher.exe</code></td>
+<td>在本機瀏覽器使用 WebUI。</td>
+</tr>
+<tr>
+<td><code>Powers Tool.exe</code></td>
+<td>以桌面視窗使用相同的 WebUI。</td>
+</tr>
+</tbody>
+</table>
+<p>本指南介紹 Browser WebUI 與 Desktop。若要使用命令列，請參閱 <a href="https://github.com/tom758258/powers-tool/blob/main/docs/cli/USER_GUIDE.zh-TW.md">CLI 使用者指南</a>（需連線）；離線時可由 CLI 的 <code>user-guide</code> 命令開啟內建 Help。<code>powers-tool-webui-host.exe</code> 是 Desktop 內部 Host，並非另一種操作入口。</p>
 <h2 id="啟動-webui">啟動 WebUI</h2>
 <p>使用本機 shared onedir build 時，請雙擊 bundle 中的 WebUI 啟動器：</p>
 <pre><code class="language-text">dist\powers-tool\powers-tool-webui-launcher.exe
@@ -237,17 +262,30 @@ Backend 可載入、Scan 或 Identify 成功不等於 Product 支援。PyVISA-py
 overrides。目前 Product LIVE 的 ASRL scopes 包含 E3646A 與 PSM-2010，且使用
 system VISA；精確 command scope 請參閱
 <a href="supported-models.zh-TW.html">支援型號</a>。</p>
-<p>Serial 欄位留空時會保留目前 VISA 或 Connection Expert 的設定。只有在儀器環境
-確實需要明確覆寫時，才填入對應欄位。</p>
-<p>可用欄位包括 Baud rate、Data bits、Parity、Stop bits、Flow control、
-Read termination 與 Write termination。Read/write termination 接受
-<code>CR</code>、<code>LF</code>、<code>CRLF</code> 與 <code>NONE</code>；<code>NONE</code>、空白或省略都代表 Powers Tool
-不覆寫該 termination setting。</p>
-<p>E3646A 文件中的 factory 範例為 9600 baud、8 data bits、none parity、
-2 stop bits 與 DTR/DSR handshake，但實際 front-panel settings 可能不同。
-不要假設這些值也適用於 PSM-2010；請依實際儀器與 VISA configuration 操作。</p>
-<p><code>Serial remote</code> 與 <code>Local on close</code> 會在支援時影響 remote/local 行為。
-只有操作程序確實需要這種 state change 時才使用。</p>
+<p>下表整理 Device options 的 serial 欄位。只有儀器設定需要明確覆寫時才填入；留空會保留目前 VISA 或 Connection Expert 的設定。</p>
+<table>
+<thead>
+<tr>
+<th>欄位</th>
+<th>行為</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Baud rate</code>、<code>Data bits</code>、<code>Parity</code>、<code>Stop bits</code>、<code>Flow control</code></td>
+<td>選用的 serial 覆寫設定。</td>
+</tr>
+<tr>
+<td><code>Read termination</code>、<code>Write termination</code></td>
+<td>接受 <code>CR</code>、<code>LF</code>、<code>CRLF</code> 與 <code>NONE</code>；<code>NONE</code>、空白或省略都不覆寫 termination setting。</td>
+</tr>
+<tr>
+<td><code>Serial remote</code>、<code>Local on close</code></td>
+<td>在支援時影響 remote/local 行為；僅在操作程序需要時使用。</td>
+</tr>
+</tbody>
+</table>
+<p>E3646A 文件中的 factory 範例為 9600 baud、8 data bits、none parity、2 stop bits 與 DTR/DSR handshake，但實際 front-panel settings 可能不同。不要假設這些值也適用於 PSM-2010；請依實際儀器與 VISA configuration 操作。</p>
 <h2 id="即時資料-live-data">即時資料 (Live Data)</h2>
 <p><code>Live Data</code> 是一個唯讀監控器。它會定期讀取所選資源，更新通道卡片，並顯示 WebUI、命令與即時監控狀態。</p>
 <p>在執行輸出命令前使用 Live Data 來確認：</p>
