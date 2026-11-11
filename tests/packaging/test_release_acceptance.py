@@ -410,6 +410,13 @@ def test_release_acceptance_validates_installed_help_from_final_distributions() 
     ) < install_flow.index("foreach ($installArtifact in $installArtifacts)")
 
 
+def test_release_acceptance_smokes_packaged_cli_user_guide() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert '"packaged-cli-user-guide"' in text
+    assert r"scripts\smoke_cli_user_guide.py" in text
+    assert "--language-option=--language" in text
+
+
 def test_release_acceptance_reports_recorded_command_status() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     helper = text.split("function Invoke-Recorded", 1)[1].split(
