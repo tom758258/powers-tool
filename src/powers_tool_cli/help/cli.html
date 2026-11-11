@@ -69,6 +69,31 @@ hardware is the exact Product scope in <a href="supported-models.html">Supported
 It focuses on normal product operation, important limits, and safe behavior.
 For command-specific options and usage, run
 <code>powers-tool &lt;command&gt; --help</code>.</p>
+<h2 id="choose-your-interface">Choose Your Interface</h2>
+<p>The Windows release has three operator entry points. Choose the interface for your workflow; do not use separate clients to control the same physical supply at once.</p>
+<table>
+<thead>
+<tr>
+<th>Program</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>powers-tool.exe</code></td>
+<td>CLI commands, scripts, and automation.</td>
+</tr>
+<tr>
+<td><code>powers-tool-webui-launcher.exe</code></td>
+<td>Browser WebUI on the local computer.</td>
+</tr>
+<tr>
+<td><code>Powers Tool.exe</code></td>
+<td>Desktop window showing the same WebUI.</td>
+</tr>
+</tbody>
+</table>
+<p>This guide covers the CLI. For graphical operation, see the <a href="https://github.com/tom758258/powers-tool/blob/main/docs/webui/USER_GUIDE.md">WebUI User Guide</a> (online); offline, open the Help bundled with the graphical application. <code>powers-tool-webui-host.exe</code> is an internal Desktop helper, not an additional operator entry point.</p>
 <h2 id="start-the-cli">Start The CLI</h2>
 <p>Open PowerShell in the folder that contains the CLI executable and check it:</p>
 <pre><code class="language-powershell">.\powers-tool.exe --version
@@ -105,6 +130,11 @@ powers-tool user-guide --language zh-TW
 is local/offline content bundled with the installed or released product, so it
 matches that product version. For one command's arguments and options, use
 <code>powers-tool &lt;command&gt; --help</code> instead.</p>
+<h2 id="choose-a-first-check">Choose A First Check</h2>
+<p>Without a connected supply, start with the simulator diagnostic. It does not open VISA or enable real instrument output:</p>
+<pre><code class="language-powershell">.\powers-tool.exe doctor --simulate --json
+</code></pre>
+<p>For a connected supply, follow <a href="#first-live-check">First Live Check</a> and start with read-only commands. See <a href="#no-hardware-checks">No-Hardware Checks</a> for more simulation and dry-run examples.</p>
 <h2 id="first-live-check">First Live Check</h2>
 <p>Use this flow when checking a new computer, VISA runtime, connection, or power
 supply setup.</p>
@@ -245,6 +275,11 @@ or protection state. They do not intentionally enable outputs.</p>
 caller:</p>
 <pre><code class="language-powershell">.\powers-tool.exe log --simulate --model keysight-e36312a --channel all --interval-sec 1 --samples 5 --csv telemetry.csv --jsonl telemetry.jsonl
 </code></pre>
+<p>The following CSV illustrates one telemetry row, not a real measurement or the complete output of the <code>--channel all</code> example:</p>
+<pre><code class="language-csv">timestamp,resource,resource_alias,model,serial,channel,programmed_voltage,programmed_current,measured_voltage,measured_current,output_enabled,errors
+2026-01-01T00:00:00+00:00,USB0::SIM::E36312A::INSTR,,E36312A,,1,0.0,0.0,0.0,0.0,False,
+</code></pre>
+<p>Check the timestamp, channel, programmed values, measured values, output state, and errors. A successful <code>--channel all</code> run can write multiple channel rows per sample cycle.</p>
 <p>Sequence <code>log</code> is only a message/note action; <code>--log-scpi</code> traces SCPI traffic
 and is not telemetry.</p>
 <h2 id="output-affecting-workflow">Output-Affecting Workflow</h2>
