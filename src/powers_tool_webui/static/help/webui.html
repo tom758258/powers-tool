@@ -67,6 +67,31 @@ Desktop application to inspect and control supported DC power supplies. The
 framework is vendor-neutral, while current hardware support is defined by the
 documented <a href="supported-models.html">Product scopes</a>. This guide covers normal product
 operation, screen workflows, and safety behavior.</p>
+<h2 id="choose-your-interface">Choose Your Interface</h2>
+<p>The Windows release has three operator entry points. Browser WebUI and Desktop display the same WebUI; do not use separate clients to control the same physical supply at once.</p>
+<table>
+<thead>
+<tr>
+<th>Program</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>powers-tool.exe</code></td>
+<td>CLI commands, scripts, and automation.</td>
+</tr>
+<tr>
+<td><code>powers-tool-webui-launcher.exe</code></td>
+<td>Browser WebUI on the local computer.</td>
+</tr>
+<tr>
+<td><code>Powers Tool.exe</code></td>
+<td>Desktop window showing the same WebUI.</td>
+</tr>
+</tbody>
+</table>
+<p>This guide covers the browser and Desktop interfaces. For command-line operation, see the <a href="https://github.com/tom758258/powers-tool/blob/main/docs/cli/USER_GUIDE.md">CLI User Guide</a> (online); offline, use the CLI's bundled <code>user-guide</code> command. <code>powers-tool-webui-host.exe</code> is a private Desktop host, not another operator entry point.</p>
 <h2 id="start-the-webui">Start The WebUI</h2>
 <p>For a local shared onedir build, double-click the WebUI launcher in the bundle:</p>
 <pre><code class="language-text">dist\powers-tool\powers-tool-webui-launcher.exe
@@ -306,20 +331,30 @@ visibility, and whether another program is holding the instrument.</p>
 serial overrides. Current Product LIVE ASRL scopes include E3646A and PSM-2010
 with system VISA; see <a href="supported-models.html">Supported Models</a> for the
 exact command scope.</p>
-<p>Leave a serial field blank to keep the current VISA or Connection Expert
-setting. Only fill a field when the instrument setup requires an explicit
-override.</p>
-<p>The available fields are Baud rate, Data bits, Parity, Stop bits, Flow control,
-Read termination, and Write termination. Read/write termination accepts
-<code>CR</code>, <code>LF</code>, <code>CRLF</code>, and <code>NONE</code>. <code>NONE</code>, blank, or omitted means that Powers
-Tool does not override that termination setting.</p>
-<p>For E3646A, the documented factory example is 9600 baud, 8 data bits, none
-parity, 2 stop bits, and DTR/DSR handshake, but the actual front-panel settings
-may differ. Do not assume those values apply to PSM-2010; use the actual
-instrument and VISA configuration.</p>
-<p><code>Serial remote</code> and <code>Local on close</code> affect remote/local behavior where
-supported. Use them only when the operating procedure requires that state
-change.</p>
+<p>The Device options serial controls are summarized below. Leave a field blank to keep its current VISA or Connection Expert setting; enter an override only when the instrument setup requires it.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Baud rate</code>, <code>Data bits</code>, <code>Parity</code>, <code>Stop bits</code>, <code>Flow control</code></td>
+<td>Optional serial overrides.</td>
+</tr>
+<tr>
+<td><code>Read termination</code>, <code>Write termination</code></td>
+<td>Accept <code>CR</code>, <code>LF</code>, <code>CRLF</code>, and <code>NONE</code>; <code>NONE</code>, blank, or omitted does not override the termination setting.</td>
+</tr>
+<tr>
+<td><code>Serial remote</code>, <code>Local on close</code></td>
+<td>Affect remote/local state where supported; use only when the procedure requires that change.</td>
+</tr>
+</tbody>
+</table>
+<p>For E3646A, the documented factory example is 9600 baud, 8 data bits, none parity, 2 stop bits, and DTR/DSR handshake, but the actual front-panel settings may differ. Do not assume those values apply to PSM-2010; use the actual instrument and VISA configuration.</p>
 <h2 id="live-data">Live Data</h2>
 <p><code>Live Data</code> is a read-only monitor. It reads the selected resource on an
 interval, updates channel cards, and shows WebUI, command, and live monitor
