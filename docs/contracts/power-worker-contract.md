@@ -506,6 +506,12 @@ terminal result artifact when the artifact directory is writable.
 Terminal artifact `status` is one of `succeeded`, `failed`, or `cancelled`.
 `ok` is `true` only for `succeeded`.
 
+Live `safe-off` uses the [CLI result fields](power-cli-jsonl-contract.md)
+`output_off_confirmed`, `outputs`, and `instrument_errors`. On failure, the
+Common terminal error carries available readbacks and diagnostics in
+`details.partial_result`. An Error Queue query failure can therefore report a
+failed job with `output_off_confirmed: true`.
+
 Successful and cancelled `log` result data uses the existing result schema and
 contains only `samples_written`, `samples_requested`, `duration_sec`,
 `interval_sec`, `channels`, and `stop_reason`. `samples_written` counts complete

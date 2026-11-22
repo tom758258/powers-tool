@@ -1140,6 +1140,8 @@ def test_safe_off_real_e36312a_expands_all_channels(monkeypatch, capsys) -> None
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert session.queries == ["*IDN?", "OUTP? (@1)", "OUTP? (@2)", "OUTP? (@3)", "SYST:ERR?"]
+    assert payload["data"]["output_off_confirmed"] is True
+    assert payload["data"]["instrument_errors"] == []
     assert session.writes == ["OUTP OFF,(@1)", "OUTP OFF,(@2)", "OUTP OFF,(@3)"]
     assert session.events == [
         "query:*IDN?",
@@ -2785,7 +2787,7 @@ def test_safe_off_accepts_serial_options_without_confirm(monkeypatch, capsys) ->
         ("set", ["--channel", "1", "--voltage", "1", "--current", "0.05"], {"INST:NSEL?": "1"}),
         ("output-on", ["--channel", "1"], {"INST:NSEL?": "1", "VOLT?": "1.0", "CURR?": "0.05", "OUTP?": "0"}),
         ("output-off", ["--channel", "1"], {"INST:NSEL?": "1", "OUTP?": "1"}),
-        ("safe-off", ["--channel", "1"], {"INST:NSEL?": "1", "OUTP?": "1"}),
+        ("safe-off", ["--channel", "1"], {"INST:NSEL?": "1", "OUTP?": "0"}),
         ("cycle-output", ["--channel", "1", "--duration-ms", "1"], {"INST:NSEL?": "1", "VOLT?": "1.0", "CURR?": "0.05", "OUTP?": "1"}),
         ("apply", ["--channel", "1", "--voltage", "1", "--current", "0.05", "--no-output"], {"INST:NSEL?": "1"}),
         ("ramp", ["--channel", "1", "--start-voltage", "0", "--stop-voltage", "1", "--step-voltage", "1", "--current", "0.05"], {"INST:NSEL?": "1"}),

@@ -29,6 +29,7 @@ from powers_tool_cli.worker_protocol import (
 from powers_tool_cli.cli import build_parser
 from powers_tool_core.command_runner import run_core_command
 from powers_tool_core.core import OperationRequest, RuntimeOptions
+from powers_tool_core.errors import VisaConnectionError
 from powers_tool_core.telemetry import TELEMETRY_ROW_FIELDS
 
 SIMULATE_CONTEXT = {
@@ -720,6 +721,39 @@ class FakeWorkerLiveSession:
 
     def write(self, command: str) -> None:
         self.writes.append(command)
+
+
+def test_worker_safe_off_queue_failure_keeps_confirmed_output_in_partial_result(tmp_path, monkeypatch):
+    class QueueFailureSession(FakeWorkerLiveSession):
+        def query(self, command: str) -> str:
+            if command.startswith("OUTP? "):
+                return "0"
+            if command == "SYST:ERR?":
+                raise VisaConnectionError("Error Queue unavailable")
+            return super().query(command)
+
+    session = QueueFailureSession()
+    monkeypatch.setattr(worker_execution_mod, "open_resource", lambda *args, **kwargs: session)
+    state = _worker_validation_state(tmp_path, mode="live")
+    state.config.update(artifact_mode="memory", settings={"resource": "USB0::FAKE::E36312A::INSTR"})
+
+    _run_job_impl(state, {
+        "worker_job_id": "safe-off-test",
+        "command": "safe-off",
+        "arguments": {"channel": "all"},
+        "context": LIVE_CONTEXT,
+        "dir": None,
+    })
+
+    terminal = state.last_job
+    assert terminal["state"] == "failed"
+    assert terminal["result"]["execution"]["hardware_touched"] is True
+    assert terminal["error"]["details"]["domain_error"]["code"] == "io_failed"
+    partial = terminal["error"]["details"]["partial_result"]
+    assert partial["output_off_confirmed"] is True
+    assert partial["outputs"] == [{"channel": channel, "enabled": False} for channel in (1, 2, 3)]
+    assert partial["instrument_errors"] is None
+    assert session.closed
 
 
 def test_worker_live_requests_use_core_exact_scope_and_policy_error_code(tmp_path, monkeypatch):

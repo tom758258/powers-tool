@@ -681,6 +681,50 @@ def test_unsupported_completion_pulse_preserves_safety_first_output_off_order(
 
 
 @pytest.mark.parametrize(
+    ("channel_two", "errors", "confirmed"),
+    [("0", [], True), ("0", ['-222,"Data out of range"'], True),
+     ("1", ['-222,"Data out of range"'], False), ("invalid", None, None)],
+)
+def test_safe_off_reports_readback_separately_from_instrument_errors(
+    channel_two, errors, confirmed
+) -> None:
+    class SafeOffSession(FakeSession):
+        def query(self, command: str) -> str:
+            if command == "SYST:ERR?" and pending_errors:
+                self.queries.append(command)
+                return pending_errors.pop(0)
+            return super().query(command)
+
+    pending_errors = list(errors or [])
+    session = SafeOffSession(responses={"OUTP? (@2)": channel_two, "OUTP? (@3)": "0"})
+
+    def safe_off():
+        return run_operation(
+            OperationRequest(
+                command="safe-off",
+                runtime=RuntimeOptions(resource="USB0::FAKE::E36312A::INSTR"),
+                parameters={"channel": "all"},
+            ),
+            opener=lambda *args, **kwargs: session,
+        )
+
+    if confirmed is True:
+        data = safe_off()
+    else:
+        with pytest.raises(CoreExecutionError) as failure:
+            safe_off()
+        data = failure.value.data
+
+    assert data["output_off_confirmed"] is confirmed
+    assert data["instrument_errors"] == errors
+    expected = [{"channel": 1, "enabled": False}]
+    if confirmed is not None:
+        expected.extend([{"channel": 2, "enabled": channel_two == "1"}, {"channel": 3, "enabled": False}])
+    assert data["outputs"] == expected
+    assert session.closed
+
+
+@pytest.mark.parametrize(
     "command",
     [
         "set",

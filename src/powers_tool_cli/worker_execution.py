@@ -482,6 +482,8 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
             result_data = dict(getattr(exc, "data", {}) or {})
             if isinstance(exc, CoreExecutionError) and exc.trigger is not None:
                 result_data.setdefault("trigger", exc.trigger)
+        elif isinstance(exc, CoreIoError) and exc.data is not None:
+            result_data = exc.data
 
     if cmd == "log":
         if not memory_artifacts:
@@ -553,6 +555,8 @@ def _run_job_impl(state: WorkerState, job: dict[str, Any]) -> None:
         if ok:
             hardware_touched = True
         elif cmd == "ramp-list" and result_data is not None:
+            hardware_touched = True
+        elif cmd == "safe-off" and result_data is not None and "output_off_confirmed" in result_data:
             hardware_touched = True
         elif cmd == "log" and (telemetry_rows_written > 0 or result_data is not None):
             hardware_touched = True

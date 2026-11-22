@@ -624,16 +624,42 @@ def _execute_output_write(
 
     if command == "safe-off":
         channels = power_supply.capabilities.channels if channel == "all" else (_require_channel(power_supply, channel, command),)
-        outputs = []
-        for selected_channel in channels:
-            power_supply.output_off(channel=selected_channel)
-            outputs.append({"channel": selected_channel, "enabled": power_supply.output_state(channel=selected_channel)})
-        trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
-        _raise_on_instrument_errors(power_supply, command)
-        data = _resource_payload(request, idn, channel=channel)
-        data["outputs"] = outputs
-        _attach_trigger_if_present(data, trigger)
-        return data
+        outputs: list[dict[str, Any]] = []
+        data = {"outputs": outputs, "output_off_confirmed": None, "instrument_errors": None}
+        stage = "output OFF write or readback"
+        try:
+            for selected_channel in channels:
+                power_supply.output_off(channel=selected_channel)
+                enabled = power_supply.output_state(channel=selected_channel)
+                outputs.append({"channel": selected_channel, "enabled": enabled})
+                if enabled is True:
+                    data["output_off_confirmed"] = False
+            if outputs and all(output["enabled"] is False for output in outputs):
+                data["output_off_confirmed"] = True
+
+            stage = "completion pulse"
+            trigger = _maybe_run_completion_pulse(request, power_supply, default_channel=channel)
+            _attach_trigger_if_present(data, trigger)
+            stage = "instrument Error Queue query"
+            data["instrument_errors"], _read_count = power_supply.read_error_queue(20)
+        except VisaConnectionError as exc:
+            raise CoreIoError(f"safe-off {stage} failed: {exc}", opened=True, data=data) from exc
+        except CoreValidationError:
+            raise
+        except CoreExecutionError as exc:
+            exc.data = {**data, **(exc.data or {})}
+            raise
+        except ValueError as exc:
+            raise CoreExecutionError(f"safe-off {stage} failed: {exc}", data=data) from exc
+
+        if data["output_off_confirmed"] is not True:
+            reason = (
+                "at least one output is still ON"
+                if data["output_off_confirmed"] is False
+                else "output OFF could not be confirmed"
+            )
+            raise CoreExecutionError(f"safe-off failed: {reason}", data=data)
+        return _resource_payload(request, idn, channel=channel, **data)
 
     if command == "output-state":
         channels = _channels_from_selection(
