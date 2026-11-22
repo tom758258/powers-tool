@@ -269,6 +269,15 @@ Selected data mappings:
   unsupported, or malformed observed identity, channel inventory, or result
   produces a schema-2 execution error with `code: "invalid_core_result"`,
   `retryable: false`, and exit code 3 instead of a success envelope.
+- Live `safe-off` reports each available channel readback in `outputs[]`.
+  `output_off_confirmed` is `true` when all selected channels report OFF,
+  `false` when a channel reports ON, or `null` when OFF cannot be confirmed.
+  `instrument_errors` holds the original Error Queue strings, an empty array
+  when no errors were observed, or `null` when the query did not complete.
+  Reported instrument errors alone do not fail the command when OFF is
+  confirmed. Incomplete OFF confirmation or an Error Queue query failure
+  fails the command and includes the available fields in the error result.
+  No-hardware plans do not provide live OFF confirmation.
 - Other output-family commands retain their existing payloads. In particular,
   `output-on`, `output-off`, and `cycle-output` single-channel responses keep
   the existing `channel` plus `output` shape. Their `channel: "all"` responses

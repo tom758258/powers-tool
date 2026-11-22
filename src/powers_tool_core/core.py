@@ -76,9 +76,12 @@ class ConfirmationRequiredError(CoreValidationError):
 class CoreIoError(RuntimeError):
     """Opening or using an instrument failed."""
 
-    def __init__(self, message: str, *, opened: bool = False) -> None:
+    def __init__(
+        self, message: str, *, opened: bool = False, data: dict[str, Any] | None = None
+    ) -> None:
         super().__init__(message)
         self.opened = opened
+        self.data = data
 
 
 class CoreExecutionError(RuntimeError):

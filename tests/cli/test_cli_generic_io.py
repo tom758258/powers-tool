@@ -589,11 +589,13 @@ def test_safe_off_real_all_reads_back_each_channel(monkeypatch, capsys) -> None:
                 "all",
             ]
         )
-        == 0
+        == 1
     )
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert payload["data"]["output_off_confirmed"] is False
     assert session.writes == ["OUTP OFF,(@1)", "OUTP OFF,(@2)", "OUTP OFF,(@3)"]
     assert session.queries == ["*IDN?", "OUTP? (@1)", "OUTP? (@2)", "OUTP? (@3)", "SYST:ERR?"]
     assert session.events == [

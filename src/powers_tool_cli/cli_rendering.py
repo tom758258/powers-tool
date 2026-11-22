@@ -79,6 +79,7 @@ def format_core_output_result(
             f"Channel {output['channel']}: Output enabled: {output['enabled']}"
             for output in resource_data["outputs"]
         )
+        lines.extend(f"Instrument error: {error}" for error in resource_data["instrument_errors"])
     elif command == "output-state":
         if channel == "all":
             lines.extend(

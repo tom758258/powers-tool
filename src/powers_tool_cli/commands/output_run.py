@@ -234,6 +234,7 @@ def _run_core_output_real(args: argparse.Namespace) -> int:
             execution=execution,
             code=failed_code if exc.opened else "connection_failed",
             message=str(exc),
+            data=exc.data,
         )
     except CoreExecutionError as exc:
         return _emit_safe_io_error(
@@ -657,6 +658,8 @@ def _core_output_resource_data(args: argparse.Namespace, data: dict[str, Any]) -
         payload = _output_off_resource_payload(args, idn_raw, data.get("outputs"))
     elif args.command == "safe-off":
         payload = _safe_off_resource_payload(args, idn_raw, data["outputs"])
+        payload["output_off_confirmed"] = data["output_off_confirmed"]
+        payload["instrument_errors"] = data["instrument_errors"]
     elif args.command == "output-state":
         pass
     elif args.command == "cycle-output":

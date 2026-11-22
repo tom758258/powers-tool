@@ -72,12 +72,16 @@ def _format_text_value(value: object) -> str:
         (
             "safe-off",
             "all",
-            {"outputs": [{"channel": 1, "enabled": False}, {"channel": 2, "enabled": True}]},
+            {
+                "outputs": [{"channel": 1, "enabled": False}, {"channel": 2, "enabled": False}],
+                "instrument_errors": ['-222,"Data out of range"'],
+            },
             (
                 "Resource: USB0::SIM::E36312A::INSTR",
                 "Channel: all",
                 "Channel 1: Output enabled: False",
-                "Channel 2: Output enabled: True",
+                "Channel 2: Output enabled: False",
+                'Instrument error: -222,"Data out of range"',
             ),
         ),
         (
