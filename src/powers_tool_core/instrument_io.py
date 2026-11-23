@@ -79,14 +79,24 @@ def _run_error(
     resource = _require_resource(request)
     max_reads = request.parameters.get("max_reads", 20)
     instrument = _open_session(request, opener=opener, scpi_logger=scpi_logger)
-    with instrument:
-        try:
-            idn = instrument.session.query(IDN_QUERY)
-        except VisaConnectionError as exc:
-            raise CoreIoError(f"error failed: {exc}", opened=True) from exc
-        if not idn.strip():
-            raise CoreIoError("error failed: empty *IDN? response", opened=True)
-        errors, read_count = _read_error_queue(instrument.session, max_reads)
+    idn_failure: CoreIoError | None = None
+    try:
+        with instrument:
+            try:
+                idn = instrument.session.query(IDN_QUERY)
+            except VisaConnectionError as exc:
+                idn_failure = CoreIoError(f"error failed: {exc}", opened=True)
+                raise idn_failure from exc
+            if not idn.strip():
+                idn_failure = CoreIoError("error failed: empty *IDN? response", opened=True)
+                raise idn_failure
+            errors, read_count = _read_error_queue(instrument.session, max_reads)
+    except VisaConnectionError as close_exc:
+        if idn_failure is not None:
+            raise CoreIoError(
+                f"{idn_failure}; session close also failed: {close_exc}", opened=True
+            ) from close_exc
+        raise
     return {
         "resource": resource_payload(resource, simulated=request.runtime.simulate, reachable=True, idn_raw=None),
         "errors": errors,
