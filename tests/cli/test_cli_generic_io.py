@@ -181,6 +181,7 @@ def test_error_simulate_json_does_not_create_real_resource_manager(monkeypatch, 
 
 def test_error_real_json_reads_until_no_error(monkeypatch, capsys) -> None:
     session = FakeSession(
+        idn="UNREGISTERED-IDENTITY",
         query_responses={
             "SYST:ERR?": ['-100,"Command error"', '0,"No error"'],
         }
@@ -195,12 +196,76 @@ def test_error_real_json_reads_until_no_error(monkeypatch, capsys) -> None:
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert session.writes == []
-    assert session.queries == ["SYST:ERR?", "SYST:ERR?"]
+    assert session.queries == ["*IDN?", "SYST:ERR?", "SYST:ERR?"]
     assert payload["execution"]["hardware_touched"] is True
     assert payload["data"]["errors"] == ['-100,"Command error"']
     assert payload["data"]["read_count"] == 2
     assert payload["data"]["max_reads"] == 5
     assert captured.err == ""
+
+@pytest.mark.parametrize("failure_mode", ["timeout", "empty"])
+def test_error_idn_failure_does_not_read_queue(monkeypatch, capsys, failure_mode: str) -> None:
+    class FailingIdnSession(FakeSession):
+        def query(self, command: str) -> str:
+            if command == "*IDN?":
+                self.queries.append(command)
+                if failure_mode == "timeout":
+                    raise VisaConnectionError("simulated *IDN? timeout")
+                return " \r\n "
+            return super().query(command)
+
+    session = FailingIdnSession()
+    monkeypatch.setattr(cli_runtime, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["error", "--json", "--resource", OUTPUT_RESOURCE]) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "connection"
+    assert payload["error"]["code"] == "error_query_failed"
+    assert "*IDN?" in payload["error"]["message"]
+    assert session.queries == ["*IDN?"]
+    assert session.writes == []
+    assert session.closed is True
+
+
+@pytest.mark.parametrize("failure_mode", ["timeout", "empty"])
+def test_error_preserves_idn_failure_when_visa_close_also_fails(
+    monkeypatch, capsys, failure_mode: str,
+) -> None:
+    class FailingVisaResource:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+            self.close_calls = 0
+
+        def query(self, command: str) -> str:
+            self.queries.append(command)
+            if command != "*IDN?":
+                raise AssertionError("Error Queue must not be queried after IDN failure")
+            if failure_mode == "timeout":
+                raise RuntimeError("VI_ERROR_TMO")
+            return " \r\n "
+
+        def close(self) -> None:
+            self.close_calls += 1
+            raise RuntimeError("VI_ERROR_CONN_LOST")
+
+    resource = FailingVisaResource()
+    session = connection.InstrumentSession(resource)
+    monkeypatch.setattr(cli_runtime, "open_resource", lambda *args, **kwargs: session)
+
+    assert cli.main(["error", "--json", "--resource", OUTPUT_RESOURCE]) == 1
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "connection"
+    assert payload["error"]["code"] == "error_query_failed"
+    assert "*IDN?" in payload["error"]["message"]
+    assert "VISA close failed" in payload["error"]["message"]
+    assert resource.queries == ["*IDN?"]
+    assert resource.close_calls == 1
+    assert session.closed is True
+
 
 @pytest.mark.parametrize("command", ["clear", "error"])
 def test_safe_generic_io_serial_termination_options_reach_request_and_opener(
